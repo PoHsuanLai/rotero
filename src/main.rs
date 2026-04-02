@@ -15,7 +15,8 @@ fn main() {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
         rt.block_on(async {
             let state = Arc::new(ConnectorState {
-                on_paper_saved: None, // TODO: wire up callback once we have shared state
+                on_paper_saved: None,
+                on_get_collections: None,
             });
             if let Err(e) = rotero_connector::start_server(state, rotero_connector::CONNECTOR_PORT).await {
                 eprintln!("Browser connector error: {e}");

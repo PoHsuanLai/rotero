@@ -2,28 +2,64 @@
 <html>
 <head>
   <style>
-    body { width: 300px; padding: 16px; font-family: system-ui, sans-serif; font-size: 14px; margin: 0; }
-    h1 { font-size: 16px; margin: 0 0 12px 0; }
-    .status { padding: 8px; border-radius: 6px; margin-bottom: 12px; font-size: 13px; }
-    .status.ok { background: #d4edda; color: #155724; }
-    .status.error { background: #f8d7da; color: #721c24; }
-    button { width: 100%; padding: 10px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
-    button:hover { background: #1d4ed8; }
-    button:disabled { background: #93c5fd; cursor: not-allowed; }
-    .result { margin-top: 12px; padding: 8px; border-radius: 6px; font-size: 13px; }
-    .result.success { background: #d4edda; color: #155724; }
-    .result.fail { background: #f8d7da; color: #721c24; }
-    .meta { margin-top: 12px; font-size: 12px; color: #666; }
-    .meta div { margin-bottom: 4px; }
-    .meta strong { color: #333; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { width: 340px; padding: 16px; font-family: system-ui, -apple-system, sans-serif; font-size: 14px; color: #1a1a1a; }
+
+    .header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+    .header h1 { font-size: 15px; font-weight: 600; }
+    .header .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot.ok { background: #22c55e; }
+    .dot.error { background: #ef4444; }
+
+    .disconnected { padding: 12px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; color: #991b1b; font-size: 13px; }
+
+    .paper-card { padding: 12px; background: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 12px; }
+    .paper-title { font-weight: 600; font-size: 14px; line-height: 1.4; margin-bottom: 4px; }
+    .paper-authors { font-size: 12px; color: #666; margin-bottom: 2px; }
+    .paper-doi { font-size: 11px; color: #999; }
+
+    .folder-section { margin-bottom: 12px; }
+    .folder-label { font-size: 12px; font-weight: 500; color: #666; margin-bottom: 4px; }
+    .folder-select { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; background: white; color: #1a1a1a; }
+
+    .add-btn { width: 100%; padding: 10px; background: #2563eb; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; transition: background 0.15s; }
+    .add-btn:hover { background: #1d4ed8; }
+    .add-btn:disabled { background: #93c5fd; cursor: not-allowed; }
+    .add-btn:active { transform: scale(0.98); }
+
+    .result { margin-top: 10px; padding: 10px; border-radius: 8px; font-size: 13px; display: none; }
+    .result.success { display: block; background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+    .result.fail { display: block; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+    .result .result-path { font-size: 11px; color: #999; margin-top: 4px; }
   </style>
 </head>
 <body>
-  <h1>Rotero Connector</h1>
-  <div id="status" class="status">Checking connection...</div>
-  <div id="meta" class="meta" style="display:none;"></div>
-  <button id="saveBtn" disabled>Save to Rotero</button>
-  <div id="result" class="result" style="display:none;"></div>
+  <div class="header">
+    <div id="dot" class="dot"></div>
+    <h1>Rotero</h1>
+  </div>
+
+  <div id="disconnected" class="disconnected" style="display:none;">
+    Rotero is not running. Start the app to save papers.
+  </div>
+
+  <div id="main" style="display:none;">
+    <div id="paperCard" class="paper-card">
+      <div id="paperTitle" class="paper-title"></div>
+      <div id="paperAuthors" class="paper-authors"></div>
+      <div id="paperDoi" class="paper-doi"></div>
+    </div>
+
+    <div class="folder-section">
+      <div class="folder-label">Add to</div>
+      <select id="folderSelect" class="folder-select">
+        <option value="">Library (no collection)</option>
+      </select>
+    </div>
+
+    <button id="addBtn" class="add-btn" disabled>Add to Library</button>
+    <div id="result" class="result"></div>
+  </div>
 
   <script src="popup.js"></script>
 </body>

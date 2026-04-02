@@ -3,7 +3,7 @@
   "name": "Rotero Connector",
   "version": "0.1.0",
   "description": "Save papers to Rotero from your browser",
-  "permissions": ["activeTab"],
+  "permissions": ["activeTab", "scripting"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {

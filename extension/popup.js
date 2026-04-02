@@ -1,65 +1,84 @@
-const API_BASE = 'http://localhost:21984';
+const API = 'http://127.0.0.1:21984';
 
-const statusEl = document.getElementById('status');
-const metaEl = document.getElementById('meta');
-const saveBtn = document.getElementById('saveBtn');
-const resultEl = document.getElementById('result');
+const dot = document.getElementById('dot');
+const disconnected = document.getElementById('disconnected');
+const main = document.getElementById('main');
+const paperTitle = document.getElementById('paperTitle');
+const paperAuthors = document.getElementById('paperAuthors');
+const paperDoi = document.getElementById('paperDoi');
+const folderSelect = document.getElementById('folderSelect');
+const addBtn = document.getElementById('addBtn');
+const result = document.getElementById('result');
 
 let pageMetadata = null;
 
-// Check if Rotero is running
-async function checkStatus() {
+// Check connection and load collections
+async function init() {
   try {
-    const resp = await fetch(`${API_BASE}/api/status`);
+    const resp = await fetch(`${API}/api/status`, { signal: AbortSignal.timeout(2000) });
     const data = await resp.json();
     if (data.status === 'ok') {
-      statusEl.textContent = `Connected to ${data.name} v${data.version}`;
-      statusEl.className = 'status ok';
-      return true;
+      dot.className = 'dot ok';
+      main.style.display = 'block';
+      await loadCollections();
+      await loadMetadata();
+      addBtn.disabled = false;
+      return;
     }
-  } catch (e) {
-    statusEl.textContent = 'Rotero is not running. Please start the app.';
-    statusEl.className = 'status error';
-  }
-  return false;
+  } catch {}
+
+  dot.className = 'dot error';
+  disconnected.style.display = 'block';
 }
 
-// Extract metadata from the current page via content script
-async function getPageMetadata() {
+// Fetch collections from Rotero
+async function loadCollections() {
+  try {
+    const resp = await fetch(`${API}/api/collections`);
+    const data = await resp.json();
+    for (const coll of data.collections) {
+      const opt = document.createElement('option');
+      opt.value = coll.id;
+      opt.textContent = coll.name;
+      folderSelect.appendChild(opt);
+    }
+  } catch {}
+}
+
+// Extract metadata from current page
+async function loadMetadata() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: extractMetadata,
     });
-    return results[0]?.result || null;
-  } catch (e) {
-    console.error('Failed to extract metadata:', e);
-    return null;
+    pageMetadata = results[0]?.result;
+  } catch {}
+
+  if (!pageMetadata) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    pageMetadata = { url: tab.url, title: tab.title };
+  }
+
+  if (pageMetadata) {
+    paperTitle.textContent = pageMetadata.title || 'Untitled';
+    paperAuthors.textContent = pageMetadata.authors?.join(', ') || '';
+    paperDoi.textContent = pageMetadata.doi ? `DOI: ${pageMetadata.doi}` : '';
+    paperAuthors.style.display = pageMetadata.authors?.length ? 'block' : 'none';
+    paperDoi.style.display = pageMetadata.doi ? 'block' : 'none';
   }
 }
 
-// This function runs in the page context
 function extractMetadata() {
-  const meta = {};
+  const meta = { url: window.location.href };
 
-  // Try DOI from meta tags
+  // DOI
   const doiMeta = document.querySelector('meta[name="citation_doi"], meta[name="DC.identifier"], meta[property="citation_doi"]');
-  if (doiMeta) {
-    meta.doi = doiMeta.content.replace(/^https?:\/\/doi\.org\//, '');
-  }
-
-  // Try DOI from URL
+  if (doiMeta) meta.doi = doiMeta.content.replace(/^https?:\/\/doi\.org\//, '');
   if (!meta.doi) {
-    const doiMatch = window.location.href.match(/doi\.org\/(10\.[^/]+\/.+?)(?:\?|#|$)/);
-    if (doiMatch) meta.doi = doiMatch[1];
-  }
-
-  // arXiv ID
-  const arxivMatch = window.location.href.match(/arxiv\.org\/(?:abs|pdf)\/(\d+\.\d+)/);
-  if (arxivMatch) {
-    meta.arxiv_id = arxivMatch[1];
-    if (!meta.doi) meta.doi = null; // arXiv papers may not have DOIs
+    const m = window.location.href.match(/doi\.org\/(10\.[^/]+\/.+?)(?:\?|#|$)/);
+    if (m) meta.doi = m[1];
   }
 
   // Title
@@ -68,75 +87,68 @@ function extractMetadata() {
 
   // Authors
   const authorMetas = document.querySelectorAll('meta[name="citation_author"], meta[name="DC.creator"]');
-  if (authorMetas.length > 0) {
-    meta.authors = Array.from(authorMetas).map(m => m.content);
-  }
+  if (authorMetas.length) meta.authors = Array.from(authorMetas).map(m => m.content);
 
   // PDF URL
   const pdfMeta = document.querySelector('meta[name="citation_pdf_url"]');
-  if (pdfMeta) {
-    meta.pdf_url = pdfMeta.content;
-  }
+  if (pdfMeta) meta.pdf_url = pdfMeta.content;
 
-  meta.url = window.location.href;
+  // arXiv
+  const arxiv = window.location.href.match(/arxiv\.org\/(?:abs|pdf)\/(\d+\.\d+)/);
+  if (arxiv) {
+    meta.arxiv_id = arxiv[1];
+    if (!meta.pdf_url) meta.pdf_url = `https://arxiv.org/pdf/${arxiv[1]}.pdf`;
+  }
 
   return meta;
 }
 
-// Display metadata in popup
-function showMetadata(meta) {
-  if (!meta) return;
-  let html = '';
-  if (meta.title) html += `<div><strong>Title:</strong> ${meta.title}</div>`;
-  if (meta.authors?.length) html += `<div><strong>Authors:</strong> ${meta.authors.join(', ')}</div>`;
-  if (meta.doi) html += `<div><strong>DOI:</strong> ${meta.doi}</div>`;
-  if (meta.pdf_url) html += `<div><strong>PDF:</strong> Available</div>`;
-  if (html) {
-    metaEl.innerHTML = html;
-    metaEl.style.display = 'block';
-  }
-}
+// Update button text based on folder selection
+folderSelect.addEventListener('change', () => {
+  const selected = folderSelect.options[folderSelect.selectedIndex];
+  addBtn.textContent = folderSelect.value
+    ? `Add to "${selected.textContent}"`
+    : 'Add to Library';
+});
 
-// Save paper to Rotero
-async function savePaper() {
+// Save paper
+addBtn.addEventListener('click', async () => {
   if (!pageMetadata) return;
 
-  saveBtn.disabled = true;
-  saveBtn.textContent = 'Saving...';
+  addBtn.disabled = true;
+  addBtn.textContent = 'Adding...';
+  result.style.display = 'none';
+
+  const collectionId = folderSelect.value ? parseInt(folderSelect.value) : null;
+  const selectedName = folderSelect.value
+    ? folderSelect.options[folderSelect.selectedIndex].textContent
+    : 'Library';
 
   try {
-    const resp = await fetch(`${API_BASE}/api/save`, {
+    const resp = await fetch(`${API}/api/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(pageMetadata),
+      body: JSON.stringify({ ...pageMetadata, collection_id: collectionId }),
     });
     const data = await resp.json();
 
     if (data.success) {
-      resultEl.textContent = 'Paper saved to Rotero!';
-      resultEl.className = 'result success';
+      result.className = 'result success';
+      result.innerHTML = `Added to <strong>${selectedName}</strong>`;
     } else {
-      resultEl.textContent = `Error: ${data.message}`;
-      resultEl.className = 'result fail';
+      result.className = 'result fail';
+      result.textContent = data.message || 'Failed to save';
     }
   } catch (e) {
-    resultEl.textContent = 'Failed to save. Is Rotero running?';
-    resultEl.className = 'result fail';
+    result.className = 'result fail';
+    result.textContent = 'Connection lost. Is Rotero running?';
   }
 
-  resultEl.style.display = 'block';
-  saveBtn.disabled = false;
-  saveBtn.textContent = 'Save to Rotero';
-}
+  addBtn.disabled = false;
+  const selected = folderSelect.options[folderSelect.selectedIndex];
+  addBtn.textContent = folderSelect.value
+    ? `Add to "${selected.textContent}"`
+    : 'Add to Library';
+});
 
-// Initialize
-(async () => {
-  const connected = await checkStatus();
-  if (connected) {
-    pageMetadata = await getPageMetadata();
-    showMetadata(pageMetadata);
-    saveBtn.disabled = false;
-  }
-})();
-
-saveBtn.addEventListener('click', savePaper);
+init();

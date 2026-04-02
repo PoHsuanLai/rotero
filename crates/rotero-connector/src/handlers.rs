@@ -11,6 +11,7 @@ pub struct SavePaperRequest {
     pub title: Option<String>,
     pub authors: Option<Vec<String>>,
     pub pdf_url: Option<String>,
+    pub collection_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -27,12 +28,34 @@ pub struct StatusResponse {
     pub name: &'static str,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CollectionInfo {
+    pub id: i64,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CollectionsResponse {
+    pub collections: Vec<CollectionInfo>,
+}
+
 pub async fn status() -> Json<StatusResponse> {
     Json(StatusResponse {
         status: "ok",
         version: env!("CARGO_PKG_VERSION"),
         name: "Rotero",
     })
+}
+
+pub async fn collections(
+    State(state): State<Arc<ConnectorState>>,
+) -> Json<CollectionsResponse> {
+    let collections = if let Some(ref callback) = state.on_get_collections {
+        callback()
+    } else {
+        Vec::new()
+    };
+    Json(CollectionsResponse { collections })
 }
 
 pub async fn save_paper(
@@ -47,14 +70,13 @@ pub async fn save_paper(
         paper.authors = authors;
     }
 
-    // Send paper to the main app via callback
     if let Some(ref callback) = state.on_paper_saved {
-        callback(paper.clone());
+        callback(paper.clone(), req.collection_id);
     }
 
     Json(SavePaperResponse {
         success: true,
-        message: "Paper saved".to_string(),
+        message: "Paper added to library".to_string(),
         paper_id: paper.id,
     })
 }

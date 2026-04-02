@@ -6,12 +6,15 @@ use std::sync::Arc;
 use axum::{Router, routing::get, routing::post};
 use tower_http::cors::{Any, CorsLayer};
 
+use handlers::CollectionInfo;
 use rotero_models::Paper;
 
 /// Shared state for the connector server.
 pub struct ConnectorState {
     /// Callback invoked when a paper is saved via the browser extension.
-    pub on_paper_saved: Option<Box<dyn Fn(Paper) + Send + Sync>>,
+    pub on_paper_saved: Option<Box<dyn Fn(Paper, Option<i64>) + Send + Sync>>,
+    /// Callback to get the list of collections.
+    pub on_get_collections: Option<Box<dyn Fn() -> Vec<CollectionInfo> + Send + Sync>>,
 }
 
 /// Default port for the browser connector.
@@ -26,6 +29,7 @@ pub fn router(state: Arc<ConnectorState>) -> Router {
 
     Router::new()
         .route("/api/status", get(handlers::status))
+        .route("/api/collections", get(handlers::collections))
         .route("/api/save", post(handlers::save_paper))
         .layer(cors)
         .with_state(state)
