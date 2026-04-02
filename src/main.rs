@@ -31,5 +31,10 @@ fn main() {
         });
     }
 
-    dioxus::launch(app::App);
+    dioxus::LaunchBuilder::new()
+        .with_cfg(
+            dioxus::desktop::Config::default()
+                .with_disable_context_menu(true)
+        )
+        .launch(app::App);
 }
