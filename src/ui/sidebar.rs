@@ -26,8 +26,11 @@ pub fn Sidebar() -> Element {
     recent_papers.sort_by(|a, b| b.date_modified.cmp(&a.date_modified));
     let recent_opened: Vec<_> = recent_papers.into_iter().take(5).collect();
 
-    // Collection context menu state: (collection_id, x, y)
+    // Collection context menu state: (collection_id, name, x, y)
     let mut coll_ctx = use_signal(|| None::<(i64, String, f64, f64)>);
+
+    // New collection inline edit state
+    let new_coll_editing = use_context_provider(|| Signal::new(false));
 
     rsx! {
         div { class: "sidebar",
@@ -94,8 +97,12 @@ pub fn Sidebar() -> Element {
             CollapsibleSection { title: "Collections", initially_open: true,
                 action: rsx! { NewCollectionButton {} },
                 CollectionTree { collections: state.collections.clone(), parent_id: None, depth: 0, ctx_menu: coll_ctx }
-                if state.collections.is_empty() {
+                if state.collections.is_empty() && !new_coll_editing() {
                     p { class: "sidebar-empty", "No collections" }
+                }
+                // Inline new-collection row (VS Code style)
+                if new_coll_editing() {
+                    NewCollectionRow {}
                 }
             }
 
@@ -348,94 +355,68 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
     }
 }
 
+/// The "+" button in the Collections section header.
 #[component]
 fn NewCollectionButton() -> Element {
-    let mut lib_state = use_context::<Signal<LibraryState>>();
-    let db = use_context::<Database>();
-    let mut show_input = use_signal(|| false);
-    let mut name_value = use_signal(|| String::new());
-
-    let db_for_submit = db.clone();
-    let db_for_key = db.clone();
-
-    let do_submit = move |_| {
-        let name = name_value().trim().to_string();
-        if !name.is_empty() {
-            let coll = rotero_models::Collection::new(name);
-            let db = db_for_submit.clone();
-            spawn(async move {
-                if let Ok(id) = crate::db::collections::insert_collection(db.conn(), &coll).await {
-                    let mut coll = coll;
-                    coll.id = Some(id);
-                    lib_state.with_mut(|s| s.collections.push(coll));
-                }
-            });
-        }
-        show_input.set(false);
-        name_value.set(String::new());
-    };
-
-    let do_cancel = move |_: Event<MouseData>| {
-        show_input.set(false);
-        name_value.set(String::new());
-    };
+    let mut editing = use_context::<Signal<bool>>();
 
     rsx! {
-        if show_input() {
-            div { class: "sidebar-new-collection",
-                div { class: "sidebar-new-collection-row",
-                    i { class: "sidebar-collection-icon bi bi-folder" }
-                    input {
-                        class: "input input--sm",
-                        r#type: "text",
-                        placeholder: "New collection",
-                        value: "{name_value}",
-                        oninput: move |evt| name_value.set(evt.value()),
-                        onkeydown: move |evt| {
-                            match evt.key() {
-                                Key::Enter => {
-                                    let name = name_value().trim().to_string();
-                                    if !name.is_empty() {
-                                        let coll = rotero_models::Collection::new(name);
-                                        let db = db_for_key.clone();
-                                        spawn(async move {
-                                            if let Ok(id) = crate::db::collections::insert_collection(db.conn(), &coll).await {
-                                                let mut coll = coll;
-                                                coll.id = Some(id);
-                                                lib_state.with_mut(|s| s.collections.push(coll));
-                                            }
-                                        });
+        button {
+            class: "sidebar-add-btn",
+            onclick: move |_| editing.set(true),
+            i { class: "bi bi-plus-lg" }
+        }
+    }
+}
+
+/// An inline editable row that looks like a regular collection item.
+/// Appears at the end of the collection list when the user clicks "+".
+#[component]
+fn NewCollectionRow() -> Element {
+    let mut lib_state = use_context::<Signal<LibraryState>>();
+    let db = use_context::<Database>();
+    let mut editing = use_context::<Signal<bool>>();
+    let mut name_value = use_signal(|| String::new());
+
+    rsx! {
+        div { class: "sidebar-collection-item sidebar-collection-item--editing",
+            i { class: "sidebar-collection-icon bi bi-folder" }
+            input {
+                class: "sidebar-inline-rename",
+                r#type: "text",
+                placeholder: "Collection name",
+                value: "{name_value}",
+                oninput: move |evt| name_value.set(evt.value()),
+                onmounted: move |evt| { let _ = evt.set_focus(true); },
+                onkeydown: move |evt| {
+                    match evt.key() {
+                        Key::Enter => {
+                            let name = name_value().trim().to_string();
+                            if !name.is_empty() {
+                                let coll = rotero_models::Collection::new(name);
+                                let db = db.clone();
+                                spawn(async move {
+                                    if let Ok(id) = crate::db::collections::insert_collection(db.conn(), &coll).await {
+                                        let mut coll = coll;
+                                        coll.id = Some(id);
+                                        lib_state.with_mut(|s| s.collections.push(coll));
                                     }
-                                    show_input.set(false);
-                                    name_value.set(String::new());
-                                }
-                                Key::Escape => {
-                                    show_input.set(false);
-                                    name_value.set(String::new());
-                                }
-                                _ => {}
+                                });
                             }
-                        },
+                            editing.set(false);
+                            name_value.set(String::new());
+                        }
+                        Key::Escape => {
+                            editing.set(false);
+                            name_value.set(String::new());
+                        }
+                        _ => {}
                     }
-                }
-                div { class: "sidebar-new-collection-actions",
-                    button {
-                        class: "sidebar-inline-btn sidebar-inline-btn--confirm",
-                        onclick: do_submit,
-                        i { class: "bi bi-check2" }
-                    }
-                    button {
-                        class: "sidebar-inline-btn sidebar-inline-btn--cancel",
-                        onclick: do_cancel,
-                        "\u{00d7}"
-                    }
-                }
-            }
-        } else {
-            button {
-                class: "sidebar-add-btn",
-                onclick: move |_| show_input.set(true),
-                i { class: "bi bi-plus-lg" }
+                },
+                onfocusout: move |_| {
+                    editing.set(false);
+                    name_value.set(String::new());
+                },
             }
         }
     }
@@ -480,7 +461,7 @@ fn OpenPdfButton() -> Element {
                     lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                     if let Some(tab_id) = new_tab_id {
                         spawn(async move {
-                            match crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id).await {
+                            match crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &config.read().effective_library_path()).await {
                                 Ok(()) => error_msg.set(None),
                                 Err(e) => error_msg.set(Some(format!("Failed: {e}"))),
                             }
