@@ -73,8 +73,18 @@ CREATE TABLE IF NOT EXISTS notes (
 );
 ";
 
+const CREATE_FTS_INDEX: &str = "
+CREATE INDEX IF NOT EXISTS idx_papers_fts ON papers USING fts (title, authors, abstract_text, journal);
+";
+
 pub async fn initialize_db(conn: &Connection) -> Result<(), turso::Error> {
     conn.execute_batch(CREATE_TABLES).await?;
+
+    // Create FTS index (turso-specific, tantivy-powered)
+    // This may fail on first run if turso doesn't support it yet — that's OK
+    if let Err(e) = conn.execute_batch(CREATE_FTS_INDEX).await {
+        eprintln!("FTS index creation skipped (may not be supported yet): {e}");
+    }
 
     // Check/set schema version
     let mut rows = conn

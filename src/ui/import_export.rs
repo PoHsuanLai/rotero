@@ -1,10 +1,101 @@
 use dioxus::prelude::*;
 
+use crate::db::Database;
+use crate::state::app_state::LibraryState;
+
 #[component]
-pub fn ImportExportDialog() -> Element {
+pub fn ImportExportButtons() -> Element {
     rsx! {
-        div { class: "import-export",
-            p { "Import/Export — Phase 4" }
+        div { class: "import-export-row",
+            ImportBibtexButton {}
+            ExportBibtexButton {}
+        }
+    }
+}
+
+#[component]
+fn ImportBibtexButton() -> Element {
+    let mut lib_state = use_context::<Signal<LibraryState>>();
+    let db = use_context::<Database>();
+    let mut status = use_signal(|| None::<String>);
+
+    rsx! {
+        button {
+            class: "btn btn--ghost",
+            onclick: move |_| {
+                let file = rfd::FileDialog::new()
+                    .add_filter("BibTeX", &["bib", "bibtex"])
+                    .set_title("Import BibTeX")
+                    .pick_file();
+
+                if let Some(path) = file {
+                    match std::fs::read_to_string(&path) {
+                        Ok(content) => {
+                            match rotero_bib::import_bibtex(&content) {
+                                Ok(papers) => {
+                                    let count = papers.len();
+                                    let db = db.clone();
+                                    spawn(async move {
+                                        let mut imported = 0;
+                                        for paper in papers {
+                                            if let Ok(id) = crate::db::papers::insert_paper(db.conn(), &paper).await {
+                                                let mut paper = paper;
+                                                paper.id = Some(id);
+                                                lib_state.with_mut(|s| s.papers.insert(0, paper));
+                                                imported += 1;
+                                            }
+                                        }
+                                        status.set(Some(format!("Imported {imported}/{count} papers")));
+                                    });
+                                }
+                                Err(e) => status.set(Some(format!("Parse error: {e}"))),
+                            }
+                        }
+                        Err(e) => status.set(Some(format!("Read error: {e}"))),
+                    }
+                }
+            },
+            "Import .bib"
+        }
+        if let Some(msg) = status.read().as_ref() {
+            span { class: "import-status", "{msg}" }
+        }
+    }
+}
+
+#[component]
+fn ExportBibtexButton() -> Element {
+    let lib_state = use_context::<Signal<LibraryState>>();
+    let mut status = use_signal(|| None::<String>);
+
+    rsx! {
+        button {
+            class: "btn btn--ghost",
+            onclick: move |_| {
+                let papers = lib_state.read().papers.clone();
+                if papers.is_empty() {
+                    status.set(Some("No papers to export".to_string()));
+                    return;
+                }
+
+                let file = rfd::FileDialog::new()
+                    .add_filter("BibTeX", &["bib"])
+                    .set_title("Export BibTeX")
+                    .set_file_name("rotero-export.bib")
+                    .save_file();
+
+                if let Some(path) = file {
+                    let bibtex = rotero_bib::export_bibtex(&papers);
+                    match std::fs::write(&path, bibtex) {
+                        Ok(()) => status.set(Some(format!("Exported {} papers", papers.len()))),
+                        Err(e) => status.set(Some(format!("Write error: {e}"))),
+                    }
+                }
+            },
+            "Export .bib"
+        }
+        if let Some(msg) = status.read().as_ref() {
+            span { class: "import-status", "{msg}" }
         }
     }
 }

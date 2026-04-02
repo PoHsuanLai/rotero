@@ -2,6 +2,8 @@ use dioxus::prelude::*;
 
 use crate::db::Database;
 use crate::state::app_state::{LibraryState, LibraryView, PdfViewState};
+use super::search_bar::SearchBar;
+use super::import_export::ImportExportButtons;
 
 #[component]
 pub fn LibraryPanel() -> Element {
@@ -10,21 +12,35 @@ pub fn LibraryPanel() -> Element {
     let db = use_context::<Database>();
     let state = lib_state.read();
 
+    let display_papers = state.search_results.as_ref().unwrap_or(&state.papers);
+    let is_searching = state.search_results.is_some();
+
     rsx! {
         div { class: "library-view",
 
             // Header
             div { class: "library-header",
-                h2 { class: "library-title", "All Papers" }
+                h2 { class: "library-title",
+                    if is_searching { "Search Results" } else { "All Papers" }
+                }
+                ImportExportButtons {}
                 AddPaperButton {}
             }
 
+            // Search bar
+            SearchBar {}
+
             // Paper list
             div { class: "library-table-scroll",
-                if state.papers.is_empty() {
+                if display_papers.is_empty() {
                     div { class: "library-empty",
-                        p { class: "library-empty-heading", "No papers yet" }
-                        p { class: "library-empty-sub", "Click \"Add Paper\" or use the browser connector to import papers." }
+                        if is_searching {
+                            p { class: "library-empty-heading", "No results found" }
+                            p { class: "library-empty-sub", "Try a different search term." }
+                        } else {
+                            p { class: "library-empty-heading", "No papers yet" }
+                            p { class: "library-empty-sub", "Click \"Add Paper\" or use the browser connector to import papers." }
+                        }
                     }
                 } else {
                     // Table header
@@ -35,7 +51,7 @@ pub fn LibraryPanel() -> Element {
                         span { "Actions" }
                     }
                     // Paper rows
-                    for paper in state.papers.iter() {
+                    for paper in display_papers.iter() {
                         {
                             let paper_id = paper.id.unwrap_or(0);
                             let title = paper.title.clone();

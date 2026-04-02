@@ -55,6 +55,53 @@ pub async fn list_papers(conn: &Connection) -> Result<Vec<Paper>, turso::Error> 
     Ok(papers)
 }
 
+pub async fn search_papers(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
+    // Try FTS first (turso-specific), fall back to LIKE search
+    let fts_result = search_papers_fts(conn, query).await;
+    match fts_result {
+        Ok(papers) => Ok(papers),
+        Err(_) => search_papers_like(conn, query).await,
+    }
+}
+
+async fn search_papers_fts(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
+    let mut rows = conn
+        .query(
+            "SELECT id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, extra_meta
+             FROM papers
+             WHERE fts_match(title, authors, abstract_text, journal, ?1)
+             LIMIT 50",
+            [turso::Value::Text(query.to_string())],
+        )
+        .await?;
+
+    let mut papers = Vec::new();
+    while let Some(row) = rows.next().await? {
+        papers.push(row_to_paper(&row));
+    }
+    Ok(papers)
+}
+
+async fn search_papers_like(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
+    let pattern = format!("%{query}%");
+    let mut rows = conn
+        .query(
+            "SELECT id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, extra_meta
+             FROM papers
+             WHERE title LIKE ?1 OR authors LIKE ?1 OR abstract_text LIKE ?1 OR journal LIKE ?1 OR doi LIKE ?1
+             ORDER BY date_added DESC
+             LIMIT 50",
+            [turso::Value::Text(pattern)],
+        )
+        .await?;
+
+    let mut papers = Vec::new();
+    while let Some(row) = rows.next().await? {
+        papers.push(row_to_paper(&row));
+    }
+    Ok(papers)
+}
+
 pub async fn delete_paper(conn: &Connection, id: i64) -> Result<(), turso::Error> {
     conn.execute("DELETE FROM papers WHERE id = ?1", [id]).await?;
     Ok(())

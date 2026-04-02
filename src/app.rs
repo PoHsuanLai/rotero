@@ -4,6 +4,8 @@ use crate::db::Database;
 use crate::state::app_state::{LibraryState, PdfViewState};
 use crate::ui::layout::Layout;
 
+const STYLE_CSS: &str = include_str!("../assets/style.css");
+
 #[component]
 pub fn App() -> Element {
     // Provide global state to all components
@@ -21,7 +23,7 @@ pub fn App() -> Element {
             });
 
             rsx! {
-                document::Link { rel: "stylesheet", href: asset!("/assets/style.css") }
+                document::Style { {STYLE_CSS} }
                 LoadLibraryData {}
                 Layout {}
             }
@@ -29,7 +31,7 @@ pub fn App() -> Element {
         Some(Err(e)) => {
             let err = e.clone();
             rsx! {
-                document::Link { rel: "stylesheet", href: asset!("/assets/style.css") }
+                document::Style { {STYLE_CSS} }
                 div { class: "db-error",
                     h1 { "Database Error" }
                     p { "{err}" }
@@ -38,7 +40,7 @@ pub fn App() -> Element {
         }
         None => {
             rsx! {
-                document::Link { rel: "stylesheet", href: asset!("/assets/style.css") }
+                document::Style { {STYLE_CSS} }
                 div { class: "db-error",
                     p { "Initializing database..." }
                 }

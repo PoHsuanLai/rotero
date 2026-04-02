@@ -7,4 +7,6 @@ edition.workspace = true
 rotero-models.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+chrono.workspace = true
 thiserror.workspace = true
+biblatex = "0.11"

@@ -63,6 +63,8 @@ pub struct LibraryState {
     pub selected_paper_id: Option<i64>,
     pub selected_collection_id: Option<i64>,
     pub view: LibraryView,
+    pub search_query: String,
+    pub search_results: Option<Vec<Paper>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
