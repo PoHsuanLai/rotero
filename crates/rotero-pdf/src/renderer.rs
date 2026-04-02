@@ -15,6 +15,8 @@ pub enum PdfError {
     RenderError(String),
     #[error("Failed to encode image: {0}")]
     ImageError(#[from] image::ImageError),
+    #[error("Failed to write annotations: {0}")]
+    WriteError(String),
 }
 
 /// Holds the PDFium bindings and provides PDF operations.

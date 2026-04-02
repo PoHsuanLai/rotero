@@ -11,3 +11,5 @@ tracing.workspace = true
 pdfium-render = "0.8"
 image = "0.25"
 base64 = "0.22"
+lopdf = "0.40"
+serde_json = "1"

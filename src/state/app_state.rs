@@ -178,6 +178,25 @@ impl PdfTabManager {
         false
     }
 
+    /// Close all tabs except the given one.
+    pub fn close_others(&mut self, keep_id: TabId) {
+        self.tabs.retain(|t| t.id == keep_id);
+        self.active_tab_id = Some(keep_id);
+    }
+
+    /// Close all tabs to the right of the given one.
+    pub fn close_to_right(&mut self, tab_id: TabId) {
+        if let Some(idx) = self.tabs.iter().position(|t| t.id == tab_id) {
+            self.tabs.truncate(idx + 1);
+            // If active tab was removed, switch to the kept tab
+            if let Some(active) = self.active_tab_id {
+                if !self.tabs.iter().any(|t| t.id == active) {
+                    self.active_tab_id = Some(tab_id);
+                }
+            }
+        }
+    }
+
     /// Add a new tab and make it active.
     pub fn open_tab(&mut self, tab: PdfTab) -> TabId {
         let tab_id = tab.id;
@@ -250,6 +269,8 @@ pub struct LibraryState {
     pub view: LibraryView,
     pub search_query: String,
     pub search_results: Option<Vec<Paper>>,
+    pub collection_paper_ids: Option<Vec<i64>>,
+    pub tag_paper_ids: Option<Vec<i64>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -260,6 +281,7 @@ pub enum LibraryView {
     Favorites,
     Unread,
     Collection(i64),
+    Tag(i64),
     PdfViewer,
 }
 

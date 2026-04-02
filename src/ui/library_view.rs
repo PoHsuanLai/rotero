@@ -14,6 +14,44 @@ pub fn LibraryPanel() -> Element {
     let db = use_context::<Database>();
     let render_ch = use_context::<crate::app::RenderChannel>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+    // Load collection paper IDs when switching to a collection view
+    {
+        let view = lib_state.read().view.clone();
+        let db_coll = db.clone();
+        use_effect(move || {
+            match view {
+                LibraryView::Collection(coll_id) => {
+                    let db = db_coll.clone();
+                    spawn(async move {
+                        match crate::db::collections::list_paper_ids_in_collection(db.conn(), coll_id).await {
+                            Ok(ids) => {
+                                lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
+                            }
+                            Err(e) => eprintln!("Failed to load collection papers: {e}"),
+                        }
+                    });
+                }
+                LibraryView::Tag(tag_id) => {
+                    let db = db_coll.clone();
+                    spawn(async move {
+                        match crate::db::tags::list_paper_ids_by_tag(db.conn(), tag_id).await {
+                            Ok(ids) => {
+                                lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
+                            }
+                            Err(e) => eprintln!("Failed to load tag papers: {e}"),
+                        }
+                    });
+                }
+                _ => {
+                    lib_state.with_mut(|s| {
+                        s.collection_paper_ids = None;
+                        s.tag_paper_ids = None;
+                    });
+                }
+            }
+        });
+    }
+
     let state = lib_state.read();
 
     let is_searching = state.search_results.is_some();
@@ -31,25 +69,45 @@ pub fn LibraryPanel() -> Element {
             }
             LibraryView::Favorites => state.papers.iter().filter(|p| p.is_favorite).cloned().collect(),
             LibraryView::Unread => state.papers.iter().filter(|p| !p.is_read).cloned().collect(),
-            LibraryView::Collection(id) => {
-                // TODO: filter papers by collection membership once paper_collections is loaded
-                // For now show all papers (collection filtering requires async query)
-                state.papers.clone()
+            LibraryView::Collection(_) => {
+                if let Some(ref ids) = state.collection_paper_ids {
+                    state.papers.iter().filter(|p| p.id.map_or(false, |pid| ids.contains(&pid))).cloned().collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            LibraryView::Tag(_) => {
+                if let Some(ref ids) = state.tag_paper_ids {
+                    state.papers.iter().filter(|p| p.id.map_or(false, |pid| ids.contains(&pid))).cloned().collect()
+                } else {
+                    Vec::new()
+                }
             }
             _ => state.papers.clone(),
         }
     };
 
-    let view_title = if is_searching {
-        "Search Results"
+    let view_title: String = if is_searching {
+        "Search Results".to_string()
     } else {
         match &state.view {
-            LibraryView::AllPapers => "All Papers",
-            LibraryView::RecentlyAdded => "Recently Added",
-            LibraryView::Favorites => "Favorites",
-            LibraryView::Unread => "Unread",
-            LibraryView::Collection(_) => "Collection",
-            _ => "Papers",
+            LibraryView::AllPapers => "All Papers".to_string(),
+            LibraryView::RecentlyAdded => "Recently Added".to_string(),
+            LibraryView::Favorites => "Favorites".to_string(),
+            LibraryView::Unread => "Unread".to_string(),
+            LibraryView::Collection(id) => {
+                state.collections.iter()
+                    .find(|c| c.id == Some(*id))
+                    .map(|c| c.name.clone())
+                    .unwrap_or_else(|| "Collection".to_string())
+            }
+            LibraryView::Tag(id) => {
+                state.tags.iter()
+                    .find(|t| t.id == Some(*id))
+                    .map(|t| format!("Tag: {}", t.name))
+                    .unwrap_or_else(|| "Tag".to_string())
+            }
+            _ => "Papers".to_string(),
         }
     };
 
@@ -105,9 +163,21 @@ pub fn LibraryPanel() -> Element {
                                         let quality = cfg.render_quality;
                                         drop(cfg);
                                         let db_for_cache = db.clone();
+                                        let auto_fetch = config.read().auto_fetch_metadata;
+                                        let meta_full_path = full_path.clone();
+                                        let meta_render_tx = render_ch.sender();
+                                        let meta_db = db.clone();
                                         spawn(async move {
                                             crate::state::commands::precache_pdf(&render_tx, &full_path, &data_dir, zoom, quality, paper_id, Some(db_for_cache.conn())).await;
                                         });
+                                        // Extract metadata (DOI + CrossRef) in background
+                                        if let Some(pid) = paper_id {
+                                            spawn(async move {
+                                                crate::state::commands::extract_and_fetch_metadata(
+                                                    &meta_render_tx, meta_db.conn(), pid, &meta_full_path, auto_fetch, &mut lib_state,
+                                                ).await;
+                                            });
+                                        }
                                     }
                                     Err(e) => eprintln!("Failed to import {file_name}: {e}"),
                                 }
@@ -419,6 +489,8 @@ pub fn LibraryPanel() -> Element {
 fn AddPaperButton() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<crate::db::Database>();
+    let render_ch = use_context::<crate::app::RenderChannel>();
+    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let mut error_msg = use_signal(|| None::<String>);
     let mut show_doi_input = use_signal(|| false);
     let mut doi_value = use_signal(|| String::new());
@@ -447,7 +519,11 @@ fn AddPaperButton() -> Element {
                         match db.import_pdf(&path_str, Some(&filename), None, None) {
                             Ok(rel_path) => {
                                 let mut paper = rotero_models::Paper::new(filename);
-                                paper.pdf_path = Some(rel_path);
+                                paper.pdf_path = Some(rel_path.clone());
+                                let full_path = db.resolve_pdf_path(&rel_path).to_string_lossy().to_string();
+                                let auto_fetch = config.read().auto_fetch_metadata;
+                                let meta_render_tx = render_ch.sender();
+                                let meta_db = db.clone();
 
                                 spawn(async move {
                                     match crate::db::papers::insert_paper(db.conn(), &paper).await {
@@ -455,6 +531,12 @@ fn AddPaperButton() -> Element {
                                             paper.id = Some(id);
                                             lib_state.with_mut(|s| s.papers.insert(0, paper));
                                             error_msg.set(None);
+                                            // Extract metadata in background
+                                            spawn(async move {
+                                                crate::state::commands::extract_and_fetch_metadata(
+                                                    &meta_render_tx, meta_db.conn(), id, &full_path, auto_fetch, &mut lib_state,
+                                                ).await;
+                                            });
                                         }
                                         Err(e) => error_msg.set(Some(format!("{e}"))),
                                     }

@@ -68,6 +68,20 @@ pub async fn delete_collection(conn: &Connection, id: i64) -> Result<(), turso::
     Ok(())
 }
 
+pub async fn list_paper_ids_in_collection(conn: &Connection, collection_id: i64) -> Result<Vec<i64>, turso::Error> {
+    let mut rows = conn.query(
+        "SELECT paper_id FROM paper_collections WHERE collection_id = ?1",
+        [collection_id],
+    ).await?;
+    let mut ids = Vec::new();
+    while let Some(row) = rows.next().await? {
+        if let Some(id) = row.get_value(0).ok().and_then(|v| v.as_integer().copied()) {
+            ids.push(id);
+        }
+    }
+    Ok(ids)
+}
+
 pub async fn add_paper_to_collection(conn: &Connection, paper_id: i64, collection_id: i64) -> Result<(), turso::Error> {
     conn.execute(
         "INSERT OR IGNORE INTO paper_collections (paper_id, collection_id) VALUES (?1, ?2)",
