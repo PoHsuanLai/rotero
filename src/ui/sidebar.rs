@@ -29,8 +29,12 @@ pub fn Sidebar() -> Element {
     // Collection context menu state: (collection_id, name, x, y)
     let mut coll_ctx = use_signal(|| None::<(i64, String, f64, f64)>);
 
-    // New collection inline edit state
-    let new_coll_editing = use_context_provider(|| Signal::new(false));
+    // New collection inline edit state: None = not editing, Some(parent_id) = creating under parent
+    // Some(None) = top-level, Some(Some(id)) = subcollection
+    let new_coll_editing: Signal<Option<Option<i64>>> = use_context_provider(|| Signal::new(None));
+
+    // Drag-and-drop state for collection reparenting
+    let _drag_coll: Signal<Option<i64>> = use_context_provider(|| Signal::new(None::<i64>));
 
     rsx! {
         div { class: "sidebar",
@@ -97,12 +101,12 @@ pub fn Sidebar() -> Element {
             CollapsibleSection { title: "Collections", initially_open: true,
                 action: rsx! { NewCollectionButton {} },
                 CollectionTree { collections: state.collections.clone(), parent_id: None, depth: 0, ctx_menu: coll_ctx }
-                if state.collections.is_empty() && !new_coll_editing() {
+                if state.collections.is_empty() && new_coll_editing().is_none() {
                     p { class: "sidebar-empty", "No collections" }
                 }
-                // Inline new-collection row (VS Code style)
-                if new_coll_editing() {
-                    NewCollectionRow {}
+                // Inline new-collection row at top level
+                if new_coll_editing() == Some(None) {
+                    NewCollectionRow { parent_id: None, depth: 0 }
                 }
             }
 
@@ -136,6 +140,7 @@ pub fn Sidebar() -> Element {
             // Collection context menu
             if let Some((coll_id, coll_name, mx, my)) = coll_ctx() {
                 {
+                    let mut new_coll_editing: Signal<Option<Option<i64>>> = use_context();
                     let db_rename = db.clone();
                     let db_delete = db.clone();
                     let mut renaming = use_signal(|| false);
@@ -186,6 +191,15 @@ pub fn Sidebar() -> Element {
                                 on_close: move |_| {
                                     coll_ctx.set(None);
                                 },
+
+                                ContextMenuItem {
+                                    label: "New subcollection".to_string(),
+                                    icon: Some("bi-folder-plus".to_string()),
+                                    on_click: move |_| {
+                                        new_coll_editing.set(Some(Some(coll_id)));
+                                        coll_ctx.set(None);
+                                    },
+                                }
 
                                 ContextMenuItem {
                                     label: "Rename".to_string(),
@@ -290,6 +304,9 @@ fn CollapsibleSection(title: String, initially_open: Option<bool>, action: Optio
 #[component]
 fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u32, ctx_menu: Signal<Option<(i64, String, f64, f64)>>) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
+    let db = use_context::<Database>();
+    let new_coll_editing = use_context::<Signal<Option<Option<i64>>>>();
+    let mut drag_coll = use_context::<Signal<Option<i64>>>();
     let mut coll_ctx = ctx_menu;
     let lib = lib_state.read();
     let view = lib.view.clone();
@@ -299,7 +316,7 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
         .cloned()
         .collect();
 
-    if children.is_empty() {
+    if children.is_empty() && new_coll_editing() != Some(parent_id) {
         return rsx! {};
     }
 
@@ -317,16 +334,24 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
                     "sidebar-collection-item"
                 };
 
-                // Count papers in this collection (from paper_collections in state would be ideal,
-                // but for now just show the collection)
                 let has_children = collections.iter().any(|c| c.parent_id == Some(coll_id));
                 let collections_clone = collections.clone();
+                let creating_under_this = new_coll_editing() == Some(Some(coll_id));
+
+                let is_drag_target = drag_coll().is_some() && drag_coll() != Some(coll_id);
+                let item_class = if is_drag_target {
+                    format!("{class} sidebar-collection-item--droptarget")
+                } else {
+                    class.to_string()
+                };
+                let db_for_drop = db.clone();
 
                 rsx! {
                     div {
                         key: "coll-{coll_id}",
-                        class: "{class}",
+                        class: "{item_class}",
                         style: "padding-left: {indent + 8}px;",
+                        draggable: "true",
                         onclick: move |_| {
                             lib_state.with_mut(|s| s.view = LibraryView::Collection(coll_id));
                         },
@@ -338,16 +363,49 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
                                 coll_ctx.set(Some((coll_id, name.clone(), coords.x, coords.y)));
                             }
                         },
+                        ondragstart: move |_| {
+                            drag_coll.set(Some(coll_id));
+                        },
+                        ondragover: move |evt| {
+                            evt.prevent_default();
+                        },
+                        ondrop: move |evt| {
+                            evt.prevent_default();
+                            if let Some(dragged_id) = drag_coll() {
+                                if dragged_id != coll_id {
+                                    // Reparent dragged collection under this one
+                                    let db = db_for_drop.clone();
+                                    spawn(async move {
+                                        if let Ok(()) = crate::db::collections::reparent_collection(db.conn(), dragged_id, Some(coll_id)).await {
+                                            lib_state.with_mut(|s| {
+                                                if let Some(c) = s.collections.iter_mut().find(|c| c.id == Some(dragged_id)) {
+                                                    c.parent_id = Some(coll_id);
+                                                }
+                                            });
+                                        }
+                                    });
+                                }
+                                drag_coll.set(None);
+                            }
+                        },
+                        ondragend: move |_| {
+                            drag_coll.set(None);
+                        },
                         i { class: "sidebar-collection-icon bi bi-folder" }
                         span { class: "sidebar-collection-name", "{coll_name}" }
                     }
-                    if has_children {
+                    // Render children (recursive)
+                    if has_children || creating_under_this {
                         CollectionTree {
                             collections: collections_clone,
                             parent_id: Some(coll_id),
                             depth: depth + 1,
                             ctx_menu: coll_ctx,
                         }
+                    }
+                    // Inline new subcollection row
+                    if creating_under_this {
+                        NewCollectionRow { parent_id: Some(coll_id), depth: depth + 1 }
                     }
                 }
             }
@@ -356,31 +414,43 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
 }
 
 /// The "+" button in the Collections section header.
+/// If a collection is currently selected, creates under it; otherwise top-level.
 #[component]
 fn NewCollectionButton() -> Element {
-    let mut editing = use_context::<Signal<bool>>();
+    let mut editing = use_context::<Signal<Option<Option<i64>>>>();
+    let lib_state = use_context::<Signal<LibraryState>>();
 
     rsx! {
         button {
             class: "sidebar-add-btn",
-            onclick: move |_| editing.set(true),
+            onclick: move |_| {
+                // If viewing a collection, create subcollection; otherwise top-level
+                let parent = match lib_state.read().view {
+                    LibraryView::Collection(id) => Some(id),
+                    _ => None,
+                };
+                editing.set(Some(parent));
+            },
             i { class: "bi bi-plus-lg" }
         }
     }
 }
 
 /// An inline editable row that looks like a regular collection item.
-/// Appears at the end of the collection list when the user clicks "+".
 #[component]
-fn NewCollectionRow() -> Element {
+fn NewCollectionRow(parent_id: Option<i64>, depth: u32) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
-    let mut editing = use_context::<Signal<bool>>();
+    let mut editing = use_context::<Signal<Option<Option<i64>>>>();
     let mut name_value = use_signal(|| String::new());
     let mut submitted = use_signal(|| false);
 
+    let indent = depth * 16;
+
     rsx! {
-        div { class: "sidebar-collection-item sidebar-collection-item--editing",
+        div {
+            class: "sidebar-collection-item sidebar-collection-item--editing",
+            style: "padding-left: {indent + 8}px;",
             i { class: "sidebar-collection-icon bi bi-folder" }
             input {
                 class: "sidebar-inline-rename",
@@ -395,7 +465,8 @@ fn NewCollectionRow() -> Element {
                             let name = name_value().trim().to_string();
                             if !name.is_empty() {
                                 submitted.set(true);
-                                let coll = rotero_models::Collection::new(name);
+                                let mut coll = rotero_models::Collection::new(name);
+                                coll.parent_id = parent_id;
                                 let db = db.clone();
                                 spawn(async move {
                                     if let Ok(id) = crate::db::collections::insert_collection(db.conn(), &coll).await {
@@ -403,16 +474,16 @@ fn NewCollectionRow() -> Element {
                                         coll.id = Some(id);
                                         lib_state.with_mut(|s| s.collections.push(coll));
                                     }
-                                    editing.set(false);
+                                    editing.set(None);
                                     name_value.set(String::new());
                                 });
                             } else {
-                                editing.set(false);
+                                editing.set(None);
                                 name_value.set(String::new());
                             }
                         }
                         Key::Escape => {
-                            editing.set(false);
+                            editing.set(None);
                             name_value.set(String::new());
                         }
                         _ => {}
@@ -420,7 +491,7 @@ fn NewCollectionRow() -> Element {
                 },
                 onfocusout: move |_| {
                     if !submitted() {
-                        editing.set(false);
+                        editing.set(None);
                         name_value.set(String::new());
                     }
                 },

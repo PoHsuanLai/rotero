@@ -51,6 +51,18 @@ pub async fn rename_collection(conn: &Connection, id: i64, name: &str) -> Result
     Ok(())
 }
 
+pub async fn reparent_collection(conn: &Connection, id: i64, new_parent_id: Option<i64>) -> Result<(), turso::Error> {
+    conn.execute(
+        "UPDATE collections SET parent_id = ?1 WHERE id = ?2",
+        turso::params::Params::Positional(vec![
+            new_parent_id.map(|pid| Value::Integer(pid)).unwrap_or(Value::Null),
+            Value::Integer(id),
+        ]),
+    )
+    .await?;
+    Ok(())
+}
+
 pub async fn delete_collection(conn: &Connection, id: i64) -> Result<(), turso::Error> {
     conn.execute("DELETE FROM collections WHERE id = ?1", [id]).await?;
     Ok(())

@@ -352,6 +352,12 @@ body {
   color: var(--text-primary);
 }
 
+.sidebar-collection-item--droptarget {
+  background: rgba(13, 148, 136, 0.08);
+  outline: 1px dashed var(--accent-primary);
+  outline-offset: -1px;
+}
+
 .sidebar-collection-item--editing {
   background: var(--bg-sidebar-hover);
 }
