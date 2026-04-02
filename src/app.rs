@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::db::Database;
-use crate::state::app_state::{LibraryState, PdfTabManager, ViewerToolState};
+use crate::state::app_state::{DragPaper, LibraryState, PdfTabManager, ViewerToolState};
 use crate::state::commands;
 use crate::sync::engine::SyncConfig;
 use crate::ui::layout::Layout;
@@ -60,6 +60,10 @@ pub fn App() -> Element {
     use_context_provider(|| Signal::new(ShowSettings(false)));
     // New-collection editing state: None = not editing, Some(None) = top-level, Some(Some(id)) = subcollection
     use_context_provider(|| Signal::new(None::<Option<i64>>));
+    // Drag paper state: paper_id being dragged from library to sidebar collections/tags
+    use_context_provider(|| Signal::new(DragPaper(None)));
+    // Undo/redo stack for annotation operations
+    use_context_provider(|| Signal::new(crate::state::undo::UndoStack::default()));
 
     // Spawn dedicated PDF render thread and provide channel as context
     use_context_provider(|| RenderChannel {

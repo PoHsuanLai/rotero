@@ -4,6 +4,7 @@ use dioxus::desktop::use_global_shortcut;
 use crate::app::{RenderChannel, ShowSettings};
 use crate::db::Database;
 use crate::state::app_state::{LibraryState, LibraryView, PdfTab, PdfTabManager};
+use crate::state::undo::{UndoAction, UndoStack};
 use crate::sync::engine::SyncConfig;
 
 /// Registers global keyboard shortcuts using Dioxus desktop's native shortcut API.
@@ -16,6 +17,7 @@ pub fn GlobalKeyHandler() -> Element {
     let render_ch = use_context::<RenderChannel>();
     let config = use_context::<Signal<SyncConfig>>();
     let mut new_coll_editing = use_context::<Signal<Option<Option<i64>>>>();
+    let mut undo_stack = use_context::<Signal<UndoStack>>();
 
     // Cmd+, → Open Settings (Escape to close)
     let _ = use_global_shortcut("CmdOrCtrl+,", move || {
@@ -214,6 +216,30 @@ pub fn GlobalKeyHandler() -> Element {
         }
     });
 
+    // Cmd+Z → Undo annotation action (reverse the action)
+    let db_undo = db.clone();
+    let _ = use_global_shortcut("CmdOrCtrl+Z", move || {
+        let action = undo_stack.with_mut(|s| s.pop_undo());
+        if let Some(action) = action {
+            let db = db_undo.clone();
+            spawn(async move {
+                reverse_action(db, &mut tabs, action).await;
+            });
+        }
+    });
+
+    // Cmd+Shift+Z → Redo annotation action (re-apply the action)
+    let db_redo = db.clone();
+    let _ = use_global_shortcut("CmdOrCtrl+Shift+Z", move || {
+        let action = undo_stack.with_mut(|s| s.pop_redo());
+        if let Some(action) = action {
+            let db = db_redo.clone();
+            spawn(async move {
+                forward_action(db, &mut tabs, action).await;
+            });
+        }
+    });
+
     // Escape → Close settings
     let _ = use_global_shortcut("Escape", move || {
         tracing::info!("Shortcut: Escape");
@@ -223,4 +249,120 @@ pub fn GlobalKeyHandler() -> Element {
     });
 
     rsx! {}
+}
+
+/// Reverse an action (for undo).
+async fn reverse_action(
+    db: Database,
+    tabs: &mut Signal<PdfTabManager>,
+    action: UndoAction,
+) {
+    match action {
+        UndoAction::Create(ref ann) => {
+            // Reverse of create = delete
+            let ann_id = ann.id.unwrap_or(0);
+            if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), ann_id).await {
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        t.annotations.retain(|a| a.id != Some(ann_id));
+                    }
+                });
+            }
+        }
+        UndoAction::Delete(ref ann) => {
+            // Reverse of delete = re-insert
+            if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), ann).await {
+                let mut ann = ann.clone();
+                ann.id = Some(id);
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        t.annotations.push(ann);
+                    }
+                });
+            }
+        }
+        UndoAction::UpdateContent { id, ref old, .. } => {
+            // Reverse = restore old value
+            let opt = old.as_deref();
+            if let Ok(()) = crate::db::annotations::update_annotation_content(db.conn(), id, opt).await {
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
+                            a.content = old.clone();
+                        }
+                    }
+                });
+            }
+        }
+        UndoAction::UpdateColor { id, ref old, .. } => {
+            // Reverse = restore old value
+            if let Ok(()) = crate::db::annotations::update_annotation_color(db.conn(), id, old).await {
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
+                            a.color = old.clone();
+                        }
+                    }
+                });
+            }
+        }
+    }
+}
+
+/// Re-apply an action (for redo).
+async fn forward_action(
+    db: Database,
+    tabs: &mut Signal<PdfTabManager>,
+    action: UndoAction,
+) {
+    match action {
+        UndoAction::Create(ref ann) => {
+            // Re-create
+            if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), ann).await {
+                let mut ann = ann.clone();
+                ann.id = Some(id);
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        t.annotations.push(ann);
+                    }
+                });
+            }
+        }
+        UndoAction::Delete(ref ann) => {
+            // Re-delete
+            let ann_id = ann.id.unwrap_or(0);
+            if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), ann_id).await {
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        t.annotations.retain(|a| a.id != Some(ann_id));
+                    }
+                });
+            }
+        }
+        UndoAction::UpdateContent { id, ref new, .. } => {
+            // Re-apply new value
+            let opt = new.as_deref();
+            if let Ok(()) = crate::db::annotations::update_annotation_content(db.conn(), id, opt).await {
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
+                            a.content = new.clone();
+                        }
+                    }
+                });
+            }
+        }
+        UndoAction::UpdateColor { id, ref new, .. } => {
+            // Re-apply new value
+            if let Ok(()) = crate::db::annotations::update_annotation_color(db.conn(), id, new).await {
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
+                            a.color = new.clone();
+                        }
+                    }
+                });
+            }
+        }
+    }
 }

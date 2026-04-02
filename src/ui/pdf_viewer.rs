@@ -432,6 +432,7 @@ fn PdfPageWithOverlay(
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let tools = use_context::<Signal<ViewerToolState>>();
     let db = use_context::<Database>();
+    let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
 
     let mgr = tabs.read();
     let tab = mgr.tab();
@@ -605,6 +606,7 @@ fn PdfPageWithOverlay(
                                     if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), &ann).await {
                                         let mut ann = ann;
                                         ann.id = Some(id);
+                                        undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Create(ann.clone())));
                                         tabs.with_mut(|m| m.tab_mut().annotations.push(ann));
                                     }
                                 });
@@ -832,6 +834,7 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
 fn AnnotationPanel(tab_id: TabId) -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let db = use_context::<Database>();
+    let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
     let annotations = tabs.read().tab().annotations.clone();
 
     // Annotation context menu state: (ann_id, ann_type, page, color, content, x, y)
@@ -881,8 +884,12 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                             class: "btn--danger-sm",
                                             onclick: move |_| {
                                                 let db = db_for_delete.clone();
+                                                let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id == Some(ann_id)).cloned();
                                                 spawn(async move {
                                                     if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), ann_id).await {
+                                                        if let Some(ann) = deleted_ann {
+                                                            undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Delete(ann)));
+                                                        }
                                                         tabs.with_mut(|m| m.tab_mut().annotations.retain(|a| a.id != Some(ann_id)));
                                                     }
                                                 });
@@ -899,11 +906,15 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                                         class: "btn--save-sm",
                                                         onclick: move |_| {
                                                             let new_content = edit_value();
+                                                            let old_content = content.clone();
                                                             let db = db_for_save.clone();
                                                             let nc = new_content.clone();
                                                             spawn(async move {
                                                                 let opt = if nc.is_empty() { None } else { Some(nc.as_str()) };
                                                                 if let Ok(()) = crate::db::annotations::update_annotation_content(db.conn(), ann_id, opt).await {
+                                                                    let old = if old_content.is_empty() { None } else { Some(old_content) };
+                                                                    let new = if new_content.is_empty() { None } else { Some(new_content.clone()) };
+                                                                    undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::UpdateContent { id: ann_id, old, new }));
                                                                     tabs.with_mut(|m| {
                                                                         if let Some(a) = m.tab_mut().annotations.iter_mut().find(|a| a.id == Some(ann_id)) {
                                                                             a.content = if new_content.is_empty() { None } else { Some(new_content.clone()) };
@@ -936,7 +947,7 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
             }
 
             // Annotation context menu
-            if let Some((ctx_ann_id, ctx_type, ctx_page, _ctx_color, ctx_content, mx, my)) = ann_ctx() {
+            if let Some((ctx_ann_id, ctx_type, ctx_page, ctx_old_color, ctx_content, mx, my)) = ann_ctx() {
                 {
                     let db_color = db.clone();
                     let db_delete = db.clone();
@@ -1008,6 +1019,7 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                             let color = color.to_string();
                                             let color_for_click = color.clone();
                                             let db_swatch = db_color.clone();
+                                            let old_color_for_swatch = ctx_old_color.clone();
                                             rsx! {
                                                 span {
                                                     class: "context-menu-color-swatch",
@@ -1015,9 +1027,11 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                                     onclick: move |evt| {
                                                         evt.stop_propagation();
                                                         let c = color_for_click.clone();
+                                                        let old_c = old_color_for_swatch.clone();
                                                         let db = db_swatch.clone();
                                                         spawn(async move {
                                                             if let Ok(()) = crate::db::annotations::update_annotation_color(db.conn(), ctx_ann_id, &c).await {
+                                                                undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::UpdateColor { id: ctx_ann_id, old: old_c, new: c.clone() }));
                                                                 tabs.with_mut(|m| {
                                                                     if let Some(a) = m.tab_mut().annotations.iter_mut().find(|a| a.id == Some(ctx_ann_id)) {
                                                                         a.color = c;
@@ -1042,8 +1056,12 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                 danger: Some(true),
                                 on_click: move |_| {
                                     let db = db_delete.clone();
+                                    let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id == Some(ctx_ann_id)).cloned();
                                     spawn(async move {
                                         if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), ctx_ann_id).await {
+                                            if let Some(ann) = deleted_ann {
+                                                undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Delete(ann)));
+                                            }
                                             tabs.with_mut(|m| m.tab_mut().annotations.retain(|a| a.id != Some(ctx_ann_id)));
                                         }
                                     });
