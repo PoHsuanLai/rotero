@@ -221,6 +221,8 @@
   pointer-events: auto;
   user-select: text;
   -webkit-user-select: text;
+  transform-origin: left top;
+  font-family: sans-serif;
 }
 
 .text-layer span::selection {

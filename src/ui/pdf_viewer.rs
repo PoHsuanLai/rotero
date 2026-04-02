@@ -405,10 +405,19 @@ fn PdfPageWithOverlay(
                 class: "text-layer",
                 style: "width: {width}px; height: {height}px;",
                 for (seg_idx, seg) in text_segments.iter().enumerate() {
-                    span {
-                        key: "text-{page_index}-{seg_idx}",
-                        style: "left: {seg.x}px; top: {seg.y}px; width: {seg.width}px; height: {seg.height}px; font-size: {seg.font_size}px;",
-                        "{seg.text}"
+                    {
+                        // Estimate natural rendered width and compute scaleX to match PDF bounding box
+                        let char_count = seg.text.chars().count().max(1) as f64;
+                        let avg_char_width = seg.font_size * 0.6;
+                        let natural_width = char_count * avg_char_width;
+                        let scale_x = if natural_width > 0.0 { seg.width / natural_width } else { 1.0 };
+                        rsx! {
+                            span {
+                                key: "text-{page_index}-{seg_idx}",
+                                style: "left: {seg.x}px; top: {seg.y}px; font-size: {seg.font_size}px; transform: scaleX({scale_x}); transform-origin: left top;",
+                                "{seg.text}"
+                            }
+                        }
                     }
                 }
             }
