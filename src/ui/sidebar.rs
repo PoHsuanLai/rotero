@@ -9,6 +9,9 @@ use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuS
 pub fn Sidebar() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
+    let mut tabs = use_context::<Signal<PdfTabManager>>();
+    let render_ch = use_context::<crate::app::RenderChannel>();
+    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let state = lib_state.read();
     let view = state.view.clone();
     let papers = &state.papers;
@@ -35,6 +38,8 @@ pub fn Sidebar() -> Element {
 
     // Drag-and-drop state for collection reparenting
     let _drag_coll: Signal<Option<i64>> = use_context_provider(|| Signal::new(None::<i64>));
+
+    let db_for_ctx = db.clone();
 
     rsx! {
         div { class: "sidebar",
@@ -81,15 +86,45 @@ pub fn Sidebar() -> Element {
                 CollapsibleSection { title: "Recent", initially_open: true,
                     for paper in recent_opened.iter() {
                         {
+                            let paper_id = paper.id.unwrap_or(0);
                             let title = paper.title.clone();
+                            let pdf_rel = paper.pdf_path.clone();
+                            let db_recent = db.clone();
                             let truncated = if title.len() > 35 {
                                 format!("{}...", &title[..32])
                             } else {
-                                title
+                                title.clone()
                             };
                             rsx! {
-                                div { class: "sidebar-recent-item",
-                                    "{truncated}"
+                                div {
+                                    class: "sidebar-recent-item",
+                                    onclick: move |_| {
+                                        if let Some(ref rel_path) = pdf_rel {
+                                            let full_path = db_recent.resolve_pdf_path(rel_path);
+                                            let path_str = full_path.to_string_lossy().to_string();
+                                            let render_tx = render_ch.sender();
+                                            let new_tab_id = tabs.with_mut(|m| {
+                                                if let Some(idx) = m.find_by_paper_id(paper_id) {
+                                                    let tid = m.tabs[idx].id;
+                                                    m.switch_to(tid);
+                                                    return None;
+                                                }
+                                                let cfg = config.read();
+                                                let id = m.next_id();
+                                                let mut tab = PdfTab::new(id, path_str.clone(), title.clone(), cfg.default_zoom, cfg.page_batch_size);
+                                                tab.paper_id = Some(paper_id);
+                                                Some(m.open_tab(tab))
+                                            });
+                                            lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                            if let Some(tab_id) = new_tab_id {
+                                                spawn(async move {
+                                                    let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &config.read().effective_library_path()).await;
+                                                });
+                                            }
+                                        }
+                                    },
+                                    i { class: "sidebar-recent-icon bi bi-file-earmark-pdf" }
+                                    span { class: "sidebar-recent-title", "{truncated}" }
                                 }
                             }
                         }
@@ -141,8 +176,8 @@ pub fn Sidebar() -> Element {
             if let Some((coll_id, coll_name, mx, my)) = coll_ctx() {
                 {
                     let mut new_coll_editing: Signal<Option<Option<i64>>> = use_context();
-                    let db_rename = db.clone();
-                    let db_delete = db.clone();
+                    let db_rename = db_for_ctx.clone();
+                    let db_delete = db_for_ctx.clone();
                     let mut renaming = use_signal(|| false);
                     let mut rename_value = use_signal(|| coll_name.clone());
 
