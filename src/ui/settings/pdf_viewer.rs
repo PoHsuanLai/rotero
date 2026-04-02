@@ -18,6 +18,14 @@ const BATCH_OPTIONS: &[(u32, &str)] = &[
     (20, "20 pages"),
 ];
 
+const QUALITY_OPTIONS: &[(u8, &str)] = &[
+    (60, "Low (fast)"),
+    (75, "Medium"),
+    (85, "High"),
+    (95, "Very high"),
+    (100, "Maximum (slow)"),
+];
+
 const ANNOTATION_COLORS: &[(&str, &str)] = &[
     ("#ffff00", "Yellow"),
     ("#ff6b6b", "Red"),
@@ -33,6 +41,8 @@ pub fn PdfViewerSection() -> Element {
     let current_zoom = config.read().default_zoom;
     let current_batch = config.read().page_batch_size;
     let current_color = config.read().default_annotation_color.clone();
+    let current_quality = config.read().render_quality;
+    let current_thumb_quality = config.read().thumbnail_quality;
 
     rsx! {
         div { class: "settings-section",
@@ -104,6 +114,46 @@ pub fn PdfViewerSection() -> Element {
                             }
                         },
                         for (val, label) in BATCH_OPTIONS.iter() {
+                            option { value: "{val}", "{label}" }
+                        }
+                    }
+                }
+            }
+
+            // Render quality
+            div { class: "settings-field",
+                span { class: "settings-field-label", "Render quality" }
+                div { class: "settings-field-control",
+                    select {
+                        class: "select settings-select",
+                        value: "{current_quality}",
+                        onchange: move |evt| {
+                            if let Ok(q) = evt.value().parse::<u8>() {
+                                config.with_mut(|c| c.render_quality = q);
+                                let _ = config.read().save();
+                            }
+                        },
+                        for (val, label) in QUALITY_OPTIONS.iter() {
+                            option { value: "{val}", "{label}" }
+                        }
+                    }
+                }
+            }
+
+            // Thumbnail quality
+            div { class: "settings-field",
+                span { class: "settings-field-label", "Thumbnail quality" }
+                div { class: "settings-field-control",
+                    select {
+                        class: "select settings-select",
+                        value: "{current_thumb_quality}",
+                        onchange: move |evt| {
+                            if let Ok(q) = evt.value().parse::<u8>() {
+                                config.with_mut(|c| c.thumbnail_quality = q);
+                                let _ = config.read().save();
+                            }
+                        },
+                        for (val, label) in QUALITY_OPTIONS.iter() {
                             option { value: "{val}", "{label}" }
                         }
                     }
