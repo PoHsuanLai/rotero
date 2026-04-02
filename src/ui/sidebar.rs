@@ -377,6 +377,7 @@ fn NewCollectionRow() -> Element {
     let db = use_context::<Database>();
     let mut editing = use_context::<Signal<bool>>();
     let mut name_value = use_signal(|| String::new());
+    let mut submitted = use_signal(|| false);
 
     rsx! {
         div { class: "sidebar-collection-item sidebar-collection-item--editing",
@@ -393,6 +394,7 @@ fn NewCollectionRow() -> Element {
                         Key::Enter => {
                             let name = name_value().trim().to_string();
                             if !name.is_empty() {
+                                submitted.set(true);
                                 let coll = rotero_models::Collection::new(name);
                                 let db = db.clone();
                                 spawn(async move {
@@ -401,10 +403,13 @@ fn NewCollectionRow() -> Element {
                                         coll.id = Some(id);
                                         lib_state.with_mut(|s| s.collections.push(coll));
                                     }
+                                    editing.set(false);
+                                    name_value.set(String::new());
                                 });
+                            } else {
+                                editing.set(false);
+                                name_value.set(String::new());
                             }
-                            editing.set(false);
-                            name_value.set(String::new());
                         }
                         Key::Escape => {
                             editing.set(false);
@@ -414,8 +419,10 @@ fn NewCollectionRow() -> Element {
                     }
                 },
                 onfocusout: move |_| {
-                    editing.set(false);
-                    name_value.set(String::new());
+                    if !submitted() {
+                        editing.set(false);
+                        name_value.set(String::new());
+                    }
                 },
             }
         }
