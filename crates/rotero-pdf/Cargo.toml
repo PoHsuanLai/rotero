@@ -6,3 +6,6 @@ edition.workspace = true
 [dependencies]
 rotero-models.workspace = true
 thiserror.workspace = true
+pdfium-render = "0.8"
+image = "0.25"
+base64 = "0.22"

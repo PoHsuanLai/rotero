@@ -41,6 +41,7 @@ rotero-bib.workspace = true
 rotero-connector.workspace = true
 
 dioxus = { version = "0.6", features = ["desktop"] }
+rfd = "0.14"
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
