@@ -344,12 +344,25 @@ pub fn PdfViewer() -> Element {
                     class: "pdf-pages",
                     id: "pdf-pages-container",
                     onscroll: move |_| {
-                        if is_loading() || !has_more {
+                        if is_loading() {
                             return;
                         }
+                        // Read fresh values from tab state (not stale captures)
+                        let (start, has_more_now, tid) = {
+                            let mgr = tabs.read();
+                            if let Some(t) = mgr.active_tab() {
+                                let rendered = t.render.rendered_pages.len() as u32;
+                                (rendered, rendered < t.page_count, t.id)
+                            } else {
+                                return;
+                            }
+                        };
+                        if !has_more_now { return; }
+
                         let render_tx = render_ch.sender();
-                        let start = rendered_count;
                         let count = batch_size;
+                        let quality = config.read().render_quality;
+                        is_loading.set(true);
                         spawn(async move {
                             let mut result = document::eval(
                                 "let el = document.getElementById('pdf-pages-container'); [el.scrollTop, el.clientHeight, el.scrollHeight]"
@@ -368,14 +381,13 @@ pub fn PdfViewer() -> Element {
                                     });
 
                                     if scroll_top + client_height >= scroll_height - 600.0 {
-                                        is_loading.set(true);
                                         let _ = crate::state::commands::render_more_pages(
-                                            &render_tx, &mut tabs, tab_id, start, count, config.read().render_quality,
+                                            &render_tx, &mut tabs, tid, start, count, quality,
                                         ).await;
-                                        is_loading.set(false);
                                     }
                                 }
                             }
+                            is_loading.set(false);
                         });
                     },
 
