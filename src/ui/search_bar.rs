@@ -11,10 +11,11 @@ pub fn SearchBar() -> Element {
 
     rsx! {
         div { class: "search-bar",
+            i { class: "search-icon bi bi-search" }
             input {
                 class: "search-input",
                 r#type: "text",
-                placeholder: "Search papers by title, author, journal...",
+                placeholder: "Search papers...",
                 value: "{query}",
                 oninput: move |evt| {
                     let q = evt.value();
@@ -47,7 +48,7 @@ pub fn SearchBar() -> Element {
                             s.search_results = None;
                         });
                     },
-                    "x"
+                    i { class: "bi bi-x-lg" }
                 }
             }
         }

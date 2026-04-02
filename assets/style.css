@@ -442,7 +442,7 @@ body {
 .bi-folder2-open::before { content: "\f3dc"; }
 .bi-trash::before { content: "\f5de"; }
 .bi-pencil::before { content: "\f4cb"; }
-.bi-plus-lg::before { content: "\f52a"; }
+.bi-plus-lg::before { content: "\f64d"; }
 .bi-zoom-in::before { content: "\f62c"; }
 .bi-zoom-out::before { content: "\f62d"; }
 .bi-highlighter::before { content: "\f42c"; }
@@ -450,6 +450,8 @@ body {
 .bi-file-earmark-plus::before { content: "\f3eb"; }
 .bi-book::before { content: "\f194"; }
 .bi-book-fill::before { content: "\f193"; }
+.bi-search::before { content: "\f52a"; }
+.bi-x-lg::before { content: "\f659"; }
 
 
 /* --- Library View --- */
@@ -465,9 +467,10 @@ body {
   padding: var(--space-4) var(--space-6);
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2) var(--space-3);
 }
 
 .library-header-left {
@@ -480,6 +483,7 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex-wrap: wrap;
 }
 
 .library-title {
@@ -1022,6 +1026,66 @@ body {
   user-select: none;
 }
 
+/* Invisible text layer for copy/paste and text selection */
+.text-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.text-layer span {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  line-height: 1;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.text-layer span::selection {
+  background: rgba(0, 100, 255, 0.3);
+}
+
+.text-layer span::-moz-selection {
+  background: rgba(0, 100, 255, 0.3);
+}
+
+/* PDF search bar */
+.pdf-search-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.pdf-search-input {
+  flex: 1;
+  max-width: 300px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+}
+
+.pdf-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.pdf-search-count {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  min-width: 50px;
+  text-align: center;
+}
+
 .pdf-load-more {
   padding: var(--space-4);
   text-align: center;
@@ -1195,26 +1259,37 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-6);
+  padding: var(--space-2) var(--space-6);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-main);
+  position: relative;
+}
+
+.search-icon {
+  position: absolute;
+  left: calc(var(--space-6) + 10px);
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  pointer-events: none;
+  z-index: 1;
 }
 
 .search-input {
   flex: 1;
-  padding: 8px var(--space-4);
-  border: 1px solid var(--border-medium);
+  padding: 7px var(--space-4) 7px 32px;
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   font-family: var(--font-sans);
   background: var(--bg-input);
   color: var(--text-primary);
   outline: none;
-  transition: border-color 120ms ease;
+  transition: border-color 120ms ease, background 120ms ease;
 }
 
 .search-input:focus {
   border-color: var(--accent-primary);
+  background: var(--bg-main);
 }
 
 .search-input::placeholder {
@@ -1222,14 +1297,18 @@ body {
 }
 
 .search-clear {
-  padding: 4px 10px;
-  border: 1px solid var(--border-medium);
-  background: var(--bg-main);
-  border-radius: var(--radius-sm);
+  padding: 2px;
+  border: none;
+  background: transparent;
   cursor: pointer;
   font-size: var(--text-sm);
-  font-family: var(--font-sans);
   color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
   transition: background 120ms ease, color 120ms ease;
 }
 
