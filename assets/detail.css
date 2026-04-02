@@ -1,0 +1,109 @@
+/* ====================================
+   ROTERO — Paper Detail Panel
+   Right sidebar for selected paper
+   ==================================== */
+
+.paper-detail {
+  width: 360px;
+  padding: var(--space-6);
+  overflow-y: auto;
+  font-size: var(--text-base);
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border);
+}
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-5);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.detail-heading {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-sidebar-heading);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+}
+
+.detail-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  background: var(--bg-main);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-base);
+  color: var(--text-tertiary);
+  transition: background var(--transition-fast),
+              color var(--transition-fast);
+  font-family: var(--font-sans);
+  line-height: 1;
+}
+
+.detail-close:hover {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+
+.detail-close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent-ring);
+}
+
+.detail-field {
+  margin-bottom: var(--space-5);
+}
+
+.detail-label {
+  font-weight: 500;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+  margin-bottom: var(--space-1);
+  display: block;
+}
+
+.detail-value {
+  margin-top: var(--space-0_5);
+  line-height: var(--leading-snug);
+  color: var(--text-primary);
+}
+
+.detail-value--title {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+}
+
+.detail-value--journal {
+  color: var(--text-secondary);
+}
+
+.detail-value--doi {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--accent);
+  word-break: break-all;
+}
+
+.detail-value--abstract {
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+
+.detail-delete-section {
+  margin-top: var(--space-10);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}

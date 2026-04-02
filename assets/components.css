@@ -1,0 +1,182 @@
+/* ====================================
+   ROTERO — Components
+   Search bar, context menu, tag badge,
+   collection tree, import/export
+   ==================================== */
+
+/* --- Tag Badge --- */
+.tag-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  font-weight: 500;
+  line-height: var(--leading-snug);
+  transition: opacity var(--transition-fast);
+}
+
+.tag-badge:hover {
+  opacity: 0.8;
+}
+
+
+/* --- Collection Tree Item --- */
+.collection-tree-item {
+  height: 32px;
+  padding: 0 var(--space-3);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  display: flex;
+  align-items: center;
+  transition: background var(--transition-fast);
+}
+
+.collection-tree-item:hover {
+  background: var(--bg-muted);
+}
+
+
+/* --- Search Bar --- */
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-6);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-main);
+  position: relative;
+}
+
+.search-icon {
+  position: absolute;
+  left: calc(var(--space-6) + 10px);
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.search-input {
+  padding-left: 36px;
+  flex: 1;
+}
+
+.search-clear {
+  padding: 2px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast),
+              color var(--transition-fast);
+}
+
+.search-clear:hover {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+
+
+/* --- Import/Export --- */
+.import-export-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.import-status {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-left: var(--space-1);
+}
+
+
+/* --- Context Menu --- */
+.context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 200;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-1);
+  min-width: 192px;
+  max-width: 260px;
+  animation: menu-enter 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes menu-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 32px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  white-space: nowrap;
+}
+
+.context-menu-item:hover {
+  background: var(--bg-muted);
+}
+
+.context-menu-item--danger {
+  color: var(--destructive);
+}
+
+.context-menu-item--danger:hover {
+  background: var(--destructive-bg);
+}
+
+.context-menu-item--disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+  pointer-events: none;
+}
+
+.context-menu-icon {
+  font-size: var(--text-sm);
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.context-menu-label {
+  flex: 1;
+}
+
+.context-menu-separator {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: var(--space-1) var(--space-2);
+}

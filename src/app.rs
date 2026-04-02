@@ -7,7 +7,18 @@ use crate::sync::engine::SyncConfig;
 use crate::ui::layout::Layout;
 
 const FONTS_CSS: &str = include_str!("../assets/fonts.css");
-const STYLE_CSS: &str = include_str!("../assets/style.css");
+const TOKENS_CSS: &str = include_str!("../assets/tokens.css");
+const BASE_CSS: &str = include_str!("../assets/base.css");
+const BUTTONS_CSS: &str = include_str!("../assets/buttons.css");
+const INPUTS_CSS: &str = include_str!("../assets/inputs.css");
+const LAYOUT_CSS: &str = include_str!("../assets/layout.css");
+const SIDEBAR_CSS: &str = include_str!("../assets/sidebar.css");
+const LIBRARY_CSS: &str = include_str!("../assets/library.css");
+const DETAIL_CSS: &str = include_str!("../assets/detail.css");
+const PDF_CSS: &str = include_str!("../assets/pdf.css");
+const COMPONENTS_CSS: &str = include_str!("../assets/components.css");
+const DIALOGS_CSS: &str = include_str!("../assets/dialogs.css");
+const THEME_CSS: &str = include_str!("../assets/theme.css");
 
 /// Wrapper so mpsc::Sender can be used as Dioxus context (needs Clone + Copy for rsx closures).
 #[derive(Clone, Copy)]
@@ -64,7 +75,18 @@ pub fn App() -> Element {
 
             rsx! {
                 document::Style { {FONTS_CSS} }
-                document::Style { {STYLE_CSS} }
+                document::Style { {TOKENS_CSS} }
+                document::Style { {BASE_CSS} }
+                document::Style { {BUTTONS_CSS} }
+                document::Style { {INPUTS_CSS} }
+                document::Style { {LAYOUT_CSS} }
+                document::Style { {SIDEBAR_CSS} }
+                document::Style { {LIBRARY_CSS} }
+                document::Style { {DETAIL_CSS} }
+                document::Style { {PDF_CSS} }
+                document::Style { {COMPONENTS_CSS} }
+                document::Style { {DIALOGS_CSS} }
+                document::Style { {THEME_CSS} }
                 LoadLibraryData {}
                 Layout {}
             }
@@ -73,7 +95,10 @@ pub fn App() -> Element {
             let err = e.clone();
             rsx! {
                 document::Style { {FONTS_CSS} }
-                document::Style { {STYLE_CSS} }
+                document::Style { {TOKENS_CSS} }
+                document::Style { {BASE_CSS} }
+                document::Style { {LAYOUT_CSS} }
+                document::Style { {THEME_CSS} }
                 div { class: "db-error",
                     h1 { "Database Error" }
                     p { "{err}" }
@@ -83,7 +108,10 @@ pub fn App() -> Element {
         None => {
             rsx! {
                 document::Style { {FONTS_CSS} }
-                document::Style { {STYLE_CSS} }
+                document::Style { {TOKENS_CSS} }
+                document::Style { {BASE_CSS} }
+                document::Style { {LAYOUT_CSS} }
+                document::Style { {THEME_CSS} }
                 div { class: "db-error",
                     p { "Initializing database..." }
                 }

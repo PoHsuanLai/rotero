@@ -1,0 +1,96 @@
+/* ====================================
+   ROTERO — Form Controls
+   Input, select, textarea
+   ==================================== */
+
+/* --- Input --- */
+.input {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  background: var(--bg-main);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color var(--transition-fast),
+              box-shadow var(--transition-fast);
+}
+
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.input--sm {
+  height: 32px;
+  padding: 0 8px;
+  font-size: var(--text-xs);
+}
+
+.input--lg {
+  height: 40px;
+  padding: 0 16px;
+  font-size: var(--text-base);
+}
+
+
+/* --- Select --- */
+.select {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  background: var(--bg-main);
+  color: var(--text-primary);
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--transition-fast),
+              box-shadow var(--transition-fast);
+}
+
+.select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+
+/* --- Textarea --- */
+.textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  background: var(--bg-main);
+  color: var(--text-primary);
+  outline: none;
+  resize: vertical;
+  line-height: var(--leading-normal);
+  transition: border-color var(--transition-fast),
+              box-shadow var(--transition-fast);
+}
+
+.textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.textarea::placeholder {
+  color: var(--text-tertiary);
+}

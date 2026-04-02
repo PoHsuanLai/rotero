@@ -1,0 +1,17 @@
+/* ====================================
+   ROTERO — Layout
+   App container, main panel
+   ==================================== */
+
+.app-container {
+  display: flex;
+  height: 100vh;
+}
+
+.main-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-main);
+}

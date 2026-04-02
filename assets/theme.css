@@ -1,0 +1,123 @@
+/* ====================================
+   ROTERO — Theme
+   Dark mode, UI density scales
+   ==================================== */
+
+/* --- Dark Mode --- */
+.app-container.dark {
+  /* Backgrounds — slate dark */
+  --bg-main:            #0f172a;       /* slate-900 */
+  --bg-surface:         #1e293b;       /* slate-800 */
+  --bg-muted:           #1e293b;
+  --bg-sidebar:         #0f172a;
+  --bg-sidebar-hover:   #1e293b;
+  --bg-sidebar-active:  #334155;       /* slate-700 */
+  --bg-toolbar:         #1e293b;
+  --bg-pdf-canvas:      #020617;       /* slate-950 */
+  --bg-input:           #1e293b;
+
+  /* Text — slate light */
+  --text-primary:       #f8fafc;       /* slate-50 */
+  --text-secondary:     #94a3b8;       /* slate-400 */
+  --text-tertiary:      #64748b;       /* slate-500 */
+  --text-muted:         #475569;       /* slate-600 */
+  --text-sidebar:       #e2e8f0;       /* slate-200 */
+  --text-sidebar-muted: #64748b;
+  --text-sidebar-heading: #64748b;
+  --text-on-accent:     #ffffff;
+
+  /* Borders — slate */
+  --border:             #334155;       /* slate-700 */
+  --border-subtle:      #1e293b;       /* slate-800 */
+  --border-medium:      #475569;       /* slate-600 */
+  --border-input:       #334155;
+  --border-sidebar:     #334155;
+
+  /* Semantic overrides */
+  --destructive-bg:     rgba(239, 68, 68, 0.15);
+  --accent-subtle:      rgba(13, 148, 136, 0.2);
+  --accent-danger-bg:   rgba(239, 68, 68, 0.15);
+
+  /* Shadows — stronger for dark */
+  --shadow-xs:   0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-sm:   0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px -1px rgba(0, 0, 0, 0.4);
+  --shadow-md:   0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.4);
+  --shadow-lg:   0 10px 15px -3px rgba(0, 0, 0, 0.5);
+  --shadow-xl:   0 20px 25px -5px rgba(0, 0, 0, 0.5);
+  --shadow-page: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* Dark mode specific overrides */
+.app-container.dark .pdf-page-wrapper {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+}
+
+.app-container.dark .pdf-tab:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.app-container.dark .pdf-tab--active {
+  background: var(--bg-main);
+}
+
+.app-container.dark .pdf-tab-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.app-container.dark .settings-status {
+  background: #0d2818;
+}
+
+.app-container.dark .library-card--selected {
+  background: rgba(13, 148, 136, 0.12);
+}
+
+.app-container.dark .library-card--selected:hover {
+  background: rgba(13, 148, 136, 0.18);
+}
+
+.app-container.dark .btn--ghost-active {
+  background: rgba(13, 148, 136, 0.15);
+}
+
+
+/* --- UI Scales --- */
+
+/* Compact */
+.app-container[data-scale="compact"] {
+  --text-xs:    0.6875rem;   /* 11px */
+  --text-sm:    0.75rem;     /* 12px */
+  --text-base:  0.875rem;    /* 14px */
+  --text-lg:    1rem;        /* 16px */
+  --text-xl:    1.125rem;    /* 18px */
+  --text-2xl:   1.25rem;     /* 20px */
+  --space-3:    8px;
+  --space-4:    12px;
+  --space-5:    16px;
+  --space-6:    18px;
+}
+
+/* Comfortable */
+.app-container[data-scale="comfortable"] {
+  --text-xs:    0.8125rem;   /* 13px */
+  --text-sm:    0.9375rem;   /* 15px */
+  --text-base:  1.0625rem;   /* 17px */
+  --text-lg:    1.1875rem;   /* 19px */
+  --text-xl:    1.375rem;    /* 22px */
+  --text-2xl:   1.625rem;    /* 26px */
+  --space-3:    14px;
+  --space-4:    20px;
+  --space-5:    24px;
+  --space-6:    28px;
+}
+
+
+/* --- DB Error --- */
+.db-error {
+  padding: var(--space-10);
+  color: var(--destructive);
+}
+
+.db-error h1 {
+  margin-bottom: var(--space-2);
+}

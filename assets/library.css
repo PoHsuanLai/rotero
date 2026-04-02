@@ -1,0 +1,245 @@
+/* ====================================
+   ROTERO — Library View
+   Paper list, cards, header
+   ==================================== */
+
+.library-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-main);
+}
+
+.library-header {
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+
+.library-header-left {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.library-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.library-title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tighter);
+  line-height: var(--leading-tight);
+}
+
+.library-count {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+
+/* --- Paper List --- */
+.library-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) 0;
+}
+
+.library-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-6);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  border-left: 2px solid transparent;
+}
+
+.library-card:hover {
+  background: var(--bg-muted);
+}
+
+.library-card--selected {
+  background: rgba(13, 148, 136, 0.06);
+  border-left-color: var(--accent);
+}
+
+.library-card--selected:hover {
+  background: rgba(13, 148, 136, 0.09);
+}
+
+.library-card + .library-card {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.library-card-indicator {
+  width: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.library-unread-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.library-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.library-card-title {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 2px;
+  line-height: var(--leading-tight);
+}
+
+.library-card-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.library-card-authors {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 400;
+}
+
+.library-card-year {
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.library-card-journal {
+  font-style: italic;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.library-card-sep {
+  color: var(--border-medium);
+  flex-shrink: 0;
+}
+
+.library-card-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.library-card:hover .library-card-actions,
+.library-card--selected .library-card-actions {
+  opacity: 1;
+}
+
+
+/* --- Favorite Button --- */
+.library-fav-btn {
+  padding: 2px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--text-lg);
+  color: var(--text-tertiary);
+  transition: color var(--transition-fast);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  width: 28px;
+  height: 28px;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+}
+
+.library-fav-btn:hover {
+  color: #eab308;
+  background: var(--bg-sidebar-hover);
+}
+
+.library-fav-btn--active {
+  color: #eab308;
+  opacity: 1 !important;
+}
+
+.library-card .library-fav-btn--active {
+  opacity: 1;
+}
+
+
+/* --- Empty State --- */
+.library-empty {
+  padding: var(--space-10) var(--space-6);
+  text-align: center;
+  color: var(--text-tertiary);
+}
+
+.library-empty-heading {
+  font-size: var(--text-lg);
+  margin-bottom: var(--space-2);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.library-empty-sub {
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+
+/* --- Add Paper --- */
+.add-paper-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.doi-input-row {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.doi-input {
+  flex: 1;
+}
+
+
+/* --- Error --- */
+.error-message {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--destructive-bg);
+  border-radius: var(--radius-md);
+  color: var(--destructive);
+  font-size: var(--text-xs);
+}

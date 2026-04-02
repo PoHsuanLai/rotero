@@ -1,0 +1,220 @@
+/* ====================================
+   ROTERO — Buttons
+   Base, variants, sizes, states
+   ==================================== */
+
+/* --- Base --- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  line-height: var(--leading-tight);
+  white-space: nowrap;
+  user-select: none;
+  transition: background var(--transition-fast),
+              color var(--transition-fast),
+              border-color var(--transition-fast),
+              box-shadow var(--transition-fast);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-main), 0 0 0 4px var(--accent-ring);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+
+/* --- Size variants --- */
+.btn--sm {
+  height: 32px;
+  padding: 0 12px;
+  font-size: var(--text-xs);
+}
+
+.btn--lg {
+  height: 40px;
+  padding: 0 20px;
+  font-size: var(--text-base);
+}
+
+
+/* --- Style variants --- */
+
+/* Primary — solid accent fill */
+.btn--primary {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--accent);
+}
+.btn--primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.btn--primary:active {
+  background: var(--accent-pressed);
+  border-color: var(--accent-pressed);
+}
+
+/* Secondary — outline */
+.btn--secondary {
+  background: var(--bg-main);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+.btn--secondary:hover {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+.btn--secondary:active {
+  background: var(--bg-sidebar-active);
+}
+
+/* Ghost — no border, transparent */
+.btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: transparent;
+}
+.btn--ghost:hover {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+.btn--ghost:active {
+  background: var(--bg-sidebar-active);
+}
+
+/* Ghost active — for toggle states */
+.btn--ghost-active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Destructive — red solid */
+.btn--destructive {
+  background: var(--destructive);
+  color: var(--text-on-accent);
+  border-color: var(--destructive);
+}
+.btn--destructive:hover {
+  background: var(--destructive-hover);
+  border-color: var(--destructive-hover);
+}
+
+/* Success — alias for primary (same teal) */
+.btn--success {
+  background: var(--success);
+  color: var(--text-on-accent);
+  border-color: var(--success);
+}
+.btn--success:hover {
+  background: var(--success-hover);
+  border-color: var(--success-hover);
+}
+
+
+/* --- Icon button (square) --- */
+.btn--icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: var(--bg-main);
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+.btn--icon:hover {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+.btn--icon.btn--sm {
+  width: 32px;
+  height: 32px;
+}
+
+
+/* --- Legacy aliases (backwards compat) --- */
+
+/* btn--danger → btn--destructive */
+.btn--danger {
+  background: var(--destructive);
+  color: var(--text-on-accent);
+  border-color: var(--destructive);
+}
+.btn--danger:hover {
+  background: var(--destructive-hover);
+  border-color: var(--destructive-hover);
+}
+
+/* Small compound buttons (annotation panel) */
+.btn--danger-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-main);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  color: var(--destructive);
+  transition: background var(--transition-fast);
+}
+.btn--danger-sm:hover {
+  background: var(--destructive-bg);
+}
+
+.btn--save-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 10px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  transition: background var(--transition-fast);
+}
+.btn--save-sm:hover {
+  background: var(--accent-hover);
+}
+
+.btn--cancel-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-main);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: background var(--transition-fast);
+}
+.btn--cancel-sm:hover {
+  background: var(--bg-muted);
+}

@@ -1,0 +1,293 @@
+/* ====================================
+   ROTERO — Dialogs
+   Settings modal, citation dialog
+   ==================================== */
+
+/* --- Shared Overlay --- */
+.settings-overlay,
+.citation-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+
+/* --- Shared Dialog --- */
+.settings-dialog,
+.citation-dialog {
+  background: var(--bg-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  border: 1px solid var(--border);
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: var(--space-6);
+  animation: dialog-enter 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dialog-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+
+/* === Settings Dialog === */
+.settings-dialog {
+  width: 500px;
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-6);
+}
+
+.settings-header h3 {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+}
+
+.settings-section {
+  margin-bottom: var(--space-6);
+}
+
+.settings-section-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+
+.settings-description {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+  margin-bottom: var(--space-3);
+}
+
+.settings-current-path {
+  margin-bottom: var(--space-3);
+}
+
+.settings-path-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  word-break: break-all;
+  margin-top: var(--space-1);
+}
+
+.settings-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.settings-status {
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: #ecfdf5;
+  border-radius: var(--radius-md);
+  color: var(--success);
+  font-size: var(--text-sm);
+}
+
+
+/* --- Settings Controls --- */
+.settings-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: var(--space-4) 0;
+}
+
+.settings-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  min-height: 36px;
+}
+
+.settings-field-label {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.settings-field-control {
+  flex-shrink: 0;
+}
+
+.settings-select {
+  min-width: 100px;
+  width: auto;
+}
+
+.settings-number-input {
+  width: 80px;
+  text-align: center;
+  font-family: var(--font-mono);
+}
+
+.settings-color-picker {
+  display: flex;
+  gap: var(--space-1_5);
+  align-items: center;
+}
+
+.settings-hint {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-top: var(--space-2);
+}
+
+
+/* --- Toggle Switch --- */
+.settings-toggle {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+}
+
+.settings-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.settings-toggle-track {
+  display: block;
+  width: 40px;
+  height: 22px;
+  background: var(--border-medium);
+  border-radius: 11px;
+  transition: background var(--transition-fast);
+  position: relative;
+}
+
+.settings-toggle input:checked + .settings-toggle-track {
+  background: var(--accent);
+}
+
+.settings-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: white;
+  border-radius: 50%;
+  transition: transform var(--transition-fast);
+  box-shadow: var(--shadow-xs);
+}
+
+.settings-toggle input:checked + .settings-toggle-track .settings-toggle-thumb {
+  transform: translateX(18px);
+}
+
+
+/* --- Radio Group --- */
+.settings-radio-group {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.settings-radio-btn {
+  padding: var(--space-1_5) var(--space-3);
+  border: none;
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background var(--transition-fast),
+              color var(--transition-fast);
+  border-right: 1px solid var(--border);
+}
+
+.settings-radio-btn:last-child {
+  border-right: none;
+}
+
+.settings-radio-btn:hover {
+  background: var(--bg-sidebar-hover);
+  color: var(--text-primary);
+}
+
+.settings-radio-btn--active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.settings-radio-btn--active:hover {
+  background: var(--accent-hover);
+  color: var(--text-on-accent);
+}
+
+
+/* === Citation Dialog === */
+.citation-dialog {
+  width: 560px;
+}
+
+.citation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-5);
+}
+
+.citation-header h3 {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+}
+
+.citation-style-picker {
+  margin-bottom: var(--space-4);
+}
+
+.citation-select {
+  margin-top: var(--space-1);
+}
+
+.citation-preview {
+  margin-bottom: var(--space-4);
+}
+
+.citation-text {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  background: var(--bg-muted);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.citation-actions {
+  display: flex;
+  gap: var(--space-2);
+}

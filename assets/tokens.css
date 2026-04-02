@@ -1,0 +1,123 @@
+/* ====================================
+   ROTERO — Design Tokens
+   shadcn/ui-inspired token system
+   ==================================== */
+
+:root {
+  /* --- Typography --- */
+  --font-sans:  'Plus Jakarta Sans', -apple-system, system-ui, sans-serif;
+  --font-mono:  'IBM Plex Mono', 'SF Mono', ui-monospace, monospace;
+
+  /* Type scale — standard progression */
+  --text-xs:    0.75rem;     /* 12px */
+  --text-sm:    0.875rem;    /* 14px */
+  --text-base:  1rem;        /* 16px */
+  --text-lg:    1.125rem;    /* 18px */
+  --text-xl:    1.25rem;     /* 20px */
+  --text-2xl:   1.5rem;      /* 24px */
+  --text-3xl:   1.875rem;    /* 30px */
+
+  /* Line heights — tighter for UI */
+  --leading-none:   1;
+  --leading-tight:  1.25;
+  --leading-snug:   1.375;
+  --leading-normal: 1.5;
+
+  /* Letter spacing */
+  --tracking-tighter: -0.03em;
+  --tracking-tight:   -0.015em;
+  --tracking-normal:  0;
+  --tracking-wide:    0.05em;
+  --tracking-wider:   0.08em;
+
+  /* --- Colors — Slate palette --- */
+
+  /* Backgrounds */
+  --bg-main:            #ffffff;
+  --bg-surface:         #ffffff;
+  --bg-muted:           #f8fafc;       /* slate-50 */
+  --bg-sidebar:         #f8fafc;       /* slate-50 */
+  --bg-sidebar-hover:   #f1f5f9;       /* slate-100 */
+  --bg-sidebar-active:  #e2e8f0;       /* slate-200 */
+  --bg-toolbar:         #f8fafc;
+  --bg-pdf-canvas:      #f1f5f9;       /* slate-100 */
+  --bg-input:           #f8fafc;       /* slate-50 */
+  --bg-accent-subtle:   rgba(13, 148, 136, 0.08);
+
+  /* Text — slate palette */
+  --text-primary:       #0f172a;       /* slate-900 */
+  --text-secondary:     #475569;       /* slate-600 */
+  --text-tertiary:      #94a3b8;       /* slate-400 */
+  --text-muted:         #cbd5e1;       /* slate-300 */
+  --text-sidebar:       #334155;       /* slate-700 */
+  --text-sidebar-muted: #94a3b8;       /* slate-400 */
+  --text-sidebar-heading: #64748b;     /* slate-500 */
+  --text-on-accent:     #ffffff;
+
+  /* Accent — teal */
+  --accent:             #0d9488;       /* teal-600 */
+  --accent-hover:       #0f766e;       /* teal-700 */
+  --accent-pressed:     #115e59;       /* teal-800 */
+  --accent-subtle:      #ccfbf1;       /* teal-100 */
+  --accent-ring:        rgba(13, 148, 136, 0.25);
+
+  /* Backwards-compat aliases used in existing CSS */
+  --accent-primary:       var(--accent);
+  --accent-primary-hover: var(--accent-hover);
+
+  /* Semantic */
+  --success:            #059669;
+  --success-hover:      #047857;
+  --accent-success:     var(--success);
+  --destructive:        #ef4444;       /* red-500 */
+  --destructive-hover:  #dc2626;       /* red-600 */
+  --destructive-bg:     #fef2f2;
+  --accent-danger:      var(--destructive);
+  --accent-danger-hover: var(--destructive-hover);
+  --accent-danger-bg:   var(--destructive-bg);
+  --warning:            #f59e0b;
+  --warning-bg:         #fffbeb;
+
+  /* --- Borders — slate --- */
+  --border:             #e2e8f0;       /* slate-200 */
+  --border-subtle:      #f1f5f9;       /* slate-100 */
+  --border-medium:      #cbd5e1;       /* slate-300 */
+  --border-input:       #e2e8f0;       /* slate-200 */
+  --border-sidebar:     #e2e8f0;
+  --border-default:     var(--border);
+  --border-ring:        var(--accent);
+
+  /* --- Radius --- */
+  --radius-sm:    4px;
+  --radius-md:    6px;
+  --radius-lg:    8px;
+  --radius-xl:    12px;
+  --radius-full:  9999px;
+
+  /* --- Shadows — visible, layered --- */
+  --shadow-xs:    0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-sm:    0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  --shadow-md:    0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-lg:    0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  --shadow-xl:    0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  --shadow-page:  0 1px 3px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.04);
+  --shadow-panel-left: -1px 0 4px rgba(0, 0, 0, 0.06);
+
+  /* --- Transitions --- */
+  --transition-fast:   150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow:   300ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* --- Spacing — 4px grid --- */
+  --space-0_5:  2px;
+  --space-1:    4px;
+  --space-1_5:  6px;
+  --space-2:    8px;
+  --space-3:    12px;
+  --space-4:    16px;
+  --space-5:    20px;
+  --space-6:    24px;
+  --space-8:    32px;
+  --space-10:   40px;
+  --space-12:   48px;
+}
