@@ -1,5 +1,5 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use image::ImageFormat;
+use image::codecs::jpeg::JpegEncoder;
 use pdfium_render::prelude::*;
 use thiserror::Error;
 
@@ -76,13 +76,15 @@ impl PdfEngine {
         })
     }
 
-    /// Render a single page to a base64-encoded PNG string.
+    /// Render a single page to a base64-encoded JPEG string.
     /// `scale` controls the zoom level (1.0 = 72 DPI, 2.0 = 144 DPI, etc.)
+    /// `quality` is JPEG quality (1-100).
     pub fn render_page(
         &self,
         pdf_path: &str,
         page_index: u32,
         scale: f32,
+        quality: u8,
     ) -> Result<RenderedPage, PdfError> {
         let document = self.pdfium.load_pdf_from_file(pdf_path, None)?;
         let page_count = document.pages().len() as u32;
@@ -112,8 +114,8 @@ impl PdfEngine {
         let img_height = image.height();
 
         let mut img_bytes: Vec<u8> = Vec::new();
-        let mut cursor = std::io::Cursor::new(&mut img_bytes);
-        image.write_to(&mut cursor, ImageFormat::Jpeg)?;
+        let encoder = JpegEncoder::new_with_quality(&mut img_bytes, quality);
+        image.write_with_encoder(encoder)?;
 
         let base64_data = BASE64.encode(&img_bytes);
 
@@ -133,6 +135,7 @@ impl PdfEngine {
         start: u32,
         count: u32,
         scale: f32,
+        quality: u8,
     ) -> Result<Vec<RenderedPage>, PdfError> {
         let document = self.pdfium.load_pdf_from_file(pdf_path, None)?;
         let page_count = document.pages().len() as u32;
@@ -140,6 +143,7 @@ impl PdfEngine {
 
         let mut pages = Vec::new();
         for i in start..end {
+            let t_page = std::time::Instant::now();
             let page = document
                 .pages()
                 .get(i as u16)
@@ -152,19 +156,32 @@ impl PdfEngine {
                 .set_target_width(width.max(1))
                 .set_maximum_height(height.max(1));
 
+            let t_render = std::time::Instant::now();
             let bitmap = page
                 .render_with_config(&render_config)
                 .map_err(|e| PdfError::RenderError(e.to_string()))?;
+            let render_ms = t_render.elapsed();
 
+            let t_encode = std::time::Instant::now();
             let image = bitmap.as_image();
             let img_width = image.width();
             let img_height = image.height();
 
             let mut img_bytes: Vec<u8> = Vec::new();
-            let mut cursor = std::io::Cursor::new(&mut img_bytes);
-            image.write_to(&mut cursor, ImageFormat::Jpeg)?;
+            let encoder = JpegEncoder::new_with_quality(&mut img_bytes, quality);
+            image.write_with_encoder(encoder)?;
+            let encode_ms = t_encode.elapsed();
 
             let base64_data = BASE64.encode(&img_bytes);
+
+            tracing::info!(
+                page = i, width, height,
+                render_ms = ?render_ms, encode_ms = ?encode_ms,
+                jpeg_kb = img_bytes.len() / 1024,
+                base64_kb = base64_data.len() / 1024,
+                total_ms = ?t_page.elapsed(),
+                "rendered page"
+            );
 
             pages.push(RenderedPage {
                 page_index: i,
@@ -183,6 +200,7 @@ impl PdfEngine {
         &self,
         pdf_path: &str,
         max_width: u32,
+        quality: u8,
     ) -> Result<Vec<RenderedPage>, PdfError> {
         let document = self.pdfium.load_pdf_from_file(pdf_path, None)?;
         let page_count = document.pages().len() as u32;
@@ -211,8 +229,8 @@ impl PdfEngine {
             let img_height = image.height();
 
             let mut img_bytes: Vec<u8> = Vec::new();
-            let mut cursor = std::io::Cursor::new(&mut img_bytes);
-            image.write_to(&mut cursor, ImageFormat::Jpeg)?;
+            let encoder = JpegEncoder::new_with_quality(&mut img_bytes, quality);
+            image.write_with_encoder(encoder)?;
 
             let base64_data = BASE64.encode(&img_bytes);
 

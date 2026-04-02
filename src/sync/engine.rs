@@ -38,11 +38,21 @@ pub struct SyncConfig {
     /// Auto-fetch metadata from CrossRef on PDF import.
     #[serde(default = "default_true")]
     pub auto_fetch_metadata: bool,
+
+    /// JPEG quality for rendered PDF pages (1-100, higher = sharper but slower).
+    #[serde(default = "default_render_quality")]
+    pub render_quality: u8,
+
+    /// JPEG quality for thumbnail images (1-100).
+    #[serde(default = "default_thumbnail_quality")]
+    pub thumbnail_quality: u8,
 }
 
 fn default_zoom() -> f32 { 1.5 }
 fn default_annotation_color() -> String { "#ffff00".to_string() }
 fn default_page_batch_size() -> u32 { 5 }
+fn default_render_quality() -> u8 { 85 }
+fn default_thumbnail_quality() -> u8 { 70 }
 fn default_ui_scale() -> String { "default".to_string() }
 fn default_true() -> bool { true }
 fn default_connector_port() -> u16 { 21984 }
@@ -59,6 +69,8 @@ impl Default for SyncConfig {
             connector_enabled: default_true(),
             connector_port: default_connector_port(),
             auto_fetch_metadata: default_true(),
+            render_quality: default_render_quality(),
+            thumbnail_quality: default_thumbnail_quality(),
         }
     }
 }

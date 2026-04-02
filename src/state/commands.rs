@@ -12,6 +12,7 @@ pub enum RenderRequest {
         pdf_path: String,
         zoom: f32,
         batch_size: u32,
+        quality: u8,
         reply: mpsc::Sender<Result<(u32, Vec<RenderedPageData>), String>>,
     },
     RenderMorePages {
@@ -19,12 +20,14 @@ pub enum RenderRequest {
         start: u32,
         count: u32,
         zoom: f32,
+        quality: u8,
         reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
     SetZoom {
         pdf_path: String,
         page_count: u32,
         new_zoom: f32,
+        quality: u8,
         reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
     ExtractText {
@@ -36,6 +39,7 @@ pub enum RenderRequest {
     },
     RenderThumbnails {
         pdf_path: String,
+        quality: u8,
         reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
     ExtractOutline {
@@ -61,34 +65,40 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
             }
         };
 
+        tracing::info!("render thread started");
         while let Ok(req) = rx.recv() {
             match req {
-                RenderRequest::OpenPdf { pdf_path, zoom, batch_size, reply } => {
+                RenderRequest::OpenPdf { pdf_path, zoom, batch_size, quality, reply } => {
+                    let t0 = std::time::Instant::now();
                     let result = (|| {
                         let info = engine.load_document(&pdf_path).map_err(|e| e.to_string())?;
+                        tracing::info!(elapsed = ?t0.elapsed(), pages = info.page_count, "load_document");
                         let render_count = info.page_count.min(batch_size);
+                        let t1 = std::time::Instant::now();
                         let rendered = engine
-                            .render_pages(&pdf_path, 0, render_count, zoom)
+                            .render_pages(&pdf_path, 0, render_count, zoom, quality)
                             .map_err(|e| e.to_string())?;
+                        tracing::info!(elapsed = ?t1.elapsed(), render_count, zoom, quality, "render_pages");
                         let pages: Vec<RenderedPageData> =
                             rendered.into_iter().map(|r| r.into()).collect();
+                        tracing::info!(elapsed = ?t0.elapsed(), "total OpenPdf");
                         Ok((info.page_count, pages))
                     })();
                     let _ = reply.send(result);
                 }
-                RenderRequest::RenderMorePages { pdf_path, start, count, zoom, reply } => {
+                RenderRequest::RenderMorePages { pdf_path, start, count, zoom, quality, reply } => {
                     let result = (|| {
                         let rendered = engine
-                            .render_pages(&pdf_path, start, count, zoom)
+                            .render_pages(&pdf_path, start, count, zoom, quality)
                             .map_err(|e| e.to_string())?;
                         Ok(rendered.into_iter().map(|r| r.into()).collect::<Vec<RenderedPageData>>())
                     })();
                     let _ = reply.send(result);
                 }
-                RenderRequest::SetZoom { pdf_path, page_count, new_zoom, reply } => {
+                RenderRequest::SetZoom { pdf_path, page_count, new_zoom, quality, reply } => {
                     let result = (|| {
                         let rendered = engine
-                            .render_pages(&pdf_path, 0, page_count, new_zoom)
+                            .render_pages(&pdf_path, 0, page_count, new_zoom, quality)
                             .map_err(|e| e.to_string())?;
                         Ok(rendered.into_iter().map(|r| r.into()).collect::<Vec<RenderedPageData>>())
                     })();
@@ -103,10 +113,10 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     })();
                     let _ = reply.send(result);
                 }
-                RenderRequest::RenderThumbnails { pdf_path, reply } => {
+                RenderRequest::RenderThumbnails { pdf_path, quality, reply } => {
                     let result = (|| {
                         let rendered = engine
-                            .render_all_thumbnails(&pdf_path, 120)
+                            .render_all_thumbnails(&pdf_path, 120, quality)
                             .map_err(|e| e.to_string())?;
                         Ok(rendered.into_iter().map(|r| r.into()).collect::<Vec<RenderedPageData>>())
                     })();
@@ -149,15 +159,21 @@ pub async fn open_pdf(
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     data_dir: &std::path::Path,
+    quality: u8,
 ) -> Result<(), String> {
+    tracing::info!("open_pdf called");
+    let t_start = std::time::Instant::now();
     let (path, zoom, batch_size) = {
         let mgr = tabs.read();
         let tab = mgr.tabs.iter().find(|t| t.id == tab_id).ok_or("Tab not found")?;
         (tab.pdf_path.clone(), tab.view.zoom, tab.view.page_batch_size)
     };
+    tracing::info!(path = %path, zoom, batch_size, quality, "open_pdf start");
 
     // Try loading from disk cache first
+    let t_cache = std::time::Instant::now();
     if let Some((meta, cached_pages)) = crate::cache::load_cached(data_dir, &path, zoom) {
+        tracing::info!(elapsed = ?t_cache.elapsed(), pages = meta.page_count, "cache HIT");
         tabs.with_mut(|mgr| {
             if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                 tab.page_count = meta.page_count;
@@ -177,6 +193,8 @@ pub async fn open_pdf(
         return Ok(());
     }
 
+    tracing::info!(elapsed = ?t_cache.elapsed(), "cache MISS");
+
     // Cache miss — render via PDFium
     let (reply_tx, reply_rx) = mpsc::channel();
     render_tx
@@ -184,11 +202,20 @@ pub async fn open_pdf(
             pdf_path: path.clone(),
             zoom,
             batch_size,
+            quality,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
 
+    let t_recv = std::time::Instant::now();
     let (page_count, pages) = recv_reply(reply_rx).await?;
+    tracing::info!(
+        elapsed = ?t_recv.elapsed(),
+        page_count,
+        rendered = pages.len(),
+        total_base64_kb = pages.iter().map(|p| p.base64_data.len()).sum::<usize>() / 1024,
+        "recv render reply"
+    );
 
     // Save to cache in background
     let cache_dir = data_dir.to_path_buf();
@@ -206,6 +233,7 @@ pub async fn open_pdf(
             tab.is_loading = false;
         }
     });
+    tracing::info!(elapsed = ?t_start.elapsed(), "pages displayed");
 
     // Extract text in background
     let batch = page_count.min(batch_size);
@@ -243,6 +271,7 @@ pub async fn render_more_pages(
     tab_id: TabId,
     start: u32,
     count: u32,
+    quality: u8,
 ) -> Result<(), String> {
     let (pdf_path, zoom) = {
         let mgr = tabs.read();
@@ -257,6 +286,7 @@ pub async fn render_more_pages(
             start,
             count,
             zoom,
+            quality,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
@@ -295,6 +325,7 @@ pub async fn set_zoom(
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     new_zoom: f32,
+    quality: u8,
 ) -> Result<(), String> {
     let (pdf_path, page_count) = {
         let mgr = tabs.read();
@@ -315,6 +346,7 @@ pub async fn set_zoom(
             pdf_path,
             page_count,
             new_zoom,
+            quality,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
@@ -337,6 +369,7 @@ pub async fn load_thumbnails(
     render_tx: &mpsc::Sender<RenderRequest>,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
+    quality: u8,
 ) -> Result<(), String> {
     let pdf_path = {
         let mgr = tabs.read();
@@ -345,7 +378,7 @@ pub async fn load_thumbnails(
 
     let (reply_tx, reply_rx) = mpsc::channel();
     render_tx
-        .send(RenderRequest::RenderThumbnails { pdf_path, reply: reply_tx })
+        .send(RenderRequest::RenderThumbnails { pdf_path, quality, reply: reply_tx })
         .map_err(|e| e.to_string())?;
 
     let thumbnails = recv_reply(reply_rx).await?;
@@ -393,6 +426,7 @@ pub async fn precache_pdf(
     pdf_path: &str,
     data_dir: &std::path::Path,
     zoom: f32,
+    quality: u8,
     paper_id: Option<i64>,
     db: Option<&turso::Connection>,
 ) {
@@ -409,6 +443,7 @@ pub async fn precache_pdf(
         pdf_path: path.clone(),
         zoom,
         batch_size: 5,
+        quality,
         reply: reply_tx,
     }).is_err() {
         return;

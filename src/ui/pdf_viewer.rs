@@ -57,8 +57,10 @@ pub fn PdfTabBar() -> Element {
                                     let needs = tabs.read().active_tab().map(|t| t.needs_render()).unwrap_or(false);
                                     if needs {
                                         let render_tx = render_ch.sender();
+                                        let cfg_dir = config.read().effective_library_path();
+                                        let cfg_q = config.read().render_quality;
                                         tabs.with_mut(|m| m.tab_mut().is_loading = true);
-                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &config.read().effective_library_path()).await;
+                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &cfg_dir, cfg_q).await;
                                     }
                                     // Restore scroll
                                     let scroll_top = tabs.read().active_tab().map(|t| t.view.scroll_top).unwrap_or(0.0);
@@ -83,9 +85,11 @@ pub fn PdfTabBar() -> Element {
                                         if needs {
                                             let new_id = tabs.read().active_tab_id.unwrap();
                                             let render_tx = render_ch.sender();
+                                            let cfg_dir = config.read().effective_library_path();
+                                            let cfg_q = config.read().render_quality;
                                             tabs.with_mut(|m| m.tab_mut().is_loading = true);
                                             spawn(async move {
-                                                let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &config.read().effective_library_path()).await;
+                                                let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &cfg_dir, cfg_q).await;
                                             });
                                         }
                                     }
@@ -107,6 +111,8 @@ pub fn PdfViewer() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let tools = use_context::<Signal<ViewerToolState>>();
     let render_ch = use_context::<RenderChannel>();
+    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+    let db = use_context::<Database>();
     let mut is_loading = use_signal(|| false);
 
     let mgr = tabs.read();
@@ -117,7 +123,34 @@ pub fn PdfViewer() -> Element {
     };
 
     let tab_id = tab.id;
-    let is_initial_loading = tab.is_loading && tab.render.rendered_pages.is_empty();
+    let needs_render = tab.is_loading && tab.render.rendered_pages.is_empty();
+    let is_initial_loading = needs_render;
+
+    // Trigger render for tabs that need it (newly created or resumed)
+    use_effect(move || {
+        let needs = tabs.read().active_tab().map(|t| t.is_loading && t.render.rendered_pages.is_empty()).unwrap_or(false);
+        if !needs { return; }
+        let Some(tid) = tabs.read().active_tab_id else { return };
+        let render_tx = render_ch.sender();
+        let data_dir = config.read().effective_library_path();
+        let db = db.clone();
+        tracing::info!(tab_id = tid, "PdfViewer: triggering render for loading tab");
+        spawn(async move {
+            if crate::state::commands::open_pdf(&render_tx, &mut tabs, tid, &data_dir, config.read().render_quality).await.is_ok() {
+                // Load annotations if paper_id is set
+                let paper_id = tabs.read().active_tab().and_then(|t| t.paper_id);
+                if let Some(pid) = paper_id {
+                    if let Ok(anns) = crate::db::annotations::list_annotations_for_paper(db.conn(), pid).await {
+                        tabs.with_mut(|m| {
+                            if let Some(t) = m.tabs.iter_mut().find(|t| t.id == tid) {
+                                t.annotations = anns;
+                            }
+                        });
+                    }
+                }
+            }
+        });
+    });
     let page_count = tab.page_count;
     let zoom = tab.view.zoom;
     let render_zoom = tab.view.render_zoom;
@@ -147,14 +180,14 @@ pub fn PdfViewer() -> Element {
                         let new_zoom = (zoom + 0.3_f32).min(5.0);
                         let render_tx = render_ch.sender();
                         spawn(async move {
-                            let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom).await;
+                            let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, config.read().render_quality).await;
                         });
                     }
                     Key::Character(ref c) if c == "-" => {
                         let new_zoom = (zoom - 0.3_f32).max(0.5);
                         let render_tx = render_ch.sender();
                         spawn(async move {
-                            let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom).await;
+                            let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, config.read().render_quality).await;
                         });
                     }
                     Key::PageDown => {
@@ -261,7 +294,7 @@ pub fn PdfViewer() -> Element {
                                     if scroll_top + client_height >= scroll_height - 600.0 {
                                         is_loading.set(true);
                                         let _ = crate::state::commands::render_more_pages(
-                                            &render_tx, &mut tabs, tab_id, start, count,
+                                            &render_tx, &mut tabs, tab_id, start, count, config.read().render_quality,
                                         ).await;
                                         is_loading.set(false);
                                     }
@@ -511,6 +544,7 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let mut tools = use_context::<Signal<ViewerToolState>>();
     let render_ch = use_context::<RenderChannel>();
+    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let zoom_percent = (zoom * 100.0 / 1.5) as u32;
 
     let t = tools.read();
@@ -576,7 +610,7 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                     tabs.with_mut(|m| m.tab_mut().nav.show_thumbnails = !m.tab().nav.show_thumbnails);
                     if tabs.read().tab().render.thumbnails.is_empty() {
                         spawn(async move {
-                            let _ = crate::state::commands::load_thumbnails(&render_tx, &mut tabs, tab_id).await;
+                            let _ = crate::state::commands::load_thumbnails(&render_tx, &mut tabs, tab_id, config.read().thumbnail_quality).await;
                         });
                     }
                 },
@@ -606,27 +640,27 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
             div { class: "toolbar-separator" }
 
             button {
-                class: "btn--icon",
+                class: "btn btn--ghost btn--sm toolbar-zoom-btn",
                 onclick: move |_| {
                     let new_zoom = (zoom - 0.3_f32).max(0.5);
                     let render_tx = render_ch.sender();
                     spawn(async move {
-                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom).await;
+                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, config.read().render_quality).await;
                     });
                 },
-                "-"
+                span { class: "bi bi-zoom-out" }
             }
             span { class: "toolbar-zoom-value", "{zoom_percent}%" }
             button {
-                class: "btn--icon",
+                class: "btn btn--ghost btn--sm toolbar-zoom-btn",
                 onclick: move |_| {
                     let new_zoom = (zoom + 0.3_f32).min(5.0);
                     let render_tx = render_ch.sender();
                     spawn(async move {
-                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom).await;
+                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, config.read().render_quality).await;
                     });
                 },
-                "+"
+                span { class: "bi bi-zoom-in" }
             }
         }
     }

@@ -99,11 +99,14 @@ pub fn LibraryPanel() -> Element {
                                         // Pre-cache in background
                                         let full_path = db.resolve_pdf_path(&rel_path).to_string_lossy().to_string();
                                         let render_tx = render_ch.sender();
-                                        let data_dir = config.read().effective_library_path();
-                                        let zoom = config.read().default_zoom;
+                                        let cfg = config.read();
+                                        let data_dir = cfg.effective_library_path();
+                                        let zoom = cfg.default_zoom;
+                                        let quality = cfg.render_quality;
+                                        drop(cfg);
                                         let db_for_cache = db.clone();
                                         spawn(async move {
-                                            crate::state::commands::precache_pdf(&render_tx, &full_path, &data_dir, zoom, paper_id, Some(db_for_cache.conn())).await;
+                                            crate::state::commands::precache_pdf(&render_tx, &full_path, &data_dir, zoom, quality, paper_id, Some(db_for_cache.conn())).await;
                                         });
                                     }
                                     Err(e) => eprintln!("Failed to import {file_name}: {e}"),
@@ -244,37 +247,25 @@ pub fn LibraryPanel() -> Element {
                                                 class: "btn btn--ghost",
                                                 onclick: move |evt| {
                                                     evt.stop_propagation();
+                                                    tracing::info!(paper_id, "Open PDF button clicked");
                                                     if let Some(ref rel_path) = pdf_rel_path {
                                                         let full_path = db_for_view.resolve_pdf_path(rel_path);
                                                         let path_str = full_path.to_string_lossy().to_string();
-                                                        let render_tx = render_ch.sender();
-                                                        let db_clone = db_for_view.clone();
-                                                        let new_tab_id = tabs.with_mut(|m| {
+                                                        tracing::info!(path = %path_str, "Opening PDF");
+                                                        // Create or switch to tab — PdfViewer handles rendering
+                                                        tabs.with_mut(|m| {
                                                             if let Some(idx) = m.find_by_paper_id(paper_id) {
                                                                 let tid = m.tabs[idx].id;
                                                                 m.switch_to(tid);
-                                                                return None;
+                                                            } else {
+                                                                let cfg = config.read();
+                                                                let id = m.next_id();
+                                                                let mut tab = PdfTab::new(id, path_str.clone(), title.clone(), cfg.default_zoom, cfg.page_batch_size);
+                                                                tab.paper_id = Some(paper_id);
+                                                                m.open_tab(tab);
                                                             }
-                                                            let cfg = config.read();
-                                                            let id = m.next_id();
-                                                            let mut tab = PdfTab::new(id, path_str.clone(), title.clone(), cfg.default_zoom, cfg.page_batch_size);
-                                                            tab.paper_id = Some(paper_id);
-                                                            Some(m.open_tab(tab))
                                                         });
                                                         lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
-                                                        if let Some(tab_id) = new_tab_id {
-                                                            spawn(async move {
-                                                                if crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &config.read().effective_library_path()).await.is_ok() {
-                                                                    if let Ok(anns) = crate::db::annotations::list_annotations_for_paper(db_clone.conn(), paper_id).await {
-                                                                        tabs.with_mut(|m| {
-                                                                            if let Some(t) = m.tabs.iter_mut().find(|t| t.id == tab_id) {
-                                                                                t.annotations = anns;
-                                                                            }
-                                                                        });
-                                                                    }
-                                                                }
-                                                            });
-                                                        }
                                                     }
                                                 },
                                                 "Open"
@@ -321,25 +312,19 @@ pub fn LibraryPanel() -> Element {
                                             if let Some(ref rel_path) = pdf_rel {
                                                 let full_path = db_ctx.resolve_pdf_path(rel_path);
                                                 let path_str = full_path.to_string_lossy().to_string();
-                                                let render_tx = render_ch.sender();
-                                                let tab_id = tabs.with_mut(|m| {
+                                                tabs.with_mut(|m| {
                                                     if let Some(idx) = m.find_by_paper_id(pid) {
                                                         let tid = m.tabs[idx].id;
                                                         m.switch_to(tid);
-                                                        return None;
+                                                    } else {
+                                                        let cfg = config.read();
+                                                        let id = m.next_id();
+                                                        let mut tab = PdfTab::new(id, path_str.clone(), paper.title.clone(), cfg.default_zoom, cfg.page_batch_size);
+                                                        tab.paper_id = Some(pid);
+                                                        m.open_tab(tab);
                                                     }
-                                                    let cfg = config.read();
-                                                    let id = m.next_id();
-                                                    let mut tab = PdfTab::new(id, path_str.clone(), paper.title.clone(), cfg.default_zoom, cfg.page_batch_size);
-                                                    tab.paper_id = Some(pid);
-                                                    Some(m.open_tab(tab))
                                                 });
                                                 lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
-                                                if let Some(tab_id) = tab_id {
-                                                    spawn(async move {
-                                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &config.read().effective_library_path()).await;
-                                                    });
-                                                }
                                             }
                                         },
                                     }
