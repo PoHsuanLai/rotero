@@ -12,6 +12,40 @@ pub struct TextSegment {
     pub width: f64,
     pub height: f64,
     pub font_size: f64,
+    /// CSS font-family string derived from the PDF font.
+    pub font_family: String,
+}
+
+/// Map a PDF font name to a CSS font-family string.
+fn pdf_font_to_css(name: &str, is_serif: bool) -> String {
+    let lower = name.to_lowercase();
+
+    // Common PDF font name patterns
+    if lower.contains("times") || lower.contains("palatino") || lower.contains("garamond") {
+        return format!("\"{name}\", serif");
+    }
+    if lower.contains("helvetica") || lower.contains("arial") || lower.contains("opensans") {
+        return format!("\"{name}\", sans-serif");
+    }
+    if lower.contains("courier") || lower.contains("consolas") || lower.contains("mono") {
+        return format!("\"{name}\", monospace");
+    }
+    if lower.contains("symbol") || lower.contains("zapf") {
+        return format!("\"{name}\", symbol");
+    }
+    if lower.contains("cmbx") || lower.contains("cmr") || lower.contains("cmmi")
+        || lower.contains("cmsy") || lower.contains("cmex") || lower.contains("cmti")
+    {
+        // Computer Modern (LaTeX) — serif
+        return format!("\"{name}\", serif");
+    }
+
+    // Fall back to font descriptor flags
+    if is_serif {
+        format!("\"{name}\", serif")
+    } else {
+        format!("\"{name}\", sans-serif")
+    }
 }
 
 /// All extracted text segments for a single page.
@@ -72,8 +106,22 @@ pub fn extract_page_text(
         let width = (right_pts - left_pts) * scale_x;
         let height = (top_pts - bottom_pts) * scale_y;
 
-        // Estimate font size from segment height
         let font_size = height;
+
+        // Get font info from the first character in this segment
+        let font_family = segment.chars()
+            .ok()
+            .and_then(|chars| {
+                let first_char = chars.iter().next()?;
+                let name = first_char.font_name();
+                let is_serif = first_char.font_is_serif();
+                if name.is_empty() {
+                    None
+                } else {
+                    Some(pdf_font_to_css(&name, is_serif))
+                }
+            })
+            .unwrap_or_else(|| "sans-serif".to_string());
 
         if width > 0.0 && height > 0.0 {
             segments.push(TextSegment {
@@ -83,6 +131,7 @@ pub fn extract_page_text(
                 width,
                 height,
                 font_size,
+                font_family,
             });
         }
     }
@@ -148,6 +197,16 @@ pub fn extract_pages_text(
             let height = (top_pts - bottom_pts) * scale_y;
             let font_size = height;
 
+            let font_family = segment.chars()
+                .ok()
+                .and_then(|chars| {
+                    let first_char = chars.iter().next()?;
+                    let name = first_char.font_name();
+                    let is_serif = first_char.font_is_serif();
+                    if name.is_empty() { None } else { Some(pdf_font_to_css(&name, is_serif)) }
+                })
+                .unwrap_or_else(|| "sans-serif".to_string());
+
             if width > 0.0 && height > 0.0 {
                 segments.push(TextSegment {
                     text: seg_text,
@@ -156,6 +215,7 @@ pub fn extract_pages_text(
                     width,
                     height,
                     font_size,
+                    font_family,
                 });
             }
         }
