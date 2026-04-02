@@ -89,17 +89,21 @@ pub fn LibraryPanel() -> Element {
                                     Ok(rel_path) => {
                                         let mut paper = rotero_models::Paper::new(title);
                                         paper.pdf_path = Some(rel_path.clone());
-                                        if let Ok(id) = crate::db::papers::insert_paper(db.conn(), &paper).await {
+                                        let paper_id = if let Ok(id) = crate::db::papers::insert_paper(db.conn(), &paper).await {
                                             paper.id = Some(id);
                                             lib_state.with_mut(|s| s.papers.insert(0, paper));
-                                        }
+                                            Some(id)
+                                        } else {
+                                            None
+                                        };
                                         // Pre-cache in background
                                         let full_path = db.resolve_pdf_path(&rel_path).to_string_lossy().to_string();
                                         let render_tx = render_ch.sender();
                                         let data_dir = config.read().effective_library_path();
                                         let zoom = config.read().default_zoom;
+                                        let db_for_cache = db.clone();
                                         spawn(async move {
-                                            crate::state::commands::precache_pdf(&render_tx, &full_path, &data_dir, zoom).await;
+                                            crate::state::commands::precache_pdf(&render_tx, &full_path, &data_dir, zoom, paper_id, Some(db_for_cache.conn())).await;
                                         });
                                     }
                                     Err(e) => eprintln!("Failed to import {file_name}: {e}"),

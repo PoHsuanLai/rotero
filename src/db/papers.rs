@@ -62,7 +62,7 @@ pub async fn search_papers(conn: &Connection, query: &str) -> Result<Vec<Paper>,
 
 async fn search_papers_fts(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
     let sql = format!(
-        "SELECT {SELECT_COLS} FROM papers WHERE fts_match(title, authors, abstract_text, journal, ?1) LIMIT 50"
+        "SELECT {SELECT_COLS} FROM papers WHERE fts_match(title, authors, abstract_text, journal, fulltext, ?1) LIMIT 50"
     );
     let mut rows = conn.query(&sql, [Value::Text(query.to_string())]).await?;
     let mut papers = Vec::new();
@@ -75,7 +75,7 @@ async fn search_papers_fts(conn: &Connection, query: &str) -> Result<Vec<Paper>,
 async fn search_papers_like(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
     let pattern = format!("%{query}%");
     let sql = format!(
-        "SELECT {SELECT_COLS} FROM papers WHERE title LIKE ?1 OR authors LIKE ?1 OR abstract_text LIKE ?1 OR journal LIKE ?1 OR doi LIKE ?1 ORDER BY date_added DESC LIMIT 50"
+        "SELECT {SELECT_COLS} FROM papers WHERE title LIKE ?1 OR authors LIKE ?1 OR abstract_text LIKE ?1 OR journal LIKE ?1 OR doi LIKE ?1 OR fulltext LIKE ?1 ORDER BY date_added DESC LIMIT 50"
     );
     let mut rows = conn.query(&sql, [Value::Text(pattern)]).await?;
     let mut papers = Vec::new();
@@ -97,6 +97,15 @@ pub async fn set_read(conn: &Connection, id: i64, read: bool) -> Result<(), turs
     conn.execute(
         "UPDATE papers SET is_read = ?1 WHERE id = ?2",
         [Value::Integer(read as i64), Value::Integer(id)],
+    ).await?;
+    Ok(())
+}
+
+/// Store extracted PDF body text for full-text search.
+pub async fn update_paper_fulltext(conn: &Connection, id: i64, text: &str) -> Result<(), turso::Error> {
+    conn.execute(
+        "UPDATE papers SET fulltext = ?1 WHERE id = ?2",
+        turso::params::Params::Positional(vec![Value::Text(text.to_string()), Value::Integer(id)]),
     ).await?;
     Ok(())
 }

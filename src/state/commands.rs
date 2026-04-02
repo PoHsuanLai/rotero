@@ -386,13 +386,15 @@ pub async fn load_outline(
     Ok(())
 }
 
-/// Pre-cache a PDF in the background (render all pages + extract text to disk).
+/// Pre-cache a PDF in the background (render pages + extract text to disk + index fulltext).
 /// Fire-and-forget — does not update any UI state.
 pub async fn precache_pdf(
     render_tx: &mpsc::Sender<RenderRequest>,
     pdf_path: &str,
     data_dir: &std::path::Path,
     zoom: f32,
+    paper_id: Option<i64>,
+    db: Option<&turso::Connection>,
 ) {
     // Skip if already cached
     if crate::cache::load_cached(data_dir, pdf_path, zoom).is_some() {
@@ -435,6 +437,17 @@ pub async fn precache_pdf(
     }
 
     if let Ok(text_data) = recv_reply(text_rx).await {
+        // Concatenate all text segments for full-text search
+        if let (Some(pid), Some(conn)) = (paper_id, db) {
+            let fulltext: String = text_data.values()
+                .flat_map(|td| td.segments.iter().map(|s| s.text.as_str()))
+                .collect::<Vec<_>>()
+                .join(" ");
+            if !fulltext.is_empty() {
+                let _ = crate::db::papers::update_paper_fulltext(conn, pid, &fulltext).await;
+            }
+        }
+
         let dir = data_dir.to_path_buf();
         std::thread::spawn(move || {
             crate::cache::save_text(&dir, &path, &text_data);

@@ -1,6 +1,6 @@
 use turso::Connection;
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 const CREATE_TABLES: &str = "
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS papers (
     date_modified TEXT NOT NULL,
     is_favorite   INTEGER NOT NULL DEFAULT 0,
     is_read       INTEGER NOT NULL DEFAULT 0,
-    extra_meta    TEXT
+    extra_meta    TEXT,
+    fulltext      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS collections (
@@ -76,7 +77,7 @@ CREATE TABLE IF NOT EXISTS notes (
 ";
 
 const CREATE_FTS_INDEX: &str = "
-CREATE INDEX IF NOT EXISTS idx_papers_fts ON papers USING fts (title, authors, abstract_text, journal);
+CREATE INDEX IF NOT EXISTS idx_papers_fts ON papers USING fts (title, authors, abstract_text, journal, fulltext);
 ";
 
 pub async fn initialize_db(conn: &Connection) -> Result<(), turso::Error> {
@@ -108,10 +109,18 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
 
     // Migration from v1 to v2: add is_favorite and is_read columns
     if current_version < 2 {
-        // ALTER TABLE may fail if columns already exist (e.g. fresh DB) — that's fine
         let _ = conn.execute("ALTER TABLE papers ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0", ()).await;
         let _ = conn.execute("ALTER TABLE papers ADD COLUMN is_read INTEGER NOT NULL DEFAULT 0", ()).await;
+    }
 
+    // Migration to v3: add fulltext column for PDF content search
+    if current_version < 3 {
+        let _ = conn.execute("ALTER TABLE papers ADD COLUMN fulltext TEXT", ()).await;
+        // Recreate FTS index to include fulltext
+        let _ = conn.execute("DROP INDEX IF EXISTS idx_papers_fts", ()).await;
+    }
+
+    if current_version < SCHEMA_VERSION {
         conn.execute(
             "UPDATE schema_version SET version = ?1",
             [SCHEMA_VERSION],
