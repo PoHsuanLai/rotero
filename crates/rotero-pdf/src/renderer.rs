@@ -37,6 +37,11 @@ pub struct RenderedPage {
 }
 
 impl PdfEngine {
+    /// Access the underlying Pdfium bindings (for text extraction, etc.)
+    pub fn pdfium(&self) -> &Pdfium {
+        &self.pdfium
+    }
+
     /// Create a new PdfEngine by binding to the PDFium library.
     ///
     /// Resolution order:
@@ -169,4 +174,113 @@ impl PdfEngine {
 
         Ok(pages)
     }
+
+    /// Render all pages as small thumbnails (fixed max width).
+    pub fn render_all_thumbnails(
+        &self,
+        pdf_path: &str,
+        max_width: u32,
+    ) -> Result<Vec<RenderedPage>, PdfError> {
+        let document = self.pdfium.load_pdf_from_file(pdf_path, None)?;
+        let page_count = document.pages().len() as u32;
+        let mut thumbs = Vec::new();
+
+        for i in 0..page_count {
+            let page = document
+                .pages()
+                .get(i as u16)
+                .map_err(|e| PdfError::RenderError(e.to_string()))?;
+
+            let aspect = page.height().value / page.width().value;
+            let target_width = max_width as i32;
+            let target_height = (max_width as f32 * aspect) as i32;
+
+            let render_config = PdfRenderConfig::new()
+                .set_target_width(target_width.max(1))
+                .set_maximum_height(target_height.max(1));
+
+            let bitmap = page
+                .render_with_config(&render_config)
+                .map_err(|e| PdfError::RenderError(e.to_string()))?;
+
+            let image = bitmap.as_image();
+            let img_width = image.width();
+            let img_height = image.height();
+
+            let mut png_bytes: Vec<u8> = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut png_bytes);
+            image.write_to(&mut cursor, ImageFormat::Png)?;
+
+            let base64_png = BASE64.encode(&png_bytes);
+
+            thumbs.push(RenderedPage {
+                page_index: i,
+                base64_png,
+                width: img_width,
+                height: img_height,
+            });
+        }
+
+        Ok(thumbs)
+    }
+
+    /// Extract the document outline/bookmarks.
+    pub fn extract_outline(
+        &self,
+        pdf_path: &str,
+    ) -> Result<Vec<BookmarkEntry>, PdfError> {
+        let document = self.pdfium.load_pdf_from_file(pdf_path, None)?;
+        let bookmarks = document.bookmarks();
+        let mut entries = Vec::new();
+
+        fn collect_bookmarks(
+            iter: &pdfium_render::prelude::PdfBookmarks,
+            entries: &mut Vec<BookmarkEntry>,
+            level: u32,
+        ) {
+            for bookmark in iter.iter() {
+                let title = bookmark.title().unwrap_or_default();
+                let page_index = bookmark.destination()
+                    .and_then(|d| d.page_index().ok())
+                    .map(|i| i as u32);
+
+                entries.push(BookmarkEntry {
+                    title,
+                    page_index,
+                    level,
+                });
+            }
+        }
+
+        collect_bookmarks(&bookmarks, &mut entries, 0);
+        Ok(entries)
+    }
+
+    /// Get page dimensions (in points) for all pages without rendering.
+    pub fn get_page_dimensions(
+        &self,
+        pdf_path: &str,
+    ) -> Result<Vec<(f32, f32)>, PdfError> {
+        let document = self.pdfium.load_pdf_from_file(pdf_path, None)?;
+        let page_count = document.pages().len() as u32;
+        let mut dims = Vec::new();
+
+        for i in 0..page_count {
+            let page = document
+                .pages()
+                .get(i as u16)
+                .map_err(|e| PdfError::RenderError(e.to_string()))?;
+            dims.push((page.width().value, page.height().value));
+        }
+
+        Ok(dims)
+    }
+}
+
+/// A bookmark/outline entry from the PDF.
+#[derive(Debug, Clone)]
+pub struct BookmarkEntry {
+    pub title: String,
+    pub page_index: Option<u32>,
+    pub level: u32,
 }

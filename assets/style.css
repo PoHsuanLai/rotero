@@ -1086,6 +1086,117 @@ body {
   text-align: center;
 }
 
+/* PDF loading overlay */
+.pdf-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  background: var(--bg-pdf-canvas);
+  z-index: 10;
+}
+
+.pdf-loading-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border-default);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.pdf-loading-text {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+/* Thumbnail sidebar */
+.thumbnail-sidebar {
+  width: 140px;
+  min-width: 140px;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-default);
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.thumbnail-item {
+  cursor: pointer;
+  text-align: center;
+  border-radius: var(--radius-sm);
+  padding: var(--space-1);
+  transition: background 0.15s;
+}
+
+.thumbnail-item:hover {
+  background: var(--bg-hover);
+}
+
+.thumbnail-img {
+  display: block;
+  max-width: 120px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.thumbnail-page-num {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  display: block;
+}
+
+/* Outline panel */
+.outline-panel {
+  width: 220px;
+  min-width: 220px;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-default);
+}
+
+.outline-panel-header {
+  padding: var(--space-2) var(--space-3);
+  font-weight: 600;
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.outline-panel-list {
+  padding: var(--space-2) 0;
+}
+
+.outline-entry {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s;
+}
+
+.outline-entry:hover {
+  background: var(--bg-hover);
+}
+
+.outline-page-num {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
 .pdf-load-more {
   padding: var(--space-4);
   text-align: center;

@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use dioxus_elements::HasFileData;
 
 use crate::db::Database;
 use crate::state::app_state::{LibraryState, LibraryView, PdfViewState};
@@ -51,8 +52,58 @@ pub fn LibraryPanel() -> Element {
     // Context menu state: (paper_id, x, y)
     let mut ctx_menu = use_signal(|| None::<(i64, f64, f64)>);
 
+    // Drag and drop state
+    let mut drag_over = use_signal(|| false);
+    let drop_class = if drag_over() { "library-view library-view--dragover" } else { "library-view" };
+
     rsx! {
-        div { class: "library-view",
+        div {
+            class: "{drop_class}",
+            ondragover: move |evt| {
+                evt.prevent_default();
+                drag_over.set(true);
+            },
+            ondragleave: move |_| {
+                drag_over.set(false);
+            },
+            ondrop: move |evt| {
+                drag_over.set(false);
+                if let Some(file_engine) = evt.files() {
+                    let db = db.clone();
+                    spawn(async move {
+                        let files = file_engine.files();
+                        for file_name in files {
+                            if file_name.ends_with(".pdf") {
+                                let title = std::path::Path::new(&file_name)
+                                    .file_stem()
+                                    .map(|s| s.to_string_lossy().to_string())
+                                    .unwrap_or_else(|| "Untitled".to_string());
+
+                                match db.import_pdf(&file_name, Some(&title), None, None) {
+                                    Ok(rel_path) => {
+                                        let mut paper = rotero_models::Paper::new(title);
+                                        paper.pdf_path = Some(rel_path);
+                                        if let Ok(id) = crate::db::papers::insert_paper(db.conn(), &paper).await {
+                                            paper.id = Some(id);
+                                            lib_state.with_mut(|s| s.papers.insert(0, paper));
+                                        }
+                                    }
+                                    Err(e) => eprintln!("Failed to import {file_name}: {e}"),
+                                }
+                            }
+                        }
+                    });
+                }
+            },
+
+            // Drop zone overlay
+            if drag_over() {
+                div { class: "library-drop-overlay",
+                    div { class: "library-drop-message",
+                        "Drop PDF files here to import"
+                    }
+                }
+            }
 
             // Header
             div { class: "library-header",
@@ -180,13 +231,23 @@ pub fn LibraryPanel() -> Element {
                                                         let path_str = full_path.to_string_lossy().to_string();
                                                         let render_tx = render_ch.sender();
                                                         let db_clone = db_for_view.clone();
+                                                        // Switch to viewer immediately with loading state
+                                                        pdf_state.with_mut(|s| {
+                                                            s.pdf_path = Some(path_str.clone());
+                                                            s.is_loading_pages = true;
+                                                        });
+                                                        lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                                         spawn(async move {
                                                             if crate::state::commands::open_pdf(&render_tx, &mut pdf_state, &path_str).await.is_ok() {
-                                                                pdf_state.with_mut(|s| s.paper_id = Some(paper_id));
+                                                                pdf_state.with_mut(|s| {
+                                                                    s.paper_id = Some(paper_id);
+                                                                    s.is_loading_pages = false;
+                                                                });
                                                                 if let Ok(anns) = crate::db::annotations::list_annotations_for_paper(db_clone.conn(), paper_id).await {
                                                                     pdf_state.with_mut(|s| s.annotations = anns);
                                                                 }
-                                                                lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                                            } else {
+                                                                pdf_state.with_mut(|s| s.is_loading_pages = false);
                                                             }
                                                         });
                                                     }
@@ -236,10 +297,19 @@ pub fn LibraryPanel() -> Element {
                                                 let full_path = db_ctx.resolve_pdf_path(rel_path);
                                                 let path_str = full_path.to_string_lossy().to_string();
                                                 let render_tx = render_ch.sender();
+                                                pdf_state.with_mut(|s| {
+                                                    s.pdf_path = Some(path_str.clone());
+                                                    s.is_loading_pages = true;
+                                                });
+                                                lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                                 spawn(async move {
                                                     if crate::state::commands::open_pdf(&render_tx, &mut pdf_state, &path_str).await.is_ok() {
-                                                        pdf_state.with_mut(|s| s.paper_id = Some(pid));
-                                                        lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                                        pdf_state.with_mut(|s| {
+                                                            s.paper_id = Some(pid);
+                                                            s.is_loading_pages = false;
+                                                        });
+                                                    } else {
+                                                        pdf_state.with_mut(|s| s.is_loading_pages = false);
                                                     }
                                                 });
                                             }

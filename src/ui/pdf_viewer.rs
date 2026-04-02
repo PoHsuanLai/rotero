@@ -20,10 +20,13 @@ pub fn PdfViewer() -> Element {
         };
     }
 
+    let is_initial_loading = state.is_loading_pages && state.rendered_pages.is_empty();
     let page_count = state.page_count;
     let zoom = state.zoom;
     let render_zoom = state.render_zoom;
     let show_panel = state.show_annotation_panel;
+    let show_thumbnails = state.show_thumbnails;
+    let show_outline = state.show_outline && !state.outline.is_empty();
     let rendered_count = state.rendered_pages.len() as u32;
     let has_more = rendered_count < page_count;
     let batch_size = state.page_batch_size.unwrap_or(5);
@@ -101,13 +104,48 @@ pub fn PdfViewer() -> Element {
                             });
                         }
                     }
+                    Key::Character(ref c) if c == "f" && evt.modifiers().meta() || c == "f" && evt.modifiers().ctrl() => {
+                        evt.prevent_default();
+                        pdf_state.with_mut(|s| s.show_search_bar = !s.show_search_bar);
+                    }
+                    Key::Escape => {
+                        pdf_state.with_mut(|s| {
+                            if s.show_search_bar {
+                                s.show_search_bar = false;
+                                s.search_query.clear();
+                                s.search_matches.clear();
+                                s.current_match_index = 0;
+                            }
+                        });
+                    }
                     _ => {}
                 }
             },
 
             PdfToolbar { page_count, zoom }
 
+            if state.show_search_bar {
+                PdfSearchBar {}
+            }
+
             div { class: "pdf-content-area",
+                // Thumbnail sidebar (left)
+                if show_thumbnails {
+                    ThumbnailSidebar {}
+                }
+
+                // Outline panel (left, after thumbnails)
+                if show_outline {
+                    OutlinePanel {}
+                }
+
+                if is_initial_loading {
+                    div { class: "pdf-loading-overlay",
+                        div { class: "pdf-loading-spinner" }
+                        div { class: "pdf-loading-text", "Loading PDF..." }
+                    }
+                }
+
                 // Scrollable page area
                 div {
                     class: "pdf-pages",
@@ -201,6 +239,18 @@ fn PdfPageWithOverlay(
         .filter(|a| a.page == page_index as i32)
         .cloned()
         .collect();
+    let text_segments: Vec<rotero_pdf::TextSegment> = state
+        .text_data
+        .get(&page_index)
+        .map(|td| td.segments.clone())
+        .unwrap_or_default();
+    // Collect search match bounds for this page
+    let search_bounds: Vec<(f64, f64, f64, f64)> = state
+        .search_matches
+        .iter()
+        .filter(|m| m.page_index == page_index)
+        .flat_map(|m| m.bounds.iter().copied())
+        .collect();
     drop(state);
 
     let cursor = match mode {
@@ -233,59 +283,147 @@ fn PdfPageWithOverlay(
                 draggable: "false",
             }
 
+            // Text layer: invisible selectable text over page image
+            div {
+                class: "text-layer",
+                style: "width: {width}px; height: {height}px;",
+                for (seg_idx, seg) in text_segments.iter().enumerate() {
+                    span {
+                        key: "text-{page_index}-{seg_idx}",
+                        style: "left: {seg.x}px; top: {seg.y}px; width: {seg.width}px; height: {seg.height}px; font-size: {seg.font_size}px;",
+                        "{seg.text}"
+                    }
+                }
+            }
+
+            // Search match highlights
+            for (si, (sx, sy, sw, sh)) in search_bounds.iter().enumerate() {
+                div {
+                    key: "search-{page_index}-{si}",
+                    style: "position: absolute; left: {sx}px; top: {sy}px; width: {sw}px; height: {sh}px; background: rgba(255, 165, 0, 0.35); pointer-events: none; z-index: 2; border-radius: 2px;",
+                }
+            }
+
             // Annotation overlay: renders existing annotations
             for ann in page_annotations.iter() {
                 {render_annotation(ann)}
             }
 
-            // Clickable overlay for creating new annotations
+            // Interactive overlay for creating annotations
             if mode != AnnotationMode::None {
-                div {
-                    class: "annotation-click-overlay",
-                    onclick: move |evt| {
-                        let coords = evt.element_coordinates();
-                        let x = coords.x as f64;
-                        let y = coords.y as f64;
+                {
+                    let mut drag_start = use_signal(|| None::<(f64, f64)>);
+                    let mut drag_current = use_signal(|| None::<(f64, f64)>);
 
-                        let ann_type = match mode {
-                            AnnotationMode::Highlight => AnnotationType::Highlight,
-                            AnnotationMode::Note => AnnotationType::Note,
-                            AnnotationMode::None => return,
-                        };
-
-                        let geometry = serde_json::json!({
-                            "x": x,
-                            "y": y,
-                            "width": if ann_type == AnnotationType::Highlight { 200.0 } else { 24.0 },
-                            "height": if ann_type == AnnotationType::Highlight { 20.0 } else { 24.0 },
-                            "page_width": width,
-                            "page_height": height,
-                        });
-
-                        let now = chrono::Utc::now();
-                        let ann = Annotation {
-                            id: None,
-                            paper_id,
-                            page: page_index as i32,
-                            ann_type,
-                            color: color.clone(),
-                            content: if ann_type == AnnotationType::Note { Some(String::new()) } else { None },
-                            geometry,
-                            created_at: now,
-                            modified_at: now,
-                        };
-
-                        let db = db.clone();
-                        spawn(async move {
-                            if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), &ann).await {
-                                let mut ann = ann;
-                                ann.id = Some(id);
-                                pdf_state.with_mut(|s| {
-                                    s.annotations.push(ann);
-                                });
+                    // Compute drag preview rect
+                    let drag_rect = if mode == AnnotationMode::Highlight {
+                        if let (Some(start), Some(current)) = (drag_start(), drag_current()) {
+                            let x = start.0.min(current.0);
+                            let y = start.1.min(current.1);
+                            let w = (start.0 - current.0).abs();
+                            let h = (start.1 - current.1).abs();
+                            if w > 2.0 || h > 2.0 {
+                                Some((x, y, w, h))
+                            } else {
+                                None
                             }
-                        });
-                    },
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    rsx! {
+                        // Drag preview rectangle
+                        if let Some((rx, ry, rw, rh)) = drag_rect {
+                            div {
+                                style: "position: absolute; left: {rx}px; top: {ry}px; width: {rw}px; height: {rh}px; background: {color}; opacity: 0.3; pointer-events: none; z-index: 5; border-radius: 2px;",
+                            }
+                        }
+
+                        div {
+                            class: "annotation-click-overlay",
+                            onmousedown: move |evt| {
+                                if mode == AnnotationMode::Highlight {
+                                    let coords = evt.element_coordinates();
+                                    drag_start.set(Some((coords.x, coords.y)));
+                                    drag_current.set(Some((coords.x, coords.y)));
+                                }
+                            },
+                            onmousemove: move |evt| {
+                                if mode == AnnotationMode::Highlight && drag_start().is_some() {
+                                    let coords = evt.element_coordinates();
+                                    drag_current.set(Some((coords.x, coords.y)));
+                                }
+                            },
+                            onmouseup: move |evt| {
+                                let coords = evt.element_coordinates();
+                                let x = coords.x;
+                                let y = coords.y;
+
+                                let (ann_type, geometry) = match mode {
+                                    AnnotationMode::Highlight => {
+                                        if let Some(start) = drag_start() {
+                                            let rx = start.0.min(x);
+                                            let ry = start.1.min(y);
+                                            let rw = (start.0 - x).abs();
+                                            let rh = (start.1 - y).abs();
+                                            // Minimum size check
+                                            if rw < 5.0 && rh < 5.0 {
+                                                drag_start.set(None);
+                                                drag_current.set(None);
+                                                return;
+                                            }
+                                            (AnnotationType::Highlight, serde_json::json!({
+                                                "x": rx, "y": ry, "width": rw, "height": rh,
+                                                "page_width": width, "page_height": height,
+                                            }))
+                                        } else {
+                                            return;
+                                        }
+                                    }
+                                    AnnotationMode::Note => {
+                                        (AnnotationType::Note, serde_json::json!({
+                                            "x": x, "y": y, "width": 24.0, "height": 24.0,
+                                            "page_width": width, "page_height": height,
+                                        }))
+                                    }
+                                    AnnotationMode::None => return,
+                                };
+
+                                drag_start.set(None);
+                                drag_current.set(None);
+
+                                let now = chrono::Utc::now();
+                                let ann = Annotation {
+                                    id: None,
+                                    paper_id,
+                                    page: page_index as i32,
+                                    ann_type,
+                                    color: color.clone(),
+                                    content: if ann_type == AnnotationType::Note { Some(String::new()) } else { None },
+                                    geometry,
+                                    created_at: now,
+                                    modified_at: now,
+                                };
+
+                                let db = db.clone();
+                                spawn(async move {
+                                    if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), &ann).await {
+                                        let mut ann = ann;
+                                        ann.id = Some(id);
+                                        pdf_state.with_mut(|s| {
+                                            s.annotations.push(ann);
+                                        });
+                                    }
+                                });
+                            },
+                            onclick: move |_| {
+                                // Note creation is handled in onmouseup
+                            },
+                        }
+                    }
                 }
             }
         }
@@ -423,6 +561,38 @@ fn PdfToolbar(page_count: u32, zoom: f32) -> Element {
             }
 
             div { class: "toolbar-spacer" }
+
+            // Toggle thumbnails
+            button {
+                class: "btn btn--ghost",
+                onclick: move |_| {
+                    let render_tx = render_ch.sender();
+                    pdf_state.with_mut(|s| s.show_thumbnails = !s.show_thumbnails);
+                    // Load thumbnails if not yet loaded
+                    if pdf_state.read().thumbnails.is_empty() {
+                        spawn(async move {
+                            let _ = crate::state::commands::load_thumbnails(&render_tx, &mut pdf_state).await;
+                        });
+                    }
+                },
+                "Pages"
+            }
+
+            // Toggle outline
+            button {
+                class: "btn btn--ghost",
+                onclick: move |_| {
+                    let render_tx = render_ch.sender();
+                    pdf_state.with_mut(|s| s.show_outline = !s.show_outline);
+                    // Load outline if not yet loaded
+                    if pdf_state.read().outline.is_empty() {
+                        spawn(async move {
+                            let _ = crate::state::commands::load_outline(&render_tx, &mut pdf_state).await;
+                        });
+                    }
+                },
+                "TOC"
+            }
 
             // Toggle annotations panel
             button {
@@ -588,6 +758,214 @@ fn AnnotationPanel() -> Element {
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Search bar for finding text in the PDF.
+#[component]
+fn PdfSearchBar() -> Element {
+    let mut pdf_state = use_context::<Signal<PdfViewState>>();
+    let state = pdf_state.read();
+    let query = state.search_query.clone();
+    let match_count = state.search_matches.len();
+    let current_idx = state.current_match_index;
+    drop(state);
+
+    rsx! {
+        div { class: "pdf-search-bar",
+            input {
+                class: "pdf-search-input",
+                r#type: "text",
+                placeholder: "Search in PDF...",
+                value: "{query}",
+                oninput: move |evt| {
+                    let new_query = evt.value();
+                    pdf_state.with_mut(|s| {
+                        s.search_query = new_query.clone();
+                        // Search in existing text data
+                        let text_data: Vec<_> = s.text_data.values().cloned().collect();
+                        s.search_matches = rotero_pdf::text_extract::search_in_text_data(&text_data, &new_query);
+                        s.current_match_index = 0;
+                    });
+                },
+                onkeydown: move |evt| {
+                    if evt.key() == Key::Enter {
+                        // Go to next match
+                        pdf_state.with_mut(|s| {
+                            if !s.search_matches.is_empty() {
+                                s.current_match_index = (s.current_match_index + 1) % s.search_matches.len();
+                            }
+                        });
+                        // Scroll to current match
+                        let state = pdf_state.read();
+                        if let Some(m) = state.search_matches.get(state.current_match_index) {
+                            let page_idx = m.page_index;
+                            drop(state);
+                            spawn(async move {
+                                let js = format!(
+                                    r#"
+                                    let pages = document.querySelectorAll('.pdf-page-wrapper');
+                                    if (pages[{page_idx}]) {{
+                                        pages[{page_idx}].scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                                    }}
+                                    "#
+                                );
+                                let _ = document::eval(&js);
+                            });
+                        }
+                    } else if evt.key() == Key::Escape {
+                        pdf_state.with_mut(|s| {
+                            s.show_search_bar = false;
+                            s.search_query.clear();
+                            s.search_matches.clear();
+                            s.current_match_index = 0;
+                        });
+                    }
+                },
+                onmounted: move |evt| {
+                    let _ = evt.data().set_focus(true);
+                },
+            }
+
+            if match_count > 0 {
+                span { class: "pdf-search-count",
+                    "{current_idx + 1}/{match_count}"
+                }
+            }
+
+            button {
+                class: "btn--icon",
+                onclick: move |_| {
+                    pdf_state.with_mut(|s| {
+                        if !s.search_matches.is_empty() {
+                            if s.current_match_index == 0 {
+                                s.current_match_index = s.search_matches.len() - 1;
+                            } else {
+                                s.current_match_index -= 1;
+                            }
+                        }
+                    });
+                },
+                "\u{2191}" // up arrow
+            }
+            button {
+                class: "btn--icon",
+                onclick: move |_| {
+                    pdf_state.with_mut(|s| {
+                        if !s.search_matches.is_empty() {
+                            s.current_match_index = (s.current_match_index + 1) % s.search_matches.len();
+                        }
+                    });
+                },
+                "\u{2193}" // down arrow
+            }
+            button {
+                class: "btn--icon",
+                onclick: move |_| {
+                    pdf_state.with_mut(|s| {
+                        s.show_search_bar = false;
+                        s.search_query.clear();
+                        s.search_matches.clear();
+                        s.current_match_index = 0;
+                    });
+                },
+                "\u{00d7}" // x
+            }
+        }
+    }
+}
+
+/// Sidebar showing page thumbnails for quick navigation.
+#[component]
+fn ThumbnailSidebar() -> Element {
+    let pdf_state = use_context::<Signal<PdfViewState>>();
+    let state = pdf_state.read();
+    let thumbnails = state.thumbnails.clone();
+    drop(state);
+
+    rsx! {
+        div { class: "thumbnail-sidebar",
+            for thumb in thumbnails.iter() {
+                {
+                    let page_idx = thumb.page_index;
+                    let base64 = thumb.base64_png.clone();
+                    let w = thumb.width;
+                    let h = thumb.height;
+                    let page_num = page_idx + 1;
+                    rsx! {
+                        div {
+                            key: "thumb-{page_idx}",
+                            class: "thumbnail-item",
+                            onclick: move |_| {
+                                spawn(async move {
+                                    let js = format!(
+                                        "let pages = document.querySelectorAll('.pdf-page-wrapper'); if (pages[{page_idx}]) {{ pages[{page_idx}].scrollIntoView({{ behavior: 'smooth', block: 'start' }}); }}"
+                                    );
+                                    let _ = document::eval(&js);
+                                });
+                            },
+                            img {
+                                class: "thumbnail-img",
+                                src: "data:image/png;base64,{base64}",
+                                width: "{w}",
+                                height: "{h}",
+                            }
+                            span { class: "thumbnail-page-num", "{page_num}" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Panel showing the PDF document outline/table of contents.
+#[component]
+fn OutlinePanel() -> Element {
+    let pdf_state = use_context::<Signal<PdfViewState>>();
+    let state = pdf_state.read();
+    let outline = state.outline.clone();
+    drop(state);
+
+    rsx! {
+        div { class: "outline-panel",
+            div { class: "outline-panel-header", "Table of Contents" }
+            div { class: "outline-panel-list",
+                for (idx, entry) in outline.iter().enumerate() {
+                    {
+                        let indent = entry.level as f64 * 16.0;
+                        let page_idx = entry.page_index;
+                        let title = entry.title.clone();
+                        rsx! {
+                            div {
+                                key: "outline-{idx}",
+                                class: "outline-entry",
+                                style: "padding-left: {indent}px;",
+                                onclick: move |_| {
+                                    if let Some(pi) = page_idx {
+                                        spawn(async move {
+                                            let js = format!(
+                                                r#"
+                                                let pages = document.querySelectorAll('.pdf-page-wrapper');
+                                                if (pages[{pi}]) {{
+                                                    pages[{pi}].scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+                                                }}
+                                                "#
+                                            );
+                                            let _ = document::eval(&js);
+                                        });
+                                    }
+                                },
+                                "{title}"
+                                if let Some(pi) = page_idx {
+                                    span { class: "outline-page-num", " p.{pi + 1}" }
                                 }
                             }
                         }

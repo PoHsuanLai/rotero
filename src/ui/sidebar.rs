@@ -417,13 +417,22 @@ fn OpenPdfButton() -> Element {
                 if let Some(path) = file {
                     let path_str = path.to_string_lossy().to_string();
                     let render_tx = render_ch.sender();
+                    // Show viewer immediately with loading state
+                    pdf_state.with_mut(|s| {
+                        s.pdf_path = Some(path_str.clone());
+                        s.is_loading_pages = true;
+                    });
+                    lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                     spawn(async move {
                         match crate::state::commands::open_pdf(&render_tx, &mut pdf_state, &path_str).await {
                             Ok(()) => {
-                                lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                pdf_state.with_mut(|s| s.is_loading_pages = false);
                                 error_msg.set(None);
                             }
-                            Err(e) => error_msg.set(Some(format!("Failed: {e}"))),
+                            Err(e) => {
+                                pdf_state.with_mut(|s| s.is_loading_pages = false);
+                                error_msg.set(Some(format!("Failed: {e}")));
+                            }
                         }
                     });
                 }

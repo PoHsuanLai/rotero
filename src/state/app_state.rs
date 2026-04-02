@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use rotero_models::{Annotation, Collection, Paper, Tag};
-use rotero_pdf::RenderedPage;
+use rotero_pdf::{BookmarkEntry, PageTextData, RenderedPage, SearchMatch};
 
 /// Tracks which PDF is currently open and its rendered pages.
 #[derive(Debug, Clone, Default)]
@@ -13,15 +15,30 @@ pub struct PdfViewState {
     /// May differ from `zoom` during progressive zoom (CSS scaling).
     pub render_zoom: f32,
     pub rendered_pages: Vec<RenderedPageData>,
+    /// Extracted text data per page (keyed by page index).
+    pub text_data: HashMap<u32, PageTextData>,
     pub annotations: Vec<Annotation>,
     pub annotation_mode: AnnotationMode,
     pub annotation_color: String,
     pub show_annotation_panel: bool,
     pub page_batch_size: Option<u32>,
     pub is_loading_pages: bool,
+    /// Text search state
+    pub show_search_bar: bool,
+    pub search_query: String,
+    pub search_matches: Vec<SearchMatch>,
+    pub current_match_index: usize,
+    /// Thumbnails for page navigation sidebar
+    pub thumbnails: Vec<RenderedPageData>,
+    pub show_thumbnails: bool,
+    /// Document outline/bookmarks
+    pub outline: Vec<BookmarkEntry>,
+    pub show_outline: bool,
+    /// Page dimensions in points (for virtualization)
+    pub page_dimensions: Vec<(f32, f32)>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum AnnotationMode {
     #[default]
     None,

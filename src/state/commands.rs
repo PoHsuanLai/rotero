@@ -1,8 +1,16 @@
+use std::collections::HashMap;
 use std::sync::mpsc;
 
 use dioxus::prelude::*;
+use rotero_pdf::PageTextData;
 
 use super::app_state::{PdfViewState, RenderedPageData};
+
+/// Result of rendering pages: page data + text data.
+pub struct RenderResult {
+    pub pages: Vec<RenderedPageData>,
+    pub text_data: HashMap<u32, PageTextData>,
+}
 
 /// A request to the PDF render thread.
 pub enum RenderRequest {
@@ -10,20 +18,32 @@ pub enum RenderRequest {
         pdf_path: String,
         zoom: f32,
         batch_size: u32,
-        reply: mpsc::Sender<Result<(u32, Vec<RenderedPageData>), String>>,
+        reply: mpsc::Sender<Result<(u32, RenderResult), String>>,
     },
     RenderMorePages {
         pdf_path: String,
         start: u32,
         count: u32,
         zoom: f32,
-        reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
+        reply: mpsc::Sender<Result<RenderResult, String>>,
     },
     SetZoom {
         pdf_path: String,
         page_count: u32,
         new_zoom: f32,
+        reply: mpsc::Sender<Result<RenderResult, String>>,
+    },
+    RenderThumbnails {
+        pdf_path: String,
         reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
+    },
+    ExtractOutline {
+        pdf_path: String,
+        reply: mpsc::Sender<Result<Vec<rotero_pdf::BookmarkEntry>, String>>,
+    },
+    GetPageDimensions {
+        pdf_path: String,
+        reply: mpsc::Sender<Result<Vec<(f32, f32)>, String>>,
     },
 }
 
@@ -52,7 +72,15 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                             .map_err(|e| e.to_string())?;
                         let pages: Vec<RenderedPageData> =
                             rendered.into_iter().map(|r| r.into()).collect();
-                        Ok((info.page_count, pages))
+
+                        // Extract text for rendered pages
+                        let text_pages = rotero_pdf::text_extract::extract_pages_text(
+                            engine.pdfium(), &pdf_path, 0, render_count, zoom,
+                        ).unwrap_or_default();
+                        let text_data: HashMap<u32, PageTextData> =
+                            text_pages.into_iter().map(|t| (t.page_index, t)).collect();
+
+                        Ok((info.page_count, RenderResult { pages, text_data }))
                     })();
                     let _ = reply.send(result);
                 }
@@ -61,7 +89,16 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                         let rendered = engine
                             .render_pages(&pdf_path, start, count, zoom)
                             .map_err(|e| e.to_string())?;
-                        Ok(rendered.into_iter().map(|r| r.into()).collect::<Vec<RenderedPageData>>())
+                        let pages: Vec<RenderedPageData> =
+                            rendered.into_iter().map(|r| r.into()).collect();
+
+                        let text_pages = rotero_pdf::text_extract::extract_pages_text(
+                            engine.pdfium(), &pdf_path, start, count, zoom,
+                        ).unwrap_or_default();
+                        let text_data: HashMap<u32, PageTextData> =
+                            text_pages.into_iter().map(|t| (t.page_index, t)).collect();
+
+                        Ok(RenderResult { pages, text_data })
                     })();
                     let _ = reply.send(result);
                 }
@@ -70,8 +107,38 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                         let rendered = engine
                             .render_pages(&pdf_path, 0, page_count, new_zoom)
                             .map_err(|e| e.to_string())?;
+                        let pages: Vec<RenderedPageData> =
+                            rendered.into_iter().map(|r| r.into()).collect();
+
+                        let text_pages = rotero_pdf::text_extract::extract_pages_text(
+                            engine.pdfium(), &pdf_path, 0, page_count, new_zoom,
+                        ).unwrap_or_default();
+                        let text_data: HashMap<u32, PageTextData> =
+                            text_pages.into_iter().map(|t| (t.page_index, t)).collect();
+
+                        Ok(RenderResult { pages, text_data })
+                    })();
+                    let _ = reply.send(result);
+                }
+                RenderRequest::RenderThumbnails { pdf_path, reply } => {
+                    let result = (|| {
+                        let rendered = engine
+                            .render_all_thumbnails(&pdf_path, 120)
+                            .map_err(|e| e.to_string())?;
                         Ok(rendered.into_iter().map(|r| r.into()).collect::<Vec<RenderedPageData>>())
                     })();
+                    let _ = reply.send(result);
+                }
+                RenderRequest::ExtractOutline { pdf_path, reply } => {
+                    let result = engine
+                        .extract_outline(&pdf_path)
+                        .map_err(|e| e.to_string());
+                    let _ = reply.send(result);
+                }
+                RenderRequest::GetPageDimensions { pdf_path, reply } => {
+                    let result = engine
+                        .get_page_dimensions(&pdf_path)
+                        .map_err(|e| e.to_string());
                     let _ = reply.send(result);
                 }
             }
@@ -101,8 +168,7 @@ pub async fn open_pdf(
         })
         .map_err(|e| e.to_string())?;
 
-    // Poll the channel without blocking the UI thread
-    let (page_count, pages) = tokio::task::spawn_blocking(move || reply_rx.recv())
+    let (page_count, result) = tokio::task::spawn_blocking(move || reply_rx.recv())
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())??;
@@ -113,7 +179,8 @@ pub async fn open_pdf(
         current_page: 0,
         zoom,
         render_zoom: zoom,
-        rendered_pages: pages,
+        rendered_pages: result.pages,
+        text_data: result.text_data,
         ..PdfViewState::new()
     });
 
@@ -147,13 +214,14 @@ pub async fn render_more_pages(
         })
         .map_err(|e| e.to_string())?;
 
-    let new_pages = tokio::task::spawn_blocking(move || reply_rx.recv())
+    let result = tokio::task::spawn_blocking(move || reply_rx.recv())
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())??;
 
     state.with_mut(|s| {
-        s.rendered_pages.extend(new_pages);
+        s.rendered_pages.extend(result.pages);
+        s.text_data.extend(result.text_data);
     });
 
     Ok(())
@@ -187,15 +255,97 @@ pub async fn set_zoom(
         })
         .map_err(|e| e.to_string())?;
 
-    let pages = tokio::task::spawn_blocking(move || reply_rx.recv())
+    let result = tokio::task::spawn_blocking(move || reply_rx.recv())
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())??;
 
     state.with_mut(|s| {
         s.render_zoom = new_zoom;
-        s.rendered_pages = pages;
+        s.rendered_pages = result.pages;
+        s.text_data = result.text_data;
     });
 
+    Ok(())
+}
+
+/// Load thumbnails for all pages (async, off main thread).
+pub async fn load_thumbnails(
+    render_tx: &mpsc::Sender<RenderRequest>,
+    state: &mut Signal<PdfViewState>,
+) -> Result<(), String> {
+    let pdf_path = state.read().pdf_path.clone();
+    let Some(pdf_path) = pdf_path else {
+        return Ok(());
+    };
+
+    let (reply_tx, reply_rx) = mpsc::channel();
+    render_tx
+        .send(RenderRequest::RenderThumbnails {
+            pdf_path,
+            reply: reply_tx,
+        })
+        .map_err(|e| e.to_string())?;
+
+    let thumbnails = tokio::task::spawn_blocking(move || reply_rx.recv())
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())??;
+
+    state.with_mut(|s| s.thumbnails = thumbnails);
+    Ok(())
+}
+
+/// Extract outline/bookmarks (async, off main thread).
+pub async fn load_outline(
+    render_tx: &mpsc::Sender<RenderRequest>,
+    state: &mut Signal<PdfViewState>,
+) -> Result<(), String> {
+    let pdf_path = state.read().pdf_path.clone();
+    let Some(pdf_path) = pdf_path else {
+        return Ok(());
+    };
+
+    let (reply_tx, reply_rx) = mpsc::channel();
+    render_tx
+        .send(RenderRequest::ExtractOutline {
+            pdf_path,
+            reply: reply_tx,
+        })
+        .map_err(|e| e.to_string())?;
+
+    let outline = tokio::task::spawn_blocking(move || reply_rx.recv())
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())??;
+
+    state.with_mut(|s| s.outline = outline);
+    Ok(())
+}
+
+/// Get page dimensions for virtualization (async, off main thread).
+pub async fn load_page_dimensions(
+    render_tx: &mpsc::Sender<RenderRequest>,
+    state: &mut Signal<PdfViewState>,
+) -> Result<(), String> {
+    let pdf_path = state.read().pdf_path.clone();
+    let Some(pdf_path) = pdf_path else {
+        return Ok(());
+    };
+
+    let (reply_tx, reply_rx) = mpsc::channel();
+    render_tx
+        .send(RenderRequest::GetPageDimensions {
+            pdf_path,
+            reply: reply_tx,
+        })
+        .map_err(|e| e.to_string())?;
+
+    let dims = tokio::task::spawn_blocking(move || reply_rx.recv())
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())??;
+
+    state.with_mut(|s| s.page_dimensions = dims);
     Ok(())
 }

@@ -1,6 +1,6 @@
 use turso::Connection;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 const CREATE_TABLES: &str = "
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -82,24 +82,56 @@ CREATE INDEX IF NOT EXISTS idx_papers_fts ON papers USING fts (title, authors, a
 pub async fn initialize_db(conn: &Connection) -> Result<(), turso::Error> {
     conn.execute_batch(CREATE_TABLES).await?;
 
-    // Create FTS index (turso-specific, tantivy-powered)
-    // This may fail on first run if turso doesn't support it yet — that's OK
+    // Run migrations for existing databases
+    run_migrations(conn).await?;
+
+    // Create FTS index (turso-specific)
     if let Err(e) = conn.execute_batch(CREATE_FTS_INDEX).await {
-        eprintln!("FTS index creation skipped (may not be supported yet): {e}");
+        eprintln!("FTS index creation skipped: {e}");
     }
 
-    // Check/set schema version
-    let mut rows = conn
-        .query("SELECT version FROM schema_version LIMIT 1", ())
-        .await?;
+    Ok(())
+}
 
-    if rows.next().await?.is_none() {
+async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
+    let current_version = get_schema_version(conn).await;
+
+    if current_version < 1 {
+        // Fresh database — just set the version
         conn.execute(
             "INSERT INTO schema_version (version) VALUES (?1)",
+            [SCHEMA_VERSION],
+        )
+        .await?;
+        return Ok(());
+    }
+
+    // Migration from v1 to v2: add is_favorite and is_read columns
+    if current_version < 2 {
+        // ALTER TABLE may fail if columns already exist (e.g. fresh DB) — that's fine
+        let _ = conn.execute("ALTER TABLE papers ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0", ()).await;
+        let _ = conn.execute("ALTER TABLE papers ADD COLUMN is_read INTEGER NOT NULL DEFAULT 0", ()).await;
+
+        conn.execute(
+            "UPDATE schema_version SET version = ?1",
             [SCHEMA_VERSION],
         )
         .await?;
     }
 
     Ok(())
+}
+
+async fn get_schema_version(conn: &Connection) -> i64 {
+    let result = conn.query("SELECT version FROM schema_version LIMIT 1", ()).await;
+    match result {
+        Ok(mut rows) => {
+            if let Ok(Some(row)) = rows.next().await {
+                row.get_value(0).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0)
+            } else {
+                0
+            }
+        }
+        Err(_) => 0,
+    }
 }
