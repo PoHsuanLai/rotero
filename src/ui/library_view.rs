@@ -12,27 +12,61 @@ pub fn LibraryPanel() -> Element {
     let db = use_context::<Database>();
     let state = lib_state.read();
 
-    let display_papers = state.search_results.as_ref().unwrap_or(&state.papers);
     let is_searching = state.search_results.is_some();
+
+    let filtered: Vec<_> = if is_searching {
+        state.search_results.as_ref().unwrap().clone()
+    } else {
+        match &state.view {
+            LibraryView::AllPapers => state.papers.clone(),
+            LibraryView::RecentlyAdded => {
+                let mut p = state.papers.clone();
+                p.sort_by(|a, b| b.date_added.cmp(&a.date_added));
+                p.truncate(20);
+                p
+            }
+            LibraryView::Favorites => state.papers.iter().filter(|p| p.is_favorite).cloned().collect(),
+            LibraryView::Unread => state.papers.iter().filter(|p| !p.is_read).cloned().collect(),
+            _ => state.papers.clone(),
+        }
+    };
+
+    let view_title = if is_searching {
+        "Search Results"
+    } else {
+        match &state.view {
+            LibraryView::AllPapers => "All Papers",
+            LibraryView::RecentlyAdded => "Recently Added",
+            LibraryView::Favorites => "Favorites",
+            LibraryView::Unread => "Unread",
+            LibraryView::Collection(_) => "Collection",
+            _ => "Papers",
+        }
+    };
+
+    let paper_count = filtered.len();
 
     rsx! {
         div { class: "library-view",
 
             // Header
             div { class: "library-header",
-                h2 { class: "library-title",
-                    if is_searching { "Search Results" } else { "All Papers" }
+                div { class: "library-header-left",
+                    h2 { class: "library-title", "{view_title}" }
+                    span { class: "library-count", "{paper_count} papers" }
                 }
-                ImportExportButtons {}
-                AddPaperButton {}
+                div { class: "library-header-right",
+                    ImportExportButtons {}
+                    AddPaperButton {}
+                }
             }
 
             // Search bar
             SearchBar {}
 
             // Paper list
-            div { class: "library-table-scroll",
-                if display_papers.is_empty() {
+            div { class: "library-list",
+                if filtered.is_empty() {
                     div { class: "library-empty",
                         if is_searching {
                             p { class: "library-empty-heading", "No results found" }
@@ -43,15 +77,7 @@ pub fn LibraryPanel() -> Element {
                         }
                     }
                 } else {
-                    // Table header
-                    div { class: "library-table-header",
-                        span { "Title" }
-                        span { "Authors" }
-                        span { "Year" }
-                        span { "Actions" }
-                    }
-                    // Paper rows
-                    for paper in display_papers.iter() {
+                    for paper in filtered.iter() {
                         {
                             let paper_id = paper.id.unwrap_or(0);
                             let title = paper.title.clone();
@@ -64,14 +90,18 @@ pub fn LibraryPanel() -> Element {
                                 format!("{} et al.", paper.authors[0])
                             };
                             let year = paper.year.map(|y| y.to_string()).unwrap_or_default();
+                            let journal = paper.journal.clone().unwrap_or_default();
                             let has_pdf = paper.pdf_path.is_some();
+                            let is_read = paper.is_read;
+                            let is_fav = paper.is_favorite;
                             let selected = state.selected_paper_id == Some(paper_id);
                             let row_class = if selected {
-                                "library-row library-row--selected"
+                                "library-card library-card--selected"
                             } else {
-                                "library-row"
+                                "library-card"
                             };
                             let db_for_view = db.clone();
+                            let db_for_fav = db.clone();
 
                             rsx! {
                                 div {
@@ -82,10 +112,54 @@ pub fn LibraryPanel() -> Element {
                                             s.selected_paper_id = Some(paper_id);
                                         });
                                     },
-                                    span { class: "library-paper-title", "{title}" }
-                                    span { class: "library-paper-authors", "{authors}" }
-                                    span { class: "library-paper-year", "{year}" }
-                                    div { class: "library-actions",
+
+                                    // Left: read indicator
+                                    div { class: "library-card-indicator",
+                                        if !is_read {
+                                            div { class: "library-unread-dot" }
+                                        }
+                                    }
+
+                                    // Center: paper info
+                                    div { class: "library-card-body",
+                                        div { class: "library-card-title", "{title}" }
+                                        div { class: "library-card-meta",
+                                            span { class: "library-card-authors", "{authors}" }
+                                            if !year.is_empty() {
+                                                span { class: "library-card-sep", "\u{00b7}" }
+                                                span { class: "library-card-year", "{year}" }
+                                            }
+                                            if !journal.is_empty() {
+                                                span { class: "library-card-sep", "\u{00b7}" }
+                                                span { class: "library-card-journal", "{journal}" }
+                                            }
+                                        }
+                                    }
+
+                                    // Right: actions
+                                    div { class: "library-card-actions",
+                                        // Favorite toggle
+                                        button {
+                                            class: if is_fav { "library-fav-btn library-fav-btn--active" } else { "library-fav-btn" },
+                                            title: if is_fav { "Unfavorite" } else { "Favorite" },
+                                            onclick: move |evt| {
+                                                evt.stop_propagation();
+                                                let db = db_for_fav.clone();
+                                                let new_val = !is_fav;
+                                                spawn(async move {
+                                                    if let Ok(()) = crate::db::papers::set_favorite(db.conn(), paper_id, new_val).await {
+                                                        lib_state.with_mut(|s| {
+                                                            if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(paper_id)) {
+                                                                p.is_favorite = new_val;
+                                                            }
+                                                        });
+                                                    }
+                                                });
+                                            },
+                                            i { class: if is_fav { "bi bi-star-fill" } else { "bi bi-star" } }
+                                        }
+
+                                        // View PDF
                                         if has_pdf {
                                             button {
                                                 class: "btn btn--ghost",
@@ -108,7 +182,7 @@ pub fn LibraryPanel() -> Element {
                                                         }
                                                     }
                                                 },
-                                                "View"
+                                                "Open"
                                             }
                                         }
                                     }
