@@ -14,6 +14,7 @@ pub struct PdfViewState {
     pub annotation_mode: AnnotationMode,
     pub annotation_color: String,
     pub show_annotation_panel: bool,
+    pub page_batch_size: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -71,6 +72,9 @@ pub struct LibraryState {
 pub enum LibraryView {
     #[default]
     AllPapers,
+    RecentlyAdded,
+    Favorites,
+    Unread,
     Collection(i64),
     PdfViewer,
 }

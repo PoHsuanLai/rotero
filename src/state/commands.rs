@@ -15,8 +15,9 @@ pub fn open_pdf(
 
     let zoom = state.read().zoom;
 
-    // Render first batch of pages (up to 5 initially)
-    let render_count = info.page_count.min(5);
+    // Render first batch of pages
+    let batch_size = state.read().page_batch_size.unwrap_or(5);
+    let render_count = info.page_count.min(batch_size);
     let rendered = engine
         .render_pages(pdf_path, 0, render_count, zoom)
         .map_err(|e| e.to_string())?;

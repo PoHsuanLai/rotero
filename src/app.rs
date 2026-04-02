@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 use crate::db::Database;
 use crate::state::app_state::{LibraryState, PdfViewState};
+use crate::sync::engine::SyncConfig;
 use crate::ui::layout::Layout;
 
 const FONTS_CSS: &str = include_str!("../assets/fonts.css");
@@ -9,8 +10,19 @@ const STYLE_CSS: &str = include_str!("../assets/style.css");
 
 #[component]
 pub fn App() -> Element {
-    // Provide global state to all components
-    use_context_provider(|| Signal::new(PdfViewState::new()));
+    // Load config and provide as context
+    let config = use_context_provider(|| Signal::new(SyncConfig::load()));
+
+    // Provide global state to all components, using config defaults
+    use_context_provider(|| {
+        let cfg = config.read();
+        Signal::new(PdfViewState {
+            zoom: cfg.default_zoom,
+            annotation_color: cfg.default_annotation_color.clone(),
+            page_batch_size: Some(cfg.page_batch_size),
+            ..Default::default()
+        })
+    });
     use_context_provider(|| Signal::new(LibraryState::default()));
 
     // Initialize database asynchronously

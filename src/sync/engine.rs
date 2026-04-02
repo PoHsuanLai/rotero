@@ -1,18 +1,64 @@
 use std::path::{Path, PathBuf};
 
-/// Configuration for library sync.
+/// Application configuration, persisted to config.json.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SyncConfig {
     /// Custom library path (if set, overrides default app data dir).
-    /// When pointed at a cloud-synced folder (Dropbox, iCloud, OneDrive),
-    /// the library syncs automatically across devices.
+    #[serde(default)]
     pub library_path: Option<String>,
+
+    /// Default PDF zoom level (e.g. 0.75, 1.0, 1.5, 2.0, 3.0).
+    #[serde(default = "default_zoom")]
+    pub default_zoom: f32,
+
+    /// Default annotation highlight color.
+    #[serde(default = "default_annotation_color")]
+    pub default_annotation_color: String,
+
+    /// Number of PDF pages to load per batch.
+    #[serde(default = "default_page_batch_size")]
+    pub page_batch_size: u32,
+
+    /// Enable dark mode.
+    #[serde(default)]
+    pub dark_mode: bool,
+
+    /// UI density: "compact", "default", or "comfortable".
+    #[serde(default = "default_ui_scale")]
+    pub ui_scale: String,
+
+    /// Whether the browser connector is enabled.
+    #[serde(default = "default_true")]
+    pub connector_enabled: bool,
+
+    /// Browser connector port.
+    #[serde(default = "default_connector_port")]
+    pub connector_port: u16,
+
+    /// Auto-fetch metadata from CrossRef on PDF import.
+    #[serde(default = "default_true")]
+    pub auto_fetch_metadata: bool,
 }
+
+fn default_zoom() -> f32 { 1.5 }
+fn default_annotation_color() -> String { "#ffff00".to_string() }
+fn default_page_batch_size() -> u32 { 5 }
+fn default_ui_scale() -> String { "default".to_string() }
+fn default_true() -> bool { true }
+fn default_connector_port() -> u16 { 21984 }
 
 impl Default for SyncConfig {
     fn default() -> Self {
         Self {
             library_path: None,
+            default_zoom: default_zoom(),
+            default_annotation_color: default_annotation_color(),
+            page_batch_size: default_page_batch_size(),
+            dark_mode: false,
+            ui_scale: default_ui_scale(),
+            connector_enabled: default_true(),
+            connector_port: default_connector_port(),
+            auto_fetch_metadata: default_true(),
         }
     }
 }
