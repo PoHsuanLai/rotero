@@ -97,34 +97,28 @@ pub fn Sidebar() -> Element {
                             };
                             rsx! {
                                 div {
-                                    class: "sidebar-recent-item",
+                                    class: "sidebar-collection-item",
                                     onclick: move |_| {
                                         if let Some(ref rel_path) = pdf_rel {
                                             let full_path = db_recent.resolve_pdf_path(rel_path);
                                             let path_str = full_path.to_string_lossy().to_string();
-                                            let render_tx = render_ch.sender();
-                                            let new_tab_id = tabs.with_mut(|m| {
+                                            tabs.with_mut(|m| {
                                                 if let Some(idx) = m.find_by_paper_id(paper_id) {
                                                     let tid = m.tabs[idx].id;
                                                     m.switch_to(tid);
-                                                    return None;
+                                                } else {
+                                                    let cfg = config.read();
+                                                    let id = m.next_id();
+                                                    let mut tab = PdfTab::new(id, path_str.clone(), title.clone(), cfg.default_zoom, cfg.page_batch_size);
+                                                    tab.paper_id = Some(paper_id);
+                                                    m.open_tab(tab);
                                                 }
-                                                let cfg = config.read();
-                                                let id = m.next_id();
-                                                let mut tab = PdfTab::new(id, path_str.clone(), title.clone(), cfg.default_zoom, cfg.page_batch_size);
-                                                tab.paper_id = Some(paper_id);
-                                                Some(m.open_tab(tab))
                                             });
                                             lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
-                                            if let Some(tab_id) = new_tab_id {
-                                                spawn(async move {
-                                                    let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &config.read().effective_library_path()).await;
-                                                });
-                                            }
                                         }
                                     },
-                                    i { class: "sidebar-recent-icon bi bi-file-earmark-pdf" }
-                                    span { class: "sidebar-recent-title", "{truncated}" }
+                                    i { class: "sidebar-collection-icon bi bi-file-earmark-pdf" }
+                                    span { class: "sidebar-collection-name", "{truncated}" }
                                 }
                             }
                         }
@@ -554,32 +548,22 @@ fn OpenPdfButton() -> Element {
 
                 if let Some(path) = file {
                     let path_str = path.to_string_lossy().to_string();
-                    let render_tx = render_ch.sender();
-                    // Check if already open by path
-                    let new_tab_id = tabs.with_mut(|m| {
+                    tabs.with_mut(|m| {
                         if let Some(idx) = m.find_by_path(&path_str) {
                             let tid = m.tabs[idx].id;
                             m.switch_to(tid);
-                            return None;
+                        } else {
+                            let cfg = config.read();
+                            let id = m.next_id();
+                            let title = std::path::Path::new(&path_str)
+                                .file_stem()
+                                .map(|s| s.to_string_lossy().to_string())
+                                .unwrap_or_else(|| "Untitled".to_string());
+                            let tab = PdfTab::new(id, path_str.clone(), title, cfg.default_zoom, cfg.page_batch_size);
+                            m.open_tab(tab);
                         }
-                        let cfg = config.read();
-                        let id = m.next_id();
-                        let title = std::path::Path::new(&path_str)
-                            .file_stem()
-                            .map(|s| s.to_string_lossy().to_string())
-                            .unwrap_or_else(|| "Untitled".to_string());
-                        let tab = PdfTab::new(id, path_str.clone(), title, cfg.default_zoom, cfg.page_batch_size);
-                        Some(m.open_tab(tab))
                     });
                     lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
-                    if let Some(tab_id) = new_tab_id {
-                        spawn(async move {
-                            match crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &config.read().effective_library_path()).await {
-                                Ok(()) => error_msg.set(None),
-                                Err(e) => error_msg.set(Some(format!("Failed: {e}"))),
-                            }
-                        });
-                    }
                 }
             },
             "Open PDF"
