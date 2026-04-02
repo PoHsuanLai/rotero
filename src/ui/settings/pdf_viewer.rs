@@ -35,6 +35,16 @@ const ANNOTATION_COLORS: &[(&str, &str)] = &[
     ("#ff922b", "Orange"),
 ];
 
+/// Helper: mutate config, save, and return.
+/// Avoids the AlreadyBorrowed panic from calling config.read().save()
+/// right after config.with_mut() in the same handler.
+fn update_config(config: &mut Signal<SyncConfig>, f: impl FnOnce(&mut SyncConfig)) {
+    config.with_mut(|c| {
+        f(c);
+        let _ = c.save();
+    });
+}
+
 #[component]
 pub fn PdfViewerSection() -> Element {
     let mut config = use_context::<Signal<SyncConfig>>();
@@ -57,8 +67,7 @@ pub fn PdfViewerSection() -> Element {
                         value: "{current_zoom}",
                         onchange: move |evt| {
                             if let Ok(z) = evt.value().parse::<f32>() {
-                                config.with_mut(|c| c.default_zoom = z);
-                                let _ = config.read().save();
+                                update_config(&mut config, |c| c.default_zoom = z);
                             }
                         },
                         for (val, label) in ZOOM_OPTIONS.iter() {
@@ -89,8 +98,7 @@ pub fn PdfViewerSection() -> Element {
                                         style: "background: {c};",
                                         onclick: move |_| {
                                             let color = c2.clone();
-                                            config.with_mut(|c| c.default_annotation_color = color);
-                                            let _ = config.read().save();
+                                            update_config(&mut config, |c| c.default_annotation_color = color);
                                         },
                                     }
                                 }
@@ -109,8 +117,7 @@ pub fn PdfViewerSection() -> Element {
                         value: "{current_batch}",
                         onchange: move |evt| {
                             if let Ok(b) = evt.value().parse::<u32>() {
-                                config.with_mut(|c| c.page_batch_size = b);
-                                let _ = config.read().save();
+                                update_config(&mut config, |c| c.page_batch_size = b);
                             }
                         },
                         for (val, label) in BATCH_OPTIONS.iter() {
@@ -129,8 +136,7 @@ pub fn PdfViewerSection() -> Element {
                         value: "{current_quality}",
                         onchange: move |evt| {
                             if let Ok(q) = evt.value().parse::<u8>() {
-                                config.with_mut(|c| c.render_quality = q);
-                                let _ = config.read().save();
+                                update_config(&mut config, |c| c.render_quality = q);
                             }
                         },
                         for (val, label) in QUALITY_OPTIONS.iter() {
@@ -149,8 +155,7 @@ pub fn PdfViewerSection() -> Element {
                         value: "{current_thumb_quality}",
                         onchange: move |evt| {
                             if let Ok(q) = evt.value().parse::<u8>() {
-                                config.with_mut(|c| c.thumbnail_quality = q);
-                                let _ = config.read().save();
+                                update_config(&mut config, |c| c.thumbnail_quality = q);
                             }
                         },
                         for (val, label) in QUALITY_OPTIONS.iter() {
