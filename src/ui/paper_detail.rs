@@ -81,6 +81,11 @@ pub fn PaperDetail() -> Element {
                 }
             }
 
+            // Citation button
+            div { class: "detail-cite-section",
+                super::citation_dialog::CitationDialog {}
+            }
+
             // Delete button
             div { class: "detail-delete-section",
                 button {
