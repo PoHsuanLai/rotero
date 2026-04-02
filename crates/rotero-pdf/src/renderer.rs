@@ -38,13 +38,23 @@ pub struct RenderedPage {
 
 impl PdfEngine {
     /// Create a new PdfEngine by binding to the PDFium library.
+    ///
+    /// Resolution order:
+    /// 1. Explicit `lib_path` argument
+    /// 2. `PDFIUM_DYNAMIC_LIB_PATH` env var (directory containing the library)
+    /// 3. System library search paths
     pub fn new(lib_path: Option<&str>) -> Result<Self, PdfError> {
         let bindings = if let Some(path) = lib_path {
             Pdfium::bind_to_library(path)
+                .map_err(|e| PdfError::BindError(e.to_string()))?
+        } else if let Ok(dir) = std::env::var("PDFIUM_DYNAMIC_LIB_PATH") {
+            let lib_name = Pdfium::pdfium_platform_library_name_at_path(&dir);
+            Pdfium::bind_to_library(lib_name)
+                .map_err(|e| PdfError::BindError(format!("PDFIUM_DYNAMIC_LIB_PATH={dir}: {e}")))?
         } else {
             Pdfium::bind_to_system_library()
-        }
-        .map_err(|e| PdfError::BindError(e.to_string()))?;
+                .map_err(|e| PdfError::BindError(e.to_string()))?
+        };
 
         Ok(Self {
             pdfium: Pdfium::new(bindings),
