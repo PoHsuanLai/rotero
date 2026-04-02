@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Rotero Connector",
+  "version": "0.1.0",
+  "description": "Save papers to Rotero from your browser",
+  "permissions": ["activeTab"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.arxiv.org/*", "*://*.doi.org/*", "*://*.scholar.google.com/*", "*://*.pubmed.ncbi.nlm.nih.gov/*", "*://*.semanticscholar.org/*", "*://*.sciencedirect.com/*", "*://*.springer.com/*", "*://*.nature.com/*", "*://*.wiley.com/*", "*://*.ieee.org/*", "*://*.acm.org/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,37 +1,34 @@
 use dioxus::prelude::*;
 
 use super::sidebar::Sidebar;
+use super::library_view::LibraryPanel;
 use super::pdf_viewer::PdfViewer;
-use crate::state::app_state::PdfViewState;
+use super::paper_detail::PaperDetail;
+use crate::state::app_state::{LibraryState, LibraryView};
 
 #[component]
 pub fn Layout() -> Element {
-    let pdf_state = use_context::<Signal<PdfViewState>>();
-    let has_pdf = pdf_state.read().pdf_path.is_some();
+    let lib_state = use_context::<Signal<LibraryState>>();
+    let view = lib_state.read().view.clone();
 
     rsx! {
         div { class: "app-container",
             style: "display: flex; height: 100vh; font-family: system-ui, -apple-system, sans-serif;",
             Sidebar {}
             div { class: "main-panel",
-                style: "flex: 1; display: flex; flex-direction: column; overflow: hidden;",
-                if has_pdf {
-                    PdfViewer {}
-                } else {
-                    WelcomeScreen {}
+                style: "flex: 1; display: flex; overflow: hidden;",
+                match view {
+                    LibraryView::PdfViewer => rsx! { PdfViewer {} },
+                    _ => rsx! {
+                        div { style: "flex: 1; display: flex;",
+                            LibraryPanel {}
+                            if lib_state.read().selected_paper_id.is_some() {
+                                PaperDetail {}
+                            }
+                        }
+                    },
                 }
             }
-        }
-    }
-}
-
-#[component]
-fn WelcomeScreen() -> Element {
-    rsx! {
-        div {
-            style: "flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #666;",
-            h1 { style: "font-size: 28px; font-weight: 300; margin-bottom: 8px;", "Welcome to Rotero" }
-            p { style: "font-size: 16px; color: #999;", "Open a PDF from the sidebar to get started." }
         }
     }
 }

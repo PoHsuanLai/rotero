@@ -1,3 +1,4 @@
+use rotero_models::{Collection, Paper, Tag};
 use rotero_pdf::RenderedPage;
 
 /// Tracks which PDF is currently open and its rendered pages.
@@ -33,8 +34,35 @@ impl From<RenderedPage> for RenderedPageData {
 impl PdfViewState {
     pub fn new() -> Self {
         Self {
-            zoom: 1.5, // Default 108 DPI (1.5 * 72)
+            zoom: 1.5,
             ..Default::default()
         }
+    }
+}
+
+/// Tracks the library state: papers, collections, tags.
+#[derive(Debug, Clone, Default)]
+pub struct LibraryState {
+    pub papers: Vec<Paper>,
+    pub collections: Vec<Collection>,
+    pub tags: Vec<Tag>,
+    pub selected_paper_id: Option<i64>,
+    pub selected_collection_id: Option<i64>,
+    pub view: LibraryView,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum LibraryView {
+    #[default]
+    AllPapers,
+    Collection(i64),
+    PdfViewer,
+}
+
+impl LibraryState {
+    pub fn selected_paper(&self) -> Option<&Paper> {
+        self.selected_paper_id.and_then(|id| {
+            self.papers.iter().find(|p| p.id == Some(id))
+        })
     }
 }
