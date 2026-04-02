@@ -62,7 +62,7 @@ pub fn CitationDialog() -> Element {
                 div { class: "citation-style-picker",
                     label { class: "detail-label", "Citation Style" }
                     select {
-                        class: "citation-select",
+                        class: "select citation-select",
                         value: "{selected_style_idx}",
                         onchange: move |evt| {
                             if let Ok(idx) = evt.value().parse::<usize>() {

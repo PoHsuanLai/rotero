@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::db::Database;
-use crate::state::app_state::{LibraryState, LibraryView, PdfViewState};
+use crate::state::app_state::{LibraryState, LibraryView, PdfTab, PdfTabManager};
 use rotero_models::Collection;
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 
@@ -129,42 +129,85 @@ pub fn Sidebar() -> Element {
             // Collection context menu
             if let Some((coll_id, coll_name, mx, my)) = coll_ctx() {
                 {
+                    let db_rename = db.clone();
                     let db_delete = db.clone();
+                    let mut renaming = use_signal(|| false);
+                    let mut rename_value = use_signal(|| coll_name.clone());
 
                     rsx! {
-                        ContextMenu {
-                            x: mx,
-                            y: my,
-                            on_close: move |_| {
-                                coll_ctx.set(None);
-                            },
-
-                            ContextMenuItem {
-                                label: "Rename".to_string(),
-                                icon: Some("bi-pencil".to_string()),
-                                disabled: Some(true),
-                                on_click: move |_| {},
-                            }
-
-                            ContextMenuSeparator {}
-
-                            ContextMenuItem {
-                                label: "Delete".to_string(),
-                                icon: Some("bi-trash".to_string()),
-                                danger: Some(true),
-                                on_click: move |_| {
-                                    let db = db_delete.clone();
-                                    spawn(async move {
-                                        if let Ok(()) = crate::db::collections::delete_collection(db.conn(), coll_id).await {
-                                            lib_state.with_mut(|s| {
-                                                s.collections.retain(|c| c.id != Some(coll_id));
-                                                if s.view == LibraryView::Collection(coll_id) {
-                                                    s.view = LibraryView::AllPapers;
-                                                }
-                                            });
-                                        }
-                                    });
+                        if renaming() {
+                            // Inline rename input
+                            ContextMenu {
+                                x: mx,
+                                y: my,
+                                on_close: move |_| {
+                                    renaming.set(false);
+                                    coll_ctx.set(None);
                                 },
+                                div { class: "context-menu-rename",
+                                    input {
+                                        class: "input input--sm",
+                                        r#type: "text",
+                                        value: "{rename_value}",
+                                        oninput: move |evt| rename_value.set(evt.value()),
+                                        onkeypress: move |evt| {
+                                            if evt.key() == Key::Enter {
+                                                let new_name = rename_value().trim().to_string();
+                                                if !new_name.is_empty() {
+                                                    let db = db_rename.clone();
+                                                    spawn(async move {
+                                                        if let Ok(()) = crate::db::collections::rename_collection(db.conn(), coll_id, &new_name).await {
+                                                            lib_state.with_mut(|s| {
+                                                                if let Some(c) = s.collections.iter_mut().find(|c| c.id == Some(coll_id)) {
+                                                                    c.name = new_name;
+                                                                }
+                                                            });
+                                                        }
+                                                        renaming.set(false);
+                                                        coll_ctx.set(None);
+                                                    });
+                                                }
+                                            }
+                                        },
+                                    }
+                                }
+                            }
+                        } else {
+                            ContextMenu {
+                                x: mx,
+                                y: my,
+                                on_close: move |_| {
+                                    coll_ctx.set(None);
+                                },
+
+                                ContextMenuItem {
+                                    label: "Rename".to_string(),
+                                    icon: Some("bi-pencil".to_string()),
+                                    on_click: move |_| {
+                                        renaming.set(true);
+                                    },
+                                }
+
+                                ContextMenuSeparator {}
+
+                                ContextMenuItem {
+                                    label: "Delete".to_string(),
+                                    icon: Some("bi-trash".to_string()),
+                                    danger: Some(true),
+                                    on_click: move |_| {
+                                        let db = db_delete.clone();
+                                        spawn(async move {
+                                            if let Ok(()) = crate::db::collections::delete_collection(db.conn(), coll_id).await {
+                                                lib_state.with_mut(|s| {
+                                                    s.collections.retain(|c| c.id != Some(coll_id));
+                                                    if s.view == LibraryView::Collection(coll_id) {
+                                                        s.view = LibraryView::AllPapers;
+                                                    }
+                                                });
+                                            }
+                                        });
+                                    },
+                                }
                             }
                         }
                     }
@@ -343,7 +386,7 @@ fn NewCollectionButton() -> Element {
                 div { class: "sidebar-new-collection-row",
                     i { class: "sidebar-collection-icon bi bi-folder" }
                     input {
-                        class: "sidebar-inline-input",
+                        class: "input input--sm",
                         r#type: "text",
                         placeholder: "New collection",
                         value: "{name_value}",
@@ -400,9 +443,10 @@ fn NewCollectionButton() -> Element {
 
 #[component]
 fn OpenPdfButton() -> Element {
-    let mut pdf_state = use_context::<Signal<PdfViewState>>();
+    let mut tabs = use_context::<Signal<PdfTabManager>>();
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let render_ch = use_context::<crate::app::RenderChannel>();
+    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let mut error_msg = use_signal(|| None::<String>);
 
     rsx! {
@@ -417,24 +461,31 @@ fn OpenPdfButton() -> Element {
                 if let Some(path) = file {
                     let path_str = path.to_string_lossy().to_string();
                     let render_tx = render_ch.sender();
-                    // Show viewer immediately with loading state
-                    pdf_state.with_mut(|s| {
-                        s.pdf_path = Some(path_str.clone());
-                        s.is_loading_pages = true;
+                    // Check if already open by path
+                    let new_tab_id = tabs.with_mut(|m| {
+                        if let Some(idx) = m.find_by_path(&path_str) {
+                            let tid = m.tabs[idx].id;
+                            m.switch_to(tid);
+                            return None;
+                        }
+                        let cfg = config.read();
+                        let id = m.next_id();
+                        let title = std::path::Path::new(&path_str)
+                            .file_stem()
+                            .map(|s| s.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "Untitled".to_string());
+                        let tab = PdfTab::new(id, path_str.clone(), title, cfg.default_zoom, cfg.page_batch_size);
+                        Some(m.open_tab(tab))
                     });
                     lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
-                    spawn(async move {
-                        match crate::state::commands::open_pdf(&render_tx, &mut pdf_state, &path_str).await {
-                            Ok(()) => {
-                                pdf_state.with_mut(|s| s.is_loading_pages = false);
-                                error_msg.set(None);
+                    if let Some(tab_id) = new_tab_id {
+                        spawn(async move {
+                            match crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id).await {
+                                Ok(()) => error_msg.set(None),
+                                Err(e) => error_msg.set(Some(format!("Failed: {e}"))),
                             }
-                            Err(e) => {
-                                pdf_state.with_mut(|s| s.is_loading_pages = false);
-                                error_msg.set(Some(format!("Failed: {e}")));
-                            }
-                        }
-                    });
+                        });
+                    }
                 }
             },
             "Open PDF"

@@ -100,6 +100,82 @@ body {
 }
 
 
+/* --- Inputs (unified) --- */
+.input {
+  padding: 7px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 120ms ease, background 120ms ease;
+  width: 100%;
+}
+
+.input:focus {
+  border-color: var(--accent-primary);
+  background: var(--bg-main);
+}
+
+.input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.input--sm {
+  padding: 4px 8px;
+  font-size: var(--text-xs);
+}
+
+.input--lg {
+  padding: 9px 16px;
+  font-size: var(--text-base);
+}
+
+.select {
+  padding: 6px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+  width: 100%;
+}
+
+.select:focus {
+  border-color: var(--accent-primary);
+}
+
+.textarea {
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  outline: none;
+  resize: vertical;
+  min-height: 60px;
+  width: 100%;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.textarea:focus {
+  border-color: var(--accent-primary);
+  background: var(--bg-main);
+}
+
+.textarea::placeholder {
+  color: var(--text-tertiary);
+}
+
+
 /* --- Scrollbar --- */
 ::-webkit-scrollbar {
   width: 5px;
@@ -128,6 +204,7 @@ body {
 .main-panel {
   flex: 1;
   display: flex;
+  flex-direction: column;
   overflow: hidden;
   background: var(--bg-main);
 }
@@ -342,25 +419,9 @@ body {
   gap: var(--space-2);
 }
 
+/* sidebar-inline-input: extends .input .input--sm */
 .sidebar-inline-input {
   flex: 1;
-  padding: 4px var(--space-2);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-  background: var(--bg-main);
-  color: var(--text-primary);
-  font-family: var(--font-sans);
-  outline: none;
-  transition: border-color 120ms ease;
-}
-
-.sidebar-inline-input:focus {
-  border-color: var(--accent-primary);
-}
-
-.sidebar-inline-input::placeholder {
-  color: var(--text-tertiary);
 }
 
 .sidebar-new-collection-actions {
@@ -669,25 +730,9 @@ body {
   margin-top: var(--space-2);
 }
 
+/* doi-input: extends .input, just needs flex */
 .doi-input {
   flex: 1;
-  padding: 6px var(--space-3);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  font-family: var(--font-sans);
-  background: var(--bg-main);
-  color: var(--text-primary);
-  outline: none;
-  transition: border-color 120ms ease;
-}
-
-.doi-input:focus {
-  border-color: var(--accent-primary);
-}
-
-.doi-input::placeholder {
-  color: var(--text-tertiary);
 }
 
 .error-message {
@@ -924,6 +969,84 @@ body {
 
 
 /* --- PDF Viewer --- */
+/* PDF tab bar */
+.pdf-tab-bar {
+  display: flex;
+  align-items: flex-end;
+  background: var(--bg-toolbar);
+  padding: 0 var(--space-2);
+  padding-top: 4px;
+  overflow-x: auto;
+  flex-shrink: 0;
+  gap: 1px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.pdf-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 200px;
+  min-width: 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  transition: color 0.15s, background 0.15s;
+  position: relative;
+  margin-bottom: -1px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  background: transparent;
+}
+
+.pdf-tab:hover {
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.pdf-tab--active {
+  color: var(--text-primary);
+  background: var(--bg-main);
+  border-color: var(--border-subtle);
+}
+
+.pdf-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.pdf-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.pdf-tab:hover .pdf-tab-close,
+.pdf-tab--active .pdf-tab-close {
+  opacity: 1;
+}
+
+.pdf-tab-close:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text-primary);
+}
+
 .pdf-viewer-container {
   flex: 1;
   display: flex;
@@ -1002,6 +1125,7 @@ body {
   flex: 1;
   display: flex;
   overflow: hidden;
+  position: relative;
 }
 
 .pdf-pages {
@@ -1063,20 +1187,10 @@ body {
   border-bottom: 1px solid var(--border-default);
 }
 
+/* pdf-search-input: extends .input .input--sm */
 .pdf-search-input {
   flex: 1;
   max-width: 300px;
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font-size: var(--font-sm);
-}
-
-.pdf-search-input:focus {
-  outline: none;
-  border-color: var(--accent);
 }
 
 .pdf-search-count {
@@ -1316,24 +1430,7 @@ body {
   gap: var(--space-1);
 }
 
-.annotation-textarea {
-  width: 100%;
-  min-height: 60px;
-  padding: var(--space-2);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-  font-family: var(--font-sans);
-  resize: vertical;
-  background: var(--bg-main);
-  color: var(--text-primary);
-  outline: none;
-  transition: border-color 120ms ease;
-}
-
-.annotation-textarea:focus {
-  border-color: var(--accent-primary);
-}
+/* annotation-textarea: extends .textarea */
 
 .annotation-edit-actions {
   display: flex;
@@ -1385,26 +1482,10 @@ body {
   z-index: 1;
 }
 
+/* search-input: extends .input .input--lg, adds icon padding */
 .search-input {
+  padding-left: 32px;
   flex: 1;
-  padding: 7px var(--space-4) 7px 32px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  font-family: var(--font-sans);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  outline: none;
-  transition: border-color 120ms ease, background 120ms ease;
-}
-
-.search-input:focus {
-  border-color: var(--accent-primary);
-  background: var(--bg-main);
-}
-
-.search-input::placeholder {
-  color: var(--text-tertiary);
 }
 
 .search-clear {
@@ -1652,22 +1733,9 @@ body {
   margin-bottom: var(--space-4);
 }
 
+/* citation-select: extends .select */
 .citation-select {
-  width: 100%;
-  padding: 7px var(--space-3);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  font-family: var(--font-sans);
-  background: var(--bg-main);
-  color: var(--text-primary);
-  outline: none;
-  cursor: pointer;
   margin-top: var(--space-1);
-}
-
-.citation-select:focus {
-  border-color: var(--accent-primary);
 }
 
 .citation-preview {
@@ -1717,38 +1785,17 @@ body {
   flex-shrink: 0;
 }
 
+/* settings-select: extends .select */
 .settings-select {
-  padding: 5px var(--space-3);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  font-family: var(--font-sans);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  outline: none;
-  cursor: pointer;
   min-width: 100px;
+  width: auto;
 }
 
-.settings-select:focus {
-  border-color: var(--accent-primary);
-}
-
+/* settings-number-input: extends .input .input--sm */
 .settings-number-input {
   width: 80px;
-  padding: 5px var(--space-2);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  font-family: var(--font-mono);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  outline: none;
   text-align: center;
-}
-
-.settings-number-input:focus {
-  border-color: var(--accent-primary);
+  font-family: var(--font-mono);
 }
 
 .settings-color-picker {
@@ -1880,6 +1927,18 @@ body {
 
 .app-container.dark .pdf-page-wrapper {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+}
+
+.app-container.dark .pdf-tab:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.app-container.dark .pdf-tab--active {
+  background: var(--bg-main);
+}
+
+.app-container.dark .pdf-tab-close:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .app-container.dark .settings-status {

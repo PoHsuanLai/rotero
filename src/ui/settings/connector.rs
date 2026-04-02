@@ -39,7 +39,7 @@ pub fn ConnectorSection() -> Element {
                     span { class: "settings-field-label", "Port" }
                     div { class: "settings-field-control",
                         input {
-                            class: "settings-number-input",
+                            class: "input input--sm settings-number-input",
                             r#type: "number",
                             value: "{port}",
                             min: "1024",

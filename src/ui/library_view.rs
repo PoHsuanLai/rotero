@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use dioxus_elements::HasFileData;
 
 use crate::db::Database;
-use crate::state::app_state::{LibraryState, LibraryView, PdfViewState};
+use crate::state::app_state::{LibraryState, LibraryView, PdfTab, PdfTabManager};
 use super::search_bar::SearchBar;
 use super::import_export::ImportExportButtons;
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
@@ -10,9 +10,10 @@ use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuS
 #[component]
 pub fn LibraryPanel() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
-    let mut pdf_state = use_context::<Signal<PdfViewState>>();
+    let mut tabs = use_context::<Signal<PdfTabManager>>();
     let db = use_context::<Database>();
     let render_ch = use_context::<crate::app::RenderChannel>();
+    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let state = lib_state.read();
 
     let is_searching = state.search_results.is_some();
@@ -30,6 +31,11 @@ pub fn LibraryPanel() -> Element {
             }
             LibraryView::Favorites => state.papers.iter().filter(|p| p.is_favorite).cloned().collect(),
             LibraryView::Unread => state.papers.iter().filter(|p| !p.is_read).cloned().collect(),
+            LibraryView::Collection(id) => {
+                // TODO: filter papers by collection membership once paper_collections is loaded
+                // For now show all papers (collection filtering requires async query)
+                state.papers.clone()
+            }
             _ => state.papers.clone(),
         }
     };
@@ -231,25 +237,32 @@ pub fn LibraryPanel() -> Element {
                                                         let path_str = full_path.to_string_lossy().to_string();
                                                         let render_tx = render_ch.sender();
                                                         let db_clone = db_for_view.clone();
-                                                        // Switch to viewer immediately with loading state
-                                                        pdf_state.with_mut(|s| {
-                                                            s.pdf_path = Some(path_str.clone());
-                                                            s.is_loading_pages = true;
+                                                        let new_tab_id = tabs.with_mut(|m| {
+                                                            if let Some(idx) = m.find_by_paper_id(paper_id) {
+                                                                let tid = m.tabs[idx].id;
+                                                                m.switch_to(tid);
+                                                                return None;
+                                                            }
+                                                            let cfg = config.read();
+                                                            let id = m.next_id();
+                                                            let mut tab = PdfTab::new(id, path_str.clone(), title.clone(), cfg.default_zoom, cfg.page_batch_size);
+                                                            tab.paper_id = Some(paper_id);
+                                                            Some(m.open_tab(tab))
                                                         });
                                                         lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
-                                                        spawn(async move {
-                                                            if crate::state::commands::open_pdf(&render_tx, &mut pdf_state, &path_str).await.is_ok() {
-                                                                pdf_state.with_mut(|s| {
-                                                                    s.paper_id = Some(paper_id);
-                                                                    s.is_loading_pages = false;
-                                                                });
-                                                                if let Ok(anns) = crate::db::annotations::list_annotations_for_paper(db_clone.conn(), paper_id).await {
-                                                                    pdf_state.with_mut(|s| s.annotations = anns);
+                                                        if let Some(tab_id) = new_tab_id {
+                                                            spawn(async move {
+                                                                if crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id).await.is_ok() {
+                                                                    if let Ok(anns) = crate::db::annotations::list_annotations_for_paper(db_clone.conn(), paper_id).await {
+                                                                        tabs.with_mut(|m| {
+                                                                            if let Some(t) = m.tabs.iter_mut().find(|t| t.id == tab_id) {
+                                                                                t.annotations = anns;
+                                                                            }
+                                                                        });
+                                                                    }
                                                                 }
-                                                            } else {
-                                                                pdf_state.with_mut(|s| s.is_loading_pages = false);
-                                                            }
-                                                        });
+                                                            });
+                                                        }
                                                     }
                                                 },
                                                 "Open"
@@ -297,21 +310,24 @@ pub fn LibraryPanel() -> Element {
                                                 let full_path = db_ctx.resolve_pdf_path(rel_path);
                                                 let path_str = full_path.to_string_lossy().to_string();
                                                 let render_tx = render_ch.sender();
-                                                pdf_state.with_mut(|s| {
-                                                    s.pdf_path = Some(path_str.clone());
-                                                    s.is_loading_pages = true;
+                                                let tab_id = tabs.with_mut(|m| {
+                                                    if let Some(idx) = m.find_by_paper_id(pid) {
+                                                        let tid = m.tabs[idx].id;
+                                                        m.switch_to(tid);
+                                                        return None;
+                                                    }
+                                                    let cfg = config.read();
+                                                    let id = m.next_id();
+                                                    let mut tab = PdfTab::new(id, path_str.clone(), paper.title.clone(), cfg.default_zoom, cfg.page_batch_size);
+                                                    tab.paper_id = Some(pid);
+                                                    Some(m.open_tab(tab))
                                                 });
                                                 lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
-                                                spawn(async move {
-                                                    if crate::state::commands::open_pdf(&render_tx, &mut pdf_state, &path_str).await.is_ok() {
-                                                        pdf_state.with_mut(|s| {
-                                                            s.paper_id = Some(pid);
-                                                            s.is_loading_pages = false;
-                                                        });
-                                                    } else {
-                                                        pdf_state.with_mut(|s| s.is_loading_pages = false);
-                                                    }
-                                                });
+                                                if let Some(tab_id) = tab_id {
+                                                    spawn(async move {
+                                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id).await;
+                                                    });
+                                                }
                                             }
                                         },
                                     }
@@ -466,7 +482,7 @@ fn AddPaperButton() -> Element {
         if show_doi_input() {
             div { class: "doi-input-row",
                 input {
-                    class: "doi-input",
+                    class: "input doi-input",
                     r#type: "text",
                     placeholder: "Enter DOI (e.g. 10.1234/...)",
                     value: "{doi_value}",

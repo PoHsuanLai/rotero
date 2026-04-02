@@ -43,7 +43,7 @@ pub fn PdfViewerSection() -> Element {
                 span { class: "settings-field-label", "Default zoom" }
                 div { class: "settings-field-control",
                     select {
-                        class: "settings-select",
+                        class: "select settings-select",
                         value: "{current_zoom}",
                         onchange: move |evt| {
                             if let Ok(z) = evt.value().parse::<f32>() {
@@ -95,7 +95,7 @@ pub fn PdfViewerSection() -> Element {
                 span { class: "settings-field-label", "Pages to preload" }
                 div { class: "settings-field-control",
                     select {
-                        class: "settings-select",
+                        class: "select settings-select",
                         value: "{current_batch}",
                         onchange: move |evt| {
                             if let Ok(b) = evt.value().parse::<u32>() {

@@ -81,6 +81,18 @@ pub fn PaperDetail() -> Element {
                 }
             }
 
+            // Add to collection
+            div { class: "detail-field",
+                label { class: "detail-label", "Collection" }
+                AddToCollectionSelect { paper_id }
+            }
+
+            // Tags
+            div { class: "detail-field",
+                label { class: "detail-label", "Tags" }
+                TagEditor { paper_id }
+            }
+
             // Citation button
             div { class: "detail-cite-section",
                 super::citation_dialog::CitationDialog {}
@@ -103,6 +115,73 @@ pub fn PaperDetail() -> Element {
                     },
                     "Delete Paper"
                 }
+            }
+        }
+    }
+}
+
+#[component]
+fn AddToCollectionSelect(paper_id: i64) -> Element {
+    let mut lib_state = use_context::<Signal<crate::state::app_state::LibraryState>>();
+    let db = use_context::<Database>();
+    let collections = lib_state.read().collections.clone();
+
+    rsx! {
+        select {
+            class: "select",
+            onchange: move |evt| {
+                let val = evt.value();
+                if val.is_empty() { return; }
+                if let Ok(coll_id) = val.parse::<i64>() {
+                    let db = db.clone();
+                    spawn(async move {
+                        let _ = crate::db::collections::add_paper_to_collection(db.conn(), paper_id, coll_id).await;
+                    });
+                }
+            },
+            option { value: "", "Add to collection..." }
+            for coll in collections.iter() {
+                {
+                    let cid = coll.id.unwrap_or(0);
+                    let cname = coll.name.clone();
+                    rsx! { option { value: "{cid}", "{cname}" } }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn TagEditor(paper_id: i64) -> Element {
+    let mut lib_state = use_context::<Signal<crate::state::app_state::LibraryState>>();
+    let db = use_context::<Database>();
+    let mut new_tag = use_signal(|| String::new());
+
+    rsx! {
+        div { class: "tag-editor",
+            input {
+                class: "input input--sm",
+                r#type: "text",
+                placeholder: "Add tag...",
+                value: "{new_tag}",
+                oninput: move |evt| new_tag.set(evt.value()),
+                onkeypress: move |evt| {
+                    if evt.key() == Key::Enter {
+                        let tag_name = new_tag().trim().to_string();
+                        if tag_name.is_empty() { return; }
+                        let db = db.clone();
+                        spawn(async move {
+                            if let Ok(tag_id) = crate::db::tags::get_or_create_tag(db.conn(), &tag_name, None).await {
+                                let _ = crate::db::tags::add_tag_to_paper(db.conn(), paper_id, tag_id).await;
+                                // Reload tags
+                                if let Ok(tags) = crate::db::tags::list_tags(db.conn()).await {
+                                    lib_state.with_mut(|s| s.tags = tags);
+                                }
+                            }
+                            new_tag.set(String::new());
+                        });
+                    }
+                },
             }
         }
     }
