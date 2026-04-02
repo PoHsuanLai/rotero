@@ -100,62 +100,114 @@ pub fn extract_page_text(
 
     let text = page.text().map_err(|e| PdfError::RenderError(e.to_string()))?;
 
+    // Character-level extraction: group consecutive chars by font into runs
+    let all_chars = text.chars();
+
     let mut segments = Vec::new();
 
-    for segment in text.segments().iter() {
-        let seg_text = segment.text();
-        if seg_text.trim().is_empty() {
-            continue;
+    // Current run state
+    let mut run_text = String::new();
+    let mut run_font_name = String::new();
+    let mut run_left = f64::MAX;
+    let mut run_top = f64::MIN;
+    let mut run_right = f64::MIN;
+    let mut run_bottom = f64::MAX;
+    let mut run_font_size_pts: f32 = 0.0;
+
+    let flush_run = |segments: &mut Vec<TextSegment>,
+                     run_text: &mut String,
+                     run_font_name: &mut String,
+                     run_left: &mut f64, run_top: &mut f64,
+                     run_right: &mut f64, run_bottom: &mut f64,
+                     run_font_size_pts: &mut f32,
+                     scale_x: f64, scale_y: f64, page_height_pts: f32| {
+        if run_text.trim().is_empty() {
+            run_text.clear();
+            return;
         }
 
-        #[allow(deprecated)]
-        let bounds = segment.bounds();
-
-        // PDF coords: origin at bottom-left, y increases upward
-        // Screen coords: origin at top-left, y increases downward
-        let left_pts = bounds.left().value as f64;
-        let top_pts = bounds.top().value as f64;
-        let right_pts = bounds.right().value as f64;
-        let bottom_pts = bounds.bottom().value as f64;
-
-        // Convert to pixel coordinates using actual image dimensions
-        let x = left_pts * scale_x;
-        let y = (page_height_pts as f64 - top_pts) * scale_y;
-        let width = (right_pts - left_pts) * scale_x;
-        let height = (top_pts - bottom_pts) * scale_y;
-
-        // Get font info from the first character in this segment
-        let (font_size, font_family, font_weight) = segment.chars()
-            .ok()
-            .and_then(|chars| {
-                let first_char = chars.iter().next()?;
-                let name = first_char.font_name();
-                let is_serif = first_char.font_is_serif();
-                let weight = detect_font_weight(&name);
-                // Use actual font size from PDF, scaled to image pixels
-                let fs = first_char.scaled_font_size().value as f64 * scale_y;
-                let family = if name.is_empty() {
-                    "sans-serif".to_string()
-                } else {
-                    pdf_font_to_css(&name, is_serif)
-                };
-                Some((fs, family, weight))
-            })
-            .unwrap_or_else(|| (height, "sans-serif".to_string(), "normal".to_string()));
+        let x = *run_left * scale_x;
+        let y = (page_height_pts as f64 - *run_top) * scale_y;
+        let width = (*run_right - *run_left) * scale_x;
+        let height = (*run_top - *run_bottom) * scale_y;
+        let font_size = *run_font_size_pts as f64 * scale_y;
+        let is_serif_hint = run_font_name.to_lowercase().contains("times")
+            || run_font_name.to_lowercase().contains("serif")
+            || run_font_name.to_lowercase().contains("cm");
+        let font_family = if run_font_name.is_empty() {
+            "sans-serif".to_string()
+        } else {
+            pdf_font_to_css(run_font_name, is_serif_hint)
+        };
+        let font_weight = detect_font_weight(run_font_name);
 
         if width > 0.0 && height > 0.0 {
             segments.push(TextSegment {
-                text: seg_text,
-                x,
-                y,
-                width,
-                height,
-                font_size,
-                font_family,
-                font_weight,
+                text: std::mem::take(run_text),
+                x, y, width, height, font_size, font_family, font_weight,
             });
+        } else {
+            run_text.clear();
         }
+    };
+
+    for ch in all_chars.iter() {
+        let c = match ch.unicode_char() {
+            Some(c) => c,
+            None => continue,
+        };
+
+        // Skip control chars
+        if c.is_control() && c != ' ' {
+            // Newline/paragraph break — flush the current run
+            if c == '\n' || c == '\r' {
+                flush_run(&mut segments, &mut run_text, &mut run_font_name,
+                    &mut run_left, &mut run_top, &mut run_right, &mut run_bottom,
+                    &mut run_font_size_pts, scale_x, scale_y, page_height_pts);
+                run_left = f64::MAX; run_top = f64::MIN;
+                run_right = f64::MIN; run_bottom = f64::MAX;
+                run_font_size_pts = 0.0;
+            }
+            continue;
+        }
+
+        let font_name = ch.font_name();
+        let font_size_pts = ch.scaled_font_size().value;
+
+        // Check if font changed — flush current run and start new one
+        if !run_text.is_empty() && font_name != *run_font_name {
+            flush_run(&mut segments, &mut run_text, &mut run_font_name,
+                &mut run_left, &mut run_top, &mut run_right, &mut run_bottom,
+                &mut run_font_size_pts, scale_x, scale_y, page_height_pts);
+            run_left = f64::MAX; run_top = f64::MIN;
+            run_right = f64::MIN; run_bottom = f64::MAX;
+            run_font_size_pts = 0.0;
+        }
+
+        // Get character bounds
+        if let Ok(bounds) = ch.loose_bounds() {
+            #[allow(deprecated)]
+            {
+                let l = bounds.left().value as f64;
+                let t = bounds.top().value as f64;
+                let r = bounds.right().value as f64;
+                let b = bounds.bottom().value as f64;
+                run_left = run_left.min(l);
+                run_top = run_top.max(t);
+                run_right = run_right.max(r);
+                run_bottom = run_bottom.min(b);
+            }
+        }
+
+        run_text.push(c);
+        run_font_name = font_name;
+        run_font_size_pts = font_size_pts;
     }
+
+    // Flush last run
+    flush_run(&mut segments, &mut run_text, &mut run_font_name,
+        &mut run_left, &mut run_top, &mut run_right, &mut run_bottom,
+        &mut run_font_size_pts, scale_x, scale_y, page_height_pts);
 
     Ok(PageTextData {
         page_index,
@@ -170,85 +222,13 @@ pub fn extract_pages_text(
     pdf_path: &str,
     page_dims: &[(u32, u32, u32)], // (page_index, img_width, img_height)
 ) -> Result<Vec<PageTextData>, PdfError> {
-    let document = pdfium.load_pdf_from_file(pdf_path, None)?;
-
     let mut results = Vec::new();
-
     for &(page_index, img_width, img_height) in page_dims {
-        let page = document
-            .pages()
-            .get(page_index as u16)
-            .map_err(|e| PdfError::RenderError(e.to_string()))?;
-
-        let page_width_pts = page.width().value;
-        let page_height_pts = page.height().value;
-        let scale_x = img_width as f64 / page_width_pts as f64;
-        let scale_y = img_height as f64 / page_height_pts as f64;
-
-        let text = match page.text() {
-            Ok(t) => t,
-            Err(_) => {
-                results.push(PageTextData {
-                    page_index,
-                    segments: Vec::new(),
-                });
-                continue;
-            }
-        };
-
-        let mut segments = Vec::new();
-
-        for segment in text.segments().iter() {
-            let seg_text = segment.text();
-            if seg_text.trim().is_empty() {
-                continue;
-            }
-
-            #[allow(deprecated)]
-            let bounds = segment.bounds();
-
-            let left_pts = bounds.left().value as f64;
-            let top_pts = bounds.top().value as f64;
-            let right_pts = bounds.right().value as f64;
-            let bottom_pts = bounds.bottom().value as f64;
-
-            let x = left_pts * scale_x;
-            let y = (page_height_pts as f64 - top_pts) * scale_y;
-            let width = (right_pts - left_pts) * scale_x;
-            let height = (top_pts - bottom_pts) * scale_y;
-            let (font_size, font_family, font_weight) = segment.chars()
-                .ok()
-                .and_then(|chars| {
-                    let first_char = chars.iter().next()?;
-                    let name = first_char.font_name();
-                    let is_serif = first_char.font_is_serif();
-                    let weight = detect_font_weight(&name);
-                    let fs = first_char.scaled_font_size().value as f64 * scale_y;
-                    let family = if name.is_empty() { "sans-serif".to_string() } else { pdf_font_to_css(&name, is_serif) };
-                    Some((fs, family, weight))
-                })
-                .unwrap_or_else(|| (height, "sans-serif".to_string(), "normal".to_string()));
-
-            if width > 0.0 && height > 0.0 {
-                segments.push(TextSegment {
-                    text: seg_text,
-                    x,
-                    y,
-                    width,
-                    height,
-                    font_size,
-                    font_family,
-                    font_weight,
-                });
-            }
+        match extract_page_text(pdfium, pdf_path, page_index, img_width, img_height) {
+            Ok(data) => results.push(data),
+            Err(_) => results.push(PageTextData { page_index, segments: Vec::new() }),
         }
-
-        results.push(PageTextData {
-            page_index,
-            segments,
-        });
     }
-
     Ok(results)
 }
 
