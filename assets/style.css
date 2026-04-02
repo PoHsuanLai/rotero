@@ -308,26 +308,46 @@ body {
 }
 
 .sidebar-add-btn {
-  padding: 2px 6px;
+  padding: 2px;
   border: none;
   background: transparent;
-  color: var(--text-sidebar-muted);
+  color: var(--text-tertiary);
   cursor: pointer;
-  font-size: var(--text-md);
+  font-size: var(--text-sm);
   transition: color 120ms ease;
-  font-family: var(--font-sans);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
 }
 
 .sidebar-add-btn:hover {
   color: var(--text-primary);
+  background: var(--bg-sidebar-hover);
 }
 
-.sidebar-input {
+/* New collection inline form */
+.sidebar-new-collection {
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-sidebar-hover);
+  border-radius: var(--radius-md);
+}
+
+.sidebar-new-collection-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.sidebar-inline-input {
   flex: 1;
-  padding: var(--space-1) var(--space-2);
+  padding: 4px var(--space-2);
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   background: var(--bg-main);
   color: var(--text-primary);
   font-family: var(--font-sans);
@@ -335,18 +355,51 @@ body {
   transition: border-color 120ms ease;
 }
 
-.sidebar-input:focus {
+.sidebar-inline-input:focus {
   border-color: var(--accent-primary);
 }
 
-.sidebar-input::placeholder {
+.sidebar-inline-input::placeholder {
   color: var(--text-tertiary);
 }
 
-.sidebar-input-row {
+.sidebar-new-collection-actions {
   display: flex;
+  justify-content: flex-end;
   gap: var(--space-1);
-  margin-top: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.sidebar-inline-btn {
+  padding: 2px 8px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  transition: background 120ms ease;
+  display: flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.sidebar-inline-btn--confirm {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border-color: var(--accent-primary);
+}
+
+.sidebar-inline-btn--confirm:hover {
+  background: var(--accent-primary-hover);
+}
+
+.sidebar-inline-btn--cancel {
+  background: var(--bg-main);
+  color: var(--text-secondary);
+}
+
+.sidebar-inline-btn--cancel:hover {
+  background: var(--bg-input);
 }
 
 .sidebar-error {

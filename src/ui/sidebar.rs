@@ -312,40 +312,87 @@ fn NewCollectionButton() -> Element {
     let mut show_input = use_signal(|| false);
     let mut name_value = use_signal(|| String::new());
 
+    let db_for_submit = db.clone();
+    let db_for_key = db.clone();
+
+    let do_submit = move |_| {
+        let name = name_value().trim().to_string();
+        if !name.is_empty() {
+            let coll = rotero_models::Collection::new(name);
+            let db = db_for_submit.clone();
+            spawn(async move {
+                if let Ok(id) = crate::db::collections::insert_collection(db.conn(), &coll).await {
+                    let mut coll = coll;
+                    coll.id = Some(id);
+                    lib_state.with_mut(|s| s.collections.push(coll));
+                }
+            });
+        }
+        show_input.set(false);
+        name_value.set(String::new());
+    };
+
+    let do_cancel = move |_: Event<MouseData>| {
+        show_input.set(false);
+        name_value.set(String::new());
+    };
+
     rsx! {
         if show_input() {
-            div { class: "sidebar-input-row",
-                input {
-                    class: "sidebar-input",
-                    r#type: "text",
-                    placeholder: "Collection name",
-                    value: "{name_value}",
-                    oninput: move |evt| name_value.set(evt.value()),
-                    onkeypress: move |evt| {
-                        if evt.key() == Key::Enter {
-                            let name = name_value().trim().to_string();
-                            if !name.is_empty() {
-                                let coll = rotero_models::Collection::new(name);
-                                let db = db.clone();
-                                spawn(async move {
-                                    if let Ok(id) = crate::db::collections::insert_collection(db.conn(), &coll).await {
-                                        let mut coll = coll;
-                                        coll.id = Some(id);
-                                        lib_state.with_mut(|s| s.collections.push(coll));
+            div { class: "sidebar-new-collection",
+                div { class: "sidebar-new-collection-row",
+                    i { class: "sidebar-collection-icon bi bi-folder" }
+                    input {
+                        class: "sidebar-inline-input",
+                        r#type: "text",
+                        placeholder: "New collection",
+                        value: "{name_value}",
+                        oninput: move |evt| name_value.set(evt.value()),
+                        onkeydown: move |evt| {
+                            match evt.key() {
+                                Key::Enter => {
+                                    let name = name_value().trim().to_string();
+                                    if !name.is_empty() {
+                                        let coll = rotero_models::Collection::new(name);
+                                        let db = db_for_key.clone();
+                                        spawn(async move {
+                                            if let Ok(id) = crate::db::collections::insert_collection(db.conn(), &coll).await {
+                                                let mut coll = coll;
+                                                coll.id = Some(id);
+                                                lib_state.with_mut(|s| s.collections.push(coll));
+                                            }
+                                        });
                                     }
                                     show_input.set(false);
                                     name_value.set(String::new());
-                                });
+                                }
+                                Key::Escape => {
+                                    show_input.set(false);
+                                    name_value.set(String::new());
+                                }
+                                _ => {}
                             }
-                        }
-                    },
+                        },
+                    }
+                }
+                div { class: "sidebar-new-collection-actions",
+                    button {
+                        class: "sidebar-inline-btn sidebar-inline-btn--confirm",
+                        onclick: do_submit,
+                        i { class: "bi bi-check2" }
+                    }
+                    button {
+                        class: "sidebar-inline-btn sidebar-inline-btn--cancel",
+                        onclick: do_cancel,
+                        "\u{00d7}"
+                    }
                 }
             }
         } else {
             button {
                 class: "sidebar-add-btn",
                 onclick: move |_| show_input.set(true),
-                "+"
+                i { class: "bi bi-plus-lg" }
             }
         }
     }
@@ -355,6 +402,7 @@ fn NewCollectionButton() -> Element {
 fn OpenPdfButton() -> Element {
     let mut pdf_state = use_context::<Signal<PdfViewState>>();
     let mut lib_state = use_context::<Signal<LibraryState>>();
+    let render_ch = use_context::<crate::app::RenderChannel>();
     let mut error_msg = use_signal(|| None::<String>);
 
     rsx! {
@@ -368,18 +416,16 @@ fn OpenPdfButton() -> Element {
 
                 if let Some(path) = file {
                     let path_str = path.to_string_lossy().to_string();
-                    match rotero_pdf::PdfEngine::new(None) {
-                        Ok(engine) => {
-                            match crate::state::commands::open_pdf(&engine, &mut pdf_state, &path_str) {
-                                Ok(()) => {
-                                    lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
-                                    error_msg.set(None);
-                                }
-                                Err(e) => error_msg.set(Some(format!("Failed: {e}"))),
+                    let render_tx = render_ch.sender();
+                    spawn(async move {
+                        match crate::state::commands::open_pdf(&render_tx, &mut pdf_state, &path_str).await {
+                            Ok(()) => {
+                                lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                error_msg.set(None);
                             }
+                            Err(e) => error_msg.set(Some(format!("Failed: {e}"))),
                         }
-                        Err(e) => error_msg.set(Some(format!("PDFium: {e}"))),
-                    }
+                    });
                 }
             },
             "Open PDF"
