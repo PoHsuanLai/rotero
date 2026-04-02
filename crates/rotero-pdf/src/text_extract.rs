@@ -23,13 +23,15 @@ pub struct PageTextData {
 
 /// Extract text segments with bounding boxes from a single PDF page.
 ///
-/// Coordinates are returned in pixel space (matching the rendered image at the given scale).
+/// `img_width`/`img_height` are the actual rendered image dimensions in pixels.
+/// Coordinates are returned in pixel space matching those dimensions.
 /// PDF coordinates (origin bottom-left) are converted to screen coordinates (origin top-left).
 pub fn extract_page_text(
     pdfium: &Pdfium,
     pdf_path: &str,
     page_index: u32,
-    scale: f32,
+    img_width: u32,
+    img_height: u32,
 ) -> Result<PageTextData, PdfError> {
     let document = pdfium.load_pdf_from_file(pdf_path, None)?;
     let page = document
@@ -37,7 +39,13 @@ pub fn extract_page_text(
         .get(page_index as u16)
         .map_err(|e| PdfError::RenderError(e.to_string()))?;
 
+    let page_width_pts = page.width().value;
     let page_height_pts = page.height().value;
+
+    // Scale factors from PDF points to actual image pixels
+    let scale_x = img_width as f64 / page_width_pts as f64;
+    let scale_y = img_height as f64 / page_height_pts as f64;
+
     let text = page.text().map_err(|e| PdfError::RenderError(e.to_string()))?;
 
     let mut segments = Vec::new();
@@ -53,16 +61,16 @@ pub fn extract_page_text(
 
         // PDF coords: origin at bottom-left, y increases upward
         // Screen coords: origin at top-left, y increases downward
-        let left_pts = bounds.left().value;
-        let top_pts = bounds.top().value;
-        let right_pts = bounds.right().value;
-        let bottom_pts = bounds.bottom().value;
+        let left_pts = bounds.left().value as f64;
+        let top_pts = bounds.top().value as f64;
+        let right_pts = bounds.right().value as f64;
+        let bottom_pts = bounds.bottom().value as f64;
 
-        // Convert to pixel coordinates
-        let x = (left_pts * scale) as f64;
-        let y = ((page_height_pts - top_pts) * scale) as f64;
-        let width = ((right_pts - left_pts) * scale) as f64;
-        let height = ((top_pts - bottom_pts) * scale) as f64;
+        // Convert to pixel coordinates using actual image dimensions
+        let x = left_pts * scale_x;
+        let y = (page_height_pts as f64 - top_pts) * scale_y;
+        let width = (right_pts - left_pts) * scale_x;
+        let height = (top_pts - bottom_pts) * scale_y;
 
         // Estimate font size from segment height
         let font_size = height;
@@ -86,30 +94,30 @@ pub fn extract_page_text(
 }
 
 /// Extract text segments from multiple pages in batch.
+/// `page_dims` maps page_index to (img_width, img_height) of the rendered image.
 pub fn extract_pages_text(
     pdfium: &Pdfium,
     pdf_path: &str,
-    start: u32,
-    count: u32,
-    scale: f32,
+    page_dims: &[(u32, u32, u32)], // (page_index, img_width, img_height)
 ) -> Result<Vec<PageTextData>, PdfError> {
     let document = pdfium.load_pdf_from_file(pdf_path, None)?;
-    let page_count = document.pages().len() as u32;
-    let end = (start + count).min(page_count);
 
     let mut results = Vec::new();
 
-    for page_index in start..end {
+    for &(page_index, img_width, img_height) in page_dims {
         let page = document
             .pages()
             .get(page_index as u16)
             .map_err(|e| PdfError::RenderError(e.to_string()))?;
 
+        let page_width_pts = page.width().value;
         let page_height_pts = page.height().value;
+        let scale_x = img_width as f64 / page_width_pts as f64;
+        let scale_y = img_height as f64 / page_height_pts as f64;
+
         let text = match page.text() {
             Ok(t) => t,
             Err(_) => {
-                // Some pages may not have extractable text
                 results.push(PageTextData {
                     page_index,
                     segments: Vec::new(),
@@ -129,15 +137,15 @@ pub fn extract_pages_text(
             #[allow(deprecated)]
             let bounds = segment.bounds();
 
-            let left_pts = bounds.left().value;
-            let top_pts = bounds.top().value;
-            let right_pts = bounds.right().value;
-            let bottom_pts = bounds.bottom().value;
+            let left_pts = bounds.left().value as f64;
+            let top_pts = bounds.top().value as f64;
+            let right_pts = bounds.right().value as f64;
+            let bottom_pts = bounds.bottom().value as f64;
 
-            let x = (left_pts * scale) as f64;
-            let y = ((page_height_pts - top_pts) * scale) as f64;
-            let width = ((right_pts - left_pts) * scale) as f64;
-            let height = ((top_pts - bottom_pts) * scale) as f64;
+            let x = left_pts * scale_x;
+            let y = (page_height_pts as f64 - top_pts) * scale_y;
+            let width = (right_pts - left_pts) * scale_x;
+            let height = (top_pts - bottom_pts) * scale_y;
             let font_size = height;
 
             if width > 0.0 && height > 0.0 {

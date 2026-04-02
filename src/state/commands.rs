@@ -32,9 +32,8 @@ pub enum RenderRequest {
     },
     ExtractText {
         pdf_path: String,
-        start: u32,
-        count: u32,
-        zoom: f32,
+        /// (page_index, img_width, img_height) for each page to extract
+        page_dims: Vec<(u32, u32, u32)>,
         reply: mpsc::Sender<Result<HashMap<u32, PageTextData>, String>>,
     },
     RenderThumbnails {
@@ -104,10 +103,10 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     })();
                     let _ = reply.send(result);
                 }
-                RenderRequest::ExtractText { pdf_path, start, count, zoom, reply } => {
+                RenderRequest::ExtractText { pdf_path, page_dims, reply } => {
                     let result = (|| {
                         let text_pages = rotero_pdf::text_extract::extract_pages_text(
-                            engine.pdfium(), &pdf_path, start, count, zoom,
+                            engine.pdfium(), &pdf_path, &page_dims,
                         ).map_err(|e| e.to_string())?;
                         Ok(text_pages.into_iter().map(|t| (t.page_index, t)).collect::<HashMap<u32, PageTextData>>())
                     })();
@@ -235,14 +234,19 @@ pub async fn open_pdf(
     });
     tracing::info!(elapsed = ?t_start.elapsed(), "pages displayed");
 
-    // Extract text in background
-    let batch = page_count.min(batch_size);
+    // Extract text in background using actual rendered image dimensions
+    let page_dims: Vec<(u32, u32, u32)> = {
+        let mgr = tabs.read();
+        mgr.tabs.iter().find(|t| t.id == tab_id)
+            .map(|t| t.render.rendered_pages.iter()
+                .map(|p| (p.page_index, p.width, p.height))
+                .collect())
+            .unwrap_or_default()
+    };
     let (text_tx, text_rx) = mpsc::channel();
     let _ = render_tx.send(RenderRequest::ExtractText {
         pdf_path: path.clone(),
-        start: 0,
-        count: batch,
-        zoom,
+        page_dims,
         reply: text_tx,
     });
     if let Ok(text_data) = recv_reply(text_rx).await {
@@ -299,13 +303,20 @@ pub async fn render_more_pages(
         }
     });
 
-    // Extract text for new pages in background
+    // Extract text for new pages using actual rendered dims
+    let page_dims: Vec<(u32, u32, u32)> = {
+        let mgr = tabs.read();
+        mgr.tabs.iter().find(|t| t.id == tab_id)
+            .map(|t| t.render.rendered_pages.iter()
+                .filter(|p| p.page_index >= start && p.page_index < start + count)
+                .map(|p| (p.page_index, p.width, p.height))
+                .collect())
+            .unwrap_or_default()
+    };
     let (text_tx, text_rx) = mpsc::channel();
     let _ = render_tx.send(RenderRequest::ExtractText {
         pdf_path,
-        start,
-        count,
-        zoom,
+        page_dims,
         reply: text_tx,
     });
     if let Ok(text_data) = recv_reply(text_rx).await {
@@ -459,13 +470,14 @@ pub async fn precache_pdf(
         crate::cache::save_pages(&dir, &p, zoom, page_count, &pg);
     });
 
-    // Extract and cache text
+    // Extract and cache text using actual rendered dims
+    let page_dims: Vec<(u32, u32, u32)> = pages.iter()
+        .map(|p| (p.page_index, p.width, p.height))
+        .collect();
     let (text_tx, text_rx) = mpsc::channel();
     if render_tx.send(RenderRequest::ExtractText {
         pdf_path: path.clone(),
-        start: 0,
-        count: page_count.min(5),
-        zoom,
+        page_dims,
         reply: text_tx,
     }).is_err() {
         return;
