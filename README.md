@@ -19,8 +19,8 @@ A lightweight, Rust-native paper reading and reference management app. Built as 
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs/) (edition 2024)
-- [just](https://github.com/casey/just) — task runner
+- [Rust](https://rustup.rs/)
+- [just](https://github.com/casey/just)
 
 ```sh
 # Install just (if not already installed)
@@ -82,15 +82,15 @@ just test-save-paper
 
 Cargo workspace with 5 crates:
 
-```
-rotero-models       ← shared data types (Paper, Collection, Tag, Annotation, Note)
-    ↑
-    ├── rotero-pdf         PDF rendering (pdfium-render) + annotation writing (lopdf)
-    ├── rotero-bib         BibTeX/RIS/CSL import/export (biblatex, hayagriva)
-    ├── rotero-connector   browser extension HTTP server (axum)
-    │
-    └── rotero (app)       Dioxus desktop UI, turso (SQLite), reqwest
-```
+| Crate | Purpose | Key deps |
+|---|---|---|
+| `rotero-models` | Shared data types (Paper, Collection, Tag, Annotation, Note) | serde |
+| `rotero-pdf` | PDF rendering + annotation writing | pdfium-render, lopdf |
+| `rotero-bib` | BibTeX/RIS/CSL import/export + citation generation | biblatex, hayagriva |
+| `rotero-connector` | Browser extension HTTP server | axum |
+| `rotero` (app) | Desktop UI, database, metadata fetching | dioxus, turso, reqwest |
+
+All library crates depend on `rotero-models`. The app crate depends on all of them.
 
 ## Tech Stack
 
@@ -117,4 +117,4 @@ Papers and metadata are stored in a local SQLite database. Imported PDFs are cop
 
 ## License
 
-MIT
+MIT OR Apache-2.0

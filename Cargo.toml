@@ -10,7 +10,7 @@ resolver = "3"
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -52,3 +52,4 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 regex = "1"
+urlencoding = "2"
