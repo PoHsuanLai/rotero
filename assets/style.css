@@ -3,8 +3,7 @@
    Swiss-inspired minimal research tool
    ==================================== */
 
-/* --- Fonts --- */
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap');
+/* Fonts loaded via fonts.css (bundled TTF) */
 
 /* --- Design Tokens --- */
 :root {
@@ -146,11 +145,11 @@ body {
 }
 
 .sidebar-brand {
-  font-size: var(--text-md);
-  font-weight: 600;
+  font-size: var(--text-lg);
+  font-weight: 800;
   color: var(--text-primary);
   margin: 0 0 var(--space-5) 0;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
 }
 
 .sidebar-open-btn {
@@ -330,8 +329,8 @@ body {
 
 .library-title {
   margin: 0;
-  font-size: var(--text-lg);
-  font-weight: 600;
+  font-size: var(--text-xl);
+  font-weight: 700;
   flex: 1;
   color: var(--text-primary);
   letter-spacing: -0.02em;
@@ -382,7 +381,7 @@ body {
 }
 
 .library-paper-title {
-  font-weight: 500;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -395,6 +394,7 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--text-sm);
+  font-weight: 400;
 }
 
 .library-paper-year {
@@ -663,10 +663,10 @@ body {
 }
 
 .detail-value--title {
-  font-size: var(--text-md);
-  font-weight: 600;
-  line-height: 1.4;
-  letter-spacing: -0.01em;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
 }
 
 .detail-value--journal {
@@ -961,6 +961,69 @@ body {
 
 .collection-tree-item:hover {
   background: var(--bg-input);
+}
+
+
+/* --- Search Bar --- */
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-main);
+}
+
+.search-input {
+  flex: 1;
+  padding: 8px var(--space-4);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-family: var(--font-sans);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 120ms ease;
+}
+
+.search-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.search-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.search-clear {
+  padding: 4px 10px;
+  border: 1px solid var(--border-medium);
+  background: var(--bg-main);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  color: var(--text-tertiary);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.search-clear:hover {
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+
+
+/* --- Import/Export --- */
+.import-export-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.import-status {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-left: var(--space-1);
 }
 
 

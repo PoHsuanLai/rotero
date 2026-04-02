@@ -4,6 +4,7 @@ use crate::db::Database;
 use crate::state::app_state::{LibraryState, PdfViewState};
 use crate::ui::layout::Layout;
 
+const FONTS_CSS: &str = include_str!("../assets/fonts.css");
 const STYLE_CSS: &str = include_str!("../assets/style.css");
 
 #[component]
@@ -23,6 +24,7 @@ pub fn App() -> Element {
             });
 
             rsx! {
+                document::Style { {FONTS_CSS} }
                 document::Style { {STYLE_CSS} }
                 LoadLibraryData {}
                 Layout {}
@@ -31,6 +33,7 @@ pub fn App() -> Element {
         Some(Err(e)) => {
             let err = e.clone();
             rsx! {
+                document::Style { {FONTS_CSS} }
                 document::Style { {STYLE_CSS} }
                 div { class: "db-error",
                     h1 { "Database Error" }
@@ -40,6 +43,7 @@ pub fn App() -> Element {
         }
         None => {
             rsx! {
+                document::Style { {FONTS_CSS} }
                 document::Style { {STYLE_CSS} }
                 div { class: "db-error",
                     p { "Initializing database..." }
