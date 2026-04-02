@@ -1,10 +1,12 @@
 use dioxus::prelude::*;
 
+use crate::app::DbGeneration;
 use crate::sync::engine::SyncConfig;
 
 #[component]
 pub fn LibrarySection() -> Element {
     let mut config = use_context::<Signal<SyncConfig>>();
+    let mut db_generation = use_context::<DbGeneration>();
     let mut status_msg = use_signal(|| None::<String>);
 
     let current_path = config.read().effective_library_path().to_string_lossy().to_string();
@@ -34,7 +36,11 @@ pub fn LibrarySection() -> Element {
                             let path_str = path.to_string_lossy().to_string();
                             config.with_mut(|c| c.library_path = Some(path_str));
                             match config.read().save() {
-                                Ok(()) => status_msg.set(Some("Library path updated. Restart to apply.".to_string())),
+                                Ok(()) => {
+                                    // Bump generation to trigger DB re-init without restart
+                                    db_generation.with_mut(|g| *g += 1);
+                                    status_msg.set(Some("Library path updated and reloaded.".to_string()));
+                                }
                                 Err(e) => status_msg.set(Some(format!("Failed to save: {e}"))),
                             }
                         }
@@ -48,7 +54,10 @@ pub fn LibrarySection() -> Element {
                         onclick: move |_| {
                             config.with_mut(|c| c.library_path = None);
                             match config.read().save() {
-                                Ok(()) => status_msg.set(Some("Reset to default. Restart to apply.".to_string())),
+                                Ok(()) => {
+                                    db_generation.with_mut(|g| *g += 1);
+                                    status_msg.set(Some("Reset to default and reloaded.".to_string()));
+                                }
                                 Err(e) => status_msg.set(Some(format!("Failed to save: {e}"))),
                             }
                         },

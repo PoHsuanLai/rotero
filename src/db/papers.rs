@@ -2,6 +2,8 @@ use chrono::Utc;
 use turso::{Connection, Value};
 use rotero_models::Paper;
 
+const SELECT_COLS: &str = "id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta";
+
 pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<i64, turso::Error> {
     let authors_json = serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
     let extra_meta = paper
@@ -10,8 +12,8 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<i64, turso
         .map(|v| serde_json::to_string(v).unwrap_or_default());
 
     conn.execute(
-        "INSERT INTO papers (title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, extra_meta)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        "INSERT INTO papers (title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         turso::params::Params::Positional(vec![
             Value::Text(paper.title.clone()),
             Value::Text(authors_json),
@@ -27,12 +29,13 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<i64, turso
             paper.pdf_path.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
             Value::Text(paper.date_added.to_rfc3339()),
             Value::Text(paper.date_modified.to_rfc3339()),
+            Value::Integer(paper.is_favorite as i64),
+            Value::Integer(paper.is_read as i64),
             extra_meta.map(|s| Value::Text(s)).unwrap_or(Value::Null),
         ]),
     )
     .await?;
 
-    // Get last insert rowid
     let mut rows = conn.query("SELECT last_insert_rowid()", ()).await?;
     let row = rows.next().await?.ok_or(turso::Error::QueryReturnedNoRows)?;
     let id = row.get_value(0)?.as_integer().copied().unwrap_or(0);
@@ -40,14 +43,8 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<i64, turso
 }
 
 pub async fn list_papers(conn: &Connection) -> Result<Vec<Paper>, turso::Error> {
-    let mut rows = conn
-        .query(
-            "SELECT id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, extra_meta
-             FROM papers ORDER BY date_added DESC",
-            (),
-        )
-        .await?;
-
+    let sql = format!("SELECT {SELECT_COLS} FROM papers ORDER BY date_added DESC");
+    let mut rows = conn.query(&sql, ()).await?;
     let mut papers = Vec::new();
     while let Some(row) = rows.next().await? {
         papers.push(row_to_paper(&row));
@@ -56,7 +53,6 @@ pub async fn list_papers(conn: &Connection) -> Result<Vec<Paper>, turso::Error> 
 }
 
 pub async fn search_papers(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
-    // Try FTS first (turso-specific), fall back to LIKE search
     let fts_result = search_papers_fts(conn, query).await;
     match fts_result {
         Ok(papers) => Ok(papers),
@@ -65,16 +61,10 @@ pub async fn search_papers(conn: &Connection, query: &str) -> Result<Vec<Paper>,
 }
 
 async fn search_papers_fts(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
-    let mut rows = conn
-        .query(
-            "SELECT id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, extra_meta
-             FROM papers
-             WHERE fts_match(title, authors, abstract_text, journal, ?1)
-             LIMIT 50",
-            [turso::Value::Text(query.to_string())],
-        )
-        .await?;
-
+    let sql = format!(
+        "SELECT {SELECT_COLS} FROM papers WHERE fts_match(title, authors, abstract_text, journal, ?1) LIMIT 50"
+    );
+    let mut rows = conn.query(&sql, [Value::Text(query.to_string())]).await?;
     let mut papers = Vec::new();
     while let Some(row) = rows.next().await? {
         papers.push(row_to_paper(&row));
@@ -84,17 +74,10 @@ async fn search_papers_fts(conn: &Connection, query: &str) -> Result<Vec<Paper>,
 
 async fn search_papers_like(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
     let pattern = format!("%{query}%");
-    let mut rows = conn
-        .query(
-            "SELECT id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, extra_meta
-             FROM papers
-             WHERE title LIKE ?1 OR authors LIKE ?1 OR abstract_text LIKE ?1 OR journal LIKE ?1 OR doi LIKE ?1
-             ORDER BY date_added DESC
-             LIMIT 50",
-            [turso::Value::Text(pattern)],
-        )
-        .await?;
-
+    let sql = format!(
+        "SELECT {SELECT_COLS} FROM papers WHERE title LIKE ?1 OR authors LIKE ?1 OR abstract_text LIKE ?1 OR journal LIKE ?1 OR doi LIKE ?1 ORDER BY date_added DESC LIMIT 50"
+    );
+    let mut rows = conn.query(&sql, [Value::Text(pattern)]).await?;
     let mut papers = Vec::new();
     while let Some(row) = rows.next().await? {
         papers.push(row_to_paper(&row));
@@ -102,9 +85,35 @@ async fn search_papers_like(conn: &Connection, query: &str) -> Result<Vec<Paper>
     Ok(papers)
 }
 
+pub async fn set_favorite(conn: &Connection, id: i64, favorite: bool) -> Result<(), turso::Error> {
+    conn.execute(
+        "UPDATE papers SET is_favorite = ?1 WHERE id = ?2",
+        [Value::Integer(favorite as i64), Value::Integer(id)],
+    ).await?;
+    Ok(())
+}
+
+pub async fn set_read(conn: &Connection, id: i64, read: bool) -> Result<(), turso::Error> {
+    conn.execute(
+        "UPDATE papers SET is_read = ?1 WHERE id = ?2",
+        [Value::Integer(read as i64), Value::Integer(id)],
+    ).await?;
+    Ok(())
+}
+
 pub async fn delete_paper(conn: &Connection, id: i64) -> Result<(), turso::Error> {
     conn.execute("DELETE FROM papers WHERE id = ?1", [id]).await?;
     Ok(())
+}
+
+pub async fn count_papers_in_collection(conn: &Connection, collection_id: i64) -> Result<i64, turso::Error> {
+    let mut rows = conn.query(
+        "SELECT COUNT(*) FROM paper_collections WHERE collection_id = ?1",
+        [collection_id],
+    ).await?;
+    let row = rows.next().await?.ok_or(turso::Error::QueryReturnedNoRows)?;
+    let count = row.get_value(0)?.as_integer().copied().unwrap_or(0);
+    Ok(count)
 }
 
 fn get_text(row: &turso::Row, idx: usize) -> String {
@@ -119,13 +128,17 @@ fn get_opt_i64(row: &turso::Row, idx: usize) -> Option<i64> {
     row.get_value(idx).ok().and_then(|v| v.as_integer().copied())
 }
 
+fn get_bool(row: &turso::Row, idx: usize) -> bool {
+    row.get_value(idx).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0) != 0
+}
+
 fn row_to_paper(row: &turso::Row) -> Paper {
     let authors_str = get_text(row, 2);
     let authors: Vec<String> = serde_json::from_str(&authors_str).unwrap_or_default();
 
     let date_added_str = get_text(row, 13);
     let date_modified_str = get_text(row, 14);
-    let extra_meta_str = get_opt_text(row, 15);
+    let extra_meta_str = get_opt_text(row, 17);
 
     Paper {
         id: get_opt_i64(row, 0),
@@ -147,6 +160,8 @@ fn row_to_paper(row: &turso::Row) -> Paper {
         date_modified: chrono::DateTime::parse_from_rfc3339(&date_modified_str)
             .map(|dt| dt.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now()),
+        is_favorite: get_bool(row, 15),
+        is_read: get_bool(row, 16),
         extra_meta: extra_meta_str.and_then(|s| serde_json::from_str(&s).ok()),
     }
 }

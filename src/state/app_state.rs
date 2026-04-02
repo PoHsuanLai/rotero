@@ -9,12 +9,16 @@ pub struct PdfViewState {
     pub page_count: u32,
     pub current_page: u32,
     pub zoom: f32,
+    /// The zoom level at which current rendered_pages were actually rendered.
+    /// May differ from `zoom` during progressive zoom (CSS scaling).
+    pub render_zoom: f32,
     pub rendered_pages: Vec<RenderedPageData>,
     pub annotations: Vec<Annotation>,
     pub annotation_mode: AnnotationMode,
     pub annotation_color: String,
     pub show_annotation_panel: bool,
     pub page_batch_size: Option<u32>,
+    pub is_loading_pages: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -49,6 +53,7 @@ impl PdfViewState {
     pub fn new() -> Self {
         Self {
             zoom: 1.5,
+            render_zoom: 1.5,
             annotation_color: "#ffff00".to_string(),
             ..Default::default()
         }

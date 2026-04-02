@@ -1,12 +1,15 @@
 use dioxus::prelude::*;
 
+use crate::app::RenderChannel;
 use crate::db::Database;
 use crate::state::app_state::{AnnotationMode, PdfViewState};
 use rotero_models::{Annotation, AnnotationType};
 
 #[component]
 pub fn PdfViewer() -> Element {
-    let pdf_state = use_context::<Signal<PdfViewState>>();
+    let mut pdf_state = use_context::<Signal<PdfViewState>>();
+    let render_ch = use_context::<RenderChannel>();
+    let mut is_loading = use_signal(|| false);
     let state = pdf_state.read();
 
     if state.pdf_path.is_none() {
@@ -19,16 +22,130 @@ pub fn PdfViewer() -> Element {
 
     let page_count = state.page_count;
     let zoom = state.zoom;
+    let render_zoom = state.render_zoom;
     let show_panel = state.show_annotation_panel;
+    let rendered_count = state.rendered_pages.len() as u32;
+    let has_more = rendered_count < page_count;
+    let batch_size = state.page_batch_size.unwrap_or(5);
 
     rsx! {
-        div { class: "pdf-viewer-container",
+        div {
+            class: "pdf-viewer-container",
+            tabindex: "0",
+            onmounted: move |evt| {
+                let _ = evt.data().set_focus(true);
+            },
+            onkeydown: move |evt| {
+                let key = evt.key();
+                match key {
+                    Key::Character(ref c) if c == "+" || c == "=" => {
+                        let new_zoom = (zoom + 0.3_f32).min(5.0);
+                        let render_tx = render_ch.sender();
+                        spawn(async move {
+                            let _ = crate::state::commands::set_zoom(&render_tx, &mut pdf_state, new_zoom).await;
+                        });
+                    }
+                    Key::Character(ref c) if c == "-" => {
+                        let new_zoom = (zoom - 0.3_f32).max(0.5);
+                        let render_tx = render_ch.sender();
+                        spawn(async move {
+                            let _ = crate::state::commands::set_zoom(&render_tx, &mut pdf_state, new_zoom).await;
+                        });
+                    }
+                    Key::PageDown => {
+                        spawn(async move {
+                            let _ = document::eval(r#"
+                                let el = document.getElementById('pdf-pages-container');
+                                el.scrollBy({ top: el.clientHeight * 0.9, behavior: 'smooth' });
+                            "#);
+                        });
+                    }
+                    Key::PageUp => {
+                        spawn(async move {
+                            let _ = document::eval(r#"
+                                let el = document.getElementById('pdf-pages-container');
+                                el.scrollBy({ top: -el.clientHeight * 0.9, behavior: 'smooth' });
+                            "#);
+                        });
+                    }
+                    Key::Home => {
+                        spawn(async move {
+                            let _ = document::eval(r#"
+                                let el = document.getElementById('pdf-pages-container');
+                                el.scrollTo({ top: 0, behavior: 'smooth' });
+                            "#);
+                        });
+                    }
+                    Key::End => {
+                        spawn(async move {
+                            let _ = document::eval(r#"
+                                let el = document.getElementById('pdf-pages-container');
+                                el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+                            "#);
+                        });
+                    }
+                    Key::Character(ref c) if c == " " => {
+                        if evt.modifiers().shift() {
+                            spawn(async move {
+                                let _ = document::eval(r#"
+                                    let el = document.getElementById('pdf-pages-container');
+                                    el.scrollBy({ top: -el.clientHeight * 0.9, behavior: 'smooth' });
+                                "#);
+                            });
+                        } else {
+                            spawn(async move {
+                                let _ = document::eval(r#"
+                                    let el = document.getElementById('pdf-pages-container');
+                                    el.scrollBy({ top: el.clientHeight * 0.9, behavior: 'smooth' });
+                                "#);
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            },
 
             PdfToolbar { page_count, zoom }
 
             div { class: "pdf-content-area",
                 // Scrollable page area
-                div { class: "pdf-pages",
+                div {
+                    class: "pdf-pages",
+                    id: "pdf-pages-container",
+                    onscroll: move |_| {
+                        if is_loading() || !has_more {
+                            return;
+                        }
+                        let render_tx = render_ch.sender();
+                        let start = rendered_count;
+                        let count = batch_size;
+                        spawn(async move {
+                            // Read scroll position via JS eval
+                            let mut result = document::eval(r#"
+                                let el = document.getElementById('pdf-pages-container');
+                                [el.scrollTop, el.clientHeight, el.scrollHeight]
+                            "#);
+                            if let Ok(val) = result.recv::<serde_json::Value>().await {
+                                if let Some(arr) = val.as_array() {
+                                    let scroll_top = arr[0].as_f64().unwrap_or(0.0);
+                                    let client_height = arr[1].as_f64().unwrap_or(0.0);
+                                    let scroll_height = arr[2].as_f64().unwrap_or(0.0);
+
+                                    if scroll_top + client_height >= scroll_height - 600.0 {
+                                        is_loading.set(true);
+                                        let _ = crate::state::commands::render_more_pages(
+                                            &render_tx,
+                                            &mut pdf_state,
+                                            start,
+                                            count,
+                                        ).await;
+                                        is_loading.set(false);
+                                    }
+                                }
+                            }
+                        });
+                    },
+
                     for (idx, page) in state.rendered_pages.iter().enumerate() {
                         PdfPageWithOverlay {
                             key: "{idx}",
@@ -36,12 +153,18 @@ pub fn PdfViewer() -> Element {
                             base64_png: page.base64_png.clone(),
                             width: page.width,
                             height: page.height,
+                            zoom,
+                            render_zoom,
                         }
                     }
 
-                    if (state.rendered_pages.len() as u32) < page_count {
+                    if has_more {
                         div { class: "pdf-load-more",
-                            "Scroll to load more pages..."
+                            if is_loading() {
+                                "Loading pages..."
+                            } else {
+                                "Scroll to load more pages..."
+                            }
                         }
                     }
                 }
@@ -57,7 +180,14 @@ pub fn PdfViewer() -> Element {
 
 /// A single PDF page with an interactive annotation overlay.
 #[component]
-fn PdfPageWithOverlay(page_index: u32, base64_png: String, width: u32, height: u32) -> Element {
+fn PdfPageWithOverlay(
+    page_index: u32,
+    base64_png: String,
+    width: u32,
+    height: u32,
+    zoom: f32,
+    render_zoom: f32,
+) -> Element {
     let mut pdf_state = use_context::<Signal<PdfViewState>>();
     let db = use_context::<Database>();
 
@@ -79,10 +209,21 @@ fn PdfPageWithOverlay(page_index: u32, base64_png: String, width: u32, height: u
         AnnotationMode::None => "default",
     };
 
+    // Progressive zoom: CSS scale existing images while re-render is in progress
+    let scale_factor = if render_zoom > 0.0 { zoom / render_zoom } else { 1.0 };
+    let needs_scaling = (scale_factor - 1.0).abs() > 0.01;
+    let wrapper_style = if needs_scaling {
+        format!(
+            "cursor: {cursor}; transform: scale({scale_factor}); transform-origin: top center;"
+        )
+    } else {
+        format!("cursor: {cursor};")
+    };
+
     rsx! {
         div {
             class: "pdf-page-wrapper",
-            style: "cursor: {cursor};",
+            style: "{wrapper_style}",
 
             img {
                 class: "pdf-page-img",
@@ -196,6 +337,7 @@ fn render_annotation(ann: &Annotation) -> Element {
 #[component]
 fn PdfToolbar(page_count: u32, zoom: f32) -> Element {
     let mut pdf_state = use_context::<Signal<PdfViewState>>();
+    let render_ch = use_context::<RenderChannel>();
     let zoom_percent = (zoom * 100.0 / 1.5) as u32;
     let state = pdf_state.read();
     let mode = state.annotation_mode.clone();
@@ -297,7 +439,11 @@ fn PdfToolbar(page_count: u32, zoom: f32) -> Element {
             button {
                 class: "btn--icon",
                 onclick: move |_| {
-                    pdf_state.with_mut(|s| s.zoom = (s.zoom - 0.3).max(0.5));
+                    let new_zoom = (zoom - 0.3_f32).max(0.5);
+                    let render_tx = render_ch.sender();
+                    spawn(async move {
+                        let _ = crate::state::commands::set_zoom(&render_tx, &mut pdf_state, new_zoom).await;
+                    });
                 },
                 "-"
             }
@@ -305,7 +451,11 @@ fn PdfToolbar(page_count: u32, zoom: f32) -> Element {
             button {
                 class: "btn--icon",
                 onclick: move |_| {
-                    pdf_state.with_mut(|s| s.zoom = (s.zoom + 0.3).min(5.0));
+                    let new_zoom = (zoom + 0.3_f32).min(5.0);
+                    let render_tx = render_ch.sender();
+                    spawn(async move {
+                        let _ = crate::state::commands::set_zoom(&render_tx, &mut pdf_state, new_zoom).await;
+                    });
                 },
                 "+"
             }

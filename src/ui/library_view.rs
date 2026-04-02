@@ -11,6 +11,7 @@ pub fn LibraryPanel() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let mut pdf_state = use_context::<Signal<PdfViewState>>();
     let db = use_context::<Database>();
+    let render_ch = use_context::<crate::app::RenderChannel>();
     let state = lib_state.read();
 
     let is_searching = state.search_results.is_some();
@@ -177,18 +178,17 @@ pub fn LibraryPanel() -> Element {
                                                     if let Some(ref rel_path) = pdf_rel_path {
                                                         let full_path = db_for_view.resolve_pdf_path(rel_path);
                                                         let path_str = full_path.to_string_lossy().to_string();
-                                                        if let Ok(engine) = rotero_pdf::PdfEngine::new(None) {
-                                                            if crate::state::commands::open_pdf(&engine, &mut pdf_state, &path_str).is_ok() {
+                                                        let render_tx = render_ch.sender();
+                                                        let db_clone = db_for_view.clone();
+                                                        spawn(async move {
+                                                            if crate::state::commands::open_pdf(&render_tx, &mut pdf_state, &path_str).await.is_ok() {
                                                                 pdf_state.with_mut(|s| s.paper_id = Some(paper_id));
-                                                                let db_clone = db_for_view.clone();
-                                                                spawn(async move {
-                                                                    if let Ok(anns) = crate::db::annotations::list_annotations_for_paper(db_clone.conn(), paper_id).await {
-                                                                        pdf_state.with_mut(|s| s.annotations = anns);
-                                                                    }
-                                                                });
+                                                                if let Ok(anns) = crate::db::annotations::list_annotations_for_paper(db_clone.conn(), paper_id).await {
+                                                                    pdf_state.with_mut(|s| s.annotations = anns);
+                                                                }
                                                                 lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                                             }
-                                                        }
+                                                        });
                                                     }
                                                 },
                                                 "Open"
@@ -235,12 +235,13 @@ pub fn LibraryPanel() -> Element {
                                             if let Some(ref rel_path) = pdf_rel {
                                                 let full_path = db_ctx.resolve_pdf_path(rel_path);
                                                 let path_str = full_path.to_string_lossy().to_string();
-                                                if let Ok(engine) = rotero_pdf::PdfEngine::new(None) {
-                                                    if crate::state::commands::open_pdf(&engine, &mut pdf_state, &path_str).is_ok() {
+                                                let render_tx = render_ch.sender();
+                                                spawn(async move {
+                                                    if crate::state::commands::open_pdf(&render_tx, &mut pdf_state, &path_str).await.is_ok() {
                                                         pdf_state.with_mut(|s| s.paper_id = Some(pid));
                                                         lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                                     }
-                                                }
+                                                });
                                             }
                                         },
                                     }

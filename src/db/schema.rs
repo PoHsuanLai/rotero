@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS papers (
     pdf_path      TEXT,
     date_added    TEXT NOT NULL,
     date_modified TEXT NOT NULL,
+    is_favorite   INTEGER NOT NULL DEFAULT 0,
+    is_read       INTEGER NOT NULL DEFAULT 0,
     extra_meta    TEXT
 );
 

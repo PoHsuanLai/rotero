@@ -18,6 +18,8 @@ pub struct Paper {
     pub pdf_path: Option<String>,
     pub date_added: DateTime<Utc>,
     pub date_modified: DateTime<Utc>,
+    pub is_favorite: bool,
+    pub is_read: bool,
     pub extra_meta: Option<serde_json::Value>,
 }
 
@@ -40,6 +42,8 @@ impl Paper {
             pdf_path: None,
             date_added: now,
             date_modified: now,
+            is_favorite: false,
+            is_read: false,
             extra_meta: None,
         }
     }
