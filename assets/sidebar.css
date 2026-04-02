@@ -217,13 +217,20 @@
 }
 
 .sidebar-tag {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 2px 10px;
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
   cursor: pointer;
   font-weight: 500;
   transition: opacity var(--transition-fast);
+}
+
+.sidebar-tag-icon {
+  font-size: 9px;
+  opacity: 0.6;
 }
 
 .sidebar-tag:hover {

@@ -88,5 +88,10 @@ body {
 .bi-sticky::before { content: "\f58d"; }
 .bi-trash::before { content: "\f5de"; }
 .bi-x-lg::before { content: "\f659"; }
+.bi-file-earmark::before { content: "\f392"; }
+.bi-file-earmark-text::before { content: "\f38b"; }
+.bi-folder2-open::before { content: "\f3d8"; }
+.bi-tag::before { content: "\f5b0"; }
+.bi-tags::before { content: "\f5b2"; }
 .bi-zoom-in::before { content: "\f62c"; }
 .bi-zoom-out::before { content: "\f62d"; }

@@ -156,6 +156,14 @@
   flex: 1;
 }
 
+.toolbar-zoom-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+}
+
 .toolbar-zoom-value {
   min-width: 40px;
   text-align: center;

@@ -89,6 +89,7 @@ pub fn Sidebar() -> Element {
                             let paper_id = paper.id.unwrap_or(0);
                             let title = paper.title.clone();
                             let pdf_rel = paper.pdf_path.clone();
+                            let recent_icon = if paper.pdf_path.is_some() { "bi bi-file-earmark-pdf" } else { "bi bi-file-earmark-text" };
                             let db_recent = db.clone();
                             let truncated = if title.len() > 35 {
                                 format!("{}...", &title[..32])
@@ -117,7 +118,7 @@ pub fn Sidebar() -> Element {
                                             lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                         }
                                     },
-                                    i { class: "sidebar-collection-icon bi bi-file-earmark-pdf" }
+                                    i { class: "sidebar-collection-icon {recent_icon}" }
                                     span { class: "sidebar-collection-name", "{truncated}" }
                                 }
                             }
@@ -153,6 +154,7 @@ pub fn Sidebar() -> Element {
                                     span {
                                         class: "sidebar-tag",
                                         style: "background: {bg};",
+                                        i { class: "sidebar-tag-icon bi bi-tag" }
                                         "{tag_name}"
                                     }
                                 }
@@ -367,6 +369,15 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
                 let collections_clone = collections.clone();
                 let creating_under_this = new_coll_editing() == Some(Some(coll_id));
 
+                // Icon: open folder if active, filled folder if has children, outline if empty
+                let folder_icon = if is_active {
+                    "bi bi-folder2-open"
+                } else if has_children {
+                    "bi bi-folder-fill"
+                } else {
+                    "bi bi-folder"
+                };
+
                 let is_drag_target = drag_coll().is_some() && drag_coll() != Some(coll_id);
                 let item_class = if is_drag_target {
                     format!("{class} sidebar-collection-item--droptarget")
@@ -420,7 +431,7 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
                         ondragend: move |_| {
                             drag_coll.set(None);
                         },
-                        i { class: "sidebar-collection-icon bi bi-folder" }
+                        i { class: "sidebar-collection-icon {folder_icon}" }
                         span { class: "sidebar-collection-name", "{coll_name}" }
                     }
                     // Render children (recursive)
