@@ -3,6 +3,22 @@ use serde::{Deserialize, Serialize};
 
 use crate::PdfError;
 
+/// Detect CSS font-weight from the PDF font name.
+fn detect_font_weight(name: &str) -> String {
+    let lower = name.to_lowercase();
+    if lower.contains("bold") || lower.contains("-bd") || lower.contains("demi") {
+        "bold".to_string()
+    } else if lower.contains("light") || lower.contains("thin") {
+        "300".to_string()
+    } else if lower.contains("black") || lower.contains("heavy") {
+        "900".to_string()
+    } else if lower.contains("medium") && !lower.contains("mediumitalic") {
+        "500".to_string()
+    } else {
+        "normal".to_string()
+    }
+}
+
 /// A single text segment with its position in pixel coordinates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextSegment {
@@ -14,6 +30,8 @@ pub struct TextSegment {
     pub font_size: f64,
     /// CSS font-family string derived from the PDF font.
     pub font_family: String,
+    /// CSS font-weight (e.g. "normal", "bold", "700").
+    pub font_weight: String,
 }
 
 /// Map a PDF font name to a CSS font-family string.
@@ -109,19 +127,20 @@ pub fn extract_page_text(
         let font_size = height;
 
         // Get font info from the first character in this segment
-        let font_family = segment.chars()
+        let (font_family, font_weight) = segment.chars()
             .ok()
             .and_then(|chars| {
                 let first_char = chars.iter().next()?;
                 let name = first_char.font_name();
                 let is_serif = first_char.font_is_serif();
+                let weight = detect_font_weight(&name);
                 if name.is_empty() {
                     None
                 } else {
-                    Some(pdf_font_to_css(&name, is_serif))
+                    Some((pdf_font_to_css(&name, is_serif), weight))
                 }
             })
-            .unwrap_or_else(|| "sans-serif".to_string());
+            .unwrap_or_else(|| ("sans-serif".to_string(), "normal".to_string()));
 
         if width > 0.0 && height > 0.0 {
             segments.push(TextSegment {
@@ -132,6 +151,7 @@ pub fn extract_page_text(
                 height,
                 font_size,
                 font_family,
+                font_weight,
             });
         }
     }
@@ -197,15 +217,16 @@ pub fn extract_pages_text(
             let height = (top_pts - bottom_pts) * scale_y;
             let font_size = height;
 
-            let font_family = segment.chars()
+            let (font_family, font_weight) = segment.chars()
                 .ok()
                 .and_then(|chars| {
                     let first_char = chars.iter().next()?;
                     let name = first_char.font_name();
                     let is_serif = first_char.font_is_serif();
-                    if name.is_empty() { None } else { Some(pdf_font_to_css(&name, is_serif)) }
+                    let weight = detect_font_weight(&name);
+                    if name.is_empty() { None } else { Some((pdf_font_to_css(&name, is_serif), weight)) }
                 })
-                .unwrap_or_else(|| "sans-serif".to_string());
+                .unwrap_or_else(|| ("sans-serif".to_string(), "normal".to_string()));
 
             if width > 0.0 && height > 0.0 {
                 segments.push(TextSegment {
@@ -216,6 +237,7 @@ pub fn extract_pages_text(
                     height,
                     font_size,
                     font_family,
+                    font_weight,
                 });
             }
         }
@@ -227,6 +249,58 @@ pub fn extract_pages_text(
     }
 
     Ok(results)
+}
+
+/// Document-level metadata extracted from PDF properties (XMP / DocInfo).
+#[derive(Debug, Clone, Default)]
+pub struct PdfDocMetadata {
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub subject: Option<String>,
+}
+
+/// Extract raw text content from specified pages (no position data).
+/// Returns a Vec of (page_index, text_string) pairs.
+pub fn extract_raw_text(
+    pdfium: &Pdfium,
+    pdf_path: &str,
+    page_indices: &[u32],
+) -> Result<Vec<(u32, String)>, PdfError> {
+    let document = pdfium.load_pdf_from_file(pdf_path, None)?;
+    let mut results = Vec::new();
+    for &idx in page_indices {
+        let page = match document.pages().get(idx as u16) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let text = match page.text() {
+            Ok(t) => t.all(),
+            Err(_) => String::new(),
+        };
+        results.push((idx, text));
+    }
+    Ok(results)
+}
+
+/// Extract document-level metadata (title, author, subject) from PDF properties.
+pub fn extract_doc_metadata(
+    pdfium: &Pdfium,
+    pdf_path: &str,
+) -> Result<PdfDocMetadata, PdfError> {
+    use pdfium_render::prelude::PdfDocumentMetadataTagType;
+
+    let document = pdfium.load_pdf_from_file(pdf_path, None)?;
+    let metadata = document.metadata();
+
+    let get = |tag: PdfDocumentMetadataTagType| -> Option<String> {
+        metadata.get(tag).map(|t| t.value().to_string()).filter(|s| !s.trim().is_empty())
+    };
+
+    Ok(PdfDocMetadata {
+        title: get(PdfDocumentMetadataTagType::Title),
+        author: get(PdfDocumentMetadataTagType::Author),
+        subject: get(PdfDocumentMetadataTagType::Subject),
+    })
 }
 
 /// A search match with its location.

@@ -4,6 +4,7 @@ use crate::app::RenderChannel;
 use crate::db::Database;
 use crate::state::app_state::{AnnotationMode, LibraryState, LibraryView, PdfTabManager, ViewerToolState, TabId};
 use rotero_models::{Annotation, AnnotationType};
+use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 
 // ── Tab bar ───────────────────────────────────────────────────────
 
@@ -15,18 +16,23 @@ pub fn PdfTabBar() -> Element {
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
 
     let mgr = tabs.read();
-    let tab_info: Vec<(TabId, String, bool)> = mgr.tabs.iter().map(|t| {
-        (t.id, t.title.clone(), mgr.active_tab_id == Some(t.id))
+    let tab_info: Vec<(TabId, String, bool, Option<i64>)> = mgr.tabs.iter().map(|t| {
+        (t.id, t.title.clone(), mgr.active_tab_id == Some(t.id), t.paper_id)
     }).collect();
+    let tab_count = tab_info.len();
     drop(mgr);
+
+    // Tab context menu state: (tab_id, paper_id, tab_index, x, y)
+    let mut tab_ctx = use_signal(|| None::<(TabId, Option<i64>, usize, f64, f64)>);
 
     rsx! {
         div { class: "pdf-tab-bar",
-            for (tab_id, title, is_active) in tab_info.iter() {
+            for (idx, (tab_id, title, is_active, paper_id)) in tab_info.iter().enumerate() {
                 {
                     let tab_id = *tab_id;
                     let title = title.clone();
                     let is_active = *is_active;
+                    let paper_id = *paper_id;
                     let tab_class = if is_active { "pdf-tab pdf-tab--active" } else { "pdf-tab" };
                     let display_title = if title.len() > 30 {
                         format!("{}...", &title[..27])
@@ -38,6 +44,10 @@ pub fn PdfTabBar() -> Element {
                         div {
                             key: "tab-{tab_id}",
                             class: "{tab_class}",
+                            oncontextmenu: move |evt: Event<MouseData>| {
+                                evt.prevent_default();
+                                tab_ctx.set(Some((tab_id, paper_id, idx, evt.client_coordinates().x, evt.client_coordinates().y)));
+                            },
                             onclick: move |_| {
                                 if is_active { return; }
                                 // Save scroll position before switching
@@ -95,6 +105,72 @@ pub fn PdfTabBar() -> Element {
                                     }
                                 },
                                 "\u{00d7}"
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Tab context menu
+            if let Some((ctx_tab_id, ctx_paper_id, ctx_idx, mx, my)) = tab_ctx() {
+                {
+                    let has_tabs_to_right = ctx_idx + 1 < tab_count;
+                    let has_other_tabs = tab_count > 1;
+
+                    rsx! {
+                        ContextMenu {
+                            x: mx,
+                            y: my,
+                            on_close: move |_| {
+                                tab_ctx.set(None);
+                            },
+
+                            ContextMenuItem {
+                                label: "Close".to_string(),
+                                icon: Some("bi-x-lg".to_string()),
+                                on_click: move |_| {
+                                    tabs.with_mut(|m| m.close_tab(ctx_tab_id));
+                                    if tabs.read().tabs.is_empty() {
+                                        lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
+                                    }
+                                    tab_ctx.set(None);
+                                },
+                            }
+
+                            ContextMenuItem {
+                                label: "Close other tabs".to_string(),
+                                icon: Some("bi-x-circle".to_string()),
+                                disabled: Some(!has_other_tabs),
+                                on_click: move |_| {
+                                    tabs.with_mut(|m| m.close_others(ctx_tab_id));
+                                    tab_ctx.set(None);
+                                },
+                            }
+
+                            ContextMenuItem {
+                                label: "Close tabs to the right".to_string(),
+                                icon: Some("bi-x-square".to_string()),
+                                disabled: Some(!has_tabs_to_right),
+                                on_click: move |_| {
+                                    tabs.with_mut(|m| m.close_to_right(ctx_tab_id));
+                                    tab_ctx.set(None);
+                                },
+                            }
+
+                            if ctx_paper_id.is_some() {
+                                ContextMenuSeparator {}
+
+                                ContextMenuItem {
+                                    label: "Show in library".to_string(),
+                                    icon: Some("bi-collection".to_string()),
+                                    on_click: move |_| {
+                                        lib_state.with_mut(|s| {
+                                            s.view = LibraryView::AllPapers;
+                                            s.selected_paper_id = ctx_paper_id;
+                                        });
+                                        tab_ctx.set(None);
+                                    },
+                                }
                             }
                         }
                     }
@@ -417,8 +493,9 @@ fn PdfPageWithOverlay(
                                 for (let span of spans) {{
                                     let targetW = parseFloat(span.dataset.targetW);
                                     let fontSize = parseFloat(span.style.fontSize);
+                                    let fontWeight = span.style.fontWeight || 'normal';
                                     let fontFamily = span.style.fontFamily || 'sans-serif';
-                                    ctx.font = fontSize + 'px ' + fontFamily;
+                                    ctx.font = fontWeight + ' ' + fontSize + 'px ' + fontFamily;
                                     let measured = ctx.measureText(span.textContent).width;
                                     if (measured > 0 && targetW > 0) {{
                                         let sx = targetW / measured;
@@ -434,7 +511,7 @@ fn PdfPageWithOverlay(
                     span {
                         key: "text-{page_index}-{seg_idx}",
                         "data-target-w": "{seg.width}",
-                        style: "left: {seg.x}px; top: {seg.y}px; font-size: {seg.font_size}px; height: {seg.height}px; font-family: {seg.font_family};",
+                        style: "left: {seg.x}px; top: {seg.y}px; font-size: {seg.font_size}px; height: {seg.height}px; font-family: {seg.font_family}; font-weight: {seg.font_weight};",
                         "{seg.text}"
                     }
                 }
@@ -664,6 +741,59 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 if show_panel { "Hide Notes ({ann_count})" } else { "Notes ({ann_count})" }
             }
 
+            if ann_count > 0 {
+                button {
+                    class: "btn btn--ghost",
+                    onclick: move |_| {
+                        let tab = tabs.read().tab().clone();
+                        let pdf_path = tab.pdf_path.clone();
+                        let annotations = tab.annotations.clone();
+
+                        let default_name = std::path::Path::new(&pdf_path)
+                            .file_stem()
+                            .map(|s| format!("{}-annotated.pdf", s.to_string_lossy()))
+                            .unwrap_or_else(|| "annotated.pdf".to_string());
+
+                        let file = rfd::FileDialog::new()
+                            .add_filter("PDF", &["pdf"])
+                            .set_title("Export PDF with Annotations")
+                            .set_file_name(&default_name)
+                            .save_file();
+
+                        if let Some(output_path) = file {
+                            let render_tx = render_ch.sender();
+                            spawn(async move {
+                                let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+                                if render_tx.send(crate::state::commands::RenderRequest::GetPageDimensions {
+                                    pdf_path: pdf_path.clone(),
+                                    reply: reply_tx,
+                                }).is_err() {
+                                    eprintln!("Failed to send GetPageDimensions request");
+                                    return;
+                                }
+                                let dims = match tokio::task::spawn_blocking(move || reply_rx.recv()).await {
+                                    Ok(Ok(Ok(d))) => d,
+                                    _ => {
+                                        eprintln!("Failed to get page dimensions");
+                                        return;
+                                    }
+                                };
+                                match rotero_pdf::write_annotations(
+                                    std::path::Path::new(&pdf_path),
+                                    &output_path,
+                                    &annotations,
+                                    &dims,
+                                ) {
+                                    Ok(()) => tracing::info!("Exported annotated PDF to {:?}", output_path),
+                                    Err(e) => eprintln!("Failed to export annotated PDF: {e}"),
+                                }
+                            });
+                        }
+                    },
+                    "Export PDF"
+                }
+            }
+
             div { class: "toolbar-separator" }
 
             button {
@@ -701,6 +831,9 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
     let db = use_context::<Database>();
     let annotations = tabs.read().tab().annotations.clone();
 
+    // Annotation context menu state: (ann_id, ann_type, page, color, content, x, y)
+    let mut ann_ctx = use_signal(|| None::<(i64, AnnotationType, i32, String, String, f64, f64)>);
+
     rsx! {
         div { class: "annotation-panel",
             div { class: "annotation-panel-header", "Annotations ({annotations.len()})" }
@@ -724,11 +857,17 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                 AnnotationType::Note => "Note",
                                 AnnotationType::Area => "Area",
                             };
+                            let ctx_color = color.clone();
+                            let ctx_content = content.clone();
                             rsx! {
                                 div {
                                     key: "panel-ann-{ann_id}",
                                     class: "annotation-item",
                                     style: "border-left-color: {color};",
+                                    oncontextmenu: move |evt: Event<MouseData>| {
+                                        evt.prevent_default();
+                                        ann_ctx.set(Some((ann_id, ann_type, page, ctx_color.clone(), ctx_content.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
+                                    },
                                     div { class: "annotation-item-header",
                                         div { class: "annotation-item-meta",
                                             div { class: "annotation-color-dot", style: "background: {color};" }
@@ -787,6 +926,126 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Annotation context menu
+            if let Some((ctx_ann_id, ctx_type, ctx_page, _ctx_color, ctx_content, mx, my)) = ann_ctx() {
+                {
+                    let db_color = db.clone();
+                    let db_delete = db.clone();
+                    let colors = vec![
+                        ("#ffff00", "Yellow"),
+                        ("#ff6b6b", "Red"),
+                        ("#51cf66", "Green"),
+                        ("#339af0", "Blue"),
+                        ("#cc5de8", "Purple"),
+                        ("#ff922b", "Orange"),
+                    ];
+
+                    rsx! {
+                        ContextMenu {
+                            x: mx,
+                            y: my,
+                            on_close: move |_| {
+                                ann_ctx.set(None);
+                            },
+
+                            ContextMenuItem {
+                                label: format!("Go to page {}", ctx_page + 1),
+                                icon: Some("bi-arrow-right-circle".to_string()),
+                                on_click: move |_| {
+                                    let js = format!(
+                                        "let el = document.getElementById('pdf-page-{}'); if (el) el.scrollIntoView({{behavior: 'smooth'}})",
+                                        ctx_page
+                                    );
+                                    let _ = document::eval(&js);
+                                    ann_ctx.set(None);
+                                },
+                            }
+
+                            if ctx_type == AnnotationType::Note {
+                                ContextMenuItem {
+                                    label: "Edit note".to_string(),
+                                    icon: Some("bi-pencil".to_string()),
+                                    on_click: move |_| {
+                                        // We close the menu; the user can click the note content to edit
+                                        ann_ctx.set(None);
+                                    },
+                                }
+                            }
+
+                            if ctx_type == AnnotationType::Highlight && !ctx_content.is_empty() {
+                                {
+                                    let text = ctx_content.clone();
+                                    rsx! {
+                                        ContextMenuItem {
+                                            label: "Copy text".to_string(),
+                                            icon: Some("bi-clipboard".to_string()),
+                                            on_click: move |_| {
+                                                let js = format!("navigator.clipboard.writeText({})", serde_json::to_string(&text).unwrap_or_default());
+                                                let _ = document::eval(&js);
+                                                ann_ctx.set(None);
+                                            },
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Color swatches
+                            div { class: "context-menu-item",
+                                i { class: "context-menu-icon bi bi-palette" }
+                                span { class: "context-menu-label", "Color" }
+                                div { class: "context-menu-colors",
+                                    for (color, _label) in colors.iter() {
+                                        {
+                                            let color = color.to_string();
+                                            let color_for_click = color.clone();
+                                            let db_swatch = db_color.clone();
+                                            rsx! {
+                                                span {
+                                                    class: "context-menu-color-swatch",
+                                                    style: "background: {color};",
+                                                    onclick: move |evt| {
+                                                        evt.stop_propagation();
+                                                        let c = color_for_click.clone();
+                                                        let db = db_swatch.clone();
+                                                        spawn(async move {
+                                                            if let Ok(()) = crate::db::annotations::update_annotation_color(db.conn(), ctx_ann_id, &c).await {
+                                                                tabs.with_mut(|m| {
+                                                                    if let Some(a) = m.tab_mut().annotations.iter_mut().find(|a| a.id == Some(ctx_ann_id)) {
+                                                                        a.color = c;
+                                                                    }
+                                                                });
+                                                            }
+                                                            ann_ctx.set(None);
+                                                        });
+                                                    },
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            ContextMenuSeparator {}
+
+                            ContextMenuItem {
+                                label: "Delete".to_string(),
+                                icon: Some("bi-trash".to_string()),
+                                danger: Some(true),
+                                on_click: move |_| {
+                                    let db = db_delete.clone();
+                                    spawn(async move {
+                                        if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), ctx_ann_id).await {
+                                            tabs.with_mut(|m| m.tab_mut().annotations.retain(|a| a.id != Some(ctx_ann_id)));
+                                        }
+                                    });
+                                    ann_ctx.set(None);
+                                },
                             }
                         }
                     }
