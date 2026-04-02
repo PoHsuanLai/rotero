@@ -6,8 +6,9 @@ pub mod annotations;
 
 use std::path::PathBuf;
 
-use directories::ProjectDirs;
 use turso::Connection;
+
+use crate::sync::engine::SyncConfig;
 
 /// Wrapper around turso Database + Connection.
 /// Connection is Clone + Send + Sync, so no Arc<Mutex<>> needed.
@@ -19,18 +20,16 @@ pub struct Database {
 
 impl PartialEq for Database {
     fn eq(&self, _other: &Self) -> bool {
-        // Connections don't have meaningful equality; use identity
         true
     }
 }
 
 impl Database {
-    /// Initialize the database in the platform-appropriate data directory.
+    /// Initialize the database using the sync config for path resolution.
     pub async fn init() -> Result<Self, String> {
-        let dirs = ProjectDirs::from("com", "rotero", "Rotero")
-            .ok_or("Could not determine data directory")?;
+        let config = SyncConfig::load();
+        let data_dir = config.effective_library_path();
 
-        let data_dir = dirs.data_dir().to_path_buf();
         std::fs::create_dir_all(&data_dir)
             .map_err(|e| format!("Failed to create data dir: {e}"))?;
 
@@ -42,7 +41,7 @@ impl Database {
         let db_path_str = db_path.to_string_lossy().to_string();
 
         let db = turso::Builder::new_local(&db_path_str)
-            .experimental_index_method(true) // Enable FTS indexes
+            .experimental_index_method(true)
             .build()
             .await
             .map_err(|e| format!("Failed to open database: {e}"))?;
@@ -56,17 +55,18 @@ impl Database {
         Ok(Self { conn, data_dir })
     }
 
-    /// Get the database connection.
     pub fn conn(&self) -> &Connection {
         &self.conn
     }
 
-    /// Path to the pdfs storage directory.
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
+    }
+
     pub fn pdfs_dir(&self) -> PathBuf {
         self.data_dir.join("pdfs")
     }
 
-    /// Copy a PDF into the managed pdfs directory, return the relative path.
     pub fn import_pdf(&self, source_path: &str) -> Result<String, String> {
         let source = std::path::Path::new(source_path);
         let filename = source
@@ -85,3 +85,5 @@ impl Database {
         Ok(dest_name)
     }
 }
+
+use std::path::Path;

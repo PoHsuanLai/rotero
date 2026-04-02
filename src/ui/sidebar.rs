@@ -87,6 +87,10 @@ pub fn Sidebar() -> Element {
                     }
                 }
             }
+
+            // Spacer + Settings at bottom
+            div { class: "sidebar-spacer" }
+            super::settings::SettingsButton {}
         }
     }
 }

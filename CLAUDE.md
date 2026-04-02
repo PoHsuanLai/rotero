@@ -8,7 +8,7 @@ Cargo workspace with 5 library crates + 1 app crate:
 
 - `rotero-models` — shared data types (Paper, Collection, Tag, Annotation, Note)
 - `rotero-pdf` — PDF rendering (pdfium-render) and annotation writing (lopdf)
-- `rotero-search` — full-text search (tantivy) — Phase 4
+- `rotero-search` — removed (turso handles FTS natively)
 - `rotero-bib` — BibTeX/RIS/CSL import/export (biblatex, hayagriva) — Phase 4-5
 - `rotero-connector` — browser extension HTTP server (axum, port 21984)
 - `rotero` (app) — Dioxus desktop UI, SQLite DB, metadata fetching, state management
@@ -46,7 +46,9 @@ PDFium binary is auto-downloaded to `lib/` by the justfile. Set `PDFIUM_DYNAMIC_
 
 - Models are plain structs with serde derives, no business logic
 - All SQLite access goes through `src/db/`. No raw SQL elsewhere.
-- DB is wrapped in `Database` (Arc<Mutex<Connection>>) for thread-safe sharing with Dioxus
+- DB uses turso (pure Rust SQLite) — Connection is Clone+Send+Sync, no Arc<Mutex<>> needed
+- All DB operations are async — UI uses `spawn()` for DB calls
+- FTS search built into turso via `CREATE INDEX ... USING fts`
 - PDF pages are rendered to base64 PNG and displayed as `<img>` tags in the WebView
 - The browser connector runs in a background thread with its own tokio runtime
 - Use `use_context::<Database>()` in components to access the DB
@@ -56,7 +58,7 @@ PDFium binary is auto-downloaded to `lib/` by the justfile. Set `PDFIUM_DYNAMIC_
 
 1. ~~Core scaffold + PDF viewer~~ (done)
 2. ~~Library management + metadata + browser connector~~ (done)
-3. PDF annotations (highlights, notes) — next
-4. Search + import/export (tantivy, BibTeX, RIS)
-5. Citation generation (hayagriva CSL)
-6. Sync (file-based + WebDAV)
+3. ~~PDF annotations (highlights, notes)~~ (done)
+4. ~~Search + BibTeX import/export~~ (done — turso FTS, no separate tantivy)
+5. ~~Citation generation (hayagriva CSL, 14 styles)~~ (done)
+6. ~~Sync (file-based via cloud folder)~~ (done)
