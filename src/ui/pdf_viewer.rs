@@ -493,9 +493,10 @@ fn PdfPageWithOverlay(
                                 for (let span of spans) {{
                                     let targetW = parseFloat(span.dataset.targetW);
                                     let fontSize = parseFloat(span.style.fontSize);
+                                    let fontStyle = span.dataset.fontStyle || 'normal';
                                     let fontWeight = span.dataset.fontWeight || 'normal';
                                     let fontFamily = span.style.fontFamily || 'sans-serif';
-                                    ctx.font = fontWeight + ' ' + fontSize + 'px ' + fontFamily;
+                                    ctx.font = fontStyle + ' ' + fontWeight + ' ' + fontSize + 'px ' + fontFamily;
                                     let measured = ctx.measureText(span.textContent).width;
                                     if (measured > 0 && targetW > 0) {{
                                         let sx = targetW / measured;
@@ -512,7 +513,8 @@ fn PdfPageWithOverlay(
                         key: "text-{page_index}-{seg_idx}",
                         "data-target-w": "{seg.width}",
                         "data-font-weight": "{seg.font_weight}",
-                        style: "left: {seg.x}px; top: {seg.y}px; font-size: {seg.font_size}px; height: {seg.height}px; font-family: {seg.font_family}; font-weight: {seg.font_weight};",
+                        "data-font-style": "{seg.font_style}",
+                        style: "left: {seg.x}px; top: {seg.y}px; font-size: {seg.font_size}px; height: {seg.height}px; font-family: {seg.font_family}; font-weight: {seg.font_weight}; font-style: {seg.font_style};",
                         "{seg.text}"
                     }
                 }
