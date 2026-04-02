@@ -364,28 +364,30 @@ pub fn PdfViewer() -> Element {
                         let quality = config.read().render_quality;
                         is_loading.set(true);
                         spawn(async move {
-                            let mut result = document::eval(
-                                "let el = document.getElementById('pdf-pages-container'); [el.scrollTop, el.clientHeight, el.scrollHeight]"
+                            // Save scroll position
+                            let mut eval = document::eval(
+                                "let el = document.getElementById('pdf-pages-container'); el ? el.scrollTop : 0"
                             );
-                            if let Ok(val) = result.recv::<serde_json::Value>().await {
-                                if let Some(arr) = val.as_array() {
-                                    let scroll_top = arr[0].as_f64().unwrap_or(0.0);
-                                    let client_height = arr[1].as_f64().unwrap_or(0.0);
-                                    let scroll_height = arr[2].as_f64().unwrap_or(0.0);
-
-                                    // Save scroll position
-                                    tabs.with_mut(|m| {
-                                        if let Some(t) = m.active_tab_mut() {
-                                            t.view.scroll_top = scroll_top;
-                                        }
-                                    });
-
-                                    if scroll_top + client_height >= scroll_height - 600.0 {
-                                        let _ = crate::state::commands::render_more_pages(
-                                            &render_tx, &mut tabs, tid, start, count, quality,
-                                        ).await;
+                            if let Ok(scroll_top) = eval.recv::<f64>().await {
+                                tabs.with_mut(|m| {
+                                    if let Some(t) = m.active_tab_mut() {
+                                        t.view.scroll_top = scroll_top;
                                     }
-                                }
+                                });
+                            }
+
+                            // Check if near bottom
+                            let mut eval2 = document::eval(
+                                "let el = document.getElementById('pdf-pages-container'); el ? (el.scrollTop + el.clientHeight >= el.scrollHeight - 800) : false"
+                            );
+                            let near_bottom = eval2.recv::<bool>().await.unwrap_or(false);
+
+                            if near_bottom {
+                                tracing::info!(start, count, tid, "loading more pages");
+                                let _ = crate::state::commands::render_more_pages(
+                                    &render_tx, &mut tabs, tid, start, count, quality,
+                                ).await;
+                                tracing::info!("done loading more pages");
                             }
                             is_loading.set(false);
                         });
