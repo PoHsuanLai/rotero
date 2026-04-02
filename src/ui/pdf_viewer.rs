@@ -404,20 +404,37 @@ fn PdfPageWithOverlay(
             div {
                 class: "text-layer",
                 style: "width: {width}px; height: {height}px;",
+                onmounted: move |_| {
+                    // Measure each span's natural width and apply scaleX to match PDF bounds
+                    spawn(async move {
+                        let js = format!(r#"
+                            (function() {{
+                                let layer = document.querySelectorAll('.text-layer')[{page_index}];
+                                if (!layer) return;
+                                let spans = layer.querySelectorAll('span[data-target-w]');
+                                let canvas = document.createElement('canvas');
+                                let ctx = canvas.getContext('2d');
+                                for (let span of spans) {{
+                                    let targetW = parseFloat(span.dataset.targetW);
+                                    let fontSize = parseFloat(span.style.fontSize);
+                                    ctx.font = fontSize + 'px sans-serif';
+                                    let measured = ctx.measureText(span.textContent).width;
+                                    if (measured > 0 && targetW > 0) {{
+                                        let sx = targetW / measured;
+                                        span.style.transform = 'scaleX(' + sx + ')';
+                                    }}
+                                }}
+                            }})()
+                        "#);
+                        let _ = document::eval(&js);
+                    });
+                },
                 for (seg_idx, seg) in text_segments.iter().enumerate() {
-                    {
-                        // Estimate natural rendered width and compute scaleX to match PDF bounding box
-                        let char_count = seg.text.chars().count().max(1) as f64;
-                        let avg_char_width = seg.font_size * 0.6;
-                        let natural_width = char_count * avg_char_width;
-                        let scale_x = if natural_width > 0.0 { seg.width / natural_width } else { 1.0 };
-                        rsx! {
-                            span {
-                                key: "text-{page_index}-{seg_idx}",
-                                style: "left: {seg.x}px; top: {seg.y}px; font-size: {seg.font_size}px; transform: scaleX({scale_x}); transform-origin: left top;",
-                                "{seg.text}"
-                            }
-                        }
+                    span {
+                        key: "text-{page_index}-{seg_idx}",
+                        "data-target-w": "{seg.width}",
+                        style: "left: {seg.x}px; top: {seg.y}px; font-size: {seg.font_size}px; height: {seg.height}px;",
+                        "{seg.text}"
                     }
                 }
             }
