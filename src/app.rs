@@ -21,6 +21,7 @@ pub fn App() -> Element {
             });
 
             rsx! {
+                document::Link { rel: "stylesheet", href: asset!("/assets/style.css") }
                 LoadLibraryData {}
                 Layout {}
             }
@@ -28,7 +29,8 @@ pub fn App() -> Element {
         Some(Err(e)) => {
             let err = e.clone();
             rsx! {
-                div { style: "padding: 40px; color: #c00;",
+                document::Link { rel: "stylesheet", href: asset!("/assets/style.css") }
+                div { class: "db-error",
                     h1 { "Database Error" }
                     p { "{err}" }
                 }
@@ -36,7 +38,8 @@ pub fn App() -> Element {
         }
         None => {
             rsx! {
-                div { style: "padding: 40px; text-align: center; color: #666;",
+                document::Link { rel: "stylesheet", href: asset!("/assets/style.css") }
+                div { class: "db-error",
                     p { "Initializing database..." }
                 }
             }
