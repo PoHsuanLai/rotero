@@ -1,4 +1,5 @@
 pub mod components;
+pub mod keybindings;
 pub mod layout;
 pub mod sidebar;
 pub mod library_view;

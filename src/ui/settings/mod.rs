@@ -5,19 +5,23 @@ mod connector;
 mod import;
 
 use dioxus::prelude::*;
+use crate::app::ShowSettings;
 
 #[component]
 pub fn SettingsButton() -> Element {
-    let mut show = use_signal(|| false);
+    let mut show = use_context::<Signal<ShowSettings>>();
 
     rsx! {
         button {
             class: "sidebar-settings-btn",
-            onclick: move |_| show.set(!show()),
+            onclick: move |_| {
+                let current = show.read().0;
+                show.set(ShowSettings(!current));
+            },
             "Settings"
         }
-        if show() {
-            SettingsPanel { on_close: move || show.set(false) }
+        if show.read().0 {
+            SettingsPanel { on_close: move || show.set(ShowSettings(false)) }
         }
     }
 }

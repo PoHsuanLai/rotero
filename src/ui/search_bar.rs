@@ -13,6 +13,7 @@ pub fn SearchBar() -> Element {
         div { class: "search-bar",
             i { class: "search-icon bi bi-search" }
             input {
+                id: "library-search-input",
                 class: "input input--lg search-input",
                 r#type: "text",
                 placeholder: "Search papers...",

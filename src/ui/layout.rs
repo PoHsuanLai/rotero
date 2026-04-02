@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use super::keybindings::GlobalKeyHandler;
 use super::sidebar::Sidebar;
 use super::library_view::LibraryPanel;
 use super::pdf_viewer::{PdfTabBar, PdfViewer};
@@ -21,6 +22,7 @@ pub fn Layout() -> Element {
     let container_class = if dark { "app-container dark" } else { "app-container" };
 
     rsx! {
+        GlobalKeyHandler {}
         div {
             class: "{container_class}",
             "data-scale": "{scale}",
