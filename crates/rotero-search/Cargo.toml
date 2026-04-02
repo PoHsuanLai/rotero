@@ -1,0 +1,8 @@
+[package]
+name = "rotero-search"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rotero-models.workspace = true
+thiserror.workspace = true

@@ -1,0 +1,8 @@
+[package]
+name = "rotero-pdf"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rotero-models.workspace = true
+thiserror.workspace = true

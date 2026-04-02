@@ -1,0 +1,10 @@
+[package]
+name = "rotero-bib"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rotero-models.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
