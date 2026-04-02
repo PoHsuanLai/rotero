@@ -182,6 +182,26 @@ body {
   font-weight: 500;
   color: var(--text-sidebar);
   transition: background 120ms ease, color 120ms ease;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.sidebar-nav-icon {
+  font-size: var(--text-sm);
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.sidebar-nav-label {
+  flex: 1;
+}
+
+.sidebar-nav-count {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
 }
 
 .sidebar-nav-item:hover {
@@ -202,6 +222,21 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.sidebar-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
+}
+
+.sidebar-section-arrow {
+  font-size: 9px;
+  width: 12px;
+  text-align: center;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
 }
 
 .sidebar-section-title {
@@ -230,11 +265,25 @@ body {
   font-size: var(--text-sm);
   color: var(--text-sidebar);
   transition: background 120ms ease, color 120ms ease;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .sidebar-collection-item:hover {
   background: var(--bg-sidebar-hover);
   color: var(--text-primary);
+}
+
+.sidebar-collection-icon {
+  font-size: var(--text-sm);
+  flex-shrink: 0;
+}
+
+.sidebar-collection-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-tags-wrap {
