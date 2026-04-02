@@ -3,10 +3,12 @@ use dioxus::prelude::*;
 use crate::db::Database;
 use crate::state::app_state::{LibraryState, LibraryView, PdfViewState};
 use rotero_models::Collection;
+use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 
 #[component]
 pub fn Sidebar() -> Element {
-    let lib_state = use_context::<Signal<LibraryState>>();
+    let mut lib_state = use_context::<Signal<LibraryState>>();
+    let db = use_context::<Database>();
     let state = lib_state.read();
     let view = state.view.clone();
     let papers = &state.papers;
@@ -23,6 +25,9 @@ pub fn Sidebar() -> Element {
         .collect();
     recent_papers.sort_by(|a, b| b.date_modified.cmp(&a.date_modified));
     let recent_opened: Vec<_> = recent_papers.into_iter().take(5).collect();
+
+    // Collection context menu state: (collection_id, x, y)
+    let mut coll_ctx = use_signal(|| None::<(i64, String, f64, f64)>);
 
     rsx! {
         div { class: "sidebar",
@@ -88,7 +93,7 @@ pub fn Sidebar() -> Element {
             // Collections
             CollapsibleSection { title: "Collections", initially_open: true,
                 action: rsx! { NewCollectionButton {} },
-                CollectionTree { collections: state.collections.clone(), parent_id: None, depth: 0 }
+                CollectionTree { collections: state.collections.clone(), parent_id: None, depth: 0, ctx_menu: coll_ctx }
                 if state.collections.is_empty() {
                     p { class: "sidebar-empty", "No collections" }
                 }
@@ -120,6 +125,51 @@ pub fn Sidebar() -> Element {
             // Spacer + Settings
             div { class: "sidebar-spacer" }
             super::settings::SettingsButton {}
+
+            // Collection context menu
+            if let Some((coll_id, coll_name, mx, my)) = coll_ctx() {
+                {
+                    let db_delete = db.clone();
+
+                    rsx! {
+                        ContextMenu {
+                            x: mx,
+                            y: my,
+                            on_close: move |_| {
+                                coll_ctx.set(None);
+                            },
+
+                            ContextMenuItem {
+                                label: "Rename".to_string(),
+                                icon: Some("bi-pencil".to_string()),
+                                disabled: Some(true),
+                                on_click: move |_| {},
+                            }
+
+                            ContextMenuSeparator {}
+
+                            ContextMenuItem {
+                                label: "Delete".to_string(),
+                                icon: Some("bi-trash".to_string()),
+                                danger: Some(true),
+                                on_click: move |_| {
+                                    let db = db_delete.clone();
+                                    spawn(async move {
+                                        if let Ok(()) = crate::db::collections::delete_collection(db.conn(), coll_id).await {
+                                            lib_state.with_mut(|s| {
+                                                s.collections.retain(|c| c.id != Some(coll_id));
+                                                if s.view == LibraryView::Collection(coll_id) {
+                                                    s.view = LibraryView::AllPapers;
+                                                }
+                                            });
+                                        }
+                                    });
+                                },
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -188,11 +238,11 @@ fn CollapsibleSection(title: String, initially_open: Option<bool>, action: Optio
 
 /// Renders a nested collection tree recursively.
 #[component]
-fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u32) -> Element {
+fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u32, ctx_menu: Signal<Option<(i64, String, f64, f64)>>) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
+    let mut coll_ctx = ctx_menu;
     let lib = lib_state.read();
     let view = lib.view.clone();
-    let papers = &lib.papers;
 
     let children: Vec<_> = collections.iter()
         .filter(|c| c.parent_id == parent_id)
@@ -230,6 +280,14 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
                         onclick: move |_| {
                             lib_state.with_mut(|s| s.view = LibraryView::Collection(coll_id));
                         },
+                        oncontextmenu: {
+                            let name = coll_name.clone();
+                            move |evt: Event<MouseData>| {
+                                evt.prevent_default();
+                                let coords = evt.page_coordinates();
+                                coll_ctx.set(Some((coll_id, name.clone(), coords.x, coords.y)));
+                            }
+                        },
                         i { class: "sidebar-collection-icon bi bi-folder" }
                         span { class: "sidebar-collection-name", "{coll_name}" }
                     }
@@ -238,6 +296,7 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
                             collections: collections_clone,
                             parent_id: Some(coll_id),
                             depth: depth + 1,
+                            ctx_menu: coll_ctx,
                         }
                     }
                 }

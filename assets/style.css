@@ -379,6 +379,24 @@ body {
 .bi-chevron-right::before { content: "\f285"; }
 .bi-folder::before { content: "\f3d5"; }
 .bi-folder-fill::before { content: "\f3d7"; }
+.bi-eye::before { content: "\f341"; }
+.bi-heart::before { content: "\f417"; }
+.bi-heart-fill::before { content: "\f415"; }
+.bi-check2::before { content: "\f26b"; }
+.bi-clipboard::before { content: "\f290"; }
+.bi-link-45deg::before { content: "\f470"; }
+.bi-folder-plus::before { content: "\f3d9"; }
+.bi-folder2-open::before { content: "\f3dc"; }
+.bi-trash::before { content: "\f5de"; }
+.bi-pencil::before { content: "\f4cb"; }
+.bi-plus-lg::before { content: "\f52a"; }
+.bi-zoom-in::before { content: "\f62c"; }
+.bi-zoom-out::before { content: "\f62d"; }
+.bi-highlighter::before { content: "\f42c"; }
+.bi-sticky::before { content: "\f5af"; }
+.bi-file-earmark-plus::before { content: "\f3eb"; }
+.bi-book::before { content: "\f194"; }
+.bi-book-fill::before { content: "\f193"; }
 
 
 /* --- Library View --- */
@@ -1179,6 +1197,75 @@ body {
   font-size: var(--text-xs);
   color: var(--text-secondary);
   margin-left: var(--space-1);
+}
+
+
+/* --- Context Menu --- */
+.context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 200;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0, 0, 0, 0.1);
+  padding: 4px;
+  min-width: 180px;
+  max-width: 260px;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 80ms ease;
+  white-space: nowrap;
+}
+
+.context-menu-item:hover {
+  background: var(--bg-input);
+}
+
+.context-menu-item--danger {
+  color: var(--accent-danger);
+}
+
+.context-menu-item--danger:hover {
+  background: var(--accent-danger-bg);
+}
+
+.context-menu-item--disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+  pointer-events: none;
+}
+
+.context-menu-icon {
+  font-size: var(--text-sm);
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.context-menu-label {
+  flex: 1;
+}
+
+.context-menu-separator {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 4px var(--space-2);
 }
 
 

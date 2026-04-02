@@ -38,6 +38,18 @@ pub async fn list_collections(conn: &Connection) -> Result<Vec<Collection>, turs
     Ok(colls)
 }
 
+pub async fn rename_collection(conn: &Connection, id: i64, name: &str) -> Result<(), turso::Error> {
+    conn.execute(
+        "UPDATE collections SET name = ?1 WHERE id = ?2",
+        turso::params::Params::Positional(vec![
+            Value::Text(name.to_string()),
+            Value::Integer(id),
+        ]),
+    )
+    .await?;
+    Ok(())
+}
+
 pub async fn delete_collection(conn: &Connection, id: i64) -> Result<(), turso::Error> {
     conn.execute("DELETE FROM collections WHERE id = ?1", [id]).await?;
     Ok(())

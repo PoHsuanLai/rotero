@@ -4,6 +4,7 @@ use crate::db::Database;
 use crate::state::app_state::{LibraryState, LibraryView, PdfViewState};
 use super::search_bar::SearchBar;
 use super::import_export::ImportExportButtons;
+use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 
 #[component]
 pub fn LibraryPanel() -> Element {
@@ -45,6 +46,9 @@ pub fn LibraryPanel() -> Element {
     };
 
     let paper_count = filtered.len();
+
+    // Context menu state: (paper_id, x, y)
+    let mut ctx_menu = use_signal(|| None::<(i64, f64, f64)>);
 
     rsx! {
         div { class: "library-view",
@@ -111,6 +115,11 @@ pub fn LibraryPanel() -> Element {
                                         lib_state.with_mut(|s| {
                                             s.selected_paper_id = Some(paper_id);
                                         });
+                                    },
+                                    oncontextmenu: move |evt| {
+                                        evt.prevent_default();
+                                        let coords = evt.page_coordinates();
+                                        ctx_menu.set(Some((paper_id, coords.x, coords.y)));
                                     },
 
                                     // Left: read indicator
@@ -189,6 +198,132 @@ pub fn LibraryPanel() -> Element {
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            // Paper context menu
+            if let Some((menu_paper_id, mx, my)) = ctx_menu() {
+                {
+                    let state = lib_state.read();
+                    let menu_paper = state.papers.iter().find(|p| p.id == Some(menu_paper_id)).cloned();
+                    drop(state);
+
+                    if let Some(paper) = menu_paper {
+                        let has_pdf = paper.pdf_path.is_some();
+                        let is_fav = paper.is_favorite;
+                        let is_read = paper.is_read;
+                        let doi = paper.doi.clone();
+                        let pdf_rel = paper.pdf_path.clone();
+                        let pid = menu_paper_id;
+                        let db_ctx = db.clone();
+                        let db_fav = db.clone();
+                        let db_read = db.clone();
+                        let db_del = db.clone();
+
+                        rsx! {
+                            ContextMenu {
+                                x: mx,
+                                y: my,
+                                on_close: move |_| ctx_menu.set(None),
+
+                                if has_pdf {
+                                    ContextMenuItem {
+                                        label: "Open PDF".to_string(),
+                                        icon: Some("bi-eye".to_string()),
+                                        on_click: move |_| {
+                                            if let Some(ref rel_path) = pdf_rel {
+                                                let full_path = db_ctx.resolve_pdf_path(rel_path);
+                                                let path_str = full_path.to_string_lossy().to_string();
+                                                if let Ok(engine) = rotero_pdf::PdfEngine::new(None) {
+                                                    if crate::state::commands::open_pdf(&engine, &mut pdf_state, &path_str).is_ok() {
+                                                        pdf_state.with_mut(|s| s.paper_id = Some(pid));
+                                                        lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                                    }
+                                                }
+                                            }
+                                        },
+                                    }
+                                }
+
+                                ContextMenuItem {
+                                    label: if is_fav { "Unfavorite".to_string() } else { "Favorite".to_string() },
+                                    icon: Some(if is_fav { "bi-star-fill".to_string() } else { "bi-star".to_string() }),
+                                    on_click: move |_| {
+                                        let db = db_fav.clone();
+                                        let new_val = !is_fav;
+                                        spawn(async move {
+                                            if let Ok(()) = crate::db::papers::set_favorite(db.conn(), pid, new_val).await {
+                                                lib_state.with_mut(|s| {
+                                                    if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(pid)) {
+                                                        p.is_favorite = new_val;
+                                                    }
+                                                });
+                                            }
+                                        });
+                                    },
+                                }
+
+                                ContextMenuItem {
+                                    label: if is_read { "Mark as unread".to_string() } else { "Mark as read".to_string() },
+                                    icon: Some(if is_read { "bi-book".to_string() } else { "bi-book-fill".to_string() }),
+                                    on_click: move |_| {
+                                        let db = db_read.clone();
+                                        let new_val = !is_read;
+                                        spawn(async move {
+                                            if let Ok(()) = crate::db::papers::set_read(db.conn(), pid, new_val).await {
+                                                lib_state.with_mut(|s| {
+                                                    if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(pid)) {
+                                                        p.is_read = new_val;
+                                                    }
+                                                });
+                                            }
+                                        });
+                                    },
+                                }
+
+                                ContextMenuSeparator {}
+
+                                if let Some(ref doi_val) = doi {
+                                    {
+                                        let doi_copy = doi_val.clone();
+                                        rsx! {
+                                            ContextMenuItem {
+                                                label: "Copy DOI".to_string(),
+                                                icon: Some("bi-link-45deg".to_string()),
+                                                on_click: move |_| {
+                                                    let js = format!("navigator.clipboard.writeText(`{}`)", doi_copy);
+                                                    document::eval(&js);
+                                                },
+                                            }
+                                        }
+                                    }
+                                }
+
+                                ContextMenuSeparator {}
+
+                                ContextMenuItem {
+                                    label: "Delete".to_string(),
+                                    icon: Some("bi-trash".to_string()),
+                                    danger: Some(true),
+                                    on_click: move |_| {
+                                        let db = db_del.clone();
+                                        spawn(async move {
+                                            if let Ok(()) = crate::db::papers::delete_paper(db.conn(), pid).await {
+                                                lib_state.with_mut(|s| {
+                                                    s.papers.retain(|p| p.id != Some(pid));
+                                                    if s.selected_paper_id == Some(pid) {
+                                                        s.selected_paper_id = None;
+                                                    }
+                                                });
+                                            }
+                                        });
+                                    },
+                                }
+                            }
+                        }
+                    } else {
+                        rsx! {}
                     }
                 }
             }
