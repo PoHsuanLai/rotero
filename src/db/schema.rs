@@ -76,20 +76,11 @@ CREATE TABLE IF NOT EXISTS notes (
 );
 ";
 
-const CREATE_FTS_INDEX: &str = "
-CREATE INDEX IF NOT EXISTS idx_papers_fts ON papers USING fts (title, authors, abstract_text, journal, fulltext);
-";
-
 pub async fn initialize_db(conn: &Connection) -> Result<(), turso::Error> {
     conn.execute_batch(CREATE_TABLES).await?;
 
     // Run migrations for existing databases
     run_migrations(conn).await?;
-
-    // Create FTS index (turso-specific)
-    if let Err(e) = conn.execute_batch(CREATE_FTS_INDEX).await {
-        eprintln!("FTS index creation skipped: {e}");
-    }
 
     Ok(())
 }
@@ -116,8 +107,6 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
     // Migration to v3: add fulltext column for PDF content search
     if current_version < 3 {
         let _ = conn.execute("ALTER TABLE papers ADD COLUMN fulltext TEXT", ()).await;
-        // Recreate FTS index to include fulltext
-        let _ = conn.execute("DROP INDEX IF EXISTS idx_papers_fts", ()).await;
     }
 
     if current_version < SCHEMA_VERSION {
