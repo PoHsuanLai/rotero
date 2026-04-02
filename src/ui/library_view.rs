@@ -92,7 +92,7 @@ pub fn LibraryPanel() -> Element {
                                                 onclick: move |evt| {
                                                     evt.stop_propagation();
                                                     if let Some(ref rel_path) = pdf_rel_path {
-                                                        let full_path = db_for_view.pdfs_dir().join(rel_path);
+                                                        let full_path = db_for_view.resolve_pdf_path(rel_path);
                                                         let path_str = full_path.to_string_lossy().to_string();
                                                         if let Ok(engine) = rotero_pdf::PdfEngine::new(None) {
                                                             if crate::state::commands::open_pdf(&engine, &mut pdf_state, &path_str).is_ok() {
@@ -147,12 +147,12 @@ fn AddPaperButton() -> Element {
                         let path_str = path.to_string_lossy().to_string();
                         let db = db_for_pdf.clone();
 
-                        match db.import_pdf(&path_str) {
-                            Ok(rel_path) => {
-                                let filename = path.file_stem()
-                                    .map(|s| s.to_string_lossy().to_string())
-                                    .unwrap_or_else(|| "Untitled".to_string());
+                        let filename = path.file_stem()
+                            .map(|s| s.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "Untitled".to_string());
 
+                        match db.import_pdf(&path_str, Some(&filename), None, None) {
+                            Ok(rel_path) => {
                                 let mut paper = rotero_models::Paper::new(filename);
                                 paper.pdf_path = Some(rel_path);
 
