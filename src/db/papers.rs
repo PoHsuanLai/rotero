@@ -121,15 +121,6 @@ pub async fn delete_paper(conn: &Connection, id: i64) -> Result<(), turso::Error
     Ok(())
 }
 
-pub async fn count_papers_in_collection(conn: &Connection, collection_id: i64) -> Result<i64, turso::Error> {
-    let mut rows = conn.query(
-        "SELECT COUNT(*) FROM paper_collections WHERE collection_id = ?1",
-        [collection_id],
-    ).await?;
-    let row = rows.next().await?.ok_or(turso::Error::QueryReturnedNoRows)?;
-    let count = row.get_value(0)?.as_integer().copied().unwrap_or(0);
-    Ok(count)
-}
 
 fn get_text(row: &turso::Row, idx: usize) -> String {
     row.get_value(idx).ok().and_then(|v| v.as_text().cloned()).unwrap_or_default()

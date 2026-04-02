@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::db::Database;
-use crate::state::app_state::{LibraryState, LibraryView, PdfTab, PdfTabManager};
+use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTab, PdfTabManager};
 use rotero_models::Collection;
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 
@@ -10,7 +10,6 @@ pub fn Sidebar() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
     let mut tabs = use_context::<Signal<PdfTabManager>>();
-    let render_ch = use_context::<crate::app::RenderChannel>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let state = lib_state.read();
     let view = state.view.clone();
@@ -43,7 +42,10 @@ pub fn Sidebar() -> Element {
     let new_coll_editing: Signal<Option<Option<i64>>> = use_context();
 
     // Drag-and-drop state for collection reparenting
-    let _drag_coll: Signal<Option<i64>> = use_context_provider(|| Signal::new(None::<i64>));
+    let mut drag_coll: Signal<Option<i64>> = use_context_provider(|| Signal::new(None::<i64>));
+
+    // Drag paper from library
+    let mut drag_paper = use_context::<Signal<DragPaper>>();
 
     let db_for_ctx = db.clone();
 
@@ -154,6 +156,37 @@ pub fn Sidebar() -> Element {
                 if new_coll_editing() == Some(None) {
                     NewCollectionRow { parent_id: None, depth: 0 }
                 }
+                // Drop zone for un-nesting: drag a subcollection here to make it top-level
+                if drag_coll().is_some() {
+                    {
+                        let db_unnest = db.clone();
+                        rsx! {
+                            div {
+                                class: "sidebar-collection-item sidebar-collection-item--droptarget",
+                                style: "justify-content: center; font-style: italic; opacity: 0.7;",
+                                ondragover: move |evt| { evt.prevent_default(); },
+                                ondrop: move |evt| {
+                                    evt.prevent_default();
+                                    if let Some(dragged_id) = drag_coll() {
+                                        let db = db_unnest.clone();
+                                        spawn(async move {
+                                            if let Ok(()) = crate::db::collections::reparent_collection(db.conn(), dragged_id, None).await {
+                                                lib_state.with_mut(|s| {
+                                                    if let Some(c) = s.collections.iter_mut().find(|c| c.id == Some(dragged_id)) {
+                                                        c.parent_id = None;
+                                                    }
+                                                });
+                                            }
+                                        });
+                                        drag_coll.set(None);
+                                    }
+                                },
+                                i { class: "sidebar-collection-icon bi bi-arrow-bar-left" }
+                                span { class: "sidebar-collection-name", "Move to top level" }
+                            }
+                        }
+                    }
+                }
             }
 
             // Tags
@@ -168,9 +201,12 @@ pub fn Sidebar() -> Element {
                                 let tag_name = tag.name.clone();
                                 let tag_color = tag.color.clone();
                                 let bg = tag_color.clone().unwrap_or_else(|| "#6b7085".to_string());
+                                let is_paper_drop = drag_paper.read().0.is_some();
+                                let tag_class = if is_paper_drop { "sidebar-tag sidebar-tag--droptarget" } else { "sidebar-tag" };
+                                let db_for_tag_drop = db.clone();
                                 rsx! {
                                     span {
-                                        class: "sidebar-tag",
+                                        class: "{tag_class}",
                                         style: "background: {bg};",
                                         onclick: move |_| {
                                             lib_state.with_mut(|s| s.view = LibraryView::Tag(tag_id));
@@ -178,6 +214,26 @@ pub fn Sidebar() -> Element {
                                         oncontextmenu: move |evt: Event<MouseData>| {
                                             evt.prevent_default();
                                             tag_ctx.set(Some((tag_id, tag_name.clone(), tag_color.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
+                                        },
+                                        ondragover: move |evt| {
+                                            evt.prevent_default();
+                                        },
+                                        ondrop: move |evt| {
+                                            evt.prevent_default();
+                                            if let Some(paper_id) = drag_paper().0 {
+                                                let db = db_for_tag_drop.clone();
+                                                spawn(async move {
+                                                    let _ = crate::db::tags::add_tag_to_paper(db.conn(), paper_id, tag_id).await;
+                                                    // Refresh tag view if currently viewing this tag
+                                                    let current_view = lib_state.read().view.clone();
+                                                    if current_view == LibraryView::Tag(tag_id) {
+                                                        if let Ok(ids) = crate::db::tags::list_paper_ids_by_tag(db.conn(), tag_id).await {
+                                                            lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
+                                                        }
+                                                    }
+                                                });
+                                                drag_paper.set(DragPaper(None));
+                                            }
                                         },
                                         i { class: "sidebar-tag-icon bi bi-tag" }
                                         "{tag.name}"
@@ -528,6 +584,7 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
     let db = use_context::<Database>();
     let new_coll_editing = use_context::<Signal<Option<Option<i64>>>>();
     let mut drag_coll = use_context::<Signal<Option<i64>>>();
+    let mut drag_paper = use_context::<Signal<DragPaper>>();
     let mut coll_ctx = ctx_menu;
     let lib = lib_state.read();
     let view = lib.view.clone();
@@ -568,13 +625,15 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
                     "bi bi-folder"
                 };
 
-                let is_drag_target = drag_coll().is_some() && drag_coll() != Some(coll_id);
-                let item_class = if is_drag_target {
+                let is_coll_drag_target = drag_coll().is_some() && drag_coll() != Some(coll_id);
+                let is_paper_drag_target = drag_paper().0.is_some();
+                let item_class = if is_coll_drag_target || is_paper_drag_target {
                     format!("{class} sidebar-collection-item--droptarget")
                 } else {
                     class.to_string()
                 };
                 let db_for_drop = db.clone();
+                let db_for_paper_drop = db.clone();
 
                 rsx! {
                     div {
@@ -616,6 +675,21 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
                                     });
                                 }
                                 drag_coll.set(None);
+                            } else if let Some(paper_id) = drag_paper().0 {
+                                // Add paper to this collection
+                                let db = db_for_paper_drop.clone();
+                                spawn(async move {
+                                    if let Ok(()) = crate::db::collections::add_paper_to_collection(db.conn(), paper_id, coll_id).await {
+                                        // Refresh collection view if currently viewing this collection
+                                        let current_view = lib_state.read().view.clone();
+                                        if current_view == LibraryView::Collection(coll_id) {
+                                            if let Ok(ids) = crate::db::collections::list_paper_ids_in_collection(db.conn(), coll_id).await {
+                                                lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
+                                            }
+                                        }
+                                    }
+                                });
+                                drag_paper.set(DragPaper(None));
                             }
                         },
                         ondragend: move |_| {
@@ -734,9 +808,8 @@ fn NewCollectionRow(parent_id: Option<i64>, depth: u32) -> Element {
 fn OpenPdfButton() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let mut lib_state = use_context::<Signal<LibraryState>>();
-    let render_ch = use_context::<crate::app::RenderChannel>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
-    let mut error_msg = use_signal(|| None::<String>);
+    let error_msg = use_signal(|| None::<String>);
 
     rsx! {
         button {
