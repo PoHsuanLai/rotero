@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use turso::{Connection, Value};
 use rotero_models::Collection;
 

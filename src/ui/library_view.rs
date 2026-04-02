@@ -88,11 +88,19 @@ pub fn LibraryPanel() -> Element {
                                 match db.import_pdf(&file_name, Some(&title), None, None) {
                                     Ok(rel_path) => {
                                         let mut paper = rotero_models::Paper::new(title);
-                                        paper.pdf_path = Some(rel_path);
+                                        paper.pdf_path = Some(rel_path.clone());
                                         if let Ok(id) = crate::db::papers::insert_paper(db.conn(), &paper).await {
                                             paper.id = Some(id);
                                             lib_state.with_mut(|s| s.papers.insert(0, paper));
                                         }
+                                        // Pre-cache in background
+                                        let full_path = db.resolve_pdf_path(&rel_path).to_string_lossy().to_string();
+                                        let render_tx = render_ch.sender();
+                                        let data_dir = config.read().effective_library_path();
+                                        let zoom = config.read().default_zoom;
+                                        spawn(async move {
+                                            crate::state::commands::precache_pdf(&render_tx, &full_path, &data_dir, zoom).await;
+                                        });
                                     }
                                     Err(e) => eprintln!("Failed to import {file_name}: {e}"),
                                 }
@@ -252,7 +260,7 @@ pub fn LibraryPanel() -> Element {
                                                         lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                                         if let Some(tab_id) = new_tab_id {
                                                             spawn(async move {
-                                                                if crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id).await.is_ok() {
+                                                                if crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &config.read().effective_library_path()).await.is_ok() {
                                                                     if let Ok(anns) = crate::db::annotations::list_annotations_for_paper(db_clone.conn(), paper_id).await {
                                                                         tabs.with_mut(|m| {
                                                                             if let Some(t) = m.tabs.iter_mut().find(|t| t.id == tab_id) {
@@ -325,7 +333,7 @@ pub fn LibraryPanel() -> Element {
                                                 lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                                 if let Some(tab_id) = tab_id {
                                                     spawn(async move {
-                                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id).await;
+                                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &config.read().effective_library_path()).await;
                                                     });
                                                 }
                                             }

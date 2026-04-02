@@ -12,6 +12,7 @@ pub fn PdfTabBar() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let render_ch = use_context::<RenderChannel>();
+    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
 
     let mgr = tabs.read();
     let tab_info: Vec<(TabId, String, bool)> = mgr.tabs.iter().map(|t| {
@@ -57,7 +58,7 @@ pub fn PdfTabBar() -> Element {
                                     if needs {
                                         let render_tx = render_ch.sender();
                                         tabs.with_mut(|m| m.tab_mut().is_loading = true);
-                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id).await;
+                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &config.read().effective_library_path()).await;
                                     }
                                     // Restore scroll
                                     let scroll_top = tabs.read().active_tab().map(|t| t.view.scroll_top).unwrap_or(0.0);
@@ -84,7 +85,7 @@ pub fn PdfTabBar() -> Element {
                                             let render_tx = render_ch.sender();
                                             tabs.with_mut(|m| m.tab_mut().is_loading = true);
                                             spawn(async move {
-                                                let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id).await;
+                                                let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &config.read().effective_library_path()).await;
                                             });
                                         }
                                     }

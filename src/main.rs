@@ -1,4 +1,5 @@
 mod app;
+mod cache;
 mod db;
 mod metadata;
 mod state;

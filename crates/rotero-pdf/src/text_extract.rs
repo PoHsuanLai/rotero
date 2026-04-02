@@ -53,10 +53,10 @@ pub fn extract_page_text(
 
         // PDF coords: origin at bottom-left, y increases upward
         // Screen coords: origin at top-left, y increases downward
-        let left_pts = bounds.left.value;
-        let top_pts = bounds.top.value;
-        let right_pts = bounds.right.value;
-        let bottom_pts = bounds.bottom.value;
+        let left_pts = bounds.left().value;
+        let top_pts = bounds.top().value;
+        let right_pts = bounds.right().value;
+        let bottom_pts = bounds.bottom().value;
 
         // Convert to pixel coordinates
         let x = (left_pts * scale) as f64;
@@ -129,10 +129,10 @@ pub fn extract_pages_text(
             #[allow(deprecated)]
             let bounds = segment.bounds();
 
-            let left_pts = bounds.left.value;
-            let top_pts = bounds.top.value;
-            let right_pts = bounds.right.value;
-            let bottom_pts = bounds.bottom.value;
+            let left_pts = bounds.left().value;
+            let top_pts = bounds.top().value;
+            let right_pts = bounds.right().value;
+            let bottom_pts = bounds.bottom().value;
 
             let x = (left_pts * scale) as f64;
             let y = ((page_height_pts - top_pts) * scale) as f64;

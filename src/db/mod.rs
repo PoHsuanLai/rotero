@@ -57,6 +57,7 @@ impl Database {
         &self.conn
     }
 
+    #[allow(dead_code)]
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
     }

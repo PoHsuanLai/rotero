@@ -31,7 +31,8 @@ pub struct PdfDocumentInfo {
 
 pub struct RenderedPage {
     pub page_index: u32,
-    pub base64_png: String,
+    pub base64_data: String,
+    pub mime: &'static str,
     pub width: u32,
     pub height: u32,
 }
@@ -110,15 +111,16 @@ impl PdfEngine {
         let img_width = image.width();
         let img_height = image.height();
 
-        let mut png_bytes: Vec<u8> = Vec::new();
-        let mut cursor = std::io::Cursor::new(&mut png_bytes);
-        image.write_to(&mut cursor, ImageFormat::Png)?;
+        let mut img_bytes: Vec<u8> = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut img_bytes);
+        image.write_to(&mut cursor, ImageFormat::Jpeg)?;
 
-        let base64_png = BASE64.encode(&png_bytes);
+        let base64_data = BASE64.encode(&img_bytes);
 
         Ok(RenderedPage {
             page_index,
-            base64_png,
+            base64_data,
+            mime: "image/jpeg",
             width: img_width,
             height: img_height,
         })
@@ -158,15 +160,16 @@ impl PdfEngine {
             let img_width = image.width();
             let img_height = image.height();
 
-            let mut png_bytes: Vec<u8> = Vec::new();
-            let mut cursor = std::io::Cursor::new(&mut png_bytes);
-            image.write_to(&mut cursor, ImageFormat::Png)?;
+            let mut img_bytes: Vec<u8> = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut img_bytes);
+            image.write_to(&mut cursor, ImageFormat::Jpeg)?;
 
-            let base64_png = BASE64.encode(&png_bytes);
+            let base64_data = BASE64.encode(&img_bytes);
 
             pages.push(RenderedPage {
                 page_index: i,
-                base64_png,
+                base64_data,
+                mime: "image/jpeg",
                 width: img_width,
                 height: img_height,
             });
@@ -207,15 +210,16 @@ impl PdfEngine {
             let img_width = image.width();
             let img_height = image.height();
 
-            let mut png_bytes: Vec<u8> = Vec::new();
-            let mut cursor = std::io::Cursor::new(&mut png_bytes);
-            image.write_to(&mut cursor, ImageFormat::Png)?;
+            let mut img_bytes: Vec<u8> = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut img_bytes);
+            image.write_to(&mut cursor, ImageFormat::Jpeg)?;
 
-            let base64_png = BASE64.encode(&png_bytes);
+            let base64_data = BASE64.encode(&img_bytes);
 
             thumbs.push(RenderedPage {
                 page_index: i,
-                base64_png,
+                base64_data,
+                mime: "image/jpeg",
                 width: img_width,
                 height: img_height,
             });

@@ -5196,6 +5196,7 @@ checksum = "c85cd47a33a4510b1424fe796498e174c6a9cf94e606460ef022a19f3e4ff85e"
 name = "rotero"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "chrono",
  "dioxus",
  "directories",

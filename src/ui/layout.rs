@@ -2,19 +2,21 @@ use dioxus::prelude::*;
 
 use super::sidebar::Sidebar;
 use super::library_view::LibraryPanel;
-use super::pdf_viewer::PdfViewer;
+use super::pdf_viewer::{PdfTabBar, PdfViewer};
 use super::paper_detail::PaperDetail;
-use crate::state::app_state::{LibraryState, LibraryView};
+use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
 use crate::sync::engine::SyncConfig;
 
 #[component]
 pub fn Layout() -> Element {
     let lib_state = use_context::<Signal<LibraryState>>();
+    let tab_mgr = use_context::<Signal<PdfTabManager>>();
     let config = use_context::<Signal<SyncConfig>>();
     let view = lib_state.read().view.clone();
 
     let dark = config.read().dark_mode;
     let scale = config.read().ui_scale.clone();
+    let has_tabs = tab_mgr.read().active_tab_id.is_some();
 
     let container_class = if dark { "app-container dark" } else { "app-container" };
 
@@ -25,7 +27,10 @@ pub fn Layout() -> Element {
             Sidebar {}
             div { class: "main-panel",
                 match view {
-                    LibraryView::PdfViewer => rsx! { PdfViewer {} },
+                    LibraryView::PdfViewer if has_tabs => rsx! {
+                        PdfTabBar {}
+                        PdfViewer {}
+                    },
                     _ => rsx! {
                         div { style: "flex: 1; display: flex;",
                             LibraryPanel {}

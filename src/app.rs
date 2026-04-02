@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::db::Database;
-use crate::state::app_state::{LibraryState, PdfViewState};
+use crate::state::app_state::{LibraryState, PdfTabManager, ViewerToolState};
 use crate::state::commands;
 use crate::sync::engine::SyncConfig;
 use crate::ui::layout::Layout;
@@ -32,14 +32,12 @@ pub fn App() -> Element {
     // DB reload trigger — bump to force re-init without restart
     let db_generation: DbGeneration = use_context_provider(|| Signal::new(0u64));
 
-    // Provide global state to all components, using config defaults
+    // Provide global state to all components
+    use_context_provider(|| Signal::new(PdfTabManager::default()));
     use_context_provider(|| {
         let cfg = config.read();
-        Signal::new(PdfViewState {
-            zoom: cfg.default_zoom,
-            render_zoom: cfg.default_zoom,
+        Signal::new(ViewerToolState {
             annotation_color: cfg.default_annotation_color.clone(),
-            page_batch_size: Some(cfg.page_batch_size),
             ..Default::default()
         })
     });
@@ -103,6 +101,12 @@ fn LoadLibraryData() -> Element {
     use_effect(move || {
         let db = db.clone();
         spawn(async move {
+            // Check for external modifications (e.g. synced from another device)
+            let db_path = db.data_dir().join("rotero.db");
+            if crate::sync::engine::check_external_modification(&db_path, None) {
+                eprintln!("Database was modified externally, reloading...");
+            }
+
             let conn = db.conn();
             if let Ok(papers) = crate::db::papers::list_papers(conn).await {
                 lib_state.with_mut(|s| s.papers = papers);
@@ -113,6 +117,9 @@ fn LoadLibraryData() -> Element {
             if let Ok(tags) = crate::db::tags::list_tags(conn).await {
                 lib_state.with_mut(|s| s.tags = tags);
             }
+
+            // Store current modification time for future checks
+            let _ = crate::sync::engine::file_modified_time(&db_path);
         });
     });
 

@@ -6,8 +6,6 @@ mod import;
 
 use dioxus::prelude::*;
 
-use crate::sync::engine::SyncConfig;
-
 #[component]
 pub fn SettingsButton() -> Element {
     let mut show = use_signal(|| false);
