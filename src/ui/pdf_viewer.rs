@@ -515,7 +515,7 @@ fn PdfPageWithOverlay(
                         "data-target-w": "{seg.width}",
                         "data-font-weight": "{seg.font_weight}",
                         "data-font-style": "{seg.font_style}",
-                        style: "left: {seg.x}px; top: {seg.y}px; font-size: {seg.font_size}px; height: {seg.height}px; font-family: {seg.font_family}; font-weight: {seg.font_weight}; font-style: {seg.font_style};",
+                        style: "left: {seg.x}px; top: {seg.y}px; font-size: {seg.font_size}px; font-family: {seg.font_family}; font-weight: {seg.font_weight}; font-style: {seg.font_style};",
                         "{seg.text}"
                     }
                 }
