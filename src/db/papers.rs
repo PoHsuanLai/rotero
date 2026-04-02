@@ -53,26 +53,6 @@ pub async fn list_papers(conn: &Connection) -> Result<Vec<Paper>, turso::Error> 
 }
 
 pub async fn search_papers(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
-    let fts_result = search_papers_fts(conn, query).await;
-    match fts_result {
-        Ok(papers) => Ok(papers),
-        Err(_) => search_papers_like(conn, query).await,
-    }
-}
-
-async fn search_papers_fts(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
-    let sql = format!(
-        "SELECT {SELECT_COLS} FROM papers WHERE fts_match(title, authors, abstract_text, journal, fulltext, ?1) LIMIT 50"
-    );
-    let mut rows = conn.query(&sql, [Value::Text(query.to_string())]).await?;
-    let mut papers = Vec::new();
-    while let Some(row) = rows.next().await? {
-        papers.push(row_to_paper(&row));
-    }
-    Ok(papers)
-}
-
-async fn search_papers_like(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
     let pattern = format!("%{query}%");
     let sql = format!(
         "SELECT {SELECT_COLS} FROM papers WHERE title LIKE ?1 OR authors LIKE ?1 OR abstract_text LIKE ?1 OR journal LIKE ?1 OR doi LIKE ?1 OR fulltext LIKE ?1 ORDER BY date_added DESC LIMIT 50"
@@ -106,6 +86,32 @@ pub async fn update_paper_fulltext(conn: &Connection, id: i64, text: &str) -> Re
     conn.execute(
         "UPDATE papers SET fulltext = ?1 WHERE id = ?2",
         turso::params::Params::Positional(vec![Value::Text(text.to_string()), Value::Integer(id)]),
+    ).await?;
+    Ok(())
+}
+
+/// Update all metadata fields for an existing paper.
+pub async fn update_paper_metadata(conn: &Connection, id: i64, paper: &Paper) -> Result<(), turso::Error> {
+    let authors_json = serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
+    conn.execute(
+        "UPDATE papers SET title = ?1, authors = ?2, year = ?3, doi = ?4, abstract_text = ?5,
+         journal = ?6, volume = ?7, issue = ?8, pages = ?9, publisher = ?10, url = ?11,
+         date_modified = ?12 WHERE id = ?13",
+        turso::params::Params::Positional(vec![
+            Value::Text(paper.title.clone()),
+            Value::Text(authors_json),
+            paper.year.map(|y| Value::Integer(y as i64)).unwrap_or(Value::Null),
+            paper.doi.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper.abstract_text.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper.journal.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper.volume.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper.issue.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper.pages.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper.publisher.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper.url.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            Value::Text(Utc::now().to_rfc3339()),
+            Value::Integer(id),
+        ]),
     ).await?;
     Ok(())
 }

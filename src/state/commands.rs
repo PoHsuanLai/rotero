@@ -49,6 +49,12 @@ pub enum RenderRequest {
         pdf_path: String,
         reply: mpsc::Sender<Result<Vec<(f32, f32)>, String>>,
     },
+    /// Extract raw text from first N pages + PDF document properties for metadata extraction.
+    ExtractMetadataText {
+        pdf_path: String,
+        page_count: u32,
+        reply: mpsc::Sender<Result<(Vec<(u32, String)>, rotero_pdf::PdfDocMetadata), String>>,
+    },
 }
 
 /// Spawn a dedicated thread that owns the PdfEngine and processes render requests.
@@ -131,6 +137,19 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     let result = engine
                         .get_page_dimensions(&pdf_path)
                         .map_err(|e| e.to_string());
+                    let _ = reply.send(result);
+                }
+                RenderRequest::ExtractMetadataText { pdf_path, page_count, reply } => {
+                    let result = (|| {
+                        let indices: Vec<u32> = (0..page_count).collect();
+                        let raw_text = rotero_pdf::text_extract::extract_raw_text(
+                            engine.pdfium(), &pdf_path, &indices,
+                        ).map_err(|e| e.to_string())?;
+                        let doc_meta = rotero_pdf::text_extract::extract_doc_metadata(
+                            engine.pdfium(), &pdf_path,
+                        ).map_err(|e| e.to_string())?;
+                        Ok((raw_text, doc_meta))
+                    })();
                     let _ = reply.send(result);
                 }
             }
@@ -500,4 +519,152 @@ pub async fn precache_pdf(
             crate::cache::save_text(&dir, &path, &text_data);
         });
     }
+}
+
+/// Extract metadata from a PDF and update the paper record.
+///
+/// The paper is already inserted with filename as title. This function:
+/// 1. Extracts raw text from the first 2 pages (via render thread)
+/// 2. Reads PDF document properties (title, author)
+/// 3. Tries to find a DOI in the text
+/// 4. If DOI found + auto_fetch, calls CrossRef for full metadata
+/// 5. Falls back to PDF document properties if CrossRef unavailable
+pub async fn extract_and_fetch_metadata(
+    render_tx: &mpsc::Sender<RenderRequest>,
+    conn: &turso::Connection,
+    paper_id: i64,
+    pdf_path: &str,
+    auto_fetch: bool,
+    lib_state: &mut Signal<super::app_state::LibraryState>,
+) {
+    tracing::info!(paper_id, pdf_path, auto_fetch, "extract_and_fetch_metadata: start");
+
+    // 1. Extract raw text + doc properties via render thread
+    let (reply_tx, reply_rx) = mpsc::channel();
+    if render_tx.send(RenderRequest::ExtractMetadataText {
+        pdf_path: pdf_path.to_string(),
+        page_count: 2,
+        reply: reply_tx,
+    }).is_err() {
+        tracing::warn!("extract_and_fetch_metadata: failed to send render request");
+        return;
+    }
+
+    let Ok((raw_pages, doc_meta)) = recv_reply(reply_rx).await else {
+        tracing::warn!("extract_and_fetch_metadata: render thread reply failed");
+        return;
+    };
+
+    tracing::info!(
+        pages = raw_pages.len(),
+        total_chars = raw_pages.iter().map(|(_, t)| t.len()).sum::<usize>(),
+        doc_title = ?doc_meta.title,
+        doc_author = ?doc_meta.author,
+        "extract_and_fetch_metadata: text extracted"
+    );
+
+    // 2. Try to extract DOI and arXiv ID from first 2 pages
+    let combined_text: String = raw_pages.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join("\n");
+    let doi = crate::metadata::doi_extract::extract_doi(&combined_text);
+    let arxiv_id = crate::metadata::doi_extract::extract_arxiv_id(&combined_text);
+    tracing::info!(?doi, ?arxiv_id, "extract_and_fetch_metadata: ID extraction");
+
+    // 3. If DOI found and auto_fetch enabled, call CrossRef
+    if let Some(ref doi_str) = doi {
+        if auto_fetch {
+            match crate::metadata::crossref::fetch_by_doi(doi_str).await {
+                Ok(meta) => {
+                    tracing::info!(title = %meta.title, authors = ?meta.authors, "extract_and_fetch_metadata: CrossRef success");
+                    let fetched = crate::metadata::parser::metadata_to_paper(meta);
+                    if apply_fetched_metadata(conn, paper_id, &fetched, lib_state).await {
+                        return;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(%e, "extract_and_fetch_metadata: CrossRef lookup failed");
+                }
+            }
+        }
+    }
+
+    // 3b. If arXiv ID found and auto_fetch enabled, call arXiv API
+    if let Some(ref arxiv) = arxiv_id {
+        if auto_fetch {
+            match crate::metadata::arxiv::fetch_by_arxiv_id(arxiv).await {
+                Ok(meta) => {
+                    tracing::info!(title = %meta.title, authors = ?meta.authors, "extract_and_fetch_metadata: arXiv success");
+                    let fetched = crate::metadata::parser::metadata_to_paper(meta);
+                    if apply_fetched_metadata(conn, paper_id, &fetched, lib_state).await {
+                        return;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(%e, "extract_and_fetch_metadata: arXiv lookup failed");
+                }
+            }
+        }
+    }
+
+    // 4. Fallback: use PDF document properties + extracted DOI/arXiv ID
+    let has_update = doc_meta.title.is_some() || doc_meta.author.is_some() || doi.is_some() || arxiv_id.is_some();
+    if !has_update {
+        tracing::info!("extract_and_fetch_metadata: no metadata found");
+        return;
+    }
+
+    lib_state.with_mut(|s| {
+        if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(paper_id)) {
+            if let Some(ref title) = doc_meta.title {
+                p.title = title.clone();
+            }
+            if let Some(ref author) = doc_meta.author {
+                p.authors = author.split(';')
+                    .flat_map(|s| s.split(','))
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+            }
+            if let Some(ref doi_str) = doi {
+                p.doi = Some(doi_str.clone());
+            } else if let Some(ref arxiv) = arxiv_id {
+                p.doi = Some(format!("arXiv:{arxiv}"));
+            }
+        }
+    });
+
+    // Persist fallback metadata to DB
+    let paper_snapshot = lib_state.read().papers.iter()
+        .find(|p| p.id == Some(paper_id))
+        .cloned();
+    if let Some(paper) = paper_snapshot {
+        let _ = crate::db::papers::update_paper_metadata(conn, paper_id, &paper).await;
+    }
+}
+
+/// Apply fetched metadata to DB and in-memory state. Returns true on success.
+async fn apply_fetched_metadata(
+    conn: &turso::Connection,
+    paper_id: i64,
+    fetched: &rotero_models::Paper,
+    lib_state: &mut Signal<super::app_state::LibraryState>,
+) -> bool {
+    if crate::db::papers::update_paper_metadata(conn, paper_id, fetched).await.is_err() {
+        return false;
+    }
+    lib_state.with_mut(|s| {
+        if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(paper_id)) {
+            p.title = fetched.title.clone();
+            p.authors = fetched.authors.clone();
+            p.year = fetched.year;
+            p.doi = fetched.doi.clone();
+            p.abstract_text = fetched.abstract_text.clone();
+            p.journal = fetched.journal.clone();
+            p.volume = fetched.volume.clone();
+            p.issue = fetched.issue.clone();
+            p.pages = fetched.pages.clone();
+            p.publisher = fetched.publisher.clone();
+            p.url = fetched.url.clone();
+        }
+    });
+    true
 }
