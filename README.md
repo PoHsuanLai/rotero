@@ -4,19 +4,16 @@ A lightweight, Rust-native paper reading and reference management app. Built as 
 
 ## Features
 
-- **PDF Viewer** — Open and read PDFs with zoom controls
+- **PDF Viewer** — Read PDFs with page navigation and zoom controls
+- **PDF Annotations** — Highlights and sticky notes on PDFs
 - **Library Management** — Organize papers into collections with tags
+- **Full-Text Search** — Search across papers and PDFs (built-in FTS)
 - **DOI Metadata Fetch** — Auto-populate paper details from CrossRef
+- **BibTeX / RIS / CSL Import & Export** — Interchange with other reference managers
+- **Citation Generation** — Generate bibliographies in 14 CSL styles (APA, IEEE, Chicago, etc.)
 - **Browser Connector** — Save papers from your browser with one click (Chrome extension)
+- **Cross-Device Sync** — File-based sync via cloud folders
 - **SQLite Storage** — Fast local database, no server needed
-
-### Planned
-
-- PDF annotations (highlights, sticky notes)
-- Full-text search across papers and PDFs
-- BibTeX / RIS / CSL JSON import and export
-- Citation and bibliography generation (APA, IEEE, Chicago, etc.)
-- Cross-device sync via cloud folders or WebDAV
 
 ## Getting Started
 
@@ -83,20 +80,17 @@ just test-save-paper
 
 ## Architecture
 
-Cargo workspace with 6 crates optimized for fast incremental compilation:
+Cargo workspace with 5 crates:
 
 ```
-rotero-models       ← shared data types (Paper, Collection, Tag, etc.)
+rotero-models       ← shared data types (Paper, Collection, Tag, Annotation, Note)
     ↑
-    ├── rotero-pdf         pdfium-render, lopdf
-    ├── rotero-search      tantivy
-    ├── rotero-bib         hayagriva, biblatex
-    ├── rotero-connector   axum (HTTP server)
+    ├── rotero-pdf         PDF rendering (pdfium-render) + annotation writing (lopdf)
+    ├── rotero-bib         BibTeX/RIS/CSL import/export (biblatex, hayagriva)
+    ├── rotero-connector   browser extension HTTP server (axum)
     │
-    └── rotero (app)       dioxus, rusqlite, reqwest
+    └── rotero (app)       Dioxus desktop UI, turso (SQLite), reqwest
 ```
-
-Editing a UI component only recompiles the app crate (~8-12s), not the PDF/search/citation crates.
 
 ## Tech Stack
 
@@ -104,7 +98,10 @@ Editing a UI component only recompiles the app crate (~8-12s), not the PDF/searc
 |---|---|
 | UI | dioxus (desktop/WebView) |
 | PDF rendering | pdfium-render |
-| Database | rusqlite (SQLite, bundled) |
+| PDF annotation | lopdf |
+| Database | turso (pure Rust SQLite) |
+| Full-text search | turso FTS |
+| Citations | hayagriva (CSL) |
 | HTTP client | reqwest |
 | Browser connector | axum |
 | Serialization | serde |
