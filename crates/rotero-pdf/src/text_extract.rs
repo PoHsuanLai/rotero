@@ -124,23 +124,24 @@ pub fn extract_page_text(
         let width = (right_pts - left_pts) * scale_x;
         let height = (top_pts - bottom_pts) * scale_y;
 
-        let font_size = height;
-
         // Get font info from the first character in this segment
-        let (font_family, font_weight) = segment.chars()
+        let (font_size, font_family, font_weight) = segment.chars()
             .ok()
             .and_then(|chars| {
                 let first_char = chars.iter().next()?;
                 let name = first_char.font_name();
                 let is_serif = first_char.font_is_serif();
                 let weight = detect_font_weight(&name);
-                if name.is_empty() {
-                    None
+                // Use actual font size from PDF, scaled to image pixels
+                let fs = first_char.scaled_font_size().value as f64 * scale_y;
+                let family = if name.is_empty() {
+                    "sans-serif".to_string()
                 } else {
-                    Some((pdf_font_to_css(&name, is_serif), weight))
-                }
+                    pdf_font_to_css(&name, is_serif)
+                };
+                Some((fs, family, weight))
             })
-            .unwrap_or_else(|| ("sans-serif".to_string(), "normal".to_string()));
+            .unwrap_or_else(|| (height, "sans-serif".to_string(), "normal".to_string()));
 
         if width > 0.0 && height > 0.0 {
             segments.push(TextSegment {
@@ -215,18 +216,18 @@ pub fn extract_pages_text(
             let y = (page_height_pts as f64 - top_pts) * scale_y;
             let width = (right_pts - left_pts) * scale_x;
             let height = (top_pts - bottom_pts) * scale_y;
-            let font_size = height;
-
-            let (font_family, font_weight) = segment.chars()
+            let (font_size, font_family, font_weight) = segment.chars()
                 .ok()
                 .and_then(|chars| {
                     let first_char = chars.iter().next()?;
                     let name = first_char.font_name();
                     let is_serif = first_char.font_is_serif();
                     let weight = detect_font_weight(&name);
-                    if name.is_empty() { None } else { Some((pdf_font_to_css(&name, is_serif), weight)) }
+                    let fs = first_char.scaled_font_size().value as f64 * scale_y;
+                    let family = if name.is_empty() { "sans-serif".to_string() } else { pdf_font_to_css(&name, is_serif) };
+                    Some((fs, family, weight))
                 })
-                .unwrap_or_else(|| ("sans-serif".to_string(), "normal".to_string()));
+                .unwrap_or_else(|| (height, "sans-serif".to_string(), "normal".to_string()));
 
             if width > 0.0 && height > 0.0 {
                 segments.push(TextSegment {
