@@ -32,9 +32,15 @@ pub fn Sidebar() -> Element {
     // Collection context menu state: (collection_id, name, x, y)
     let mut coll_ctx = use_signal(|| None::<(i64, String, f64, f64)>);
 
+    // Tag context menu state: (tag_id, tag_name, tag_color, x, y)
+    let mut tag_ctx = use_signal(|| None::<(i64, String, Option<String>, f64, f64)>);
+
+    // Recently opened context menu state: (paper_id, x, y)
+    let mut recent_ctx = use_signal(|| None::<(i64, f64, f64)>);
+
     // New collection inline edit state: None = not editing, Some(parent_id) = creating under parent
     // Some(None) = top-level, Some(Some(id)) = subcollection
-    let new_coll_editing: Signal<Option<Option<i64>>> = use_context_provider(|| Signal::new(None));
+    let new_coll_editing: Signal<Option<Option<i64>>> = use_context();
 
     // Drag-and-drop state for collection reparenting
     let _drag_coll: Signal<Option<i64>> = use_context_provider(|| Signal::new(None::<i64>));
@@ -44,7 +50,13 @@ pub fn Sidebar() -> Element {
     rsx! {
         div { class: "sidebar",
             // Brand
-            h2 { class: "sidebar-brand", "Rotero" }
+            h2 {
+                class: "sidebar-brand",
+                onclick: move |_| {
+                    lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
+                },
+                "Rotero"
+            }
 
             // Quick actions
             OpenPdfButton {}
@@ -118,6 +130,10 @@ pub fn Sidebar() -> Element {
                                             lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                         }
                                     },
+                                    oncontextmenu: move |evt: Event<MouseData>| {
+                                        evt.prevent_default();
+                                        recent_ctx.set(Some((paper_id, evt.client_coordinates().x, evt.client_coordinates().y)));
+                                    },
                                     i { class: "sidebar-collection-icon {recent_icon}" }
                                     span { class: "sidebar-collection-name", "{truncated}" }
                                 }
@@ -148,14 +164,23 @@ pub fn Sidebar() -> Element {
                     div { class: "sidebar-tags-wrap",
                         for tag in state.tags.iter() {
                             {
+                                let tag_id = tag.id.unwrap_or(0);
                                 let tag_name = tag.name.clone();
-                                let bg = tag.color.clone().unwrap_or_else(|| "#6b7085".to_string());
+                                let tag_color = tag.color.clone();
+                                let bg = tag_color.clone().unwrap_or_else(|| "#6b7085".to_string());
                                 rsx! {
                                     span {
                                         class: "sidebar-tag",
                                         style: "background: {bg};",
+                                        onclick: move |_| {
+                                            lib_state.with_mut(|s| s.view = LibraryView::Tag(tag_id));
+                                        },
+                                        oncontextmenu: move |evt: Event<MouseData>| {
+                                            evt.prevent_default();
+                                            tag_ctx.set(Some((tag_id, tag_name.clone(), tag_color.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
+                                        },
                                         i { class: "sidebar-tag-icon bi bi-tag" }
-                                        "{tag_name}"
+                                        "{tag.name}"
                                     }
                                 }
                             }
@@ -262,6 +287,171 @@ pub fn Sidebar() -> Element {
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            // Tag context menu
+            if let Some((tag_id, tag_name, _tag_color, mx, my)) = tag_ctx() {
+                {
+                    let db_rename = db_for_ctx.clone();
+                    let db_color = db_for_ctx.clone();
+                    let db_delete = db_for_ctx.clone();
+                    let mut renaming = use_signal(|| false);
+                    let mut rename_value = use_signal(|| tag_name.clone());
+
+                    let colors = vec![
+                        ("#ffff00", "Yellow"),
+                        ("#ff6b6b", "Red"),
+                        ("#51cf66", "Green"),
+                        ("#339af0", "Blue"),
+                        ("#cc5de8", "Purple"),
+                        ("#ff922b", "Orange"),
+                    ];
+
+                    rsx! {
+                        if renaming() {
+                            ContextMenu {
+                                x: mx,
+                                y: my,
+                                on_close: move |_| {
+                                    renaming.set(false);
+                                    tag_ctx.set(None);
+                                },
+                                div { class: "context-menu-rename",
+                                    input {
+                                        class: "input input--sm",
+                                        r#type: "text",
+                                        value: "{rename_value}",
+                                        oninput: move |evt| rename_value.set(evt.value()),
+                                        onkeypress: move |evt| {
+                                            if evt.key() == Key::Enter {
+                                                let new_name = rename_value().trim().to_string();
+                                                if !new_name.is_empty() {
+                                                    let db = db_rename.clone();
+                                                    spawn(async move {
+                                                        if let Ok(()) = crate::db::tags::rename_tag(db.conn(), tag_id, &new_name).await {
+                                                            lib_state.with_mut(|s| {
+                                                                if let Some(t) = s.tags.iter_mut().find(|t| t.id == Some(tag_id)) {
+                                                                    t.name = new_name;
+                                                                }
+                                                            });
+                                                        }
+                                                        renaming.set(false);
+                                                        tag_ctx.set(None);
+                                                    });
+                                                }
+                                            }
+                                        },
+                                    }
+                                }
+                            }
+                        } else {
+                            ContextMenu {
+                                x: mx,
+                                y: my,
+                                on_close: move |_| {
+                                    tag_ctx.set(None);
+                                },
+
+                                ContextMenuItem {
+                                    label: "Filter by tag".to_string(),
+                                    icon: Some("bi-funnel".to_string()),
+                                    on_click: move |_| {
+                                        lib_state.with_mut(|s| s.view = LibraryView::Tag(tag_id));
+                                        tag_ctx.set(None);
+                                    },
+                                }
+
+                                // Color swatches
+                                div { class: "context-menu-item",
+                                    i { class: "context-menu-icon bi bi-palette" }
+                                    span { class: "context-menu-label", "Color" }
+                                    div { class: "context-menu-colors",
+                                        for (color, _label) in colors.iter() {
+                                            {
+                                                let color = color.to_string();
+                                                let color_for_click = color.clone();
+                                                let db_swatch = db_color.clone();
+                                                rsx! {
+                                                    span {
+                                                        class: "context-menu-color-swatch",
+                                                        style: "background: {color};",
+                                                        onclick: move |evt| {
+                                                            evt.stop_propagation();
+                                                            let c = color_for_click.clone();
+                                                            let db = db_swatch.clone();
+                                                            spawn(async move {
+                                                                if let Ok(()) = crate::db::tags::update_tag_color(db.conn(), tag_id, &c).await {
+                                                                    lib_state.with_mut(|s| {
+                                                                        if let Some(t) = s.tags.iter_mut().find(|t| t.id == Some(tag_id)) {
+                                                                            t.color = Some(c);
+                                                                        }
+                                                                    });
+                                                                }
+                                                                tag_ctx.set(None);
+                                                            });
+                                                        },
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                ContextMenuItem {
+                                    label: "Rename".to_string(),
+                                    icon: Some("bi-pencil".to_string()),
+                                    on_click: move |_| {
+                                        renaming.set(true);
+                                    },
+                                }
+
+                                ContextMenuSeparator {}
+
+                                ContextMenuItem {
+                                    label: "Delete".to_string(),
+                                    icon: Some("bi-trash".to_string()),
+                                    danger: Some(true),
+                                    on_click: move |_| {
+                                        let db = db_delete.clone();
+                                        spawn(async move {
+                                            if let Ok(()) = crate::db::tags::delete_tag(db.conn(), tag_id).await {
+                                                lib_state.with_mut(|s| {
+                                                    s.tags.retain(|t| t.id != Some(tag_id));
+                                                    if s.view == LibraryView::Tag(tag_id) {
+                                                        s.view = LibraryView::AllPapers;
+                                                    }
+                                                });
+                                            }
+                                        });
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Recently opened context menu
+            if let Some((paper_id, mx, my)) = recent_ctx() {
+                ContextMenu {
+                    x: mx,
+                    y: my,
+                    on_close: move |_| {
+                        recent_ctx.set(None);
+                    },
+
+                    ContextMenuItem {
+                        label: "Show in library".to_string(),
+                        icon: Some("bi-collection".to_string()),
+                        on_click: move |_| {
+                            lib_state.with_mut(|s| {
+                                s.view = LibraryView::AllPapers;
+                                s.selected_paper_id = Some(paper_id);
+                            });
+                            recent_ctx.set(None);
+                        },
                     }
                 }
             }

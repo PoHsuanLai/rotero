@@ -21,6 +21,8 @@
   margin: 0 0 var(--space-5) var(--space-1);
   letter-spacing: 0.12em;
   line-height: var(--leading-tight);
+  cursor: pointer;
+  user-select: none;
 }
 
 .sidebar-open-btn {
