@@ -403,13 +403,13 @@ fn PdfPageWithOverlay(
 
             div {
                 class: "text-layer",
+                id: "text-layer-{page_index}",
                 style: "width: {width}px; height: {height}px;",
                 onmounted: move |_| {
-                    // Measure each span's natural width and apply scaleX to match PDF bounds
                     spawn(async move {
                         let js = format!(r#"
                             (function() {{
-                                let layer = document.querySelectorAll('.text-layer')[{page_index}];
+                                let layer = document.getElementById('text-layer-{page_index}');
                                 if (!layer) return;
                                 let spans = layer.querySelectorAll('span[data-target-w]');
                                 let canvas = document.createElement('canvas');
