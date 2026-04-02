@@ -62,6 +62,20 @@ pub async fn update_annotation_content(conn: &Connection, id: i64, content: Opti
     Ok(())
 }
 
+pub async fn update_annotation_color(conn: &Connection, id: i64, color: &str) -> Result<(), turso::Error> {
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE annotations SET color = ?1, modified_at = ?2 WHERE id = ?3",
+        turso::params::Params::Positional(vec![
+            Value::Text(color.to_string()),
+            Value::Text(now),
+            Value::Integer(id),
+        ]),
+    )
+    .await?;
+    Ok(())
+}
+
 pub async fn delete_annotation(conn: &Connection, id: i64) -> Result<(), turso::Error> {
     conn.execute("DELETE FROM annotations WHERE id = ?1", [id]).await?;
     Ok(())

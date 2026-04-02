@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 use crate::db::Database;
 use crate::state::app_state::LibraryState;
+use super::components::context_menu::{ContextMenu, ContextMenuItem};
 
 #[component]
 pub fn PaperDetail() -> Element {
@@ -21,6 +22,9 @@ pub fn PaperDetail() -> Element {
     } else {
         paper.authors.join(", ")
     };
+
+    // DOI context menu state: (doi_string, x, y)
+    let mut doi_ctx = use_signal(|| None::<(String, f64, f64)>);
 
     rsx! {
         div { class: "paper-detail",
@@ -67,9 +71,21 @@ pub fn PaperDetail() -> Element {
 
             // DOI
             if let Some(ref doi) = paper.doi {
-                div { class: "detail-field",
-                    label { class: "detail-label", "DOI" }
-                    div { class: "detail-value detail-value--doi", "{doi}" }
+                {
+                    let doi_for_ctx = doi.clone();
+                    rsx! {
+                        div { class: "detail-field",
+                            label { class: "detail-label", "DOI" }
+                            div {
+                                class: "detail-value detail-value--doi",
+                                oncontextmenu: move |evt: Event<MouseData>| {
+                                    evt.prevent_default();
+                                    doi_ctx.set(Some((doi_for_ctx.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
+                                },
+                                "{doi}"
+                            }
+                        }
+                    }
                 }
             }
 
@@ -116,13 +132,51 @@ pub fn PaperDetail() -> Element {
                     "Delete Paper"
                 }
             }
+
+            // DOI context menu
+            if let Some((doi_str, mx, my)) = doi_ctx() {
+                {
+                    let doi_copy = doi_str.clone();
+                    let doi_open = doi_str.clone();
+                    rsx! {
+                        ContextMenu {
+                            x: mx,
+                            y: my,
+                            on_close: move |_| {
+                                doi_ctx.set(None);
+                            },
+
+                            ContextMenuItem {
+                                label: "Copy DOI".to_string(),
+                                icon: Some("bi-clipboard".to_string()),
+                                on_click: move |_| {
+                                    let js = format!("navigator.clipboard.writeText({})", serde_json::to_string(&doi_copy).unwrap_or_default());
+                                    let _ = document::eval(&js);
+                                    doi_ctx.set(None);
+                                },
+                            }
+
+                            ContextMenuItem {
+                                label: "Open in browser".to_string(),
+                                icon: Some("bi-box-arrow-up-right".to_string()),
+                                on_click: move |_| {
+                                    let url = format!("https://doi.org/{}", doi_open);
+                                    let js = format!("window.open({}, '_blank')", serde_json::to_string(&url).unwrap_or_default());
+                                    let _ = document::eval(&js);
+                                    doi_ctx.set(None);
+                                },
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 #[component]
 fn AddToCollectionSelect(paper_id: i64) -> Element {
-    let mut lib_state = use_context::<Signal<crate::state::app_state::LibraryState>>();
+    let lib_state = use_context::<Signal<crate::state::app_state::LibraryState>>();
     let db = use_context::<Database>();
     let collections = lib_state.read().collections.clone();
 

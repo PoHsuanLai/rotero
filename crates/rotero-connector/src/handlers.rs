@@ -12,6 +12,7 @@ pub struct SavePaperRequest {
     pub authors: Option<Vec<String>>,
     pub pdf_url: Option<String>,
     pub collection_id: Option<i64>,
+    pub tag_ids: Option<Vec<i64>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -39,6 +40,18 @@ pub struct CollectionsResponse {
     pub collections: Vec<CollectionInfo>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct TagInfo {
+    pub id: i64,
+    pub name: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TagsResponse {
+    pub tags: Vec<TagInfo>,
+}
+
 pub async fn status() -> Json<StatusResponse> {
     Json(StatusResponse {
         status: "ok",
@@ -58,6 +71,17 @@ pub async fn collections(
     Json(CollectionsResponse { collections })
 }
 
+pub async fn tags(
+    State(state): State<Arc<ConnectorState>>,
+) -> Json<TagsResponse> {
+    let tags = if let Some(ref callback) = state.on_get_tags {
+        callback()
+    } else {
+        Vec::new()
+    };
+    Json(TagsResponse { tags })
+}
+
 pub async fn save_paper(
     State(state): State<Arc<ConnectorState>>,
     Json(req): Json<SavePaperRequest>,
@@ -71,7 +95,7 @@ pub async fn save_paper(
     }
 
     if let Some(ref callback) = state.on_paper_saved {
-        callback(paper.clone(), req.collection_id);
+        callback(paper.clone(), req.collection_id, req.tag_ids.unwrap_or_default());
     }
 
     Json(SavePaperResponse {

@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use dioxus_elements::HasFileData;
 
 use crate::db::Database;
-use crate::state::app_state::{LibraryState, LibraryView, PdfTab, PdfTabManager};
+use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTab, PdfTabManager};
 use super::search_bar::SearchBar;
 use super::import_export::ImportExportButtons;
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
@@ -115,6 +115,9 @@ pub fn LibraryPanel() -> Element {
 
     // Context menu state: (paper_id, x, y)
     let mut ctx_menu = use_signal(|| None::<(i64, f64, f64)>);
+
+    // Paper drag state (shared with sidebar for drop onto collections/tags)
+    let mut drag_paper = use_context::<Signal<DragPaper>>();
 
     // Drag and drop state
     let mut drag_over = use_signal(|| false);
@@ -254,6 +257,13 @@ pub fn LibraryPanel() -> Element {
                                 div {
                                     key: "{paper_id}",
                                     class: "{row_class}",
+                                    draggable: "true",
+                                    ondragstart: move |_| {
+                                        drag_paper.set(DragPaper(Some(paper_id)));
+                                    },
+                                    ondragend: move |_| {
+                                        drag_paper.set(DragPaper(None));
+                                    },
                                     onclick: move |_| {
                                         lib_state.with_mut(|s| {
                                             s.selected_paper_id = Some(paper_id);

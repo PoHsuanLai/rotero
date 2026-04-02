@@ -180,3 +180,27 @@
   background: var(--border-subtle);
   margin: var(--space-1) var(--space-2);
 }
+
+.context-menu-rename {
+  padding: var(--space-2) var(--space-3);
+}
+
+.context-menu-colors {
+  display: flex;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+.context-menu-color-swatch {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color var(--transition-fast);
+}
+
+.context-menu-color-swatch:hover {
+  border-color: var(--text-primary);
+}

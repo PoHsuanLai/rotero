@@ -43,6 +43,43 @@ pub async fn add_tag_to_paper(conn: &Connection, paper_id: i64, tag_id: i64) -> 
     Ok(())
 }
 
+pub async fn rename_tag(conn: &Connection, id: i64, name: &str) -> Result<(), turso::Error> {
+    conn.execute(
+        "UPDATE tags SET name = ?1 WHERE id = ?2",
+        turso::params::Params::Positional(vec![
+            Value::Text(name.to_string()),
+            Value::Integer(id),
+        ]),
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn update_tag_color(conn: &Connection, id: i64, color: &str) -> Result<(), turso::Error> {
+    conn.execute(
+        "UPDATE tags SET color = ?1 WHERE id = ?2",
+        turso::params::Params::Positional(vec![
+            Value::Text(color.to_string()),
+            Value::Integer(id),
+        ]),
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn list_paper_ids_by_tag(conn: &Connection, tag_id: i64) -> Result<Vec<i64>, turso::Error> {
+    let mut rows = conn
+        .query("SELECT paper_id FROM paper_tags WHERE tag_id = ?1", [tag_id])
+        .await?;
+    let mut ids = Vec::new();
+    while let Some(row) = rows.next().await? {
+        if let Some(id) = row.get_value(0).ok().and_then(|v| v.as_integer().copied()) {
+            ids.push(id);
+        }
+    }
+    Ok(ids)
+}
+
 pub async fn delete_tag(conn: &Connection, id: i64) -> Result<(), turso::Error> {
     conn.execute("DELETE FROM tags WHERE id = ?1", [id]).await?;
     Ok(())

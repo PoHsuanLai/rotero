@@ -7,12 +7,15 @@ const paperTitle = document.getElementById('paperTitle');
 const paperAuthors = document.getElementById('paperAuthors');
 const paperDoi = document.getElementById('paperDoi');
 const folderSelect = document.getElementById('folderSelect');
+const tagsSection = document.getElementById('tagsSection');
+const tagChips = document.getElementById('tagChips');
 const addBtn = document.getElementById('addBtn');
 const result = document.getElementById('result');
 
 let pageMetadata = null;
+let selectedTagIds = new Set();
 
-// Check connection and load collections
+// Check connection and load collections + tags
 async function init() {
   try {
     const resp = await fetch(`${API}/api/status`, { signal: AbortSignal.timeout(2000) });
@@ -20,8 +23,7 @@ async function init() {
     if (data.status === 'ok') {
       dot.className = 'dot ok';
       main.style.display = 'block';
-      await loadCollections();
-      await loadMetadata();
+      await Promise.all([loadCollections(), loadTags(), loadMetadata()]);
       addBtn.disabled = false;
       return;
     }
@@ -41,6 +43,53 @@ async function loadCollections() {
       opt.value = coll.id;
       opt.textContent = coll.name;
       folderSelect.appendChild(opt);
+    }
+  } catch {}
+}
+
+// Fetch tags from Rotero
+async function loadTags() {
+  try {
+    const resp = await fetch(`${API}/api/tags`);
+    const data = await resp.json();
+    if (!data.tags || data.tags.length === 0) return;
+
+    tagsSection.style.display = 'block';
+    for (const tag of data.tags) {
+      const chip = document.createElement('button');
+      chip.className = 'tag-chip';
+      chip.dataset.tagId = tag.id;
+
+      const color = tag.color || '#6b7280';
+
+      const dot = document.createElement('span');
+      dot.className = 'tag-dot';
+      dot.style.background = color;
+      chip.appendChild(dot);
+
+      const label = document.createTextNode(tag.name);
+      chip.appendChild(label);
+
+      chip.addEventListener('click', () => {
+        const id = parseInt(chip.dataset.tagId);
+        if (selectedTagIds.has(id)) {
+          selectedTagIds.delete(id);
+          chip.classList.remove('selected');
+          chip.style.background = '';
+          chip.style.borderColor = '';
+          chip.style.color = '';
+          dot.style.background = color;
+        } else {
+          selectedTagIds.add(id);
+          chip.classList.add('selected');
+          chip.style.background = color;
+          chip.style.borderColor = color;
+          chip.style.color = 'white';
+          dot.style.background = 'rgba(255,255,255,0.8)';
+        }
+      });
+
+      tagChips.appendChild(chip);
     }
   } catch {}
 }
@@ -128,13 +177,20 @@ addBtn.addEventListener('click', async () => {
     const resp = await fetch(`${API}/api/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...pageMetadata, collection_id: collectionId }),
+      body: JSON.stringify({
+        ...pageMetadata,
+        collection_id: collectionId,
+        tag_ids: Array.from(selectedTagIds),
+      }),
     });
     const data = await resp.json();
 
     if (data.success) {
       result.className = 'result success';
       result.innerHTML = `Added to <strong>${selectedName}</strong>`;
+      addBtn.textContent = 'Added';
+      addBtn.disabled = true;
+      return;
     } else {
       result.className = 'result fail';
       result.textContent = data.message || 'Failed to save';

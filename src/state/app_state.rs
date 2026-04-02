@@ -13,7 +13,7 @@ pub struct PageRenderData {
     pub rendered_pages: Vec<RenderedPageData>,
     pub text_data: HashMap<u32, PageTextData>,
     pub thumbnails: Vec<RenderedPageData>,
-    pub page_dimensions: Vec<(f32, f32)>,
+    pub _page_dimensions: Vec<(f32, f32)>,
 }
 
 /// Zoom and scroll state for a document.
@@ -265,7 +265,7 @@ pub struct LibraryState {
     pub collections: Vec<Collection>,
     pub tags: Vec<Tag>,
     pub selected_paper_id: Option<i64>,
-    pub selected_collection_id: Option<i64>,
+    pub _selected_collection_id: Option<i64>,
     pub view: LibraryView,
     pub search_query: String,
     pub search_results: Option<Vec<Paper>>,
@@ -292,3 +292,7 @@ impl LibraryState {
         })
     }
 }
+
+/// Newtype for drag-paper signal to avoid context ambiguity with other `Signal<Option<i64>>`.
+#[derive(Debug, Clone, Copy)]
+pub struct DragPaper(pub Option<i64>);
