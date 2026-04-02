@@ -1,10 +1,13 @@
 use dioxus::prelude::*;
 
-use crate::state::app_state::{LibraryState, LibraryView};
+use crate::db::Database;
+use crate::state::app_state::{LibraryState, LibraryView, PdfViewState};
 
 #[component]
 pub fn LibraryPanel() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
+    let mut pdf_state = use_context::<Signal<PdfViewState>>();
+    let db = use_context::<Database>();
     let state = lib_state.read();
 
     rsx! {
@@ -37,6 +40,7 @@ pub fn LibraryPanel() -> Element {
                         {
                             let paper_id = paper.id.unwrap_or(0);
                             let title = paper.title.clone();
+                            let pdf_rel_path = paper.pdf_path.clone();
                             let authors = if paper.authors.is_empty() {
                                 "Unknown".to_string()
                             } else if paper.authors.len() <= 2 {
@@ -48,6 +52,7 @@ pub fn LibraryPanel() -> Element {
                             let has_pdf = paper.pdf_path.is_some();
                             let selected = state.selected_paper_id == Some(paper_id);
                             let bg = if selected { "#e8f4fd" } else { "transparent" };
+                            let db_for_view = db.clone();
 
                             rsx! {
                                 div {
@@ -67,7 +72,23 @@ pub fn LibraryPanel() -> Element {
                                                 style: "padding: 2px 8px; border: 1px solid #ddd; background: #fff; border-radius: 4px; cursor: pointer; font-size: 12px;",
                                                 onclick: move |evt| {
                                                     evt.stop_propagation();
-                                                    lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                                    // Resolve full PDF path and open it
+                                                    if let Some(ref rel_path) = pdf_rel_path {
+                                                        let full_path = db_for_view.pdfs_dir().join(rel_path);
+                                                        let path_str = full_path.to_string_lossy().to_string();
+                                                        if let Ok(engine) = rotero_pdf::PdfEngine::new(None) {
+                                                            if crate::state::commands::open_pdf(&engine, &mut pdf_state, &path_str).is_ok() {
+                                                                // Set paper_id and load annotations
+                                                                pdf_state.with_mut(|s| s.paper_id = Some(paper_id));
+                                                                if let Ok(anns) = db_for_view.with_conn(|conn| {
+                                                                    crate::db::annotations::list_annotations_for_paper(conn, paper_id)
+                                                                }) {
+                                                                    pdf_state.with_mut(|s| s.annotations = anns);
+                                                                }
+                                                                lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                                            }
+                                                        }
+                                                    }
                                                 },
                                                 "View"
                                             }

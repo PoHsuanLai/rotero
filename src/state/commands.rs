@@ -29,6 +29,7 @@ pub fn open_pdf(
         current_page: 0,
         zoom,
         rendered_pages: pages,
+        ..PdfViewState::new()
     });
 
     Ok(())
