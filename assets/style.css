@@ -323,6 +323,13 @@ body {
 .bi-star::before { content: "\f588"; }
 .bi-star-fill::before { content: "\f586"; }
 .bi-file-earmark-pdf::before { content: "\f3ed"; }
+.bi-journal-text::before { content: "\f4a0"; }
+.bi-clock::before { content: "\f293"; }
+.bi-circle::before { content: "\f284"; }
+.bi-chevron-down::before { content: "\f282"; }
+.bi-chevron-right::before { content: "\f285"; }
+.bi-folder::before { content: "\f3d5"; }
+.bi-folder-fill::before { content: "\f3d7"; }
 
 
 /* --- Library View --- */

@@ -2,61 +2,82 @@ use dioxus::prelude::*;
 
 use crate::db::Database;
 use crate::state::app_state::{LibraryState, LibraryView, PdfViewState};
+use rotero_models::Collection;
 
 #[component]
 pub fn Sidebar() -> Element {
-    let mut lib_state = use_context::<Signal<LibraryState>>();
+    let lib_state = use_context::<Signal<LibraryState>>();
     let state = lib_state.read();
     let view = state.view.clone();
-    let is_all_papers = view == LibraryView::AllPapers;
-    let paper_count = state.papers.len();
+    let papers = &state.papers;
 
-    let nav_class = if is_all_papers {
-        "sidebar-nav-item sidebar-nav-item--active"
-    } else {
-        "sidebar-nav-item"
-    };
+    // Compute counts for smart filters
+    let total = papers.len();
+    let favorites_count = papers.iter().filter(|p| p.is_favorite).count();
+    let unread_count = papers.iter().filter(|p| !p.is_read).count();
+    let recent_count = total.min(20);
+
+    // Recently opened (last 5 papers viewed — tracked by date_modified)
+    let mut recent_papers: Vec<_> = papers.iter()
+        .filter(|p| p.pdf_path.is_some())
+        .collect();
+    recent_papers.sort_by(|a, b| b.date_modified.cmp(&a.date_modified));
+    let recent_opened: Vec<_> = recent_papers.into_iter().take(5).collect();
 
     rsx! {
         div { class: "sidebar",
+            // Brand
             h2 { class: "sidebar-brand", "Rotero" }
 
+            // Quick actions
             OpenPdfButton {}
 
-            // Library navigation
-            div { class: "sidebar-nav",
-                div {
-                    class: "{nav_class}",
-                    onclick: move |_| {
-                        lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
-                    },
-                    "All Papers ({paper_count})"
+            // Smart filters
+            div { class: "sidebar-section",
+                SidebarItem {
+                    label: format!("All Papers"),
+                    count: Some(total),
+                    icon: "doc",
+                    active: view == LibraryView::AllPapers,
+                    view: LibraryView::AllPapers,
+                }
+                SidebarItem {
+                    label: format!("Recently Added"),
+                    count: Some(recent_count),
+                    icon: "clock",
+                    active: view == LibraryView::RecentlyAdded,
+                    view: LibraryView::RecentlyAdded,
+                }
+                SidebarItem {
+                    label: format!("Favorites"),
+                    count: Some(favorites_count),
+                    icon: "star",
+                    active: view == LibraryView::Favorites,
+                    view: LibraryView::Favorites,
+                }
+                SidebarItem {
+                    label: format!("Unread"),
+                    count: Some(unread_count),
+                    icon: "circle",
+                    active: view == LibraryView::Unread,
+                    view: LibraryView::Unread,
                 }
             }
 
-            // Collections
-            div { class: "sidebar-section",
-                div { class: "sidebar-section-header",
-                    h3 { class: "sidebar-section-title", "Collections" }
-                    NewCollectionButton {}
-                }
-                div { class: "sidebar-section-content",
-                    if state.collections.is_empty() {
-                        p { class: "sidebar-empty", "No collections" }
-                    } else {
-                        for coll in state.collections.iter() {
-                            {
-                                let coll_id = coll.id.unwrap_or(0);
-                                let coll_name = coll.name.clone();
-                                rsx! {
-                                    div {
-                                        key: "{coll_id}",
-                                        class: "sidebar-collection-item",
-                                        onclick: move |_| {
-                                            lib_state.with_mut(|s| s.view = LibraryView::Collection(coll_id));
-                                        },
-                                        "{coll_name}"
-                                    }
+            // Recently opened
+            if !recent_opened.is_empty() {
+                CollapsibleSection { title: "Recent", initially_open: true,
+                    for paper in recent_opened.iter() {
+                        {
+                            let title = paper.title.clone();
+                            let truncated = if title.len() > 35 {
+                                format!("{}...", &title[..32])
+                            } else {
+                                title
+                            };
+                            rsx! {
+                                div { class: "sidebar-recent-item",
+                                    "{truncated}"
                                 }
                             }
                         }
@@ -64,9 +85,17 @@ pub fn Sidebar() -> Element {
                 }
             }
 
+            // Collections
+            CollapsibleSection { title: "Collections", initially_open: true,
+                action: rsx! { NewCollectionButton {} },
+                CollectionTree { collections: state.collections.clone(), parent_id: None, depth: 0 }
+                if state.collections.is_empty() {
+                    p { class: "sidebar-empty", "No collections" }
+                }
+            }
+
             // Tags
-            div { class: "sidebar-section",
-                h3 { class: "sidebar-section-title", "Tags" }
+            CollapsibleSection { title: "Tags", initially_open: true,
                 if state.tags.is_empty() {
                     p { class: "sidebar-empty", "No tags" }
                 } else {
@@ -88,9 +117,131 @@ pub fn Sidebar() -> Element {
                 }
             }
 
-            // Spacer + Settings at bottom
+            // Spacer + Settings
             div { class: "sidebar-spacer" }
             super::settings::SettingsButton {}
+        }
+    }
+}
+
+/// A single sidebar navigation item with icon, label, and optional count.
+#[component]
+fn SidebarItem(label: String, count: Option<usize>, icon: String, active: bool, view: LibraryView) -> Element {
+    let mut lib_state = use_context::<Signal<LibraryState>>();
+    let class = if active {
+        "sidebar-nav-item sidebar-nav-item--active"
+    } else {
+        "sidebar-nav-item"
+    };
+
+    let icon_class = match icon.as_str() {
+        "doc" => "bi bi-journal-text",
+        "clock" => "bi bi-clock",
+        "star" => "bi bi-star",
+        "circle" => "bi bi-circle",
+        _ => "",
+    };
+
+    rsx! {
+        div {
+            class: "{class}",
+            onclick: move |_| {
+                lib_state.with_mut(|s| s.view = view.clone());
+            },
+            i { class: "sidebar-nav-icon {icon_class}" }
+            span { class: "sidebar-nav-label", "{label}" }
+            if let Some(n) = count {
+                span { class: "sidebar-nav-count", "{n}" }
+            }
+        }
+    }
+}
+
+/// A collapsible section with a header and children.
+#[component]
+fn CollapsibleSection(title: String, initially_open: Option<bool>, action: Option<Element>, children: Element) -> Element {
+    let mut open = use_signal(|| initially_open.unwrap_or(true));
+
+    let arrow_class = if open() { "bi bi-chevron-down" } else { "bi bi-chevron-right" };
+
+    rsx! {
+        div { class: "sidebar-section",
+            div { class: "sidebar-section-header",
+                div {
+                    class: "sidebar-section-toggle",
+                    onclick: move |_| open.set(!open()),
+                    i { class: "sidebar-section-arrow {arrow_class}" }
+                    h3 { class: "sidebar-section-title", "{title}" }
+                }
+                if let Some(action_el) = action {
+                    {action_el}
+                }
+            }
+            if open() {
+                div { class: "sidebar-section-content",
+                    {children}
+                }
+            }
+        }
+    }
+}
+
+/// Renders a nested collection tree recursively.
+#[component]
+fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u32) -> Element {
+    let mut lib_state = use_context::<Signal<LibraryState>>();
+    let lib = lib_state.read();
+    let view = lib.view.clone();
+    let papers = &lib.papers;
+
+    let children: Vec<_> = collections.iter()
+        .filter(|c| c.parent_id == parent_id)
+        .cloned()
+        .collect();
+
+    if children.is_empty() {
+        return rsx! {};
+    }
+
+    let indent = depth * 16;
+
+    rsx! {
+        for coll in children.iter() {
+            {
+                let coll_id = coll.id.unwrap_or(0);
+                let coll_name = coll.name.clone();
+                let is_active = view == LibraryView::Collection(coll_id);
+                let class = if is_active {
+                    "sidebar-collection-item sidebar-collection-item--active"
+                } else {
+                    "sidebar-collection-item"
+                };
+
+                // Count papers in this collection (from paper_collections in state would be ideal,
+                // but for now just show the collection)
+                let has_children = collections.iter().any(|c| c.parent_id == Some(coll_id));
+                let collections_clone = collections.clone();
+
+                rsx! {
+                    div {
+                        key: "coll-{coll_id}",
+                        class: "{class}",
+                        style: "padding-left: {indent + 8}px;",
+                        onclick: move |_| {
+                            lib_state.with_mut(|s| s.view = LibraryView::Collection(coll_id));
+                        },
+                        i { class: "sidebar-collection-icon bi bi-folder" }
+                        span { class: "sidebar-collection-name", "{coll_name}" }
+                    }
+                    if has_children {
+                        CollectionTree {
+                            collections: collections_clone,
+                            parent_id: Some(coll_id),
+                            depth: depth + 1,
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -108,7 +259,7 @@ fn NewCollectionButton() -> Element {
                 input {
                     class: "sidebar-input",
                     r#type: "text",
-                    placeholder: "Name",
+                    placeholder: "Collection name",
                     value: "{name_value}",
                     oninput: move |evt| name_value.set(evt.value()),
                     onkeypress: move |evt| {
@@ -158,7 +309,6 @@ fn OpenPdfButton() -> Element {
 
                 if let Some(path) = file {
                     let path_str = path.to_string_lossy().to_string();
-
                     match rotero_pdf::PdfEngine::new(None) {
                         Ok(engine) => {
                             match crate::state::commands::open_pdf(&engine, &mut pdf_state, &path_str) {
@@ -166,20 +316,18 @@ fn OpenPdfButton() -> Element {
                                     lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                     error_msg.set(None);
                                 }
-                                Err(e) => error_msg.set(Some(format!("Failed to open PDF: {e}"))),
+                                Err(e) => error_msg.set(Some(format!("Failed: {e}"))),
                             }
                         }
-                        Err(e) => error_msg.set(Some(format!("PDFium not found: {e}"))),
+                        Err(e) => error_msg.set(Some(format!("PDFium: {e}"))),
                     }
                 }
             },
-            "Open PDF Viewer"
+            "Open PDF"
         }
 
         if let Some(err) = error_msg.read().as_ref() {
-            div { class: "sidebar-error",
-                "{err}"
-            }
+            div { class: "sidebar-error", "{err}" }
         }
     }
 }
