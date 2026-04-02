@@ -11,8 +11,7 @@ pub fn PdfViewer() -> Element {
 
     if state.pdf_path.is_none() {
         return rsx! {
-            div {
-                style: "flex: 1; display: flex; align-items: center; justify-content: center; color: #999; font-size: 16px;",
+            div { class: "pdf-viewer-empty",
                 "Open a PDF to get started"
             }
         };
@@ -24,14 +23,12 @@ pub fn PdfViewer() -> Element {
 
     rsx! {
         div { class: "pdf-viewer-container",
-            style: "flex: 1; display: flex; flex-direction: column; overflow: hidden;",
 
             PdfToolbar { page_count, zoom }
 
-            div { style: "flex: 1; display: flex; overflow: hidden;",
+            div { class: "pdf-content-area",
                 // Scrollable page area
                 div { class: "pdf-pages",
-                    style: "flex: 1; overflow-y: auto; background: #e8e8e8; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 12px;",
                     for (idx, page) in state.rendered_pages.iter().enumerate() {
                         PdfPageWithOverlay {
                             key: "{idx}",
@@ -43,7 +40,7 @@ pub fn PdfViewer() -> Element {
                     }
 
                     if (state.rendered_pages.len() as u32) < page_count {
-                        div { style: "padding: 16px; text-align: center; color: #999;",
+                        div { class: "pdf-load-more",
                             "Scroll to load more pages..."
                         }
                     }
@@ -85,14 +82,13 @@ fn PdfPageWithOverlay(page_index: u32, base64_png: String, width: u32, height: u
     rsx! {
         div {
             class: "pdf-page-wrapper",
-            style: "position: relative; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); cursor: {cursor};",
+            style: "cursor: {cursor};",
 
-            // Base rendered page image
             img {
+                class: "pdf-page-img",
                 src: "data:image/png;base64,{base64_png}",
                 width: "{width}",
                 height: "{height}",
-                style: "display: block; user-select: none;",
                 draggable: "false",
             }
 
@@ -104,7 +100,7 @@ fn PdfPageWithOverlay(page_index: u32, base64_png: String, width: u32, height: u
             // Clickable overlay for creating new annotations
             if mode != AnnotationMode::None {
                 div {
-                    style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%;",
+                    class: "annotation-click-overlay",
                     onclick: move |evt| {
                         let coords = evt.element_coordinates();
                         let x = coords.x as f64;
@@ -116,7 +112,6 @@ fn PdfPageWithOverlay(page_index: u32, base64_png: String, width: u32, height: u
                             AnnotationMode::None => return,
                         };
 
-                        // Create annotation with click position as geometry
                         let geometry = serde_json::json!({
                             "x": x,
                             "y": y,
@@ -140,13 +135,15 @@ fn PdfPageWithOverlay(page_index: u32, base64_png: String, width: u32, height: u
                         };
 
                         let db = db.clone();
-                        if let Ok(id) = db.with_conn(|conn| crate::db::annotations::insert_annotation(conn, &ann)) {
-                            let mut ann = ann;
-                            ann.id = Some(id);
-                            pdf_state.with_mut(|s| {
-                                s.annotations.push(ann);
-                            });
-                        }
+                        spawn(async move {
+                            if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), &ann).await {
+                                let mut ann = ann;
+                                ann.id = Some(id);
+                                pdf_state.with_mut(|s| {
+                                    s.annotations.push(ann);
+                                });
+                            }
+                        });
                     },
                 }
             }
@@ -207,23 +204,29 @@ fn PdfToolbar(page_count: u32, zoom: f32) -> Element {
     let ann_count = state.annotations.len();
     drop(state);
 
-    let highlight_bg = if mode == AnnotationMode::Highlight { "#dbeafe" } else { "#fff" };
-    let note_bg = if mode == AnnotationMode::Note { "#dbeafe" } else { "#fff" };
+    let highlight_class = if mode == AnnotationMode::Highlight {
+        "btn btn--ghost btn--ghost-active"
+    } else {
+        "btn btn--ghost"
+    };
+    let note_class = if mode == AnnotationMode::Note {
+        "btn btn--ghost btn--ghost-active"
+    } else {
+        "btn btn--ghost"
+    };
 
     let colors = vec!["#ffff00", "#ff6b6b", "#51cf66", "#339af0", "#cc5de8", "#ff922b"];
 
     rsx! {
         div { class: "pdf-toolbar",
-            style: "display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #fff; border-bottom: 1px solid #ddd; font-size: 13px; flex-wrap: wrap;",
 
-            span { style: "color: #666;", "{page_count} pages" }
+            span { class: "toolbar-page-count", "{page_count} pages" }
 
-            // Separator
-            div { style: "width: 1px; height: 20px; background: #ddd;" }
+            div { class: "toolbar-separator" }
 
             // Annotation mode buttons
             button {
-                style: "padding: 4px 10px; border: 1px solid #ddd; background: {highlight_bg}; cursor: pointer; border-radius: 4px; font-size: 12px;",
+                class: "{highlight_class}",
                 onclick: move |_| {
                     pdf_state.with_mut(|s| {
                         s.annotation_mode = if s.annotation_mode == AnnotationMode::Highlight {
@@ -236,7 +239,7 @@ fn PdfToolbar(page_count: u32, zoom: f32) -> Element {
                 "Highlight"
             }
             button {
-                style: "padding: 4px 10px; border: 1px solid #ddd; background: {note_bg}; cursor: pointer; border-radius: 4px; font-size: 12px;",
+                class: "{note_class}",
                 onclick: move |_| {
                     pdf_state.with_mut(|s| {
                         s.annotation_mode = if s.annotation_mode == AnnotationMode::Note {
@@ -251,16 +254,21 @@ fn PdfToolbar(page_count: u32, zoom: f32) -> Element {
 
             // Color picker
             if mode != AnnotationMode::None {
-                div { style: "display: flex; gap: 3px; align-items: center;",
+                div { class: "toolbar-color-row",
                     for c in colors.iter() {
                         {
                             let c = c.to_string();
                             let c2 = c.clone();
                             let is_selected = c == current_color;
-                            let border = if is_selected { "2px solid #333" } else { "1px solid #ccc" };
+                            let swatch_class = if is_selected {
+                                "color-swatch color-swatch--selected"
+                            } else {
+                                "color-swatch"
+                            };
                             rsx! {
                                 div {
-                                    style: "width: 18px; height: 18px; border-radius: 50%; background: {c}; border: {border}; cursor: pointer;",
+                                    class: "{swatch_class}",
+                                    style: "background: {c};",
                                     onclick: move |_| {
                                         let color = c2.clone();
                                         pdf_state.with_mut(|s| s.annotation_color = color);
@@ -272,31 +280,30 @@ fn PdfToolbar(page_count: u32, zoom: f32) -> Element {
                 }
             }
 
-            div { style: "flex: 1;" }
+            div { class: "toolbar-spacer" }
 
             // Toggle annotations panel
             button {
-                style: "padding: 4px 10px; border: 1px solid #ddd; background: #fff; cursor: pointer; border-radius: 4px; font-size: 12px;",
+                class: "btn btn--ghost",
                 onclick: move |_| {
                     pdf_state.with_mut(|s| s.show_annotation_panel = !s.show_annotation_panel);
                 },
                 if show_panel { "Hide Notes ({ann_count})" } else { "Notes ({ann_count})" }
             }
 
-            // Separator
-            div { style: "width: 1px; height: 20px; background: #ddd;" }
+            div { class: "toolbar-separator" }
 
             // Zoom controls
             button {
-                style: "padding: 4px 8px; border: 1px solid #ddd; background: #fff; cursor: pointer; border-radius: 4px;",
+                class: "btn--icon",
                 onclick: move |_| {
                     pdf_state.with_mut(|s| s.zoom = (s.zoom - 0.3).max(0.5));
                 },
                 "-"
             }
-            span { style: "min-width: 40px; text-align: center;", "{zoom_percent}%" }
+            span { class: "toolbar-zoom-value", "{zoom_percent}%" }
             button {
-                style: "padding: 4px 8px; border: 1px solid #ddd; background: #fff; cursor: pointer; border-radius: 4px;",
+                class: "btn--icon",
                 onclick: move |_| {
                     pdf_state.with_mut(|s| s.zoom = (s.zoom + 0.3).min(5.0));
                 },
@@ -317,18 +324,17 @@ fn AnnotationPanel() -> Element {
 
     rsx! {
         div { class: "annotation-panel",
-            style: "width: 300px; border-left: 1px solid #ddd; background: #fafafa; overflow-y: auto; display: flex; flex-direction: column;",
 
-            div { style: "padding: 12px 16px; border-bottom: 1px solid #eee; font-weight: 600; font-size: 14px;",
+            div { class: "annotation-panel-header",
                 "Annotations ({annotations.len()})"
             }
 
             if annotations.is_empty() {
-                div { style: "padding: 24px 16px; text-align: center; color: #999; font-size: 13px;",
+                div { class: "annotation-panel-empty",
                     "No annotations yet. Use the Highlight or Note tool to add annotations."
                 }
             } else {
-                div { style: "flex: 1; overflow-y: auto;",
+                div { class: "annotation-panel-list",
                     for ann in annotations.iter() {
                         {
                             let ann_id = ann.id.unwrap_or(0);
@@ -350,24 +356,30 @@ fn AnnotationPanel() -> Element {
                             rsx! {
                                 div {
                                     key: "panel-ann-{ann_id}",
-                                    style: "padding: 10px 16px; border-bottom: 1px solid #eee; font-size: 13px;",
+                                    class: "annotation-item",
+                                    style: "border-left-color: {color};",
 
                                     // Header
-                                    div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;",
-                                        div { style: "display: flex; align-items: center; gap: 6px;",
-                                            div { style: "width: 10px; height: 10px; border-radius: 50%; background: {color};" }
-                                            span { style: "font-weight: 500;", "{type_label}" }
-                                            span { style: "color: #999; font-size: 11px;", "p.{page + 1}" }
+                                    div { class: "annotation-item-header",
+                                        div { class: "annotation-item-meta",
+                                            div {
+                                                class: "annotation-color-dot",
+                                                style: "background: {color};",
+                                            }
+                                            span { class: "annotation-type-label", "{type_label}" }
+                                            span { class: "annotation-page-label", "p.{page + 1}" }
                                         }
                                         button {
-                                            style: "padding: 1px 6px; border: 1px solid #ddd; background: #fff; border-radius: 3px; cursor: pointer; font-size: 11px; color: #c00;",
+                                            class: "btn--danger-sm",
                                             onclick: move |_| {
                                                 let db = db_for_delete.clone();
-                                                if let Ok(()) = db.with_conn(|conn| crate::db::annotations::delete_annotation(conn, ann_id)) {
-                                                    pdf_state.with_mut(|s| {
-                                                        s.annotations.retain(|a| a.id != Some(ann_id));
-                                                    });
-                                                }
+                                                spawn(async move {
+                                                    if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), ann_id).await {
+                                                        pdf_state.with_mut(|s| {
+                                                            s.annotations.retain(|a| a.id != Some(ann_id));
+                                                        });
+                                                    }
+                                                });
                                             },
                                             "x"
                                         }
@@ -376,32 +388,36 @@ fn AnnotationPanel() -> Element {
                                     // Content (editable for notes)
                                     if ann_type == AnnotationType::Note {
                                         if editing() {
-                                            div { style: "display: flex; flex-direction: column; gap: 4px;",
+                                            div { class: "annotation-edit-area",
                                                 textarea {
-                                                    style: "width: 100%; min-height: 60px; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; resize: vertical;",
+                                                    class: "annotation-textarea",
                                                     value: "{edit_value}",
                                                     oninput: move |evt| edit_value.set(evt.value()),
                                                 }
-                                                div { style: "display: flex; gap: 4px;",
+                                                div { class: "annotation-edit-actions",
                                                     button {
-                                                        style: "padding: 3px 8px; background: #2563eb; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 11px;",
+                                                        class: "btn--save-sm",
                                                         onclick: move |_| {
                                                             let new_content = edit_value();
                                                             let db = db_for_save.clone();
                                                             let content_ref = if new_content.is_empty() { None } else { Some(new_content.as_str()) };
-                                                            if let Ok(()) = db.with_conn(|conn| crate::db::annotations::update_annotation_content(conn, ann_id, content_ref)) {
-                                                                pdf_state.with_mut(|s| {
-                                                                    if let Some(a) = s.annotations.iter_mut().find(|a| a.id == Some(ann_id)) {
-                                                                        a.content = if new_content.is_empty() { None } else { Some(new_content.clone()) };
-                                                                    }
-                                                                });
-                                                            }
-                                                            editing.set(false);
+                                                            let new_content_clone = new_content.clone();
+                                                            spawn(async move {
+                                                                let content_opt = if new_content_clone.is_empty() { None } else { Some(new_content_clone.as_str()) };
+                                                                if let Ok(()) = crate::db::annotations::update_annotation_content(db.conn(), ann_id, content_opt).await {
+                                                                    pdf_state.with_mut(|s| {
+                                                                        if let Some(a) = s.annotations.iter_mut().find(|a| a.id == Some(ann_id)) {
+                                                                            a.content = if new_content.is_empty() { None } else { Some(new_content.clone()) };
+                                                                        }
+                                                                    });
+                                                                }
+                                                                editing.set(false);
+                                                            });
                                                         },
                                                         "Save"
                                                     }
                                                     button {
-                                                        style: "padding: 3px 8px; border: 1px solid #ddd; background: #fff; border-radius: 3px; cursor: pointer; font-size: 11px;",
+                                                        class: "btn--cancel-sm",
                                                         onclick: move |_| editing.set(false),
                                                         "Cancel"
                                                     }
@@ -409,13 +425,13 @@ fn AnnotationPanel() -> Element {
                                             }
                                         } else {
                                             div {
-                                                style: "color: #555; cursor: pointer; padding: 4px; border-radius: 4px; min-height: 20px;",
+                                                class: "annotation-note-content",
                                                 onclick: move |_| {
                                                     edit_value.set(content.clone());
                                                     editing.set(true);
                                                 },
                                                 if content.is_empty() {
-                                                    span { style: "color: #bbb; font-style: italic;", "Click to add note..." }
+                                                    span { class: "annotation-note-empty", "Click to add note..." }
                                                 } else {
                                                     "{content}"
                                                 }

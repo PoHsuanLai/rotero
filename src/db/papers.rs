@@ -1,8 +1,8 @@
 use chrono::Utc;
-use rusqlite::{Connection, params};
+use turso::{Connection, Value};
 use rotero_models::Paper;
 
-pub fn insert_paper(conn: &Connection, paper: &Paper) -> rusqlite::Result<i64> {
+pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<i64, turso::Error> {
     let authors_json = serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
     let extra_meta = paper
         .extra_meta
@@ -12,122 +12,88 @@ pub fn insert_paper(conn: &Connection, paper: &Paper) -> rusqlite::Result<i64> {
     conn.execute(
         "INSERT INTO papers (title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, extra_meta)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-        params![
-            paper.title,
-            authors_json,
-            paper.year,
-            paper.doi,
-            paper.abstract_text,
-            paper.journal,
-            paper.volume,
-            paper.issue,
-            paper.pages,
-            paper.publisher,
-            paper.url,
-            paper.pdf_path,
-            paper.date_added.to_rfc3339(),
-            paper.date_modified.to_rfc3339(),
-            extra_meta,
-        ],
-    )?;
-    Ok(conn.last_insert_rowid())
-}
-
-pub fn get_paper(conn: &Connection, id: i64) -> rusqlite::Result<Paper> {
-    conn.query_row(
-        "SELECT id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, extra_meta
-         FROM papers WHERE id = ?1",
-        [id],
-        |row| {
-            Ok(row_to_paper(row))
-        },
+        turso::params::Params::Positional(vec![
+            Value::Text(paper.title.clone()),
+            Value::Text(authors_json),
+            paper.year.map(|y| Value::Integer(y as i64)).unwrap_or(Value::Null),
+            paper.doi.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper.abstract_text.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper.journal.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper.volume.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper.issue.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper.pages.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper.publisher.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper.url.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper.pdf_path.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            Value::Text(paper.date_added.to_rfc3339()),
+            Value::Text(paper.date_modified.to_rfc3339()),
+            extra_meta.map(|s| Value::Text(s)).unwrap_or(Value::Null),
+        ]),
     )
+    .await?;
+
+    // Get last insert rowid
+    let mut rows = conn.query("SELECT last_insert_rowid()", ()).await?;
+    let row = rows.next().await?.ok_or(turso::Error::QueryReturnedNoRows)?;
+    let id = row.get_value(0)?.as_integer().copied().unwrap_or(0);
+    Ok(id)
 }
 
-pub fn list_papers(conn: &Connection) -> rusqlite::Result<Vec<Paper>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, extra_meta
-         FROM papers ORDER BY date_added DESC",
-    )?;
-    let papers = stmt
-        .query_map([], |row| Ok(row_to_paper(row)))?
-        .collect::<Result<Vec<_>, _>>()?;
+pub async fn list_papers(conn: &Connection) -> Result<Vec<Paper>, turso::Error> {
+    let mut rows = conn
+        .query(
+            "SELECT id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, extra_meta
+             FROM papers ORDER BY date_added DESC",
+            (),
+        )
+        .await?;
+
+    let mut papers = Vec::new();
+    while let Some(row) = rows.next().await? {
+        papers.push(row_to_paper(&row));
+    }
     Ok(papers)
 }
 
-pub fn list_papers_in_collection(conn: &Connection, collection_id: i64) -> rusqlite::Result<Vec<Paper>> {
-    let mut stmt = conn.prepare(
-        "SELECT p.id, p.title, p.authors, p.year, p.doi, p.abstract_text, p.journal, p.volume, p.issue, p.pages, p.publisher, p.url, p.pdf_path, p.date_added, p.date_modified, p.extra_meta
-         FROM papers p
-         JOIN paper_collections pc ON p.id = pc.paper_id
-         WHERE pc.collection_id = ?1
-         ORDER BY p.date_added DESC",
-    )?;
-    let papers = stmt
-        .query_map([collection_id], |row| Ok(row_to_paper(row)))?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(papers)
-}
-
-pub fn update_paper(conn: &Connection, paper: &Paper) -> rusqlite::Result<()> {
-    let authors_json = serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
-    let extra_meta = paper
-        .extra_meta
-        .as_ref()
-        .map(|v| serde_json::to_string(v).unwrap_or_default());
-    let now = Utc::now().to_rfc3339();
-
-    conn.execute(
-        "UPDATE papers SET title=?1, authors=?2, year=?3, doi=?4, abstract_text=?5, journal=?6, volume=?7, issue=?8, pages=?9, publisher=?10, url=?11, pdf_path=?12, date_modified=?13, extra_meta=?14
-         WHERE id=?15",
-        params![
-            paper.title,
-            authors_json,
-            paper.year,
-            paper.doi,
-            paper.abstract_text,
-            paper.journal,
-            paper.volume,
-            paper.issue,
-            paper.pages,
-            paper.publisher,
-            paper.url,
-            paper.pdf_path,
-            now,
-            extra_meta,
-            paper.id,
-        ],
-    )?;
+pub async fn delete_paper(conn: &Connection, id: i64) -> Result<(), turso::Error> {
+    conn.execute("DELETE FROM papers WHERE id = ?1", [id]).await?;
     Ok(())
 }
 
-pub fn delete_paper(conn: &Connection, id: i64) -> rusqlite::Result<()> {
-    conn.execute("DELETE FROM papers WHERE id = ?1", [id])?;
-    Ok(())
+fn get_text(row: &turso::Row, idx: usize) -> String {
+    row.get_value(idx).ok().and_then(|v| v.as_text().cloned()).unwrap_or_default()
 }
 
-fn row_to_paper(row: &rusqlite::Row) -> Paper {
-    let authors_str: String = row.get(2).unwrap_or_default();
+fn get_opt_text(row: &turso::Row, idx: usize) -> Option<String> {
+    row.get_value(idx).ok().and_then(|v| v.as_text().cloned())
+}
+
+fn get_opt_i64(row: &turso::Row, idx: usize) -> Option<i64> {
+    row.get_value(idx).ok().and_then(|v| v.as_integer().copied())
+}
+
+fn row_to_paper(row: &turso::Row) -> Paper {
+    let authors_str = get_text(row, 2);
     let authors: Vec<String> = serde_json::from_str(&authors_str).unwrap_or_default();
 
-    let date_added_str: String = row.get(13).unwrap_or_default();
-    let date_modified_str: String = row.get(14).unwrap_or_default();
-    let extra_meta_str: Option<String> = row.get(15).unwrap_or(None);
+    let date_added_str = get_text(row, 13);
+    let date_modified_str = get_text(row, 14);
+    let extra_meta_str = get_opt_text(row, 15);
 
     Paper {
-        id: row.get(0).ok(),
-        title: row.get(1).unwrap_or_default(),
+        id: get_opt_i64(row, 0),
+        title: get_text(row, 1),
         authors,
-        year: row.get(3).unwrap_or(None),
-        doi: row.get(4).unwrap_or(None),
-        abstract_text: row.get(5).unwrap_or(None),
-        journal: row.get(6).unwrap_or(None),
-        volume: row.get(7).unwrap_or(None),
-        issue: row.get(8).unwrap_or(None),
-        pages: row.get(9).unwrap_or(None),
-        publisher: row.get(10).unwrap_or(None),
-        url: row.get(11).unwrap_or(None),
-        pdf_path: row.get(12).unwrap_or(None),
+        year: get_opt_i64(row, 3).map(|i| i as i32),
+        doi: get_opt_text(row, 4),
+        abstract_text: get_opt_text(row, 5),
+        journal: get_opt_text(row, 6),
+        volume: get_opt_text(row, 7),
+        issue: get_opt_text(row, 8),
+        pages: get_opt_text(row, 9),
+        publisher: get_opt_text(row, 10),
+        url: get_opt_text(row, 11),
+        pdf_path: get_opt_text(row, 12),
         date_added: chrono::DateTime::parse_from_rfc3339(&date_added_str)
             .map(|dt| dt.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now()),

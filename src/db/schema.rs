@@ -1,6 +1,6 @@
-use rusqlite::Connection;
+use turso::Connection;
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: i64 = 1;
 
 const CREATE_TABLES: &str = "
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -71,33 +71,22 @@ CREATE TABLE IF NOT EXISTS notes (
     created_at  TEXT NOT NULL,
     modified_at TEXT NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS idx_papers_doi ON papers(doi);
-CREATE INDEX IF NOT EXISTS idx_papers_date_added ON papers(date_added);
-CREATE INDEX IF NOT EXISTS idx_collections_parent ON collections(parent_id);
-CREATE INDEX IF NOT EXISTS idx_annotations_paper ON annotations(paper_id);
-CREATE INDEX IF NOT EXISTS idx_notes_paper ON notes(paper_id);
 ";
 
-pub fn initialize_db(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch("PRAGMA journal_mode=WAL;")?;
-    conn.execute_batch("PRAGMA foreign_keys=ON;")?;
-    conn.execute_batch(CREATE_TABLES)?;
+pub async fn initialize_db(conn: &Connection) -> Result<(), turso::Error> {
+    conn.execute_batch(CREATE_TABLES).await?;
 
     // Check/set schema version
-    let version: Option<u32> = conn
-        .query_row(
-            "SELECT version FROM schema_version LIMIT 1",
-            [],
-            |row| row.get(0),
-        )
-        .ok();
+    let mut rows = conn
+        .query("SELECT version FROM schema_version LIMIT 1", ())
+        .await?;
 
-    if version.is_none() {
+    if rows.next().await?.is_none() {
         conn.execute(
             "INSERT INTO schema_version (version) VALUES (?1)",
             [SCHEMA_VERSION],
-        )?;
+        )
+        .await?;
     }
 
     Ok(())

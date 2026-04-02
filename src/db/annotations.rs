@@ -1,8 +1,8 @@
 use chrono::Utc;
-use rusqlite::{Connection, params};
+use turso::{Connection, Value};
 use rotero_models::{Annotation, AnnotationType};
 
-pub fn insert_annotation(conn: &Connection, ann: &Annotation) -> rusqlite::Result<i64> {
+pub async fn insert_annotation(conn: &Connection, ann: &Annotation) -> Result<i64, turso::Error> {
     let ann_type_str = match ann.ann_type {
         AnnotationType::Highlight => "highlight",
         AnnotationType::Note => "note",
@@ -13,51 +13,57 @@ pub fn insert_annotation(conn: &Connection, ann: &Annotation) -> rusqlite::Resul
     conn.execute(
         "INSERT INTO annotations (paper_id, page, ann_type, color, content, geometry, created_at, modified_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![
-            ann.paper_id,
-            ann.page,
-            ann_type_str,
-            ann.color,
-            ann.content,
-            geometry,
-            ann.created_at.to_rfc3339(),
-            ann.modified_at.to_rfc3339(),
-        ],
-    )?;
-    Ok(conn.last_insert_rowid())
+        turso::params::Params::Positional(vec![
+            Value::Integer(ann.paper_id),
+            Value::Integer(ann.page as i64),
+            Value::Text(ann_type_str.to_string()),
+            Value::Text(ann.color.clone()),
+            ann.content.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            Value::Text(geometry),
+            Value::Text(ann.created_at.to_rfc3339()),
+            Value::Text(ann.modified_at.to_rfc3339()),
+        ]),
+    )
+    .await?;
+
+    let mut rows = conn.query("SELECT last_insert_rowid()", ()).await?;
+    let row = rows.next().await?.ok_or(turso::Error::QueryReturnedNoRows)?;
+    let id = row.get_value(0)?.as_integer().copied().unwrap_or(0);
+    Ok(id)
 }
 
-pub fn list_annotations_for_paper(conn: &Connection, paper_id: i64) -> rusqlite::Result<Vec<Annotation>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, paper_id, page, ann_type, color, content, geometry, created_at, modified_at
-         FROM annotations WHERE paper_id = ?1 ORDER BY page, created_at",
-    )?;
-    let anns = stmt
-        .query_map([paper_id], |row| Ok(row_to_annotation(row)))?
-        .collect::<Result<Vec<_>, _>>()?;
+pub async fn list_annotations_for_paper(conn: &Connection, paper_id: i64) -> Result<Vec<Annotation>, turso::Error> {
+    let mut rows = conn
+        .query(
+            "SELECT id, paper_id, page, ann_type, color, content, geometry, created_at, modified_at
+             FROM annotations WHERE paper_id = ?1 ORDER BY page, created_at",
+            [paper_id],
+        )
+        .await?;
+
+    let mut anns = Vec::new();
+    while let Some(row) = rows.next().await? {
+        anns.push(row_to_annotation(&row));
+    }
     Ok(anns)
 }
 
-pub fn update_annotation_content(conn: &Connection, id: i64, content: Option<&str>) -> rusqlite::Result<()> {
+pub async fn update_annotation_content(conn: &Connection, id: i64, content: Option<&str>) -> Result<(), turso::Error> {
     let now = Utc::now().to_rfc3339();
     conn.execute(
         "UPDATE annotations SET content = ?1, modified_at = ?2 WHERE id = ?3",
-        params![content, now, id],
-    )?;
+        turso::params::Params::Positional(vec![
+            content.map(|s| Value::Text(s.to_string())).unwrap_or(Value::Null),
+            Value::Text(now),
+            Value::Integer(id),
+        ]),
+    )
+    .await?;
     Ok(())
 }
 
-pub fn update_annotation_color(conn: &Connection, id: i64, color: &str) -> rusqlite::Result<()> {
-    let now = Utc::now().to_rfc3339();
-    conn.execute(
-        "UPDATE annotations SET color = ?1, modified_at = ?2 WHERE id = ?3",
-        params![color, now, id],
-    )?;
-    Ok(())
-}
-
-pub fn delete_annotation(conn: &Connection, id: i64) -> rusqlite::Result<()> {
-    conn.execute("DELETE FROM annotations WHERE id = ?1", [id])?;
+pub async fn delete_annotation(conn: &Connection, id: i64) -> Result<(), turso::Error> {
+    conn.execute("DELETE FROM annotations WHERE id = ?1", [id]).await?;
     Ok(())
 }
 
@@ -70,19 +76,19 @@ fn parse_ann_type(s: &str) -> AnnotationType {
     }
 }
 
-fn row_to_annotation(row: &rusqlite::Row) -> Annotation {
-    let ann_type_str: String = row.get(3).unwrap_or_default();
-    let geometry_str: String = row.get(6).unwrap_or_else(|_| "{}".to_string());
-    let created_str: String = row.get(7).unwrap_or_default();
-    let modified_str: String = row.get(8).unwrap_or_default();
+fn row_to_annotation(row: &turso::Row) -> Annotation {
+    let ann_type_str = row.get_value(3).ok().and_then(|v| v.as_text().cloned()).unwrap_or_default();
+    let geometry_str = row.get_value(6).ok().and_then(|v| v.as_text().cloned()).unwrap_or_else(|| "{}".to_string());
+    let created_str = row.get_value(7).ok().and_then(|v| v.as_text().cloned()).unwrap_or_default();
+    let modified_str = row.get_value(8).ok().and_then(|v| v.as_text().cloned()).unwrap_or_default();
 
     Annotation {
-        id: row.get(0).ok(),
-        paper_id: row.get(1).unwrap_or(0),
-        page: row.get(2).unwrap_or(0),
+        id: row.get_value(0).ok().and_then(|v| v.as_integer().copied()),
+        paper_id: row.get_value(1).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0),
+        page: row.get_value(2).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0) as i32,
         ann_type: parse_ann_type(&ann_type_str),
-        color: row.get(4).unwrap_or_else(|_| "#ffff00".to_string()),
-        content: row.get(5).unwrap_or(None),
+        color: row.get_value(4).ok().and_then(|v| v.as_text().cloned()).unwrap_or_else(|| "#ffff00".to_string()),
+        content: row.get_value(5).ok().and_then(|v| v.as_text().cloned()),
         geometry: serde_json::from_str(&geometry_str).unwrap_or(serde_json::json!({})),
         created_at: chrono::DateTime::parse_from_rfc3339(&created_str)
             .map(|dt| dt.with_timezone(&Utc))

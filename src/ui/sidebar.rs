@@ -8,22 +8,25 @@ pub fn Sidebar() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let state = lib_state.read();
     let view = state.view.clone();
-    let all_papers_bg = if view == LibraryView::AllPapers { "#e0e0e0" } else { "transparent" };
+    let is_all_papers = view == LibraryView::AllPapers;
     let paper_count = state.papers.len();
+
+    let nav_class = if is_all_papers {
+        "sidebar-nav-item sidebar-nav-item--active"
+    } else {
+        "sidebar-nav-item"
+    };
 
     rsx! {
         div { class: "sidebar",
-            style: "width: 250px; background: #f5f5f5; border-right: 1px solid #ddd; padding: 16px; overflow-y: auto; display: flex; flex-direction: column;",
-            h2 { style: "margin: 0 0 16px 0; font-size: 18px;", "Rotero" }
+            h2 { class: "sidebar-brand", "Rotero" }
 
-            // Open PDF button (standalone viewer)
             OpenPdfButton {}
 
             // Library navigation
-            div { style: "margin-top: 20px;",
-                // All Papers
+            div { class: "sidebar-nav",
                 div {
-                    style: "padding: 6px 8px; cursor: pointer; border-radius: 4px; font-size: 14px; font-weight: 500; background: {all_papers_bg};",
+                    class: "{nav_class}",
                     onclick: move |_| {
                         lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
                     },
@@ -32,14 +35,14 @@ pub fn Sidebar() -> Element {
             }
 
             // Collections
-            div { style: "margin-top: 16px;",
-                div { style: "display: flex; justify-content: space-between; align-items: center;",
-                    h3 { style: "font-size: 13px; color: #666; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;", "Collections" }
+            div { class: "sidebar-section",
+                div { class: "sidebar-section-header",
+                    h3 { class: "sidebar-section-title", "Collections" }
                     NewCollectionButton {}
                 }
-                div { style: "margin-top: 8px;",
+                div { class: "sidebar-section-content",
                     if state.collections.is_empty() {
-                        p { style: "color: #bbb; font-size: 13px; padding: 4px 8px;", "No collections" }
+                        p { class: "sidebar-empty", "No collections" }
                     } else {
                         for coll in state.collections.iter() {
                             {
@@ -48,7 +51,7 @@ pub fn Sidebar() -> Element {
                                 rsx! {
                                     div {
                                         key: "{coll_id}",
-                                        style: "padding: 4px 8px; cursor: pointer; border-radius: 4px; font-size: 14px;",
+                                        class: "sidebar-collection-item",
                                         onclick: move |_| {
                                             lib_state.with_mut(|s| s.view = LibraryView::Collection(coll_id));
                                         },
@@ -62,19 +65,20 @@ pub fn Sidebar() -> Element {
             }
 
             // Tags
-            div { style: "margin-top: 16px;",
-                h3 { style: "font-size: 13px; color: #666; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 0.5px;", "Tags" }
+            div { class: "sidebar-section",
+                h3 { class: "sidebar-section-title", "Tags" }
                 if state.tags.is_empty() {
-                    p { style: "color: #bbb; font-size: 13px; padding: 4px 8px;", "No tags" }
+                    p { class: "sidebar-empty", "No tags" }
                 } else {
-                    div { style: "display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 8px;",
+                    div { class: "sidebar-tags-wrap",
                         for tag in state.tags.iter() {
                             {
                                 let tag_name = tag.name.clone();
-                                let bg = tag.color.clone().unwrap_or_else(|| "#e0e0e0".to_string());
+                                let bg = tag.color.clone().unwrap_or_else(|| "#6b7085".to_string());
                                 rsx! {
                                     span {
-                                        style: "display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; background: {bg}; cursor: pointer;",
+                                        class: "sidebar-tag",
+                                        style: "background: {bg};",
                                         "{tag_name}"
                                     }
                                 }
@@ -96,9 +100,9 @@ fn NewCollectionButton() -> Element {
 
     rsx! {
         if show_input() {
-            div { style: "display: flex; gap: 4px; margin-top: 4px;",
+            div { class: "sidebar-input-row",
                 input {
-                    style: "flex: 1; padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;",
+                    class: "sidebar-input",
                     r#type: "text",
                     placeholder: "Name",
                     value: "{name_value}",
@@ -109,13 +113,15 @@ fn NewCollectionButton() -> Element {
                             if !name.is_empty() {
                                 let coll = rotero_models::Collection::new(name);
                                 let db = db.clone();
-                                if let Ok(id) = db.with_conn(|conn| crate::db::collections::insert_collection(conn, &coll)) {
-                                    let mut coll = coll;
-                                    coll.id = Some(id);
-                                    lib_state.with_mut(|s| s.collections.push(coll));
-                                }
-                                show_input.set(false);
-                                name_value.set(String::new());
+                                spawn(async move {
+                                    if let Ok(id) = crate::db::collections::insert_collection(db.conn(), &coll).await {
+                                        let mut coll = coll;
+                                        coll.id = Some(id);
+                                        lib_state.with_mut(|s| s.collections.push(coll));
+                                    }
+                                    show_input.set(false);
+                                    name_value.set(String::new());
+                                });
                             }
                         }
                     },
@@ -123,7 +129,7 @@ fn NewCollectionButton() -> Element {
             }
         } else {
             button {
-                style: "padding: 2px 6px; border: none; background: transparent; color: #999; cursor: pointer; font-size: 16px;",
+                class: "sidebar-add-btn",
                 onclick: move |_| show_input.set(true),
                 "+"
             }
@@ -139,7 +145,7 @@ fn OpenPdfButton() -> Element {
 
     rsx! {
         button {
-            style: "width: 100%; padding: 8px; background: #f0f0f0; color: #333; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 13px;",
+            class: "sidebar-open-btn",
             onclick: move |_| {
                 let file = rfd::FileDialog::new()
                     .add_filter("PDF", &["pdf"])
@@ -167,7 +173,7 @@ fn OpenPdfButton() -> Element {
         }
 
         if let Some(err) = error_msg.read().as_ref() {
-            div { style: "margin-top: 4px; padding: 6px; background: #fee; border-radius: 4px; color: #c00; font-size: 11px;",
+            div { class: "sidebar-error",
                 "{err}"
             }
         }

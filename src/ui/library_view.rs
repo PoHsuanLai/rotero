@@ -12,24 +12,23 @@ pub fn LibraryPanel() -> Element {
 
     rsx! {
         div { class: "library-view",
-            style: "flex: 1; display: flex; flex-direction: column; overflow: hidden;",
 
             // Header
-            div { style: "padding: 16px; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 12px;",
-                h2 { style: "margin: 0; font-size: 18px; flex: 1;", "All Papers" }
+            div { class: "library-header",
+                h2 { class: "library-title", "All Papers" }
                 AddPaperButton {}
             }
 
             // Paper list
-            div { style: "flex: 1; overflow-y: auto;",
+            div { class: "library-table-scroll",
                 if state.papers.is_empty() {
-                    div { style: "padding: 40px; text-align: center; color: #999;",
-                        p { style: "font-size: 16px; margin-bottom: 8px;", "No papers yet" }
-                        p { style: "font-size: 14px;", "Click \"Add Paper\" or use the browser connector to import papers." }
+                    div { class: "library-empty",
+                        p { class: "library-empty-heading", "No papers yet" }
+                        p { class: "library-empty-sub", "Click \"Add Paper\" or use the browser connector to import papers." }
                     }
                 } else {
                     // Table header
-                    div { style: "display: grid; grid-template-columns: 1fr 200px 60px 100px; padding: 8px 16px; border-bottom: 1px solid #eee; font-size: 12px; color: #999; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;",
+                    div { class: "library-table-header",
                         span { "Title" }
                         span { "Authors" }
                         span { "Year" }
@@ -51,40 +50,43 @@ pub fn LibraryPanel() -> Element {
                             let year = paper.year.map(|y| y.to_string()).unwrap_or_default();
                             let has_pdf = paper.pdf_path.is_some();
                             let selected = state.selected_paper_id == Some(paper_id);
-                            let bg = if selected { "#e8f4fd" } else { "transparent" };
+                            let row_class = if selected {
+                                "library-row library-row--selected"
+                            } else {
+                                "library-row"
+                            };
                             let db_for_view = db.clone();
 
                             rsx! {
                                 div {
                                     key: "{paper_id}",
-                                    style: "display: grid; grid-template-columns: 1fr 200px 60px 100px; padding: 10px 16px; border-bottom: 1px solid #f0f0f0; cursor: pointer; background: {bg}; font-size: 14px; align-items: center;",
+                                    class: "{row_class}",
                                     onclick: move |_| {
                                         lib_state.with_mut(|s| {
                                             s.selected_paper_id = Some(paper_id);
                                         });
                                     },
-                                    span { style: "font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;", "{title}" }
-                                    span { style: "color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;", "{authors}" }
-                                    span { style: "color: #666;", "{year}" }
-                                    div { style: "display: flex; gap: 4px;",
+                                    span { class: "library-paper-title", "{title}" }
+                                    span { class: "library-paper-authors", "{authors}" }
+                                    span { class: "library-paper-year", "{year}" }
+                                    div { class: "library-actions",
                                         if has_pdf {
                                             button {
-                                                style: "padding: 2px 8px; border: 1px solid #ddd; background: #fff; border-radius: 4px; cursor: pointer; font-size: 12px;",
+                                                class: "btn btn--ghost",
                                                 onclick: move |evt| {
                                                     evt.stop_propagation();
-                                                    // Resolve full PDF path and open it
                                                     if let Some(ref rel_path) = pdf_rel_path {
                                                         let full_path = db_for_view.pdfs_dir().join(rel_path);
                                                         let path_str = full_path.to_string_lossy().to_string();
                                                         if let Ok(engine) = rotero_pdf::PdfEngine::new(None) {
                                                             if crate::state::commands::open_pdf(&engine, &mut pdf_state, &path_str).is_ok() {
-                                                                // Set paper_id and load annotations
                                                                 pdf_state.with_mut(|s| s.paper_id = Some(paper_id));
-                                                                if let Ok(anns) = db_for_view.with_conn(|conn| {
-                                                                    crate::db::annotations::list_annotations_for_paper(conn, paper_id)
-                                                                }) {
-                                                                    pdf_state.with_mut(|s| s.annotations = anns);
-                                                                }
+                                                                let db_clone = db_for_view.clone();
+                                                                spawn(async move {
+                                                                    if let Ok(anns) = crate::db::annotations::list_annotations_for_paper(db_clone.conn(), paper_id).await {
+                                                                        pdf_state.with_mut(|s| s.annotations = anns);
+                                                                    }
+                                                                });
                                                                 lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                                             }
                                                         }
@@ -116,10 +118,9 @@ fn AddPaperButton() -> Element {
     let db_for_doi = db.clone();
 
     rsx! {
-        div { style: "display: flex; gap: 8px; align-items: center;",
-            // Add PDF button
+        div { class: "add-paper-row",
             button {
-                style: "padding: 6px 12px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;",
+                class: "btn btn--primary",
                 onclick: move |_| {
                     let file = rfd::FileDialog::new()
                         .add_filter("PDF", &["pdf"])
@@ -130,7 +131,6 @@ fn AddPaperButton() -> Element {
                         let path_str = path.to_string_lossy().to_string();
                         let db = db_for_pdf.clone();
 
-                        // Import PDF and create paper entry
                         match db.import_pdf(&path_str) {
                             Ok(rel_path) => {
                                 let filename = path.file_stem()
@@ -140,14 +140,16 @@ fn AddPaperButton() -> Element {
                                 let mut paper = rotero_models::Paper::new(filename);
                                 paper.pdf_path = Some(rel_path);
 
-                                match db.with_conn(|conn| crate::db::papers::insert_paper(conn, &paper)) {
-                                    Ok(id) => {
-                                        paper.id = Some(id);
-                                        lib_state.with_mut(|s| s.papers.insert(0, paper));
-                                        error_msg.set(None);
+                                spawn(async move {
+                                    match crate::db::papers::insert_paper(db.conn(), &paper).await {
+                                        Ok(id) => {
+                                            paper.id = Some(id);
+                                            lib_state.with_mut(|s| s.papers.insert(0, paper));
+                                            error_msg.set(None);
+                                        }
+                                        Err(e) => error_msg.set(Some(format!("{e}"))),
                                     }
-                                    Err(e) => error_msg.set(Some(e)),
-                                }
+                                });
                             }
                             Err(e) => error_msg.set(Some(e)),
                         }
@@ -156,9 +158,8 @@ fn AddPaperButton() -> Element {
                 "+ Add PDF"
             }
 
-            // Add by DOI button
             button {
-                style: "padding: 6px 12px; background: #059669; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;",
+                class: "btn btn--success",
                 onclick: move |_| {
                     show_doi_input.set(!show_doi_input());
                 },
@@ -166,18 +167,17 @@ fn AddPaperButton() -> Element {
             }
         }
 
-        // DOI input form
         if show_doi_input() {
-            div { style: "display: flex; gap: 8px; margin-top: 8px;",
+            div { class: "doi-input-row",
                 input {
-                    style: "flex: 1; padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;",
+                    class: "doi-input",
                     r#type: "text",
                     placeholder: "Enter DOI (e.g. 10.1234/...)",
                     value: "{doi_value}",
                     oninput: move |evt| doi_value.set(evt.value()),
                 }
                 button {
-                    style: "padding: 6px 12px; background: #059669; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;",
+                    class: "btn btn--success",
                     onclick: move |_| {
                         let doi = doi_value().trim().to_string();
                         if doi.is_empty() {
@@ -185,12 +185,11 @@ fn AddPaperButton() -> Element {
                         }
                         let db = db_for_doi.clone();
 
-                        // Spawn async DOI fetch
                         spawn(async move {
                             match crate::metadata::crossref::fetch_by_doi(&doi).await {
                                 Ok(meta) => {
                                     let paper = crate::metadata::parser::metadata_to_paper(meta);
-                                    match db.with_conn(|conn| crate::db::papers::insert_paper(conn, &paper)) {
+                                    match crate::db::papers::insert_paper(db.conn(), &paper).await {
                                         Ok(id) => {
                                             let mut paper = paper;
                                             paper.id = Some(id);
@@ -199,7 +198,7 @@ fn AddPaperButton() -> Element {
                                             doi_value.set(String::new());
                                             error_msg.set(None);
                                         }
-                                        Err(e) => error_msg.set(Some(e)),
+                                        Err(e) => error_msg.set(Some(format!("{e}"))),
                                     }
                                 }
                                 Err(e) => error_msg.set(Some(e)),
@@ -212,7 +211,7 @@ fn AddPaperButton() -> Element {
         }
 
         if let Some(err) = error_msg.read().as_ref() {
-            div { style: "margin-top: 8px; padding: 6px 10px; background: #fee; border-radius: 4px; color: #c00; font-size: 12px;",
+            div { class: "error-message",
                 "{err}"
             }
         }

@@ -2,7 +2,6 @@
 members = [
     "crates/rotero-models",
     "crates/rotero-pdf",
-    "crates/rotero-search",
     "crates/rotero-bib",
     "crates/rotero-connector",
 ]
@@ -24,7 +23,6 @@ tracing = "0.1"
 # Internal crates
 rotero-models = { path = "crates/rotero-models" }
 rotero-pdf = { path = "crates/rotero-pdf" }
-rotero-search = { path = "crates/rotero-search" }
 rotero-bib = { path = "crates/rotero-bib" }
 rotero-connector = { path = "crates/rotero-connector" }
 
@@ -36,13 +34,12 @@ edition.workspace = true
 [dependencies]
 rotero-models.workspace = true
 rotero-pdf.workspace = true
-rotero-search.workspace = true
 rotero-bib.workspace = true
 rotero-connector.workspace = true
 
 dioxus = { version = "0.6", features = ["desktop"] }
 rfd = "0.14"
-rusqlite = { version = "0.34", features = ["bundled"] }
+turso = "0.6.0-pre.15"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 directories = "6"
 serde.workspace = true
