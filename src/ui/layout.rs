@@ -14,6 +14,7 @@ pub fn Layout() -> Element {
     let lib_state = use_context::<Signal<LibraryState>>();
     let tab_mgr = use_context::<Signal<PdfTabManager>>();
     let config = use_context::<Signal<SyncConfig>>();
+    let mut sidebar_collapsed = use_signal(|| false);
     let view = lib_state.read().view.clone();
 
     let dark = config.read().dark_mode;
@@ -32,7 +33,10 @@ pub fn Layout() -> Element {
         div {
             class: "{container_class}",
             "data-scale": "{scale}",
-            Sidebar {}
+            Sidebar {
+                collapsed: sidebar_collapsed(),
+                on_toggle: move |_| sidebar_collapsed.toggle(),
+            }
             div { class: "main-panel",
                 match view {
                     LibraryView::PdfViewer if has_tabs => rsx! {

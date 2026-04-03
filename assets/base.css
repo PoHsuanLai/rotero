@@ -99,3 +99,13 @@ body {
 .bi-fonts::before { content: "\f3dc"; }
 .bi-zoom-in::before { content: "\f62c"; }
 .bi-zoom-out::before { content: "\f62d"; }
+.bi-chevron-left::before { content: "\f284"; }
+.bi-list::before { content: "\f479"; }
+.bi-layout-sidebar::before { content: "\f462"; }
+.bi-layout-sidebar-inset::before { content: "\f460"; }
+.bi-arrow-bar-left::before { content: "\f101"; }
+.bi-arrow-bar-right::before { content: "\f105"; }
+.bi-collection::before { content: "\f2a4"; }
+.bi-funnel::before { content: "\f381"; }
+.bi-palette::before { content: "\f4c2"; }
+.bi-gear::before { content: "\f3e5"; }
