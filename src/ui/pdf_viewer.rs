@@ -432,11 +432,20 @@ pub fn PdfViewer() -> Element {
                         };
                         if !has_more_now { return; }
 
-                        let render_tx = render_ch.sender();
-                        let count = batch_size;
-                        let quality = config.read().render_quality;
-                        is_loading.set(true);
+                        // Only load more pages when scrolled within 1.5 viewports of the bottom,
+                        // avoiding unnecessary render work for distant pages.
                         spawn(async move {
+                            let mut eval = document::eval(
+                                "let el = document.getElementById('pdf-pages-container'); \
+                                 el ? (el.scrollTop + el.clientHeight * 2.5 >= el.scrollHeight ? 1 : 0) : 0"
+                            );
+                            let near_bottom = eval.recv::<f64>().await.unwrap_or(0.0) > 0.5;
+                            if !near_bottom { return; }
+
+                            let render_tx = render_ch.sender();
+                            let count = batch_size;
+                            let quality = config.read().render_quality;
+                            is_loading.set(true);
                             let _ = crate::state::commands::render_more_pages(
                                 &render_tx, &mut tabs, tid, start, count, quality,
                             ).await;
@@ -611,85 +620,6 @@ fn PdfPageWithOverlay(
                                     if (transform) span.style.transform = transform;
                                 }}
 
-                                // --- Custom selection overlay ---
-                                let selColor = getComputedStyle(layer).getPropertyValue('--selection-color').trim()
-                                    || 'rgba(0, 100, 255, 0.3)';
-
-                                // Build span lookup array once
-                                let spanData = [];
-                                for (let span of spans) {{
-                                    spanData.push({{
-                                        el: span,
-                                        x: parseFloat(span.dataset.segX),
-                                        y: parseFloat(span.dataset.segY),
-                                        w: parseFloat(span.dataset.targetW),
-                                        h: parseFloat(span.dataset.segH)
-                                    }});
-                                }}
-
-                                document.addEventListener('selectionchange', function() {{
-                                    // Remove old highlights
-                                    let old = layer.querySelectorAll('.selection-highlight');
-                                    for (let i = 0; i < old.length; i++) old[i].remove();
-
-                                    let sel = document.getSelection();
-                                    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-
-                                    let range = sel.getRangeAt(0);
-                                    if (!range.intersectsNode(layer)) return;
-
-                                    // Collect selected spans using range.intersectsNode
-                                    let selected = [];
-                                    for (let sd of spanData) {{
-                                        try {{
-                                            if (range.intersectsNode(sd.el)) {{
-                                                if (!isNaN(sd.x) && !isNaN(sd.y) && !isNaN(sd.w) && !isNaN(sd.h)) {{
-                                                    selected.push(sd);
-                                                }}
-                                            }}
-                                        }} catch(e) {{}}
-                                    }}
-
-                                    if (!selected.length) return;
-
-                                    // Sort by y then x
-                                    selected.sort(function(a, b) {{ return a.y - b.y || a.x - b.x; }});
-
-                                    // Group into lines by y proximity
-                                    let lines = [];
-                                    let curLine = [selected[0]];
-                                    for (let i = 1; i < selected.length; i++) {{
-                                        let s = selected[i];
-                                        let tol = s.h * 0.5;
-                                        if (Math.abs(s.y - curLine[0].y) < tol) {{
-                                            curLine.push(s);
-                                        }} else {{
-                                            lines.push(curLine);
-                                            curLine = [s];
-                                        }}
-                                    }}
-                                    lines.push(curLine);
-
-                                    // Draw one merged rect per line
-                                    for (let line of lines) {{
-                                        let minX = Infinity, minY = Infinity, maxR = -Infinity, maxB = -Infinity;
-                                        for (let s of line) {{
-                                            if (s.x < minX) minX = s.x;
-                                            if (s.y < minY) minY = s.y;
-                                            if (s.x + s.w > maxR) maxR = s.x + s.w;
-                                            if (s.y + s.h > maxB) maxB = s.y + s.h;
-                                        }}
-                                        let hl = document.createElement('div');
-                                        hl.className = 'selection-highlight';
-                                        hl.style.left = minX + 'px';
-                                        hl.style.top = minY + 'px';
-                                        hl.style.width = (maxR - minX) + 'px';
-                                        hl.style.height = (maxB - minY) + 'px';
-                                        hl.style.background = selColor;
-                                        layer.appendChild(hl);
-                                    }}
-                                }});
-
                                 // Copy handler: normalize text
                                 layer.addEventListener('copy', function(evt) {{
                                     let sel = document.getSelection();
@@ -718,9 +648,6 @@ fn PdfPageWithOverlay(
                                         span {
                                             key: "text-{page_index}-{seg_idx}",
                                             "data-target-w": "{seg.width}",
-                                            "data-seg-x": "{seg.x}",
-                                            "data-seg-y": "{seg.y}",
-                                            "data-seg-h": "{seg.height}",
                                             "data-font-weight": "{seg.font_weight}",
                                             "data-font-style": "{seg.font_style}",
                                             style: "left: {seg.x}px; top: {seg.y}px; font-size: {seg.font_size}px; font-family: {seg.font_family}; font-weight: {seg.font_weight}; font-style: {seg.font_style};",

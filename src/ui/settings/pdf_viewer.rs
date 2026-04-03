@@ -26,7 +26,7 @@ const QUALITY_OPTIONS: &[(u8, &str)] = &[
     (100, "Maximum (slow)"),
 ];
 
-const ANNOTATION_COLORS: &[(&str, &str)] = &[
+const SELECTION_COLORS: &[(&str, &str)] = &[
     ("#ffff00", "Yellow"),
     ("#ff6b6b", "Red"),
     ("#51cf66", "Green"),
@@ -50,7 +50,7 @@ pub fn PdfViewerSection() -> Element {
     let mut config = use_context::<Signal<SyncConfig>>();
     let current_zoom = config.read().default_zoom;
     let current_batch = config.read().page_batch_size;
-    let current_color = config.read().default_annotation_color.clone();
+    let current_color = config.read().selection_color.clone();
     let current_quality = config.read().render_quality;
     let current_thumb_quality = config.read().thumbnail_quality;
 
@@ -79,10 +79,10 @@ pub fn PdfViewerSection() -> Element {
 
             // Default annotation color
             div { class: "settings-field",
-                span { class: "settings-field-label", "Highlight color" }
+                span { class: "settings-field-label", "Selection color" }
                 div { class: "settings-field-control",
                     div { class: "settings-color-picker",
-                        for (color, _name) in ANNOTATION_COLORS.iter() {
+                        for (color, _name) in SELECTION_COLORS.iter() {
                             {
                                 let c = color.to_string();
                                 let c2 = c.clone();
@@ -98,7 +98,7 @@ pub fn PdfViewerSection() -> Element {
                                         style: "background: {c};",
                                         onclick: move |_| {
                                             let color = c2.clone();
-                                            update_config(&mut config, |c| c.default_annotation_color = color);
+                                            update_config(&mut config, |c| c.selection_color = color);
                                         },
                                     }
                                 }

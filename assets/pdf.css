@@ -225,6 +225,16 @@
   left: 0;
   overflow: hidden;
   z-index: 1;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.text-layer::selection {
+  background: transparent;
+}
+
+.text-layer::-moz-selection {
+  background: transparent;
 }
 
 .text-layer br {
@@ -232,7 +242,6 @@
   -webkit-user-select: none;
   line-height: 0;
   font-size: 0;
-  display: none;
 }
 
 .text-layer span {
@@ -249,21 +258,12 @@
   font-family: sans-serif;
 }
 
-/* Hide native selection visual — we draw our own overlay */
 .text-layer span::selection {
-  background: transparent;
-  color: transparent;
+  background: var(--selection-color, rgba(0, 100, 255, 0.3));
 }
 
 .text-layer span::-moz-selection {
-  background: transparent;
-  color: transparent;
-}
-
-/* Custom selection overlay rects */
-.text-layer .selection-highlight {
-  position: absolute;
-  pointer-events: none;
+  background: var(--selection-color, rgba(0, 100, 255, 0.3));
 }
 
 
