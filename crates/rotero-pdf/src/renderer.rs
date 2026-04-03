@@ -366,6 +366,9 @@ impl PdfEngine {
                     PdfPageAnnotationType::Highlight => rotero_models::AnnotationType::Highlight,
                     PdfPageAnnotationType::Text => rotero_models::AnnotationType::Note,
                     PdfPageAnnotationType::Square => rotero_models::AnnotationType::Area,
+                    PdfPageAnnotationType::Underline => rotero_models::AnnotationType::Underline,
+                    PdfPageAnnotationType::Ink => rotero_models::AnnotationType::Ink,
+                    PdfPageAnnotationType::FreeText => rotero_models::AnnotationType::Text,
                     _ => continue,
                 };
 

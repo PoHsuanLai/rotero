@@ -201,6 +201,53 @@ fn build_annotation_dict(ann: &Annotation, rect: &[f32; 4]) -> Object {
                 }
             }
         }
+        AnnotationType::Underline => {
+            dict.set("Subtype", Object::Name(b"Underline".to_vec()));
+            let [x1, y1, x2, y2] = rect;
+            let quad = Object::Array(vec![
+                Object::Real(*x1), Object::Real(*y2),
+                Object::Real(*x2), Object::Real(*y2),
+                Object::Real(*x1), Object::Real(*y1),
+                Object::Real(*x2), Object::Real(*y1),
+            ]);
+            dict.set("QuadPoints", quad);
+            if let Some(ref content) = ann.content {
+                if !content.is_empty() {
+                    dict.set("Contents", pdf_string(content));
+                }
+            }
+        }
+        AnnotationType::Ink => {
+            dict.set("Subtype", Object::Name(b"Ink".to_vec()));
+            // InkList: array of strokes, each stroke is an array of [x, y] pairs
+            if let Some(points) = ann.geometry.get("points").and_then(|v| v.as_array()) {
+                let mut ink_list = Vec::new();
+                for stroke in points {
+                    if let Some(pairs) = stroke.as_array() {
+                        let stroke_pts: Vec<Object> = pairs.iter().filter_map(|p| {
+                            p.as_f64().map(|v| Object::Real(v as f32))
+                        }).collect();
+                        ink_list.push(Object::Array(stroke_pts));
+                    }
+                }
+                dict.set("InkList", Object::Array(ink_list));
+            }
+            let mut bs = Dictionary::new();
+            bs.set("W", Object::Real(2.0));
+            bs.set("S", Object::Name(b"S".to_vec()));
+            dict.set("BS", Object::Dictionary(bs));
+        }
+        AnnotationType::Text => {
+            dict.set("Subtype", Object::Name(b"FreeText".to_vec()));
+            if let Some(ref content) = ann.content {
+                if !content.is_empty() {
+                    dict.set("Contents", pdf_string(content));
+                }
+            }
+            // Default appearance string for FreeText
+            let da = format!("0 0 0 rg /Helvetica 12 Tf");
+            dict.set("DA", pdf_string(&da));
+        }
     }
 
     Object::Dictionary(dict)

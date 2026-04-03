@@ -525,8 +525,10 @@ fn PdfPageWithOverlay(
     drop(t);
 
     let cursor = match mode {
-        AnnotationMode::Highlight => "crosshair",
+        AnnotationMode::Highlight | AnnotationMode::Underline => "crosshair",
         AnnotationMode::Note => "cell",
+        AnnotationMode::Ink => "crosshair",
+        AnnotationMode::Text => "text",
         AnnotationMode::None => "default",
     };
 
@@ -561,22 +563,130 @@ fn PdfPageWithOverlay(
                             (function() {{
                                 let layer = document.getElementById('text-layer-{page_index}');
                                 if (!layer) return;
+
+                                // --- Text scaling ---
                                 let spans = layer.querySelectorAll('span[data-target-w]');
                                 let canvas = document.createElement('canvas');
                                 let ctx = canvas.getContext('2d');
+
+                                // Detect browser minimum font size
+                                let probe = document.createElement('div');
+                                probe.style.fontSize = '1px';
+                                probe.style.lineHeight = '1';
+                                probe.style.position = 'absolute';
+                                probe.style.opacity = '0';
+                                probe.textContent = 'X';
+                                document.body.appendChild(probe);
+                                let minFs = probe.getBoundingClientRect().height;
+                                probe.remove();
+
                                 for (let span of spans) {{
+                                    if (span.textContent.length <= 1) continue;
+
                                     let targetW = parseFloat(span.dataset.targetW);
                                     let fontSize = parseFloat(span.style.fontSize);
                                     let fontStyle = span.dataset.fontStyle || 'normal';
                                     let fontWeight = span.dataset.fontWeight || 'normal';
                                     let fontFamily = span.style.fontFamily || 'sans-serif';
-                                    ctx.font = fontStyle + ' ' + fontWeight + ' ' + fontSize + 'px ' + fontFamily;
+
+                                    let scaledFontSize = fontSize;
+                                    if (minFs > 1) {{
+                                        scaledFontSize = fontSize * minFs;
+                                        span.style.fontSize = scaledFontSize + 'px';
+                                    }}
+
+                                    ctx.font = fontStyle + ' ' + fontWeight + ' ' + scaledFontSize + 'px ' + fontFamily;
                                     let measured = ctx.measureText(span.textContent).width;
+
+                                    let transform = '';
+                                    if (minFs > 1) {{
+                                        transform = 'scale(' + (1 / minFs) + ')';
+                                    }}
                                     if (measured > 0 && targetW > 0) {{
                                         let sx = targetW / measured;
-                                        span.style.transform = 'scaleX(' + sx + ')';
+                                        transform = 'scaleX(' + sx + ') ' + transform;
                                     }}
+                                    if (transform) span.style.transform = transform;
                                 }}
+
+                                // --- Custom selection overlay ---
+                                // Hide native ::selection and draw our own per-line merged rects
+                                let selColor = getComputedStyle(layer).getPropertyValue('--selection-color').trim()
+                                    || 'rgba(0, 100, 255, 0.3)';
+
+                                document.addEventListener('selectionchange', function() {{
+                                    // Remove old highlights
+                                    layer.querySelectorAll('.selection-highlight').forEach(function(el) {{ el.remove(); }});
+
+                                    let sel = document.getSelection();
+                                    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+
+                                    let range = sel.getRangeAt(0);
+                                    if (!range.intersectsNode(layer)) return;
+
+                                    // Collect selected spans and group by line (similar y)
+                                    let selected = [];
+                                    for (let span of spans) {{
+                                        if (sel.containsNode(span, true)) {{
+                                            let x = parseFloat(span.dataset.segX);
+                                            let y = parseFloat(span.dataset.segY);
+                                            let w = parseFloat(span.dataset.targetW);
+                                            let h = parseFloat(span.dataset.segH);
+                                            if (!isNaN(x) && !isNaN(y) && !isNaN(w) && !isNaN(h)) {{
+                                                selected.push({{ x: x, y: y, w: w, h: h }});
+                                            }}
+                                        }}
+                                    }}
+
+                                    if (!selected.length) return;
+
+                                    // Sort by y then x
+                                    selected.sort(function(a, b) {{ return a.y - b.y || a.x - b.x; }});
+
+                                    // Group into lines by y proximity
+                                    let lines = [];
+                                    let curLine = [selected[0]];
+                                    for (let i = 1; i < selected.length; i++) {{
+                                        let s = selected[i];
+                                        let tol = s.h * 0.5;
+                                        if (Math.abs(s.y - curLine[0].y) < tol) {{
+                                            curLine.push(s);
+                                        }} else {{
+                                            lines.push(curLine);
+                                            curLine = [s];
+                                        }}
+                                    }}
+                                    lines.push(curLine);
+
+                                    // Draw one merged rect per line
+                                    for (let line of lines) {{
+                                        let minX = Infinity, minY = Infinity, maxR = -Infinity, maxB = -Infinity;
+                                        for (let s of line) {{
+                                            if (s.x < minX) minX = s.x;
+                                            if (s.y < minY) minY = s.y;
+                                            if (s.x + s.w > maxR) maxR = s.x + s.w;
+                                            if (s.y + s.h > maxB) maxB = s.y + s.h;
+                                        }}
+                                        let div = document.createElement('div');
+                                        div.className = 'selection-highlight';
+                                        div.style.left = minX + 'px';
+                                        div.style.top = minY + 'px';
+                                        div.style.width = (maxR - minX) + 'px';
+                                        div.style.height = (maxB - minY) + 'px';
+                                        div.style.background = selColor;
+                                        layer.appendChild(div);
+                                    }}
+                                }});
+
+                                // Copy handler: normalize text
+                                layer.addEventListener('copy', function(evt) {{
+                                    let sel = document.getSelection();
+                                    if (sel) {{
+                                        let text = sel.toString().normalize('NFC').replace(/\0/g, '');
+                                        evt.clipboardData.setData('text/plain', text);
+                                        evt.preventDefault();
+                                    }}
+                                }});
                             }})()
                         "#);
                         let _ = document::eval(&js);
@@ -596,6 +706,9 @@ fn PdfPageWithOverlay(
                                         span {
                                             key: "text-{page_index}-{seg_idx}",
                                             "data-target-w": "{seg.width}",
+                                            "data-seg-x": "{seg.x}",
+                                            "data-seg-y": "{seg.y}",
+                                            "data-seg-h": "{seg.height}",
                                             "data-font-weight": "{seg.font_weight}",
                                             "data-font-style": "{seg.font_style}",
                                             style: "left: {seg.x}px; top: {seg.y}px; font-size: {seg.font_size}px; font-family: {seg.font_family}; font-weight: {seg.font_weight}; font-style: {seg.font_style};",
@@ -624,7 +737,8 @@ fn PdfPageWithOverlay(
                 {
                     let mut drag_start = use_signal(|| None::<(f64, f64)>);
                     let mut drag_current = use_signal(|| None::<(f64, f64)>);
-                    let drag_rect = if mode == AnnotationMode::Highlight {
+                    let mut ink_points = use_signal(Vec::<f64>::new);
+                    let drag_rect = if mode == AnnotationMode::Highlight || mode == AnnotationMode::Underline {
                         if let (Some(start), Some(current)) = (drag_start(), drag_current()) {
                             let x = start.0.min(current.0);
                             let y = start.1.min(current.1);
@@ -644,16 +758,32 @@ fn PdfPageWithOverlay(
                             class: "annotation-click-overlay",
                             onmousedown: move |evt| {
                                 if evt.trigger_button() != Some(dioxus::html::input_data::MouseButton::Primary) { return; }
-                                if mode == AnnotationMode::Highlight {
+                                if mode == AnnotationMode::Highlight || mode == AnnotationMode::Underline {
                                     let coords = evt.element_coordinates();
                                     drag_start.set(Some((coords.x, coords.y)));
                                     drag_current.set(Some((coords.x, coords.y)));
                                 }
+                                if mode == AnnotationMode::Ink {
+                                    let coords = evt.element_coordinates();
+                                    drag_start.set(Some((coords.x, coords.y)));
+                                    ink_points.with_mut(|pts| {
+                                        pts.clear();
+                                        pts.push(coords.x);
+                                        pts.push(coords.y);
+                                    });
+                                }
                             },
                             onmousemove: move |evt| {
-                                if mode == AnnotationMode::Highlight && drag_start().is_some() {
+                                if (mode == AnnotationMode::Highlight || mode == AnnotationMode::Underline) && drag_start().is_some() {
                                     let coords = evt.element_coordinates();
                                     drag_current.set(Some((coords.x, coords.y)));
+                                }
+                                if mode == AnnotationMode::Ink && drag_start().is_some() {
+                                    let coords = evt.element_coordinates();
+                                    ink_points.with_mut(|pts| {
+                                        pts.push(coords.x);
+                                        pts.push(coords.y);
+                                    });
                                 }
                             },
                             onmouseup: move |evt| {
@@ -662,14 +792,15 @@ fn PdfPageWithOverlay(
                                 let x = coords.x;
                                 let y = coords.y;
                                 let (ann_type, geometry) = match mode {
-                                    AnnotationMode::Highlight => {
+                                    AnnotationMode::Highlight | AnnotationMode::Underline => {
+                                        let at = if mode == AnnotationMode::Highlight { AnnotationType::Highlight } else { AnnotationType::Underline };
                                         if let Some(start) = drag_start() {
                                             let rx = start.0.min(x); let ry = start.1.min(y);
                                             let rw = (start.0 - x).abs(); let rh = (start.1 - y).abs();
                                             if rw < 5.0 && rh < 5.0 {
                                                 drag_start.set(None); drag_current.set(None); return;
                                             }
-                                            (AnnotationType::Highlight, serde_json::json!({
+                                            (at, serde_json::json!({
                                                 "x": rx, "y": ry, "width": rw, "height": rh,
                                                 "page_width": width, "page_height": height,
                                             }))
@@ -681,6 +812,35 @@ fn PdfPageWithOverlay(
                                             "page_width": width, "page_height": height,
                                         }))
                                     }
+                                    AnnotationMode::Ink => {
+                                        let pts = ink_points.read().clone();
+                                        ink_points.with_mut(|p| p.clear());
+                                        if pts.len() < 4 {
+                                            drag_start.set(None); return;
+                                        }
+                                        // Compute bounding box
+                                        let mut min_x = f64::MAX; let mut min_y = f64::MAX;
+                                        let mut max_x = f64::MIN; let mut max_y = f64::MIN;
+                                        for i in (0..pts.len()).step_by(2) {
+                                            let px = pts[i]; let py = pts[i + 1];
+                                            if px < min_x { min_x = px; }
+                                            if py < min_y { min_y = py; }
+                                            if px > max_x { max_x = px; }
+                                            if py > max_y { max_y = py; }
+                                        }
+                                        (AnnotationType::Ink, serde_json::json!({
+                                            "x": min_x, "y": min_y,
+                                            "width": max_x - min_x, "height": max_y - min_y,
+                                            "page_width": width, "page_height": height,
+                                            "points": [pts],
+                                        }))
+                                    }
+                                    AnnotationMode::Text => {
+                                        (AnnotationType::Text, serde_json::json!({
+                                            "x": x, "y": y, "width": 150.0, "height": 20.0,
+                                            "page_width": width, "page_height": height,
+                                        }))
+                                    }
                                     AnnotationMode::None => return,
                                 };
                                 drag_start.set(None); drag_current.set(None);
@@ -688,7 +848,7 @@ fn PdfPageWithOverlay(
                                 let ann = Annotation {
                                     id: None, paper_id, page: page_index as i32, ann_type,
                                     color: color.clone(),
-                                    content: if ann_type == AnnotationType::Note { Some(String::new()) } else { None },
+                                    content: if matches!(ann_type, AnnotationType::Note | AnnotationType::Text) { Some(String::new()) } else { None },
                                     geometry, created_at: now, modified_at: now,
                                 };
                                 let db = db.clone();
@@ -743,6 +903,40 @@ fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> Element {
         AnnotationType::Area => rsx! {
             div { key: "ann-{ann_id}", style: "position: absolute; left: {x}px; top: {y}px; width: {w}px; height: {h}px; border: 2px solid {color}; pointer-events: auto; z-index: 3;", oncontextmenu: on_context }
         },
+        AnnotationType::Underline => rsx! {
+            div { key: "ann-{ann_id}", style: "position: absolute; left: {x}px; top: {y}px; width: {w}px; height: {h}px; border-bottom: 2px solid {color}; pointer-events: auto; z-index: 3;", oncontextmenu: on_context }
+        },
+        AnnotationType::Ink => {
+            // Build SVG path from stored points
+            let points = ann.geometry.get("points")
+                .and_then(|v| v.as_array())
+                .and_then(|strokes| strokes.first())
+                .and_then(|s| s.as_array());
+            let path_d = if let Some(pts) = points {
+                let coords: Vec<f64> = pts.iter().filter_map(|v| v.as_f64()).collect();
+                if coords.len() >= 4 {
+                    let mut d = format!("M{},{}", coords[0] - x, coords[1] - y);
+                    for i in (2..coords.len()).step_by(2) {
+                        d.push_str(&format!(" L{},{}", coords[i] - x, coords[i + 1] - y));
+                    }
+                    d
+                } else { String::new() }
+            } else { String::new() };
+            rsx! {
+                svg {
+                    key: "ann-{ann_id}",
+                    style: "position: absolute; left: {x}px; top: {y}px; width: {w}px; height: {h}px; pointer-events: auto; z-index: 3; overflow: visible;",
+                    oncontextmenu: on_context,
+                    path { d: "{path_d}", stroke: "{color}", stroke_width: "2", fill: "none", stroke_linecap: "round", stroke_linejoin: "round" }
+                }
+            }
+        }
+        AnnotationType::Text => {
+            let text = ann.content.as_deref().unwrap_or("").to_string();
+            rsx! {
+                div { key: "ann-{ann_id}", style: "position: absolute; left: {x}px; top: {y}px; min-width: 40px; padding: 2px 4px; background: rgba(255,255,200,0.9); border: 1px solid {color}; font-size: 12px; pointer-events: auto; z-index: 3; white-space: pre-wrap; color: #333;", oncontextmenu: on_context, "{text}" }
+            }
+        }
     }
 }
 
@@ -768,8 +962,14 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
     let can_redo = undo_stack.read().can_redo();
     let ann_count = tabs.read().tab().annotations.len();
 
-    let highlight_class = if mode == AnnotationMode::Highlight { "btn btn--ghost btn--ghost-active" } else { "btn btn--ghost" };
-    let note_class = if mode == AnnotationMode::Note { "btn btn--ghost btn--ghost-active" } else { "btn btn--ghost" };
+    let btn = |m: AnnotationMode| -> &str {
+        if mode == m { "btn btn--ghost btn--ghost-active" } else { "btn btn--ghost" }
+    };
+    let highlight_class = btn(AnnotationMode::Highlight);
+    let underline_class = btn(AnnotationMode::Underline);
+    let note_class = btn(AnnotationMode::Note);
+    let ink_class = btn(AnnotationMode::Ink);
+    let text_class = btn(AnnotationMode::Text);
     let colors = vec!["#ffff00", "#ff6b6b", "#51cf66", "#339af0", "#cc5de8", "#ff922b"];
 
     rsx! {
@@ -782,14 +982,35 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 onclick: move |_| {
                     tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Highlight { AnnotationMode::None } else { AnnotationMode::Highlight });
                 },
-                "Highlight"
+                span { class: "bi bi-highlighter" }
+            }
+            button {
+                class: "{underline_class}",
+                onclick: move |_| {
+                    tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Underline { AnnotationMode::None } else { AnnotationMode::Underline });
+                },
+                span { class: "bi bi-type-underline" }
             }
             button {
                 class: "{note_class}",
                 onclick: move |_| {
                     tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Note { AnnotationMode::None } else { AnnotationMode::Note });
                 },
-                "Note"
+                span { class: "bi bi-sticky" }
+            }
+            button {
+                class: "{ink_class}",
+                onclick: move |_| {
+                    tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Ink { AnnotationMode::None } else { AnnotationMode::Ink });
+                },
+                span { class: "bi bi-pencil" }
+            }
+            button {
+                class: "{text_class}",
+                onclick: move |_| {
+                    tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Text { AnnotationMode::None } else { AnnotationMode::Text });
+                },
+                span { class: "bi bi-fonts" }
             }
 
             if mode != AnnotationMode::None {
@@ -999,6 +1220,9 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                 AnnotationType::Highlight => "Highlight",
                                 AnnotationType::Note => "Note",
                                 AnnotationType::Area => "Area",
+                                AnnotationType::Underline => "Underline",
+                                AnnotationType::Ink => "Ink",
+                                AnnotationType::Text => "Text",
                             };
                             let ctx_color = color.clone();
                             let ctx_content = content.clone();

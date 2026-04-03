@@ -232,6 +232,9 @@ pub enum AnnotationMode {
     None,
     Highlight,
     Note,
+    Underline,
+    Ink,
+    Text,
 }
 
 /// Lightweight version of RenderedPage for storage in signals.

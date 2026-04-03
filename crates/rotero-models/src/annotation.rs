@@ -6,6 +6,9 @@ pub enum AnnotationType {
     Highlight,
     Note,
     Area,
+    Underline,
+    Ink,
+    Text,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

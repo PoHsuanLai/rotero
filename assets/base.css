@@ -95,5 +95,7 @@ body {
 .bi-tags::before { content: "\f5b2"; }
 .bi-arrow-counterclockwise::before { content: "\f117"; }
 .bi-arrow-clockwise::before { content: "\f116"; }
+.bi-type-underline::before { content: "\f5ee"; }
+.bi-fonts::before { content: "\f3dc"; }
 .bi-zoom-in::before { content: "\f62c"; }
 .bi-zoom-out::before { content: "\f62d"; }

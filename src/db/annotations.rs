@@ -7,6 +7,9 @@ pub async fn insert_annotation(conn: &Connection, ann: &Annotation) -> Result<i6
         AnnotationType::Highlight => "highlight",
         AnnotationType::Note => "note",
         AnnotationType::Area => "area",
+        AnnotationType::Underline => "underline",
+        AnnotationType::Ink => "ink",
+        AnnotationType::Text => "text",
     };
     let geometry = serde_json::to_string(&ann.geometry).unwrap_or_else(|_| "{}".to_string());
 
@@ -86,6 +89,9 @@ fn parse_ann_type(s: &str) -> AnnotationType {
         "highlight" => AnnotationType::Highlight,
         "note" => AnnotationType::Note,
         "area" => AnnotationType::Area,
+        "underline" => AnnotationType::Underline,
+        "ink" => AnnotationType::Ink,
+        "text" => AnnotationType::Text,
         _ => AnnotationType::Note,
     }
 }
