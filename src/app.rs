@@ -285,9 +285,7 @@ fn LoadLibraryData() -> Element {
                         {
                             let pid = *paper_id;
                             lib_state.with_mut(|s| {
-                                if let Some(p) =
-                                    s.papers.iter_mut().find(|p| p.id == Some(pid))
-                                {
+                                if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(pid)) {
                                     p.citation_key = Some(key.clone());
                                 }
                             });

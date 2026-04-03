@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
@@ -270,13 +269,13 @@ pub fn PdfViewer() -> Element {
 
                     // Extract annotations embedded in the PDF and import any new ones
                     let pdf_path = tabs.read().tab().pdf_path.clone();
-                    let rendered_pages: HashMap<u32, (u32, u32)> = tabs
+                    let rendered_pages: Vec<(u32, u32)> = tabs
                         .read()
                         .tab()
                         .render
                         .rendered_pages
                         .iter()
-                        .map(|(&idx, p)| (idx, (p.width, p.height)))
+                        .map(|p| (p.width, p.height))
                         .collect();
 
                     let (reply_tx, reply_rx) = std::sync::mpsc::channel();
@@ -309,7 +308,7 @@ pub fn PdfViewer() -> Element {
                                             .unwrap_or(0.0);
                                         // Get rendered dims for this page to convert extracted coords
                                         let (rw, rh) = rendered_pages
-                                            .get(&ext.page)
+                                            .get(ext.page as usize)
                                             .copied()
                                             .unwrap_or((1, 1));
                                         let sx = rw as f64 / ext.page_width_pts as f64;
@@ -326,8 +325,10 @@ pub fn PdfViewer() -> Element {
                                 }
 
                                 // Convert PDF points to pixel coords
-                                let (rw, rh) =
-                                    rendered_pages.get(&ext.page).copied().unwrap_or((1, 1));
+                                let (rw, rh) = rendered_pages
+                                    .get(ext.page as usize)
+                                    .copied()
+                                    .unwrap_or((1, 1));
                                 let sx = rw as f32 / ext.page_width_pts;
                                 let sy = rh as f32 / ext.page_height_pts;
                                 let x = ext.rect_pts[0] * sx;
@@ -485,11 +486,11 @@ pub fn PdfViewer() -> Element {
                     id: "pdf-pages-container",
                     onscroll: move |_| {
                         if is_loading() { return; }
-                        let (start, has_more_now, tid, pc, cur_zoom) = {
+                        let (start, has_more_now, tid) = {
                             let mgr = tabs.read();
                             if let Some(t) = mgr.active_tab() {
                                 let rendered = t.rendered_count();
-                                (rendered, rendered < t.page_count, t.id, t.page_count, t.view.zoom)
+                                (rendered, rendered < t.page_count, t.id)
                             } else { return; }
                         };
                         if !has_more_now { return; }
@@ -498,63 +499,22 @@ pub fn PdfViewer() -> Element {
                         spawn(async move {
                             let mut eval = document::eval(
                                 "(function() { let el = document.getElementById('pdf-pages-container'); \
-                                 if (!el) return JSON.stringify([0.0, 0.0]); \
-                                 let ratio = el.scrollTop / Math.max(el.scrollHeight, 1); \
-                                 let remaining = (el.scrollHeight - el.scrollTop - el.clientHeight) / Math.max(el.clientHeight, 1); \
-                                 return JSON.stringify([ratio, remaining]); })()"
+                                 if (!el) return 0.0; \
+                                 return (el.scrollHeight - el.scrollTop - el.clientHeight) / el.clientHeight; })()"
                             );
-                            let vals: Vec<f64> = eval.recv::<serde_json::Value>().await
-                                .ok()
-                                .and_then(|v| serde_json::from_value(v).ok())
-                                .unwrap_or_else(|| vec![0.0, 0.0]);
-                            let scroll_ratio = vals[0];
-                            let remaining_viewports = vals[1];
+                            let remaining_viewports = eval.recv::<f64>().await.unwrap_or(0.0);
+                            if remaining_viewports > 2.0 {
+                                is_loading.set(false);
+                                return;
+                            }
 
-                            // Estimate which page is at the current scroll position
-                            let estimated_page = (scroll_ratio * pc as f64) as u32;
-
-                            // Reload evicted pages near the viewport from disk cache
+                            let render_tx = render_ch.sender();
+                            let count = batch_size;
+                            let quality = config.read().render_quality;
                             let data_dir = config.read().effective_library_path();
-                            let pdf_path = {
-                                let mgr = tabs.read();
-                                mgr.active_tab().map(|t| t.pdf_path.clone()).unwrap_or_default()
-                            };
-                            let half_window = 15_u32;
-                            let reload_lo = estimated_page.saturating_sub(half_window);
-                            let reload_hi = (estimated_page + half_window).min(start);
-                            let mut reloaded = Vec::new();
-                            for idx in reload_lo..reload_hi {
-                                let already_resident = tabs.read().active_tab()
-                                    .map(|t| t.render.rendered_pages.contains_key(&idx))
-                                    .unwrap_or(true);
-                                if !already_resident
-                                    && let Some(page) = crate::cache::load_single_page(
-                                        &data_dir, &pdf_path, idx, cur_zoom,
-                                    )
-                                {
-                                    reloaded.push(page);
-                                }
-                            }
-                            if !reloaded.is_empty() {
-                                tabs.with_mut(|mgr| {
-                                    if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tid) {
-                                        for p in reloaded {
-                                            tab.render.rendered_pages.insert(p.page_index, p);
-                                        }
-                                        tab.render.evict_distant_pages(estimated_page);
-                                    }
-                                });
-                            }
-
-                            // Load more pages when near the bottom
-                            if remaining_viewports <= 2.0 {
-                                let render_tx = render_ch.sender();
-                                let count = batch_size;
-                                let quality = config.read().render_quality;
-                                let _ = crate::state::commands::render_more_pages(
-                                    &render_tx, &mut tabs, tid, start, count, quality, &data_dir,
-                                ).await;
-                            }
+                            let _ = crate::state::commands::render_more_pages(
+                                &render_tx, &mut tabs, tid, start, count, quality, &data_dir,
+                            ).await;
                             is_loading.set(false);
                         });
                     },
@@ -562,30 +522,20 @@ pub fn PdfViewer() -> Element {
                     {
                         let mgr = tabs.read();
                         let tab = mgr.tab();
-                        let resident_pages = tab.render.rendered_pages.clone();
-                        let rc = rendered_count;
+                        let pages = tab.render.rendered_pages.clone();
                         drop(mgr);
                         rsx! {
-                            for idx in 0..rc {
-                                if let Some(page) = resident_pages.get(&idx) {
-                                    PdfPageWithOverlay {
-                                        key: "{idx}",
-                                        page_index: page.page_index,
-                                        base64_data: page.base64_data.clone(),
-                                        mime: page.mime,
-                                        width: page.width,
-                                        height: page.height,
-                                        zoom,
-                                        render_zoom,
-                                        tab_id,
-                                    }
-                                } else {
-                                    // Placeholder for evicted page — maintains scroll position
-                                    div {
-                                        key: "{idx}",
-                                        class: "pdf-page-placeholder",
-                                        style: "width: 100%; aspect-ratio: 8.5/11; background: var(--bg-secondary, #f0f0f0);",
-                                    }
+                            for (idx, page) in pages.iter().enumerate() {
+                                PdfPageWithOverlay {
+                                    key: "{idx}",
+                                    page_index: page.page_index,
+                                    base64_data: page.base64_data.clone(),
+                                    mime: page.mime,
+                                    width: page.width,
+                                    height: page.height,
+                                    zoom,
+                                    render_zoom,
+                                    tab_id,
                                 }
                             }
                         }
@@ -821,15 +771,13 @@ fn PdfPageWithOverlay(
                                         }}
 
                                         let eoc = textLayer.querySelector('.endOfContent');
-                                        if (eoc) {{
+                                        if (eoc && anchor.parentElement === textLayer) {{
                                             eoc.style.width = textLayer.style.width;
                                             eoc.style.height = textLayer.style.height;
-                                            if (anchor.parentElement) {{
-                                                anchor.parentElement.insertBefore(
-                                                    eoc,
-                                                    modifyStart ? anchor : anchor.nextSibling
-                                                );
-                                            }}
+                                            textLayer.insertBefore(
+                                                eoc,
+                                                modifyStart ? anchor : anchor.nextSibling
+                                            );
                                         }}
 
                                         prevRange = range.cloneRange();

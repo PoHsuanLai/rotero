@@ -250,9 +250,6 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     let _ = reply.send(result);
                 }
             }
-            // Free cached PDF file bytes after each request to reduce idle memory.
-            // The file will be re-read from disk (fast for hot files) on the next request.
-            engine.clear_byte_cache();
         }
     });
 
@@ -307,7 +304,8 @@ pub async fn upgrade_quality(
             .filter(|&idx| {
                 tab.render
                     .rendered_pages
-                    .get(&idx)
+                    .iter()
+                    .find(|p| p.page_index == idx)
                     .map_or(false, |p| p.quality < quality)
             })
             .collect()
@@ -397,8 +395,7 @@ pub async fn open_pdf(
             if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                 tab.page_count = meta.page_count;
                 tab.view.render_zoom = zoom;
-                tab.render.rendered_pages = cached_pages
-                    ;
+                tab.render.rendered_pages = cached_pages;
                 tab.is_loading = false;
             }
         });
@@ -540,6 +537,15 @@ pub async fn render_more_pages(
         .collect();
 
     let upgrade_indices: Vec<u32> = pages.iter().map(|p| p.page_index).collect();
+
+    // Save new pages to disk cache in background
+    let cache_pages = pages.clone();
+    let cache_dir = data_dir.to_path_buf();
+    let cache_path = pdf_path.clone();
+    let page_count = tabs.read().active_tab().map(|t| t.page_count).unwrap_or(0);
+    std::thread::spawn(move || {
+        crate::cache::save_pages(&cache_dir, &cache_path, zoom, page_count, &cache_pages);
+    });
 
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
@@ -700,7 +706,9 @@ pub async fn load_thumbnails(
                 let half = MAX_RESIDENT_THUMBS as u32 / 2;
                 let lo = center.saturating_sub(half);
                 let hi = center.saturating_add(half);
-                tab.render.thumbnails.retain(|&idx, _| idx >= lo && idx <= hi);
+                tab.render
+                    .thumbnails
+                    .retain(|&idx, _| idx >= lo && idx <= hi);
             }
         }
     });

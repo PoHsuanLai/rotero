@@ -246,19 +246,22 @@ impl PdfEngine {
         Ok(pages)
     }
 
-    /// Render all pages as small thumbnails (fixed max width).
-    pub fn render_all_thumbnails(
+    /// Render a range of pages as small thumbnails (fixed max width).
+    pub fn render_thumbnails_range(
         &mut self,
         pdf_path: &str,
+        start: u32,
+        count: u32,
         max_width: u32,
         quality: u8,
     ) -> Result<Vec<RenderedPage>, PdfError> {
         let document = self.open_document(pdf_path)?;
         let page_count = document.pages().len() as u32;
-        let mut thumbs = Vec::with_capacity(page_count as usize);
+        let end = (start + count).min(page_count);
+        let mut thumbs = Vec::with_capacity((end - start) as usize);
         let mut img_bytes: Vec<u8> = Vec::with_capacity(64 * 1024);
 
-        for i in 0..page_count {
+        for i in start..end {
             let page = document
                 .pages()
                 .get(i as u16)

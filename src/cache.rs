@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::state::app_state::RenderedPageData;
 
 /// Current text extraction version. Bump to invalidate cached text data.
-const TEXT_VERSION: u32 = 1;
+const TEXT_VERSION: u32 = 3;
 
 /// Metadata stored alongside cached pages.
 #[derive(Debug, Serialize, Deserialize)]
@@ -75,7 +75,10 @@ pub fn load_cached(
     let mut pages = Vec::with_capacity(meta.page_count as usize);
     for i in 0..meta.page_count {
         let jpg_path = pages_dir.join(format!("{i}.jpg"));
-        let bytes = fs::read(&jpg_path).ok()?;
+        let bytes = match fs::read(&jpg_path) {
+            Ok(b) => b,
+            Err(_) => break, // Stop at first missing page — remaining pages will be lazy-loaded
+        };
         let base64_data =
             base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
         let (w, h) = meta.page_dims.get(i as usize).copied().unwrap_or((0, 0));
@@ -87,6 +90,11 @@ pub fn load_cached(
             height: h,
             quality: 85,
         });
+    }
+
+    // Only return cache hit if we loaded at least some pages
+    if pages.is_empty() {
+        return None;
     }
 
     Some((meta, pages))
@@ -108,6 +116,10 @@ pub fn load_cached_text(data_dir: &Path, pdf_path: &str) -> Option<HashMap<u32, 
 }
 
 /// Save rendered pages to cache.
+///
+/// This merges incrementally: new page images are written to disk and
+/// `page_dims` in the metadata is extended (not replaced) so that
+/// subsequent batches from scroll-loading accumulate correctly.
 pub fn save_pages(
     data_dir: &Path,
     pdf_path: &str,
@@ -129,12 +141,29 @@ pub fn save_pages(
         }
     }
 
-    // Write metadata
+    // Load existing metadata to merge page_dims (don't clobber previously cached pages)
+    let mtime = pdf_mtime(pdf_path);
+    let mut page_dims: Vec<(u32, u32)> = fs::read_to_string(dir.join("meta.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<CacheMeta>(&s).ok())
+        .filter(|m| (m.zoom - zoom).abs() < 0.01 && m.pdf_mtime == mtime)
+        .map(|m| m.page_dims)
+        .unwrap_or_default();
+
+    // Extend page_dims to fit the highest page index in this batch
+    for page in pages {
+        let idx = page.page_index as usize;
+        if idx >= page_dims.len() {
+            page_dims.resize(idx + 1, (0, 0));
+        }
+        page_dims[idx] = (page.width, page.height);
+    }
+
     let meta = CacheMeta {
         page_count,
         zoom,
-        pdf_mtime: pdf_mtime(pdf_path),
-        page_dims: pages.iter().map(|p| (p.width, p.height)).collect(),
+        pdf_mtime: mtime,
+        page_dims,
         text_version: TEXT_VERSION,
     };
     if let Ok(json) = serde_json::to_string(&meta) {
@@ -143,6 +172,7 @@ pub fn save_pages(
 }
 
 /// Load a single page from the disk cache (for re-loading evicted pages).
+#[allow(dead_code)]
 pub fn load_single_page(
     data_dir: &Path,
     pdf_path: &str,

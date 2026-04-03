@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use pdfium_render::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -90,10 +92,12 @@ fn pdf_font_to_css(name: &str, is_serif: bool) -> String {
 }
 
 /// All extracted text segments for a single page.
+/// Segments are wrapped in `Arc` so that cloning `PageTextData` (which happens
+/// frequently during Dioxus render cycles) is cheap.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PageTextData {
     pub page_index: u32,
-    pub segments: Vec<TextSegment>,
+    pub segments: Arc<Vec<TextSegment>>,
 }
 
 /// Extract text segments with bounding boxes from a single PDF page.
@@ -132,15 +136,20 @@ pub fn extract_page_text(
 
     let mut segments = Vec::new();
 
-    // Current run state
+    // Current run state.
+    // Uses ch.origin() (baseline position) for y, with ascent subtracted
+    // to get the top of the text — matching PDF.js's approach.
+    // Uses loose_bounds() left/right edges for x and width.
     struct Run {
         text: String,
         font_name: String,
         is_italic: bool,
-        left: f64,
-        top: f64,
+        /// Origin x of first char (PDF points, page space)
+        origin_x: f64,
+        /// Origin y (baseline) of first char (PDF points, page space)
+        origin_y: f64,
+        /// Right edge from loose_bounds of last char
         right: f64,
-        bottom: f64,
         font_size_pts: f32,
     }
 
@@ -150,19 +159,17 @@ pub fn extract_page_text(
                 text: String::new(),
                 font_name: String::new(),
                 is_italic: false,
-                left: f64::MAX,
-                top: f64::MIN,
+                origin_x: f64::MAX,
+                origin_y: 0.0,
                 right: f64::MIN,
-                bottom: f64::MAX,
                 font_size_pts: 0.0,
             }
         }
 
         fn reset_bounds(&mut self) {
-            self.left = f64::MAX;
-            self.top = f64::MIN;
+            self.origin_x = f64::MAX;
+            self.origin_y = 0.0;
             self.right = f64::MIN;
-            self.bottom = f64::MAX;
             self.font_size_pts = 0.0;
         }
 
@@ -178,11 +185,15 @@ pub fn extract_page_text(
                 return;
             }
 
-            let x = self.left * scale_x;
-            let y = (page_height_pts as f64 - self.top) * scale_y;
-            let width = (self.right - self.left) * scale_x;
-            let height = (self.top - self.bottom) * scale_y;
             let font_size = self.font_size_pts as f64 * scale_y;
+            // Match PDF.js: top = baseline - ascent, where ascent ≈ 0.8 * fontHeight
+            let ascent_pts = self.font_size_pts as f64 * 0.8;
+            let top_pts = self.origin_y + ascent_pts; // PDF coords: y increases upward
+            let x = self.origin_x * scale_x;
+            let y = (page_height_pts as f64 - top_pts) * scale_y;
+            let width = (self.right - self.origin_x) * scale_x;
+            let height = font_size; // Use font_size as height (matches PDF.js fontHeight)
+
             let is_serif = self.font_name.to_lowercase().contains("times")
                 || self.font_name.to_lowercase().contains("serif")
                 || self.font_name.to_lowercase().contains("cm");
@@ -194,7 +205,17 @@ pub fn extract_page_text(
             let font_weight = detect_font_weight(&self.font_name);
             let font_style = detect_font_style(&self.font_name, self.is_italic);
 
-            if width > 0.0 && height > 0.0 {
+            // Sanity check: discard segments with unreasonably large bounds.
+            // Pdfium sometimes returns text-object-level bounds instead of
+            // per-character bounds, producing phantom segments that span
+            // entire columns.
+            let char_count = self.text.chars().count() as f64;
+            let expected_width = font_size * char_count * 0.8;
+            let reasonable = width > 0.0
+                && height > 0.0
+                && (expected_width < 1.0 || width < expected_width * 3.0);
+
+            if reasonable {
                 segments.push(TextSegment {
                     text: std::mem::take(&mut self.text),
                     x,
@@ -247,17 +268,34 @@ pub fn extract_page_text(
             run.reset_bounds();
         }
 
-        if let Ok(bounds) = ch.loose_bounds() {
+        // Use origin() for positioning (like PDF.js uses transform matrix)
+        if let Ok((ox, oy)) = ch.origin() {
+            let ox = ox.value as f64;
+            let oy = oy.value as f64;
+            if run.origin_x == f64::MAX {
+                run.origin_x = ox;
+                run.origin_y = oy;
+            }
+            // Track right edge using origin.x of each char + loose_bounds width
+            if let Ok(bounds) = ch.loose_bounds() {
+                #[allow(deprecated)]
+                {
+                    let char_w = bounds.right().value as f64 - bounds.left().value as f64;
+                    run.right = run.right.max(ox + char_w);
+                }
+            } else {
+                // Fallback: estimate char width from font size
+                run.right = run.right.max(ox + font_size_pts as f64 * 0.6);
+            }
+        } else if let Ok(bounds) = ch.loose_bounds() {
+            // Fallback: no origin available, use loose_bounds
             #[allow(deprecated)]
             {
-                let l = bounds.left().value as f64;
-                let t = bounds.top().value as f64;
-                let r = bounds.right().value as f64;
-                let b = bounds.bottom().value as f64;
-                run.left = run.left.min(l);
-                run.top = run.top.max(t);
-                run.right = run.right.max(r);
-                run.bottom = run.bottom.min(b);
+                if run.origin_x == f64::MAX {
+                    run.origin_x = bounds.left().value as f64;
+                    run.origin_y = bounds.bottom().value as f64;
+                }
+                run.right = run.right.max(bounds.right().value as f64);
             }
         }
 
@@ -271,7 +309,7 @@ pub fn extract_page_text(
 
     Ok(PageTextData {
         page_index,
-        segments,
+        segments: Arc::new(segments),
     })
 }
 
@@ -292,7 +330,7 @@ pub fn extract_pages_text(
             Ok(data) => results.push(data),
             Err(_) => results.push(PageTextData {
                 page_index,
-                segments: Vec::new(),
+                segments: Arc::new(Vec::new()),
             }),
         }
     }
@@ -328,10 +366,9 @@ fn extract_page_text_from_doc(
         text: String,
         font_name: String,
         is_italic: bool,
-        left: f64,
-        top: f64,
+        origin_x: f64,
+        origin_y: f64,
         right: f64,
-        bottom: f64,
         font_size_pts: f32,
     }
 
@@ -341,19 +378,17 @@ fn extract_page_text_from_doc(
                 text: String::new(),
                 font_name: String::new(),
                 is_italic: false,
-                left: f64::MAX,
-                top: f64::MIN,
+                origin_x: f64::MAX,
+                origin_y: 0.0,
                 right: f64::MIN,
-                bottom: f64::MAX,
                 font_size_pts: 0.0,
             }
         }
 
         fn reset_bounds(&mut self) {
-            self.left = f64::MAX;
-            self.top = f64::MIN;
+            self.origin_x = f64::MAX;
+            self.origin_y = 0.0;
             self.right = f64::MIN;
-            self.bottom = f64::MAX;
             self.font_size_pts = 0.0;
         }
 
@@ -369,11 +404,14 @@ fn extract_page_text_from_doc(
                 return;
             }
 
-            let x = self.left * scale_x;
-            let y = (page_height_pts as f64 - self.top) * scale_y;
-            let width = (self.right - self.left) * scale_x;
-            let height = (self.top - self.bottom) * scale_y;
             let font_size = self.font_size_pts as f64 * scale_y;
+            let ascent_pts = self.font_size_pts as f64 * 0.8;
+            let top_pts = self.origin_y + ascent_pts;
+            let x = self.origin_x * scale_x;
+            let y = (page_height_pts as f64 - top_pts) * scale_y;
+            let width = (self.right - self.origin_x) * scale_x;
+            let height = font_size;
+
             let is_serif = self.font_name.to_lowercase().contains("times")
                 || self.font_name.to_lowercase().contains("serif")
                 || self.font_name.to_lowercase().contains("cm");
@@ -385,7 +423,13 @@ fn extract_page_text_from_doc(
             let font_weight = detect_font_weight(&self.font_name);
             let font_style = detect_font_style(&self.font_name, self.is_italic);
 
-            if width > 0.0 && height > 0.0 {
+            let char_count = self.text.chars().count() as f64;
+            let expected_width = font_size * char_count * 0.8;
+            let reasonable = width > 0.0
+                && height > 0.0
+                && (expected_width < 1.0 || width < expected_width * 3.0);
+
+            if reasonable {
                 segments.push(TextSegment {
                     text: std::mem::take(&mut self.text),
                     x,
@@ -436,17 +480,30 @@ fn extract_page_text_from_doc(
             run.reset_bounds();
         }
 
-        if let Ok(bounds) = ch.loose_bounds() {
+        if let Ok((ox, oy)) = ch.origin() {
+            let ox = ox.value as f64;
+            let oy = oy.value as f64;
+            if run.origin_x == f64::MAX {
+                run.origin_x = ox;
+                run.origin_y = oy;
+            }
+            if let Ok(bounds) = ch.loose_bounds() {
+                #[allow(deprecated)]
+                {
+                    let char_w = bounds.right().value as f64 - bounds.left().value as f64;
+                    run.right = run.right.max(ox + char_w);
+                }
+            } else {
+                run.right = run.right.max(ox + font_size_pts as f64 * 0.6);
+            }
+        } else if let Ok(bounds) = ch.loose_bounds() {
             #[allow(deprecated)]
             {
-                let l = bounds.left().value as f64;
-                let t = bounds.top().value as f64;
-                let r = bounds.right().value as f64;
-                let b = bounds.bottom().value as f64;
-                run.left = run.left.min(l);
-                run.top = run.top.max(t);
-                run.right = run.right.max(r);
-                run.bottom = run.bottom.min(b);
+                if run.origin_x == f64::MAX {
+                    run.origin_x = bounds.left().value as f64;
+                    run.origin_y = bounds.bottom().value as f64;
+                }
+                run.right = run.right.max(bounds.right().value as f64);
             }
         }
 
@@ -460,7 +517,7 @@ fn extract_page_text_from_doc(
 
     Ok(PageTextData {
         page_index,
-        segments,
+        segments: Arc::new(segments),
     })
 }
 
