@@ -80,7 +80,7 @@ pub fn load_cached(
         let (w, h) = meta.page_dims.get(i as usize).copied().unwrap_or((0, 0));
         pages.push(RenderedPageData {
             page_index: i,
-            base64_data,
+            base64_data: std::sync::Arc::new(base64_data),
             mime: "image/jpeg",
             width: w,
             height: h,
@@ -122,7 +122,7 @@ pub fn save_pages(
 
     // Write page images
     for page in pages {
-        if let Ok(bytes) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &page.base64_data) {
+        if let Ok(bytes) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, page.base64_data.as_str()) {
             let _ = fs::write(pages_dir.join(format!("{}.jpg", page.page_index)), &bytes);
         }
     }
