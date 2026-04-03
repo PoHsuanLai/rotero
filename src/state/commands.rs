@@ -70,23 +70,17 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
             }
         };
 
-        tracing::info!("render thread started");
         while let Ok(req) = rx.recv() {
             match req {
                 RenderRequest::OpenPdf { pdf_path, zoom, batch_size, quality, reply } => {
-                    let t0 = std::time::Instant::now();
                     let result = (|| {
                         let info = engine.load_document(&pdf_path).map_err(|e| e.to_string())?;
-                        tracing::info!(elapsed = ?t0.elapsed(), pages = info.page_count, "load_document");
                         let render_count = info.page_count.min(batch_size);
-                        let t1 = std::time::Instant::now();
                         let rendered = engine
                             .render_pages(&pdf_path, 0, render_count, zoom, quality)
                             .map_err(|e| e.to_string())?;
-                        tracing::info!(elapsed = ?t1.elapsed(), render_count, zoom, quality, "render_pages");
                         let pages: Vec<RenderedPageData> =
                             rendered.into_iter().map(|r| r.into()).collect();
-                        tracing::info!(elapsed = ?t0.elapsed(), "total OpenPdf");
                         Ok((info.page_count, pages))
                     })();
                     let _ = reply.send(result);
@@ -179,19 +173,14 @@ pub async fn open_pdf(
     data_dir: &std::path::Path,
     quality: u8,
 ) -> Result<(), String> {
-    tracing::info!("open_pdf called");
-    let t_start = std::time::Instant::now();
     let (path, zoom, batch_size) = {
         let mgr = tabs.read();
         let tab = mgr.tabs.iter().find(|t| t.id == tab_id).ok_or("Tab not found")?;
         (tab.pdf_path.clone(), tab.view.zoom, tab.view.page_batch_size)
     };
-    tracing::info!(path = %path, zoom, batch_size, quality, "open_pdf start");
 
     // Try loading from disk cache first
-    let t_cache = std::time::Instant::now();
     if let Some((meta, cached_pages)) = crate::cache::load_cached(data_dir, &path, zoom) {
-        tracing::info!(elapsed = ?t_cache.elapsed(), pages = meta.page_count, "cache HIT");
         tabs.with_mut(|mgr| {
             if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                 tab.page_count = meta.page_count;
@@ -211,7 +200,7 @@ pub async fn open_pdf(
         return Ok(());
     }
 
-    tracing::info!(elapsed = ?t_cache.elapsed(), "cache MISS");
+    // Cache miss — render via PDFium
 
     // Cache miss — render via PDFium
     let (reply_tx, reply_rx) = mpsc::channel();
@@ -225,15 +214,7 @@ pub async fn open_pdf(
         })
         .map_err(|e| e.to_string())?;
 
-    let t_recv = std::time::Instant::now();
     let (page_count, pages) = recv_reply(reply_rx).await?;
-    tracing::info!(
-        elapsed = ?t_recv.elapsed(),
-        page_count,
-        rendered = pages.len(),
-        total_base64_kb = pages.iter().map(|p| p.base64_data.len()).sum::<usize>() / 1024,
-        "recv render reply"
-    );
 
     // Save to cache in background
     let cache_dir = data_dir.to_path_buf();
@@ -251,7 +232,6 @@ pub async fn open_pdf(
             tab.is_loading = false;
         }
     });
-    tracing::info!(elapsed = ?t_start.elapsed(), "pages displayed");
 
     // Extract text in background — don't block the render thread
     let page_dims: Vec<(u32, u32, u32)> = {

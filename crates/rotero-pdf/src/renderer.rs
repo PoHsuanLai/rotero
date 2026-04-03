@@ -145,7 +145,6 @@ impl PdfEngine {
 
         let mut pages = Vec::new();
         for i in start..end {
-            let t_page = std::time::Instant::now();
             let page = document
                 .pages()
                 .get(i as u16)
@@ -158,13 +157,10 @@ impl PdfEngine {
                 .set_target_width(width.max(1))
                 .set_maximum_height(height.max(1));
 
-            let t_render = std::time::Instant::now();
             let bitmap = page
                 .render_with_config(&render_config)
                 .map_err(|e| PdfError::RenderError(e.to_string()))?;
-            let render_ms = t_render.elapsed();
 
-            let t_encode = std::time::Instant::now();
             let image = bitmap.as_image();
             let img_width = image.width();
             let img_height = image.height();
@@ -172,16 +168,12 @@ impl PdfEngine {
             let mut img_bytes: Vec<u8> = Vec::new();
             let encoder = JpegEncoder::new_with_quality(&mut img_bytes, quality);
             image.write_with_encoder(encoder)?;
-            let encode_ms = t_encode.elapsed();
 
             let base64_data = BASE64.encode(&img_bytes);
 
-            tracing::info!(
+            tracing::debug!(
                 page = i, width, height,
-                render_ms = ?render_ms, encode_ms = ?encode_ms,
                 jpeg_kb = img_bytes.len() / 1024,
-                base64_kb = base64_data.len() / 1024,
-                total_ms = ?t_page.elapsed(),
                 "rendered page"
             );
 

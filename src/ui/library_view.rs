@@ -327,11 +327,9 @@ pub fn LibraryPanel() -> Element {
                                                 class: "btn btn--ghost",
                                                 onclick: move |evt| {
                                                     evt.stop_propagation();
-                                                    tracing::info!(paper_id, "Open PDF button clicked");
                                                     if let Some(ref rel_path) = pdf_rel_path {
                                                         let full_path = db_for_view.resolve_pdf_path(rel_path);
                                                         let path_str = full_path.to_string_lossy().to_string();
-                                                        tracing::info!(path = %path_str, "Opening PDF");
                                                         // Create or switch to tab — PdfViewer handles rendering
                                                         tabs.with_mut(|m| {
                                                             if let Some(idx) = m.find_by_paper_id(paper_id) {

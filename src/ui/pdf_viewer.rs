@@ -210,7 +210,6 @@ pub fn PdfViewer() -> Element {
         let render_tx = render_ch.sender();
         let data_dir = config.read().effective_library_path();
         let db = db.clone();
-        tracing::info!(tab_id = tid, "PdfViewer: triggering render for loading tab");
         spawn(async move {
             if crate::state::commands::open_pdf(&render_tx, &mut tabs, tid, &data_dir, config.read().render_quality).await.is_ok() {
                 // Load annotations if paper_id is set
@@ -359,11 +358,9 @@ pub fn PdfViewer() -> Element {
                         let quality = config.read().render_quality;
                         is_loading.set(true);
                         spawn(async move {
-                            tracing::info!(start, count, tid, "loading more pages");
                             let _ = crate::state::commands::render_more_pages(
                                 &render_tx, &mut tabs, tid, start, count, quality,
                             ).await;
-                            tracing::info!("done loading more pages");
                             is_loading.set(false);
                         });
                     },
