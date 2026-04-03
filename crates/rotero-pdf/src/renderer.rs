@@ -99,10 +99,11 @@ impl PdfEngine {
     /// or is a different path than what's cached.
     fn get_pdf_bytes(&mut self, pdf_path: &str) -> Result<Vec<u8>, PdfError> {
         let mtime = file_mtime(pdf_path);
-        if let Some((ref cached_path, cached_mtime, ref bytes)) = self.cached_bytes {
-            if cached_path == pdf_path && cached_mtime == mtime {
-                return Ok(bytes.clone());
-            }
+        if let Some((ref cached_path, cached_mtime, ref bytes)) = self.cached_bytes
+            && cached_path == pdf_path
+            && cached_mtime == mtime
+        {
+            return Ok(bytes.clone());
         }
         let bytes = std::fs::read(pdf_path)
             .map_err(|e| PdfError::RenderError(format!("Failed to read {pdf_path}: {e}")))?;
@@ -320,7 +321,7 @@ impl PdfEngine {
             }
         }
 
-        collect_bookmarks(&bookmarks, &mut entries, 0);
+        collect_bookmarks(bookmarks, &mut entries, 0);
         Ok(entries)
     }
 

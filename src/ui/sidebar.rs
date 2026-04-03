@@ -5,6 +5,9 @@ use crate::db::Database;
 use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTab, PdfTabManager};
 use rotero_models::Collection;
 
+/// Context menu state: (id, name, color, x, y).
+type TagContextMenu = (i64, String, Option<String>, f64, f64);
+
 #[component]
 pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
@@ -30,7 +33,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
     let mut coll_ctx = use_signal(|| None::<(i64, String, f64, f64)>);
 
     // Tag context menu state: (tag_id, tag_name, tag_color, x, y)
-    let mut tag_ctx = use_signal(|| None::<(i64, String, Option<String>, f64, f64)>);
+    let mut tag_ctx = use_signal(|| None::<TagContextMenu>);
 
     // Recently opened context menu state: (paper_id, x, y)
     let mut recent_ctx = use_signal(|| None::<(i64, f64, f64)>);
@@ -819,7 +822,7 @@ fn NewCollectionRow(parent_id: Option<i64>, depth: u32) -> Element {
                 placeholder: "Collection name",
                 value: "{name_value}",
                 oninput: move |evt| name_value.set(evt.value()),
-                onmounted: move |evt| { let _ = evt.set_focus(true); },
+                onmounted: move |evt| { drop(evt.set_focus(true)); },
                 onkeydown: move |evt| {
                     match evt.key() {
                         Key::Enter => {
@@ -867,7 +870,7 @@ fn NewCollectionRow(parent_id: Option<i64>, depth: u32) -> Element {
 #[component]
 fn TagSection(
     tags: Vec<rotero_models::Tag>,
-    ctx_menu: Signal<Option<(i64, String, Option<String>, f64, f64)>>,
+    ctx_menu: Signal<Option<TagContextMenu>>,
 ) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();

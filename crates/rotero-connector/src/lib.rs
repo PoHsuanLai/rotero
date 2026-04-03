@@ -9,12 +9,14 @@ use tower_http::cors::{Any, CorsLayer};
 use handlers::{CollectionInfo, TagInfo};
 use rotero_models::Paper;
 
+/// Callback type for when a paper is saved via the browser extension.
+type OnPaperSavedFn = dyn Fn(Paper, Option<i64>, Vec<i64>, Option<String>) + Send + Sync;
+
 /// Shared state for the connector server.
 pub struct ConnectorState {
     /// Callback invoked when a paper is saved via the browser extension.
     /// Arguments: paper, collection_id, tag_ids, pdf_url
-    pub on_paper_saved:
-        Option<Box<dyn Fn(Paper, Option<i64>, Vec<i64>, Option<String>) + Send + Sync>>,
+    pub on_paper_saved: Option<Box<OnPaperSavedFn>>,
     /// Callback to get the list of collections.
     pub on_get_collections: Option<Box<dyn Fn() -> Vec<CollectionInfo> + Send + Sync>>,
     /// Callback to get the list of tags.

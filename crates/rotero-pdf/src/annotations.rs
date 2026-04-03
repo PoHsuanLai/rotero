@@ -176,20 +176,20 @@ fn build_annotation_dict(ann: &Annotation, rect: &[f32; 4]) -> Object {
                 Object::Real(*y1), // bottom-right
             ]);
             dict.set("QuadPoints", quad);
-            if let Some(ref content) = ann.content {
-                if !content.is_empty() {
-                    dict.set("Contents", pdf_string(content));
-                }
+            if let Some(ref content) = ann.content
+                && !content.is_empty()
+            {
+                dict.set("Contents", pdf_string(content));
             }
         }
         AnnotationType::Note => {
             dict.set("Subtype", Object::Name(b"Text".to_vec()));
             dict.set("Name", Object::Name(b"Comment".to_vec()));
             dict.set("Open", Object::Boolean(false));
-            if let Some(ref content) = ann.content {
-                if !content.is_empty() {
-                    dict.set("Contents", pdf_string(content));
-                }
+            if let Some(ref content) = ann.content
+                && !content.is_empty()
+            {
+                dict.set("Contents", pdf_string(content));
             }
         }
         AnnotationType::Area => {
@@ -199,10 +199,10 @@ fn build_annotation_dict(ann: &Annotation, rect: &[f32; 4]) -> Object {
             bs.set("W", Object::Real(2.0));
             bs.set("S", Object::Name(b"S".to_vec()));
             dict.set("BS", Object::Dictionary(bs));
-            if let Some(ref content) = ann.content {
-                if !content.is_empty() {
-                    dict.set("Contents", pdf_string(content));
-                }
+            if let Some(ref content) = ann.content
+                && !content.is_empty()
+            {
+                dict.set("Contents", pdf_string(content));
             }
         }
         AnnotationType::Underline => {
@@ -219,10 +219,10 @@ fn build_annotation_dict(ann: &Annotation, rect: &[f32; 4]) -> Object {
                 Object::Real(*y1),
             ]);
             dict.set("QuadPoints", quad);
-            if let Some(ref content) = ann.content {
-                if !content.is_empty() {
-                    dict.set("Contents", pdf_string(content));
-                }
+            if let Some(ref content) = ann.content
+                && !content.is_empty()
+            {
+                dict.set("Contents", pdf_string(content));
             }
         }
         AnnotationType::Ink => {
@@ -248,13 +248,13 @@ fn build_annotation_dict(ann: &Annotation, rect: &[f32; 4]) -> Object {
         }
         AnnotationType::Text => {
             dict.set("Subtype", Object::Name(b"FreeText".to_vec()));
-            if let Some(ref content) = ann.content {
-                if !content.is_empty() {
-                    dict.set("Contents", pdf_string(content));
-                }
+            if let Some(ref content) = ann.content
+                && !content.is_empty()
+            {
+                dict.set("Contents", pdf_string(content));
             }
             // Default appearance string for FreeText
-            let da = format!("0 0 0 rg /Helvetica 12 Tf");
+            let da = "0 0 0 rg /Helvetica 12 Tf".to_string();
             dict.set("DA", pdf_string(&da));
         }
     }

@@ -6,6 +6,9 @@ use rotero_pdf::PageTextData;
 
 use super::app_state::{PdfTabManager, RenderedPageData, TabId};
 
+/// Result type for PDF text/metadata extraction.
+pub type PdfExtractResult = (Vec<(u32, String)>, rotero_pdf::PdfDocMetadata);
+
 /// A request to the PDF render thread.
 pub enum RenderRequest {
     OpenPdf {
@@ -53,7 +56,7 @@ pub enum RenderRequest {
     ExtractMetadataText {
         pdf_path: String,
         page_count: u32,
-        reply: mpsc::Sender<Result<(Vec<(u32, String)>, rotero_pdf::PdfDocMetadata), String>>,
+        reply: mpsc::Sender<Result<PdfExtractResult, String>>,
     },
     /// Extract existing annotations from the PDF file.
     ExtractAnnotations {

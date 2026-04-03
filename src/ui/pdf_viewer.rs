@@ -392,7 +392,7 @@ pub fn PdfViewer() -> Element {
             class: "pdf-viewer-container",
             tabindex: "0",
             onmounted: move |evt| {
-                let _ = evt.data().set_focus(true);
+                drop(evt.data().set_focus(true));
             },
             onkeydown: move |evt| {
                 let key = evt.key();
@@ -1562,7 +1562,7 @@ fn PdfSearchBar(tab_id: TabId) -> Element {
                         });
                     }
                 },
-                onmounted: move |evt| { let _ = evt.data().set_focus(true); },
+                onmounted: move |evt| { drop(evt.data().set_focus(true)); },
             }
             if match_count > 0 {
                 span { class: "pdf-search-count", "{current_idx + 1}/{match_count}" }

@@ -82,5 +82,5 @@ pub fn format_bibliography(papers: &[Paper], style: ArchivedStyle) -> Result<Str
 
 /// Format a single citation for one paper.
 pub fn format_citation(paper: &Paper, style: ArchivedStyle) -> Result<String, String> {
-    format_bibliography(&[paper.clone()], style)
+    format_bibliography(std::slice::from_ref(paper), style)
 }

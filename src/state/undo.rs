@@ -58,14 +58,9 @@ impl UndoStack {
 
     /// After a re-insert gives us a new DB id, patch the annotation id
     /// in the last entry of the given stack so future undo/redo uses the correct id.
-    fn patch_last_ann_id(stack: &mut Vec<UndoAction>, new_id: i64) {
-        if let Some(action) = stack.last_mut() {
-            match action {
-                UndoAction::Create(ann) | UndoAction::Delete(ann) => {
-                    ann.id = Some(new_id);
-                }
-                _ => {}
-            }
+    fn patch_last_ann_id(stack: &mut [UndoAction], new_id: i64) {
+        if let Some(UndoAction::Create(ann) | UndoAction::Delete(ann)) = stack.last_mut() {
+            ann.id = Some(new_id);
         }
     }
 
