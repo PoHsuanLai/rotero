@@ -339,6 +339,15 @@ impl SearchSource {
             SearchSource::SemanticScholar,
         ]
     }
+
+    pub fn provider(&self) -> Option<&'static dyn rotero_search::PaperSearchProvider> {
+        match self {
+            Self::OpenAlex => Some(&rotero_search::OpenAlexProvider),
+            Self::ArXiv => Some(&rotero_search::ArXivProvider),
+            Self::SemanticScholar => Some(&rotero_search::SemanticScholarProvider),
+            Self::Local => None,
+        }
+    }
 }
 
 /// Tracks the library state: papers, collections, tags.

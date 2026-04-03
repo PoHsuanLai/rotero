@@ -1,8 +1,10 @@
-pub mod arxiv;
-pub mod crossref;
 pub mod doi_extract;
 pub mod enrich;
-pub mod openalex;
-pub mod parser;
-pub mod semantic_scholar;
-pub mod unpaywall;
+
+// Re-export from rotero-search crate
+pub use rotero_search::arxiv;
+pub use rotero_search::crossref;
+pub use rotero_search::openalex;
+pub use rotero_search::parser;
+pub use rotero_search::semantic_scholar;
+pub use rotero_search::unpaywall;

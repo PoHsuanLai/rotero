@@ -1,8 +1,9 @@
 use serde::Deserialize;
 
-use super::crossref::FetchedMetadata;
+use crate::FetchedMetadata;
 
 const OPENALEX_API: &str = "https://api.openalex.org/works";
+const OPENALEX_AUTOCOMPLETE: &str = "https://api.openalex.org/autocomplete/works";
 
 #[derive(Debug, Deserialize)]
 struct OpenAlexWork {
@@ -54,9 +55,18 @@ pub async fn fetch_by_doi(doi: &str) -> Result<FetchedMetadata, String> {
 
 /// Search OpenAlex by title and return the best match.
 pub async fn search_by_title(title: &str) -> Result<FetchedMetadata, String> {
+    let results = search_papers(title, 1).await?;
+    results
+        .into_iter()
+        .next()
+        .ok_or_else(|| "No results found on OpenAlex".to_string())
+}
+
+/// Search OpenAlex and return up to `limit` results.
+pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<FetchedMetadata>, String> {
     let url = format!(
-        "{OPENALEX_API}?search={}&per_page=1",
-        urlencoding::encode(title)
+        "{OPENALEX_API}?search={}&per_page={limit}",
+        urlencoding::encode(query)
     );
 
     let client = reqwest::Client::new();
@@ -76,23 +86,86 @@ pub async fn search_by_title(title: &str) -> Result<FetchedMetadata, String> {
         .await
         .map_err(|e| format!("Failed to parse OpenAlex response: {e}"))?;
 
-    let work = data
-        .results
-        .and_then(|mut r| {
-            if r.is_empty() {
-                None
-            } else {
-                Some(r.remove(0))
-            }
-        })
-        .ok_or_else(|| "No results found on OpenAlex".to_string())?;
+    let works = data.results.unwrap_or_default();
+    let mut results = Vec::new();
+    for work in works {
+        let doi = work
+            .doi
+            .as_deref()
+            .unwrap_or("")
+            .replace("https://doi.org/", "");
+        if let Ok(meta) = work_to_metadata(work, &doi) {
+            results.push(meta);
+        }
+    }
+    Ok(results)
+}
 
-    let doi = work
-        .doi
-        .as_deref()
-        .unwrap_or("")
-        .replace("https://doi.org/", "");
-    work_to_metadata(work, &doi)
+/// Fast autocomplete search — returns lightweight results (~50-100ms).
+/// Use this for live type-ahead, then fetch full details on import.
+pub async fn autocomplete(query: &str) -> Result<Vec<FetchedMetadata>, String> {
+    let url = format!("{OPENALEX_AUTOCOMPLETE}?q={}", urlencoding::encode(query));
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(&url)
+        .header("User-Agent", "Rotero/0.1.0 (mailto:rotero@example.com)")
+        .send()
+        .await
+        .map_err(|e| format!("OpenAlex autocomplete failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Err(format!(
+            "OpenAlex autocomplete returned status {}",
+            resp.status()
+        ));
+    }
+
+    let data: AutocompleteResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse autocomplete response: {e}"))?;
+
+    let mut results = Vec::new();
+    for item in data.results.unwrap_or_default() {
+        let title = item.display_name.unwrap_or_default();
+        if title.is_empty() {
+            continue;
+        }
+        let doi = item
+            .external_id
+            .as_deref()
+            .unwrap_or("")
+            .replace("https://doi.org/", "");
+        results.push(FetchedMetadata {
+            title,
+            authors: Vec::new(),
+            year: None,
+            journal: item.hint.clone(),
+            volume: None,
+            issue: None,
+            pages: None,
+            publisher: None,
+            abstract_text: None,
+            url: None,
+            doi,
+            citation_count: item.cited_by_count,
+        });
+    }
+    Ok(results)
+}
+
+#[derive(Debug, Deserialize)]
+struct AutocompleteResponse {
+    results: Option<Vec<AutocompleteItem>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AutocompleteItem {
+    display_name: Option<String>,
+    external_id: Option<String>,
+    cited_by_count: Option<i64>,
+    hint: Option<String>,
 }
 
 async fn fetch_work(url: &str) -> Result<OpenAlexWork, String> {
@@ -162,8 +235,6 @@ fn work_to_metadata(work: OpenAlexWork, doi: &str) -> Result<FetchedMetadata, St
     })
 }
 
-/// Reconstruct abstract from OpenAlex's inverted index format.
-/// The index maps words to their positions in the abstract.
 fn reconstruct_abstract(index: &serde_json::Value) -> Option<String> {
     let obj = index.as_object()?;
     let mut words: Vec<(usize, &str)> = Vec::new();

@@ -1,8 +1,8 @@
 use rotero_models::Paper;
 
-use super::crossref::FetchedMetadata;
+use crate::FetchedMetadata;
 
-/// Convert CrossRef metadata into a Paper model.
+/// Convert fetched metadata into a Paper model.
 pub fn metadata_to_paper(meta: FetchedMetadata) -> Paper {
     let mut paper = Paper::new(meta.title);
     paper.authors = meta.authors;

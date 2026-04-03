@@ -2,6 +2,7 @@
 members = [
     "crates/rotero-models",
     "crates/rotero-pdf",
+    "crates/rotero-search",
     "crates/rotero-bib",
     "crates/rotero-connector",
 ]
@@ -13,7 +14,7 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
@@ -25,6 +26,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rotero-models = { path = "crates/rotero-models" }
 rotero-pdf = { path = "crates/rotero-pdf" }
 rotero-bib = { path = "crates/rotero-bib" }
+rotero-search = { path = "crates/rotero-search" }
 rotero-connector = { path = "crates/rotero-connector" }
 
 [package]
@@ -36,6 +38,7 @@ edition.workspace = true
 rotero-models.workspace = true
 rotero-pdf.workspace = true
 rotero-bib.workspace = true
+rotero-search.workspace = true
 rotero-connector = { workspace = true, optional = true }
 
 dioxus = "0.7"

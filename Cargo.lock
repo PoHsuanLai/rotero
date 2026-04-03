@@ -5474,6 +5474,7 @@ dependencies = [
  "rotero-connector",
  "rotero-models",
  "rotero-pdf",
+ "rotero-search",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -5536,6 +5537,17 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "rotero-search"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "rotero-models",
+ "serde",
+ "serde_json",
+ "urlencoding",
 ]
 
 [[package]]

@@ -1,5 +1,7 @@
 use serde::Deserialize;
 
+use crate::FetchedMetadata;
+
 const CROSSREF_API: &str = "https://api.crossref.org/works";
 
 #[derive(Debug, Deserialize)]
@@ -39,21 +41,6 @@ struct CrossRefAuthor {
 struct CrossRefDate {
     #[serde(rename = "date-parts")]
     date_parts: Option<Vec<Vec<Option<i32>>>>,
-}
-
-pub struct FetchedMetadata {
-    pub title: String,
-    pub authors: Vec<String>,
-    pub year: Option<i32>,
-    pub journal: Option<String>,
-    pub volume: Option<String>,
-    pub issue: Option<String>,
-    pub pages: Option<String>,
-    pub publisher: Option<String>,
-    pub abstract_text: Option<String>,
-    pub url: Option<String>,
-    pub doi: String,
-    pub citation_count: Option<i64>,
 }
 
 pub async fn fetch_by_doi(doi: &str) -> Result<FetchedMetadata, String> {

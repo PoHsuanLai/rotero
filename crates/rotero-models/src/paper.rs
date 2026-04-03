@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Paper {
     pub id: Option<i64>,
     pub title: String,
@@ -21,6 +21,7 @@ pub struct Paper {
     pub is_favorite: bool,
     pub is_read: bool,
     pub citation_count: Option<i64>,
+    pub citation_key: Option<String>,
     pub extra_meta: Option<serde_json::Value>,
 }
 
@@ -46,6 +47,7 @@ impl Paper {
             is_favorite: false,
             is_read: false,
             citation_count: None,
+            citation_key: None,
             extra_meta: None,
         }
     }

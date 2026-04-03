@@ -1,9 +1,10 @@
 use serde::Deserialize;
 
-use super::crossref::FetchedMetadata;
+use crate::FetchedMetadata;
 
 const S2_API: &str = "https://api.semanticscholar.org/graph/v1/paper";
-const S2_FIELDS: &str = "title,authors,year,abstract,venue,externalIds,publicationVenue,citationCount";
+const S2_FIELDS: &str =
+    "title,authors,year,abstract,venue,externalIds,publicationVenue,citationCount";
 
 #[derive(Debug, Deserialize)]
 struct S2Paper {
@@ -38,6 +39,53 @@ struct S2ExternalIds {
 #[derive(Debug, Deserialize)]
 struct S2Venue {
     name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct S2SearchResponse {
+    data: Option<Vec<S2Paper>>,
+}
+
+/// Search Semantic Scholar and return up to `limit` results.
+pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<FetchedMetadata>, String> {
+    let url = format!(
+        "https://api.semanticscholar.org/graph/v1/paper/search?query={}&limit={limit}&fields={S2_FIELDS}",
+        urlencoding::encode(query)
+    );
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(&url)
+        .header("User-Agent", "Rotero/0.1.0")
+        .send()
+        .await
+        .map_err(|e| format!("Semantic Scholar request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Err(format!(
+            "Semantic Scholar API returned status {}",
+            resp.status()
+        ));
+    }
+
+    let data: S2SearchResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Semantic Scholar response: {e}"))?;
+
+    let papers = data.data.unwrap_or_default();
+    let mut results = Vec::new();
+    for paper in papers {
+        let doi = paper
+            .external_ids
+            .as_ref()
+            .and_then(|e| e.doi.clone())
+            .unwrap_or_default();
+        if let Ok(meta) = paper_to_metadata(paper, &doi) {
+            results.push(meta);
+        }
+    }
+    Ok(results)
 }
 
 /// Fetch metadata from Semantic Scholar by DOI.

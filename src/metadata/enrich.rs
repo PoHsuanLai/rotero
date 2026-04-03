@@ -1,6 +1,6 @@
 use rotero_models::Paper;
 
-use super::crossref::FetchedMetadata;
+use rotero_search::FetchedMetadata;
 
 /// Enrich a paper with metadata from multiple sources.
 /// Tries CrossRef first (most complete), then fills gaps from OpenAlex and Semantic Scholar.
@@ -48,7 +48,10 @@ async fn fetch_from_sources_doi(doi: &str) -> Option<FetchedMetadata> {
     };
 
     // Try Semantic Scholar for abstract and citation count
-    if primary.as_ref().is_none_or(|m| m.abstract_text.is_none() || m.citation_count.is_none()) {
+    if primary
+        .as_ref()
+        .is_none_or(|m| m.abstract_text.is_none() || m.citation_count.is_none())
+    {
         match super::semantic_scholar::fetch_by_doi(doi).await {
             Ok(s2_meta) => match primary {
                 Some(ref mut p) => {
