@@ -39,6 +39,10 @@ pub struct SyncConfig {
     #[serde(default = "default_true")]
     pub auto_fetch_metadata: bool,
 
+    /// Text selection highlight color in the PDF viewer.
+    #[serde(default = "default_selection_color")]
+    pub selection_color: String,
+
     /// JPEG quality for rendered PDF pages (1-100, higher = sharper but slower).
     #[serde(default = "default_render_quality")]
     pub render_quality: u8,
@@ -51,6 +55,7 @@ pub struct SyncConfig {
 fn default_zoom() -> f32 { 1.5 }
 fn default_annotation_color() -> String { "#ffff00".to_string() }
 fn default_page_batch_size() -> u32 { 5 }
+fn default_selection_color() -> String { "#339af0".to_string() }
 fn default_render_quality() -> u8 { 85 }
 fn default_thumbnail_quality() -> u8 { 70 }
 fn default_ui_scale() -> String { "default".to_string() }
@@ -66,6 +71,7 @@ impl Default for SyncConfig {
             page_batch_size: default_page_batch_size(),
             dark_mode: false,
             ui_scale: default_ui_scale(),
+            selection_color: default_selection_color(),
             connector_enabled: default_true(),
             connector_port: default_connector_port(),
             auto_fetch_metadata: default_true(),

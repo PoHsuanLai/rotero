@@ -38,7 +38,7 @@ rotero-pdf.workspace = true
 rotero-bib.workspace = true
 rotero-connector = { workspace = true, optional = true }
 
-dioxus = "0.6"
+dioxus = "0.7"
 rfd = { version = "0.14", optional = true }
 turso = "0.6.0-pre.15"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
@@ -58,3 +58,4 @@ urlencoding = "2"
 default = ["desktop"]
 desktop = ["dioxus/desktop", "dep:rfd", "dep:rotero-connector", "dep:directories"]
 mobile = ["dioxus/mobile"]
+pdfium-static = ["rotero-pdf/static"]

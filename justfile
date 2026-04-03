@@ -123,12 +123,27 @@ setup-pdfium-ios:
     cp "$TMP/extracted/release/lib/simulator/libpdfium.a" "$SIM_DIR/libpdfium.a"
     rm -rf "$TMP"
 
-    echo "PDFium iOS static libs installed to lib/ios-device/ and lib/ios-sim/"
+    # Thin fat archives to single-arch (rustc requires thin archives)
+    lipo "$DEVICE_DIR/libpdfium.a" -thin arm64 -output "$DEVICE_DIR/libpdfium-thin.a" && mv "$DEVICE_DIR/libpdfium-thin.a" "$DEVICE_DIR/libpdfium.a"
 
-# Serve iOS app on simulator
-run-ios: setup-pdfium-ios
-    PDFIUM_STATIC_LIB_PATH="{{justfile_directory()}}/lib/ios-sim" dx serve --platform ios --features mobile --no-default-features
+    # Also download dynamic lib for simulator (from bblanchon — works around libc++ ABI mismatch)
+    if [ ! -f "$SIM_DIR/libpdfium.dylib" ]; then
+        TMP2=$(mktemp -d)
+        gh release download --repo bblanchon/pdfium-binaries --pattern "pdfium-ios-simulator-arm64.tgz" --dir "$TMP2"
+        tar -xzf "$TMP2/pdfium-ios-simulator-arm64.tgz" -C "$TMP2"
+        cp "$TMP2/lib/libpdfium.dylib" "$SIM_DIR/libpdfium.dylib"
+        rm -rf "$TMP2"
+    fi
 
-# Bundle iOS app for device
+    echo "PDFium iOS libs installed to lib/ios-device/ and lib/ios-sim/"
+
+# Serve iOS app on simulator (dynamic PDFium linking — sim supports dylibs)
+run-ios device="iPhone 17 Pro": setup-pdfium-ios
+    xcrun simctl boot "{{device}}" 2>/dev/null || true
+    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib/ios-sim" \
+    dx serve --platform ios --features mobile --no-default-features --device "{{device}}"
+
+# Bundle iOS app for device (static PDFium linking — required for real devices)
 build-ios: setup-pdfium-ios
-    PDFIUM_STATIC_LIB_PATH="{{justfile_directory()}}/lib/ios-device" dx bundle --platform ios --features mobile --no-default-features
+    PDFIUM_STATIC_LIB_PATH="{{justfile_directory()}}/lib/ios-device" \
+    dx bundle --platform ios --features "mobile,pdfium-static" --no-default-features

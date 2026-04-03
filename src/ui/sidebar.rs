@@ -48,7 +48,7 @@ pub fn Sidebar() -> Element {
     let mut drag_paper = use_context::<Signal<DragPaper>>();
 
     // Track which drop target is being hovered during drag (e.g. "coll-5", "tag-3")
-    let mut drop_hover: Signal<Option<String>> = use_context_provider(|| Signal::new(None::<String>));
+    let _drop_hover: Signal<Option<String>> = use_context_provider(|| Signal::new(None::<String>));
 
     let db_for_ctx = db.clone();
 
@@ -67,7 +67,7 @@ pub fn Sidebar() -> Element {
             OpenPdfButton {}
 
             // Smart filters
-            div { class: "sidebar-section",
+            CollapsibleSection { title: "Library", initially_open: true,
                 SidebarItem {
                     label: format!("All Papers"),
                     count: Some(total),
@@ -207,74 +207,7 @@ pub fn Sidebar() -> Element {
 
             // Tags
             CollapsibleSection { title: "Tags", initially_open: true,
-                if state.tags.is_empty() {
-                    p { class: "sidebar-empty", "No tags" }
-                } else {
-                    div { class: "sidebar-tags-wrap",
-                        for tag in state.tags.iter() {
-                            {
-                                let tag_id = tag.id.unwrap_or(0);
-                                let tag_name = tag.name.clone();
-                                let tag_color = tag.color.clone();
-                                let bg = tag_color.clone().unwrap_or_else(|| "#6b7085".to_string());
-                                let is_paper_drop = drag_paper.read().0.is_some();
-                                let is_hover = drop_hover().as_deref() == Some(&format!("tag-{tag_id}"));
-                                let tag_class = if is_paper_drop && is_hover {
-                                    "sidebar-tag sidebar-tag--drophover"
-                                } else if is_paper_drop {
-                                    "sidebar-tag sidebar-tag--droptarget"
-                                } else {
-                                    "sidebar-tag"
-                                };
-                                let db_for_tag_drop = db.clone();
-                                rsx! {
-                                    span {
-                                        class: "{tag_class}",
-                                        style: "background: {bg};",
-                                        onclick: move |_| {
-                                            lib_state.with_mut(|s| s.view = LibraryView::Tag(tag_id));
-                                        },
-                                        oncontextmenu: move |evt: Event<MouseData>| {
-                                            evt.prevent_default();
-                                            tag_ctx.set(Some((tag_id, tag_name.clone(), tag_color.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
-                                        },
-                                        ondragenter: move |_| {
-                                            drop_hover.set(Some(format!("tag-{tag_id}")));
-                                        },
-                                        ondragleave: move |_| {
-                                            if drop_hover().as_deref() == Some(&format!("tag-{tag_id}")) {
-                                                drop_hover.set(None);
-                                            }
-                                        },
-                                        ondragover: move |evt| {
-                                            evt.prevent_default();
-                                        },
-                                        ondrop: move |evt| {
-                                            evt.prevent_default();
-                                            drop_hover.set(None);
-                                            if let Some(paper_id) = drag_paper().0 {
-                                                let db = db_for_tag_drop.clone();
-                                                spawn(async move {
-                                                    let _ = crate::db::tags::add_tag_to_paper(db.conn(), paper_id, tag_id).await;
-                                                    // Refresh tag view if currently viewing this tag
-                                                    let current_view = lib_state.read().view.clone();
-                                                    if current_view == LibraryView::Tag(tag_id) {
-                                                        if let Ok(ids) = crate::db::tags::list_paper_ids_by_tag(db.conn(), tag_id).await {
-                                                            lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
-                                                        }
-                                                    }
-                                                });
-                                                drag_paper.set(DragPaper(None));
-                                            }
-                                        },
-                                        i { class: "sidebar-tag-icon bi bi-tag" }
-                                        "{tag.name}"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                TagList { tags: state.tags.clone(), ctx_menu: tag_ctx }
             }
 
             // Spacer + Settings
@@ -853,6 +786,87 @@ fn NewCollectionRow(parent_id: Option<i64>, depth: u32) -> Element {
     }
 }
 
+/// Renders the tag list with drag-drop support as its own component
+/// so signal reads (drag_paper, drop_hover) are properly tracked.
+#[component]
+fn TagList(tags: Vec<rotero_models::Tag>, ctx_menu: Signal<Option<(i64, String, Option<String>, f64, f64)>>) -> Element {
+    let mut lib_state = use_context::<Signal<LibraryState>>();
+    let db = use_context::<Database>();
+    let mut drag_paper = use_context::<Signal<DragPaper>>();
+    let mut drop_hover = use_context::<Signal<Option<String>>>();
+    let mut tag_ctx = ctx_menu;
+
+    if tags.is_empty() {
+        return rsx! { p { class: "sidebar-empty", "No tags" } };
+    }
+
+    rsx! {
+        div { class: "sidebar-tags-wrap",
+            for tag in tags.iter() {
+                {
+                    let tag_id = tag.id.unwrap_or(0);
+                    let tag_name = tag.name.clone();
+                    let tag_color = tag.color.clone();
+                    let bg = tag_color.clone().unwrap_or_else(|| "#6b7085".to_string());
+                    let is_paper_drop = drag_paper.read().0.is_some();
+                    let is_hover = drop_hover().as_deref() == Some(&format!("tag-{tag_id}"));
+                    let tag_class = if is_paper_drop && is_hover {
+                        "sidebar-tag sidebar-tag--drophover"
+                    } else if is_paper_drop {
+                        "sidebar-tag sidebar-tag--droptarget"
+                    } else {
+                        "sidebar-tag"
+                    };
+                    let db_for_tag_drop = db.clone();
+                    rsx! {
+                        span {
+                            class: "{tag_class}",
+                            style: "background: {bg};",
+                            onclick: move |_| {
+                                lib_state.with_mut(|s| s.view = LibraryView::Tag(tag_id));
+                            },
+                            oncontextmenu: move |evt: Event<MouseData>| {
+                                evt.prevent_default();
+                                tag_ctx.set(Some((tag_id, tag_name.clone(), tag_color.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
+                            },
+                            ondragenter: move |_| {
+                                drop_hover.set(Some(format!("tag-{tag_id}")));
+                            },
+                            ondragleave: move |_| {
+                                if drop_hover().as_deref() == Some(&format!("tag-{tag_id}")) {
+                                    drop_hover.set(None);
+                                }
+                            },
+                            ondragover: move |evt| {
+                                evt.prevent_default();
+                            },
+                            ondrop: move |evt| {
+                                evt.prevent_default();
+                                drop_hover.set(None);
+                                if let Some(paper_id) = drag_paper().0 {
+                                    let db = db_for_tag_drop.clone();
+                                    spawn(async move {
+                                        let _ = crate::db::tags::add_tag_to_paper(db.conn(), paper_id, tag_id).await;
+                                        let current_view = lib_state.read().view.clone();
+                                        if current_view == LibraryView::Tag(tag_id) {
+                                            if let Ok(ids) = crate::db::tags::list_paper_ids_by_tag(db.conn(), tag_id).await {
+                                                lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
+                                            }
+                                        }
+                                    });
+                                    drag_paper.set(DragPaper(None));
+                                }
+                            },
+                            i { class: "sidebar-tag-icon bi bi-tag" }
+                            "{tag.name}"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 fn OpenPdfButton() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
@@ -864,10 +878,7 @@ fn OpenPdfButton() -> Element {
         button {
             class: "sidebar-open-btn",
             onclick: move |_| {
-                let file = rfd::FileDialog::new()
-                    .add_filter("PDF", &["pdf"])
-                    .set_title("Open PDF")
-                    .pick_file();
+                let file = super::pick_file(&["pdf"], "Open PDF");
 
                 if let Some(path) = file {
                     let path_str = path.to_string_lossy().to_string();
