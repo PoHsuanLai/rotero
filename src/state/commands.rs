@@ -55,6 +55,11 @@ pub enum RenderRequest {
         page_count: u32,
         reply: mpsc::Sender<Result<(Vec<(u32, String)>, rotero_pdf::PdfDocMetadata), String>>,
     },
+    /// Extract existing annotations from the PDF file.
+    ExtractAnnotations {
+        pdf_path: String,
+        reply: mpsc::Sender<Result<Vec<rotero_pdf::ExtractedAnnotation>, String>>,
+    },
 }
 
 /// Spawn a dedicated thread that owns the PdfEngine and processes render requests.
@@ -148,6 +153,12 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                         ).map_err(|e| e.to_string())?;
                         Ok((raw_text, doc_meta))
                     })();
+                    let _ = reply.send(result);
+                }
+                RenderRequest::ExtractAnnotations { pdf_path, reply } => {
+                    let result = engine
+                        .extract_annotations(&pdf_path)
+                        .map_err(|e| e.to_string());
                     let _ = reply.send(result);
                 }
             }

@@ -232,13 +232,81 @@ pub fn PdfViewer() -> Element {
                 // Load annotations if paper_id is set
                 let paper_id = tabs.read().active_tab().and_then(|t| t.paper_id);
                 if let Some(pid) = paper_id {
-                    if let Ok(anns) = crate::db::annotations::list_annotations_for_paper(db.conn(), pid).await {
-                        tabs.with_mut(|m| {
-                            if let Some(t) = m.tabs.iter_mut().find(|t| t.id == tid) {
-                                t.annotations = anns;
+                    let mut anns = crate::db::annotations::list_annotations_for_paper(db.conn(), pid).await.unwrap_or_default();
+
+                    // Extract annotations embedded in the PDF and import any new ones
+                    let pdf_path = tabs.read().tab().pdf_path.clone();
+                    let rendered_pages: Vec<(u32, u32)> = tabs.read().tab().render.rendered_pages
+                        .iter()
+                        .map(|p| (p.width, p.height))
+                        .collect();
+
+                    let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+                    if render_tx.send(crate::state::commands::RenderRequest::ExtractAnnotations {
+                        pdf_path,
+                        reply: reply_tx,
+                    }).is_ok() {
+                        let extract_result: Result<Result<Result<Vec<rotero_pdf::ExtractedAnnotation>, String>, _>, _> = tokio::task::spawn_blocking(move || reply_rx.recv()).await;
+                        if let Ok(Ok(Ok(extracted))) = extract_result {
+                            let now = chrono::Utc::now();
+                            for ext in extracted {
+                                // Deduplicate: skip if a DB annotation exists on same page with same type and similar position
+                                let dominated = anns.iter().any(|a| {
+                                    a.page == ext.page as i32
+                                        && a.ann_type == ext.ann_type
+                                        && {
+                                            let ax = a.geometry.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                            let ay = a.geometry.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                            // Get rendered dims for this page to convert extracted coords
+                                            let (rw, rh) = rendered_pages.get(ext.page as usize).copied().unwrap_or((1, 1));
+                                            let sx = rw as f64 / ext.page_width_pts as f64;
+                                            let sy = rh as f64 / ext.page_height_pts as f64;
+                                            let ex = ext.rect_pts[0] as f64 * sx;
+                                            let ey = (ext.page_height_pts as f64 - ext.rect_pts[3] as f64) * sy;
+                                            (ax - ex).abs() < 10.0 && (ay - ey).abs() < 10.0
+                                        }
+                                });
+                                if dominated { continue; }
+
+                                // Convert PDF points to pixel coords
+                                let (rw, rh) = rendered_pages.get(ext.page as usize).copied().unwrap_or((1, 1));
+                                let sx = rw as f32 / ext.page_width_pts;
+                                let sy = rh as f32 / ext.page_height_pts;
+                                let x = ext.rect_pts[0] * sx;
+                                let y = (ext.page_height_pts - ext.rect_pts[3]) * sy;
+                                let w = (ext.rect_pts[2] - ext.rect_pts[0]) * sx;
+                                let h = (ext.rect_pts[3] - ext.rect_pts[1]) * sy;
+
+                                let geometry = serde_json::json!({
+                                    "x": x, "y": y, "width": w, "height": h,
+                                    "page_width": rw, "page_height": rh,
+                                });
+
+                                let ann = Annotation {
+                                    id: None,
+                                    paper_id: pid,
+                                    page: ext.page as i32,
+                                    ann_type: ext.ann_type,
+                                    color: ext.color,
+                                    content: ext.content,
+                                    geometry,
+                                    created_at: now,
+                                    modified_at: now,
+                                };
+                                if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), &ann).await {
+                                    let mut ann = ann;
+                                    ann.id = Some(id);
+                                    anns.push(ann);
+                                }
                             }
-                        });
+                        }
                     }
+
+                    tabs.with_mut(|m| {
+                        if let Some(t) = m.tabs.iter_mut().find(|t| t.id == tid) {
+                            t.annotations = anns;
+                        }
+                    });
                 }
             }
         });

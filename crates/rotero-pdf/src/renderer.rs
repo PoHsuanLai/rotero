@@ -62,6 +62,7 @@ impl PdfEngine {
     /// 1. Explicit `lib_path` argument
     /// 2. `PDFIUM_DYNAMIC_LIB_PATH` env var (directory containing the library)
     /// 3. System library search paths
+    #[cfg(not(feature = "static"))]
     pub fn new(lib_path: Option<&str>) -> Result<Self, PdfError> {
         let bindings = if let Some(path) = lib_path {
             Pdfium::bind_to_library(path)
@@ -302,6 +303,72 @@ impl PdfEngine {
 
         Ok(dims)
     }
+
+    /// Extract annotations from the PDF that Rotero can display.
+    /// Returns annotations in PDF-point coordinates.
+    pub fn extract_annotations(&self, pdf_path: &str) -> Result<Vec<ExtractedAnnotation>, PdfError> {
+        let document = self.pdfium.load_pdf_from_file(pdf_path, None)?;
+        let page_count = document.pages().len() as u32;
+        let mut result = Vec::new();
+
+        for i in 0..page_count {
+            let page = document
+                .pages()
+                .get(i as u16)
+                .map_err(|e| PdfError::RenderError(e.to_string()))?;
+
+            let pw = page.width().value;
+            let ph = page.height().value;
+
+            for ann in page.annotations().iter() {
+                use pdfium_render::prelude::PdfPageAnnotationCommon;
+
+                let ann_type = match ann.annotation_type() {
+                    PdfPageAnnotationType::Highlight => rotero_models::AnnotationType::Highlight,
+                    PdfPageAnnotationType::Text => rotero_models::AnnotationType::Note,
+                    PdfPageAnnotationType::Square => rotero_models::AnnotationType::Area,
+                    _ => continue,
+                };
+
+                let bounds = match ann.bounds() {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+
+                let color = ann.stroke_color()
+                    .or_else(|_| ann.fill_color())
+                    .map(|c| format!("#{:02x}{:02x}{:02x}", c.red(), c.green(), c.blue()))
+                    .unwrap_or_else(|_| "#ffff00".to_string());
+
+                let content = ann.contents();
+
+                result.push(ExtractedAnnotation {
+                    page: i,
+                    ann_type,
+                    color,
+                    content,
+                    rect_pts: [bounds.left().value, bounds.bottom().value, bounds.right().value, bounds.top().value],
+                    page_width_pts: pw,
+                    page_height_pts: ph,
+                });
+            }
+        }
+
+        Ok(result)
+    }
+}
+
+/// An annotation extracted from a PDF file, in PDF-point coordinates.
+#[derive(Debug, Clone)]
+pub struct ExtractedAnnotation {
+    pub page: u32,
+    pub ann_type: rotero_models::AnnotationType,
+    pub color: String,
+    pub content: Option<String>,
+    /// [x1 (left), y1 (bottom), x2 (right), y2 (top)] in PDF points
+    pub rect_pts: [f32; 4],
+    pub page_width_pts: f32,
+    pub page_height_pts: f32,
 }
 
 /// A bookmark/outline entry from the PDF.
