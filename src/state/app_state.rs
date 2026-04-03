@@ -8,13 +8,41 @@ use rotero_pdf::{BookmarkEntry, PageTextData, RenderedPage, SearchMatch};
 
 pub type TabId = u64;
 
+/// Maximum number of rendered pages kept in memory at once.
+/// Pages outside this window are evicted (they live on the disk cache).
+const MAX_RESIDENT_PAGES: usize = 30;
+
 /// Heavy render data — cleared when a tab is suspended to free memory.
 #[derive(Debug, Clone, Default)]
 pub struct PageRenderData {
-    pub rendered_pages: Vec<RenderedPageData>,
+    pub rendered_pages: HashMap<u32, RenderedPageData>,
     pub text_data: HashMap<u32, PageTextData>,
     pub thumbnails: Vec<RenderedPageData>,
     pub _page_dimensions: Vec<(f32, f32)>,
+}
+
+impl PageRenderData {
+    /// Insert a page only if it improves quality (prevents downgrading a hi-res page).
+    pub fn insert_if_better(&mut self, page: RenderedPageData) {
+        if self
+            .rendered_pages
+            .get(&page.page_index)
+            .map_or(true, |existing| existing.quality < page.quality)
+        {
+            self.rendered_pages.insert(page.page_index, page);
+        }
+    }
+
+    /// Evict rendered pages that are far from `center_page` to keep memory bounded.
+    pub fn evict_distant_pages(&mut self, center_page: u32) {
+        if self.rendered_pages.len() <= MAX_RESIDENT_PAGES {
+            return;
+        }
+        let half = MAX_RESIDENT_PAGES as u32 / 2;
+        let lo = center_page.saturating_sub(half);
+        let hi = center_page.saturating_add(half);
+        self.rendered_pages.retain(|&idx, _| idx >= lo && idx <= hi);
+    }
 }
 
 /// Zoom and scroll state for a document.
@@ -98,6 +126,21 @@ impl PdfTab {
     /// Whether this tab needs re-rendering (was suspended and has no pages).
     pub fn needs_render(&self) -> bool {
         self.render.rendered_pages.is_empty() && self.page_count > 0
+    }
+
+    /// Number of currently resident (in-memory) rendered pages.
+    pub fn rendered_count(&self) -> u32 {
+        if self.render.rendered_pages.is_empty() {
+            return 0;
+        }
+        // The highest page index present + 1 gives the "loaded up to" count,
+        // which is what scroll-loading cares about.
+        self.render
+            .rendered_pages
+            .keys()
+            .max()
+            .map(|&m| m + 1)
+            .unwrap_or(0)
     }
 
     /// Clear heavy render data to free memory (called on suspend).
@@ -250,6 +293,7 @@ pub struct RenderedPageData {
     pub mime: &'static str,
     pub width: u32,
     pub height: u32,
+    pub quality: u8,
 }
 
 impl From<RenderedPage> for RenderedPageData {
@@ -260,11 +304,42 @@ impl From<RenderedPage> for RenderedPageData {
             mime: rp.mime,
             width: rp.width,
             height: rp.height,
+            quality: rp.quality,
         }
     }
 }
 
 // ── Library state (unchanged) ─────────────────────────────────────
+
+/// Which source the search bar queries.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum SearchSource {
+    #[default]
+    Local,
+    OpenAlex,
+    ArXiv,
+    SemanticScholar,
+}
+
+impl SearchSource {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Local => "Local",
+            Self::OpenAlex => "OpenAlex",
+            Self::ArXiv => "arXiv",
+            Self::SemanticScholar => "Semantic Scholar",
+        }
+    }
+
+    pub fn all() -> &'static [SearchSource] {
+        &[
+            SearchSource::Local,
+            SearchSource::OpenAlex,
+            SearchSource::ArXiv,
+            SearchSource::SemanticScholar,
+        ]
+    }
+}
 
 /// Tracks the library state: papers, collections, tags.
 #[derive(Debug, Clone, Default)]
@@ -277,6 +352,9 @@ pub struct LibraryState {
     pub view: LibraryView,
     pub search_query: String,
     pub search_results: Option<Vec<Paper>>,
+    pub search_source: SearchSource,
+    pub external_results: Option<Vec<Paper>>,
+    pub external_searching: bool,
     pub collection_paper_ids: Option<Vec<i64>>,
     pub tag_paper_ids: Option<Vec<i64>>,
     pub duplicate_groups: Option<Vec<Vec<Paper>>>,

@@ -6,6 +6,9 @@ use rotero_pdf::PageTextData;
 
 use super::app_state::{PdfTabManager, RenderedPageData, TabId};
 
+/// JPEG quality for the initial fast render pass (progressive rendering).
+pub const PREVIEW_QUALITY: u8 = 25;
+
 /// Result type for PDF text/metadata extraction.
 pub type PdfExtractResult = (Vec<(u32, String)>, rotero_pdf::PdfDocMetadata);
 
@@ -62,6 +65,14 @@ pub enum RenderRequest {
     ExtractAnnotations {
         pdf_path: String,
         reply: mpsc::Sender<Result<Vec<rotero_pdf::ExtractedAnnotation>, String>>,
+    },
+    /// Re-render specific pages at higher quality (progressive rendering upgrade pass).
+    UpgradeQuality {
+        pdf_path: String,
+        page_indices: Vec<u32>,
+        zoom: f32,
+        quality: u8,
+        reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
 }
 
@@ -213,7 +224,31 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                         .map_err(|e| e.to_string());
                     let _ = reply.send(result);
                 }
+                RenderRequest::UpgradeQuality {
+                    pdf_path,
+                    page_indices,
+                    zoom,
+                    quality,
+                    reply,
+                } => {
+                    let result = (|| {
+                        let mut pages = Vec::with_capacity(page_indices.len());
+                        for &idx in &page_indices {
+                            match engine.render_page(&pdf_path, idx, zoom, quality) {
+                                Ok(rp) => pages.push(rp.into()),
+                                Err(e) => {
+                                    tracing::warn!(page = idx, "upgrade render failed: {e}");
+                                }
+                            }
+                        }
+                        Ok(pages)
+                    })();
+                    let _ = reply.send(result);
+                }
             }
+            // Free cached PDF file bytes after each request to reduce idle memory.
+            // The file will be re-read from disk (fast for hot files) on the next request.
+            engine.clear_byte_cache();
         }
     });
 
@@ -230,6 +265,108 @@ async fn recv_reply<T: Send + 'static>(rx: mpsc::Receiver<Result<T, String>>) ->
 }
 
 // ── Tab-aware async commands ──────────────────────────────────────
+
+/// Re-render pages at higher quality (background upgrade pass for progressive rendering).
+/// Only upgrades pages that are still resident and at lower quality than `quality`.
+/// Skips entirely if the tab's zoom has changed since the request was initiated.
+pub async fn upgrade_quality(
+    render_tx: &mpsc::Sender<RenderRequest>,
+    tabs: &mut Signal<PdfTabManager>,
+    tab_id: TabId,
+    page_indices: Vec<u32>,
+    quality: u8,
+    data_dir: &std::path::Path,
+) -> Result<(), String> {
+    let (pdf_path, zoom, render_zoom) = {
+        let mgr = tabs.read();
+        let tab = mgr
+            .tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .ok_or("Tab not found")?;
+        (
+            tab.pdf_path.clone(),
+            tab.view.zoom,
+            tab.view.render_zoom,
+        )
+    };
+
+    // Skip if zoom changed (pages will be re-rendered at new zoom anyway)
+    if (render_zoom - zoom).abs() > 0.01 {
+        return Ok(());
+    }
+
+    // Filter to only pages still resident with lower quality
+    let indices_to_upgrade: Vec<u32> = {
+        let mgr = tabs.read();
+        let Some(tab) = mgr.tabs.iter().find(|t| t.id == tab_id) else {
+            return Ok(());
+        };
+        page_indices
+            .into_iter()
+            .filter(|&idx| {
+                tab.render
+                    .rendered_pages
+                    .get(&idx)
+                    .map_or(false, |p| p.quality < quality)
+            })
+            .collect()
+    };
+
+    if indices_to_upgrade.is_empty() {
+        return Ok(());
+    }
+
+    let (reply_tx, reply_rx) = mpsc::channel();
+    render_tx
+        .send(RenderRequest::UpgradeQuality {
+            pdf_path: pdf_path.clone(),
+            page_indices: indices_to_upgrade,
+            zoom,
+            quality,
+            reply: reply_tx,
+        })
+        .map_err(|e| e.to_string())?;
+
+    let pages = recv_reply(reply_rx).await?;
+
+    // Re-check zoom hasn't changed while we were rendering
+    let current_zoom = tabs
+        .read()
+        .tabs
+        .iter()
+        .find(|t| t.id == tab_id)
+        .map(|t| t.view.zoom)
+        .unwrap_or(0.0);
+    if (current_zoom - zoom).abs() > 0.01 {
+        return Ok(());
+    }
+
+    // Insert only if quality is better than what's currently there
+    tabs.with_mut(|mgr| {
+        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+            for p in &pages {
+                tab.render.insert_if_better(p.clone());
+            }
+        }
+    });
+
+    // Save upgraded pages to disk cache in background
+    let page_count = tabs
+        .read()
+        .tabs
+        .iter()
+        .find(|t| t.id == tab_id)
+        .map(|t| t.page_count)
+        .unwrap_or(0);
+    let cache_dir = data_dir.to_path_buf();
+    let cache_path = pdf_path;
+    std::thread::spawn(move || {
+        crate::cache::save_pages(&cache_dir, &cache_path, zoom, page_count, &pages);
+    });
+
+    Ok(())
+}
 
 /// Open/render a PDF tab's first batch of pages.
 /// Uses disk cache when available for instant loading.
@@ -260,7 +397,7 @@ pub async fn open_pdf(
             if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                 tab.page_count = meta.page_count;
                 tab.view.render_zoom = zoom;
-                tab.render.rendered_pages = cached_pages;
+                tab.render.rendered_pages = cached_pages.into_iter().map(|p| (p.page_index, p)).collect();
                 tab.is_loading = false;
             }
         });
@@ -275,37 +412,45 @@ pub async fn open_pdf(
         return Ok(());
     }
 
-    // Cache miss — render via PDFium
-
-    // Cache miss — render via PDFium
+    // Cache miss — render preview at low quality first, then upgrade in background
     let (reply_tx, reply_rx) = mpsc::channel();
     render_tx
         .send(RenderRequest::OpenPdf {
             pdf_path: path.clone(),
             zoom,
             batch_size,
-            quality,
+            quality: PREVIEW_QUALITY,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
 
     let (page_count, pages) = recv_reply(reply_rx).await?;
 
-    // Save to cache in background
-    let cache_dir = data_dir.to_path_buf();
-    let cache_path = path.clone();
-    let cache_pages = pages.clone();
-    std::thread::spawn(move || {
-        crate::cache::save_pages(&cache_dir, &cache_path, zoom, page_count, &cache_pages);
-    });
-
+    let preview_count = pages.len() as u32;
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
             tab.page_count = page_count;
             tab.view.render_zoom = zoom;
-            tab.render.rendered_pages = pages;
+            tab.render.rendered_pages = pages.into_iter().map(|p| (p.page_index, p)).collect();
             tab.is_loading = false;
         }
+    });
+
+    // Spawn background quality upgrade
+    let upgrade_indices: Vec<u32> = (0..preview_count).collect();
+    let render_tx_up = render_tx.clone();
+    let mut tabs_up = *tabs;
+    let data_dir_up = data_dir.to_path_buf();
+    spawn(async move {
+        let _ = upgrade_quality(
+            &render_tx_up,
+            &mut tabs_up,
+            tab_id,
+            upgrade_indices,
+            quality,
+            &data_dir_up,
+        )
+        .await;
     });
 
     // Extract text in background — don't block the render thread
@@ -317,7 +462,7 @@ pub async fn open_pdf(
             .map(|t| {
                 t.render
                     .rendered_pages
-                    .iter()
+                    .values()
                     .map(|p| (p.page_index, p.width, p.height))
                     .collect()
             })
@@ -361,6 +506,7 @@ pub async fn render_more_pages(
     start: u32,
     count: u32,
     quality: u8,
+    data_dir: &std::path::Path,
 ) -> Result<(), String> {
     let (pdf_path, zoom) = {
         let mgr = tabs.read();
@@ -379,35 +525,47 @@ pub async fn render_more_pages(
             start,
             count,
             zoom,
-            quality,
+            quality: PREVIEW_QUALITY,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
 
     let pages = recv_reply(reply_rx).await?;
 
+    // Collect dims before mutating — we need them for text extraction
+    let page_dims: Vec<(u32, u32, u32)> = pages
+        .iter()
+        .map(|p| (p.page_index, p.width, p.height))
+        .collect();
+
+    let upgrade_indices: Vec<u32> = pages.iter().map(|p| p.page_index).collect();
+
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
-            tab.render.rendered_pages.extend(pages);
+            for p in pages {
+                tab.render.rendered_pages.insert(p.page_index, p);
+            }
+            // Evict pages far from the newly loaded range to bound memory
+            tab.render.evict_distant_pages(start + count / 2);
         }
     });
 
-    // Extract text for new pages in background — don't block render thread
-    let page_dims: Vec<(u32, u32, u32)> = {
-        let mgr = tabs.read();
-        mgr.tabs
-            .iter()
-            .find(|t| t.id == tab_id)
-            .map(|t| {
-                t.render
-                    .rendered_pages
-                    .iter()
-                    .filter(|p| p.page_index >= start && p.page_index < start + count)
-                    .map(|p| (p.page_index, p.width, p.height))
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
+    // Spawn background quality upgrade
+    let render_tx_up = render_tx.clone();
+    let mut tabs_up = *tabs;
+    let data_dir_up = data_dir.to_path_buf();
+    spawn(async move {
+        let _ = upgrade_quality(
+            &render_tx_up,
+            &mut tabs_up,
+            tab_id,
+            upgrade_indices,
+            quality,
+            &data_dir_up,
+        )
+        .await;
+    });
+
     let render_tx2 = render_tx.clone();
     let mut tabs2 = *tabs;
     spawn(async move {
@@ -436,6 +594,7 @@ pub async fn set_zoom(
     tab_id: TabId,
     new_zoom: f32,
     quality: u8,
+    data_dir: &std::path::Path,
 ) -> Result<(), String> {
     let (pdf_path, page_count) = {
         let mgr = tabs.read();
@@ -444,7 +603,7 @@ pub async fn set_zoom(
             .iter()
             .find(|t| t.id == tab_id)
             .ok_or("Tab not found")?;
-        (tab.pdf_path.clone(), tab.render.rendered_pages.len() as u32)
+        (tab.pdf_path.clone(), tab.rendered_count())
     };
 
     // Set zoom immediately for CSS progressive scaling
@@ -460,19 +619,37 @@ pub async fn set_zoom(
             pdf_path,
             page_count,
             new_zoom,
-            quality,
+            quality: PREVIEW_QUALITY,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
 
     let pages = recv_reply(reply_rx).await?;
 
+    let upgrade_indices: Vec<u32> = pages.iter().map(|p| p.page_index).collect();
+
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
             tab.view.render_zoom = new_zoom;
-            tab.render.rendered_pages = pages;
+            tab.render.rendered_pages = pages.into_iter().map(|p| (p.page_index, p)).collect();
             tab.render.text_data.clear(); // will be re-extracted at new zoom
         }
+    });
+
+    // Spawn background quality upgrade
+    let render_tx_up = render_tx.clone();
+    let mut tabs_up = *tabs;
+    let data_dir_up = data_dir.to_path_buf();
+    spawn(async move {
+        let _ = upgrade_quality(
+            &render_tx_up,
+            &mut tabs_up,
+            tab_id,
+            upgrade_indices,
+            quality,
+            &data_dir_up,
+        )
+        .await;
     });
 
     Ok(())

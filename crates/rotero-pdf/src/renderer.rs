@@ -51,6 +51,7 @@ pub struct RenderedPage {
     pub mime: &'static str,
     pub width: u32,
     pub height: u32,
+    pub quality: u8,
 }
 
 impl PdfEngine {
@@ -178,6 +179,7 @@ impl PdfEngine {
             mime: "image/jpeg",
             width: img_width,
             height: img_height,
+            quality,
         })
     }
 
@@ -237,6 +239,7 @@ impl PdfEngine {
                 mime: "image/jpeg",
                 width: img_width,
                 height: img_height,
+                quality,
             });
         }
 
@@ -289,6 +292,7 @@ impl PdfEngine {
                 mime: "image/jpeg",
                 width: img_width,
                 height: img_height,
+                quality,
             });
         }
 
@@ -340,6 +344,12 @@ impl PdfEngine {
         }
 
         Ok(dims)
+    }
+
+    /// Drop the cached PDF file bytes to free memory.
+    /// Call this after completing a batch of operations on the same PDF.
+    pub fn clear_byte_cache(&mut self) {
+        self.cached_bytes = None;
     }
 
     /// Extract annotations from the PDF that Rotero can display.
