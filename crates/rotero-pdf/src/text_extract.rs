@@ -137,20 +137,20 @@ pub fn extract_page_text(
     let mut segments = Vec::new();
 
     // Current run state.
-    // Uses ch.origin() (baseline position) for y, with ascent subtracted
-    // to get the top of the text — matching PDF.js's approach.
-    // Uses loose_bounds() left/right edges for x and width.
+    // Uses ch.origin().y for baseline (with ascent subtracted for top — matching PDF.js).
+    // Uses ch.loose_bounds() for x and width (more reliable for hyphenated words).
     struct Run {
         text: String,
         font_name: String,
         is_italic: bool,
-        /// Origin x of first char (PDF points, page space)
-        origin_x: f64,
+        /// Left edge from loose_bounds of first char
+        left: f64,
         /// Origin y (baseline) of first char (PDF points, page space)
         origin_y: f64,
         /// Right edge from loose_bounds of last char
         right: f64,
         font_size_pts: f32,
+        has_origin_y: bool,
     }
 
     impl Run {
@@ -159,18 +159,20 @@ pub fn extract_page_text(
                 text: String::new(),
                 font_name: String::new(),
                 is_italic: false,
-                origin_x: f64::MAX,
+                left: f64::MAX,
                 origin_y: 0.0,
                 right: f64::MIN,
                 font_size_pts: 0.0,
+                has_origin_y: false,
             }
         }
 
         fn reset_bounds(&mut self) {
-            self.origin_x = f64::MAX;
+            self.left = f64::MAX;
             self.origin_y = 0.0;
             self.right = f64::MIN;
             self.font_size_pts = 0.0;
+            self.has_origin_y = false;
         }
 
         fn flush(
@@ -186,13 +188,19 @@ pub fn extract_page_text(
             }
 
             let font_size = self.font_size_pts as f64 * scale_y;
-            // Match PDF.js: top = baseline - ascent, where ascent ≈ 0.8 * fontHeight
-            let ascent_pts = self.font_size_pts as f64 * 0.8;
-            let top_pts = self.origin_y + ascent_pts; // PDF coords: y increases upward
-            let x = self.origin_x * scale_x;
-            let y = (page_height_pts as f64 - top_pts) * scale_y;
-            let width = (self.right - self.origin_x) * scale_x;
-            let height = font_size; // Use font_size as height (matches PDF.js fontHeight)
+            // Use loose_bounds for x and width (reliable for hyphenated words)
+            let x = self.left * scale_x;
+            let width = (self.right - self.left) * scale_x;
+            // Use origin.y for baseline, with ascent subtracted (matches PDF.js)
+            let y = if self.has_origin_y {
+                let ascent_pts = self.font_size_pts as f64 * 0.8;
+                let top_pts = self.origin_y + ascent_pts;
+                (page_height_pts as f64 - top_pts) * scale_y
+            } else {
+                // Fallback: no origin available
+                0.0
+            };
+            let height = font_size;
 
             let is_serif = self.font_name.to_lowercase().contains("times")
                 || self.font_name.to_lowercase().contains("serif")
@@ -206,9 +214,6 @@ pub fn extract_page_text(
             let font_style = detect_font_style(&self.font_name, self.is_italic);
 
             // Sanity check: discard segments with unreasonably large bounds.
-            // Pdfium sometimes returns text-object-level bounds instead of
-            // per-character bounds, producing phantom segments that span
-            // entire columns.
             let char_count = self.text.chars().count() as f64;
             let expected_width = font_size * char_count * 0.8;
             let reasonable = width > 0.0
@@ -268,34 +273,48 @@ pub fn extract_page_text(
             run.reset_bounds();
         }
 
-        // Use origin() for positioning (like PDF.js uses transform matrix)
+        // Use origin() for positioning. Detect line wraps (hyphenation):
+        // if char's origin.x jumps far left of the run's right edge, flush.
         if let Ok((ox, oy)) = ch.origin() {
             let ox = ox.value as f64;
             let oy = oy.value as f64;
-            if run.origin_x == f64::MAX {
-                run.origin_x = ox;
+
+            // Detect line wrap: char is far left of current run's right edge
+            if !run.text.is_empty() && run.right > f64::MIN && ox < run.left - font_size_pts as f64 {
+                run.flush(&mut segments, scale_x, scale_y, page_height_pts);
+                run.reset_bounds();
+            }
+
+            if !run.has_origin_y {
                 run.origin_y = oy;
+                run.has_origin_y = true;
             }
-            // Track right edge using origin.x of each char + loose_bounds width
-            if let Ok(bounds) = ch.loose_bounds() {
+            run.left = run.left.min(ox);
+            // Track right edge: origin.x of this char + estimated char width
+            // Use tight_bounds or loose_bounds width for the individual char
+            let char_w = ch.loose_bounds().ok().map(|b| {
                 #[allow(deprecated)]
-                {
-                    let char_w = bounds.right().value as f64 - bounds.left().value as f64;
-                    run.right = run.right.max(ox + char_w);
-                }
+                { b.right().value as f64 - b.left().value as f64 }
+            }).unwrap_or(font_size_pts as f64 * 0.5);
+            // Only use per-char bounds width if it's reasonable (not text-object-level)
+            let cw = if char_w > 0.0 && char_w < font_size_pts as f64 * 2.0 {
+                char_w
             } else {
-                // Fallback: estimate char width from font size
-                run.right = run.right.max(ox + font_size_pts as f64 * 0.6);
-            }
+                font_size_pts as f64 * 0.5
+            };
+            run.right = run.right.max(ox + cw);
         } else if let Ok(bounds) = ch.loose_bounds() {
-            // Fallback: no origin available, use loose_bounds
+            // Fallback when origin() not available
             #[allow(deprecated)]
             {
-                if run.origin_x == f64::MAX {
-                    run.origin_x = bounds.left().value as f64;
+                let l = bounds.left().value as f64;
+                let r = bounds.right().value as f64;
+                run.left = run.left.min(l);
+                run.right = run.right.max(r);
+                if !run.has_origin_y {
                     run.origin_y = bounds.bottom().value as f64;
+                    run.has_origin_y = true;
                 }
-                run.right = run.right.max(bounds.right().value as f64);
             }
         }
 
@@ -366,10 +385,11 @@ fn extract_page_text_from_doc(
         text: String,
         font_name: String,
         is_italic: bool,
-        origin_x: f64,
+        left: f64,
         origin_y: f64,
         right: f64,
         font_size_pts: f32,
+        has_origin_y: bool,
     }
 
     impl Run {
@@ -378,18 +398,20 @@ fn extract_page_text_from_doc(
                 text: String::new(),
                 font_name: String::new(),
                 is_italic: false,
-                origin_x: f64::MAX,
+                left: f64::MAX,
                 origin_y: 0.0,
                 right: f64::MIN,
                 font_size_pts: 0.0,
+                has_origin_y: false,
             }
         }
 
         fn reset_bounds(&mut self) {
-            self.origin_x = f64::MAX;
+            self.left = f64::MAX;
             self.origin_y = 0.0;
             self.right = f64::MIN;
             self.font_size_pts = 0.0;
+            self.has_origin_y = false;
         }
 
         fn flush(
@@ -405,11 +427,15 @@ fn extract_page_text_from_doc(
             }
 
             let font_size = self.font_size_pts as f64 * scale_y;
-            let ascent_pts = self.font_size_pts as f64 * 0.8;
-            let top_pts = self.origin_y + ascent_pts;
-            let x = self.origin_x * scale_x;
-            let y = (page_height_pts as f64 - top_pts) * scale_y;
-            let width = (self.right - self.origin_x) * scale_x;
+            let x = self.left * scale_x;
+            let width = (self.right - self.left) * scale_x;
+            let y = if self.has_origin_y {
+                let ascent_pts = self.font_size_pts as f64 * 0.8;
+                let top_pts = self.origin_y + ascent_pts;
+                (page_height_pts as f64 - top_pts) * scale_y
+            } else {
+                0.0
+            };
             let height = font_size;
 
             let is_serif = self.font_name.to_lowercase().contains("times")
@@ -483,27 +509,38 @@ fn extract_page_text_from_doc(
         if let Ok((ox, oy)) = ch.origin() {
             let ox = ox.value as f64;
             let oy = oy.value as f64;
-            if run.origin_x == f64::MAX {
-                run.origin_x = ox;
+
+            if !run.text.is_empty() && run.right > f64::MIN && ox < run.left - font_size_pts as f64 {
+                run.flush(&mut segments, scale_x, scale_y, page_height_pts);
+                run.reset_bounds();
+            }
+
+            if !run.has_origin_y {
                 run.origin_y = oy;
+                run.has_origin_y = true;
             }
-            if let Ok(bounds) = ch.loose_bounds() {
+            run.left = run.left.min(ox);
+            let char_w = ch.loose_bounds().ok().map(|b| {
                 #[allow(deprecated)]
-                {
-                    let char_w = bounds.right().value as f64 - bounds.left().value as f64;
-                    run.right = run.right.max(ox + char_w);
-                }
+                { b.right().value as f64 - b.left().value as f64 }
+            }).unwrap_or(font_size_pts as f64 * 0.5);
+            let cw = if char_w > 0.0 && char_w < font_size_pts as f64 * 2.0 {
+                char_w
             } else {
-                run.right = run.right.max(ox + font_size_pts as f64 * 0.6);
-            }
+                font_size_pts as f64 * 0.5
+            };
+            run.right = run.right.max(ox + cw);
         } else if let Ok(bounds) = ch.loose_bounds() {
             #[allow(deprecated)]
             {
-                if run.origin_x == f64::MAX {
-                    run.origin_x = bounds.left().value as f64;
+                let l = bounds.left().value as f64;
+                let r = bounds.right().value as f64;
+                run.left = run.left.min(l);
+                run.right = run.right.max(r);
+                if !run.has_origin_y {
                     run.origin_y = bounds.bottom().value as f64;
+                    run.has_origin_y = true;
                 }
-                run.right = run.right.max(bounds.right().value as f64);
             }
         }
 
