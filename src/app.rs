@@ -23,6 +23,8 @@ const PDF_CSS: &str = include_str!("../assets/pdf.css");
 const COMPONENTS_CSS: &str = include_str!("../assets/components.css");
 const DIALOGS_CSS: &str = include_str!("../assets/dialogs.css");
 const THEME_CSS: &str = include_str!("../assets/theme.css");
+#[cfg(feature = "mobile")]
+const LONGPRESS_JS: &str = include_str!("../assets/longpress.js");
 
 /// Wrapper so mpsc::Sender can be used as Dioxus context (needs Clone + Copy for rsx closures).
 #[derive(Clone, Copy)]
@@ -98,6 +100,7 @@ pub fn App() -> Element {
                 document::Style { {COMPONENTS_CSS} }
                 document::Style { {DIALOGS_CSS} }
                 document::Style { {THEME_CSS} }
+                {longpress_script()}
                 LoadLibraryData {}
                 Layout {}
             }
@@ -131,6 +134,16 @@ pub fn App() -> Element {
     }
 }
 
+#[cfg(feature = "mobile")]
+fn longpress_script() -> Element {
+    rsx! { document::Script { {LONGPRESS_JS} } }
+}
+
+#[cfg(not(feature = "mobile"))]
+fn longpress_script() -> Element {
+    rsx! {}
+}
+
 /// Loads library data from DB into signals on startup and when DB reloads.
 #[component]
 fn LoadLibraryData() -> Element {
@@ -157,6 +170,9 @@ fn LoadLibraryData() -> Element {
             }
             if let Ok(tags) = crate::db::tags::list_tags(conn).await {
                 lib_state.with_mut(|s| s.tags = tags);
+            }
+            if let Ok(searches) = crate::db::saved_searches::list_saved_searches(conn).await {
+                lib_state.with_mut(|s| s.saved_searches = searches);
             }
 
             // Store current modification time for future checks
