@@ -2,9 +2,11 @@
 use rotero_models::Collection;
 use turso::{Connection, Value};
 
+use super::queries;
+
 pub async fn insert_collection(conn: &Connection, coll: &Collection) -> Result<i64, turso::Error> {
     conn.execute(
-        "INSERT INTO collections (name, parent_id, position) VALUES (?1, ?2, ?3)",
+        queries::COLLECTION_INSERT,
         turso::params::Params::Positional(vec![
             Value::Text(coll.name.clone()),
             coll.parent_id.map(Value::Integer).unwrap_or(Value::Null),
@@ -13,7 +15,7 @@ pub async fn insert_collection(conn: &Connection, coll: &Collection) -> Result<i
     )
     .await?;
 
-    let mut rows = conn.query("SELECT last_insert_rowid()", ()).await?;
+    let mut rows = conn.query(queries::LAST_INSERT_ROWID, ()).await?;
     let row = rows
         .next()
         .await?
@@ -24,10 +26,7 @@ pub async fn insert_collection(conn: &Connection, coll: &Collection) -> Result<i
 
 pub async fn list_collections(conn: &Connection) -> Result<Vec<Collection>, turso::Error> {
     let mut rows = conn
-        .query(
-            "SELECT id, name, parent_id, position FROM collections ORDER BY parent_id NULLS FIRST, position",
-            (),
-        )
+        .query(queries::COLLECTION_LIST, ())
         .await?;
 
     let mut colls = Vec::new();
@@ -52,7 +51,7 @@ pub async fn list_collections(conn: &Connection) -> Result<Vec<Collection>, turs
 
 pub async fn rename_collection(conn: &Connection, id: i64, name: &str) -> Result<(), turso::Error> {
     conn.execute(
-        "UPDATE collections SET name = ?1 WHERE id = ?2",
+        queries::COLLECTION_RENAME,
         turso::params::Params::Positional(vec![Value::Text(name.to_string()), Value::Integer(id)]),
     )
     .await?;
@@ -65,7 +64,7 @@ pub async fn reparent_collection(
     new_parent_id: Option<i64>,
 ) -> Result<(), turso::Error> {
     conn.execute(
-        "UPDATE collections SET parent_id = ?1 WHERE id = ?2",
+        queries::COLLECTION_REPARENT,
         turso::params::Params::Positional(vec![
             new_parent_id.map(Value::Integer).unwrap_or(Value::Null),
             Value::Integer(id),
@@ -76,8 +75,7 @@ pub async fn reparent_collection(
 }
 
 pub async fn delete_collection(conn: &Connection, id: i64) -> Result<(), turso::Error> {
-    conn.execute("DELETE FROM collections WHERE id = ?1", [id])
-        .await?;
+    conn.execute(queries::COLLECTION_DELETE, [id]).await?;
     Ok(())
 }
 
@@ -86,10 +84,7 @@ pub async fn list_paper_ids_in_collection(
     collection_id: i64,
 ) -> Result<Vec<i64>, turso::Error> {
     let mut rows = conn
-        .query(
-            "SELECT paper_id FROM paper_collections WHERE collection_id = ?1",
-            [collection_id],
-        )
+        .query(queries::COLLECTION_PAPER_IDS, [collection_id])
         .await?;
     let mut ids = Vec::new();
     while let Some(row) = rows.next().await? {
@@ -105,11 +100,8 @@ pub async fn add_paper_to_collection(
     paper_id: i64,
     collection_id: i64,
 ) -> Result<(), turso::Error> {
-    conn.execute(
-        "INSERT OR IGNORE INTO paper_collections (paper_id, collection_id) VALUES (?1, ?2)",
-        [paper_id, collection_id],
-    )
-    .await?;
+    conn.execute(queries::COLLECTION_ADD_PAPER, [paper_id, collection_id])
+        .await?;
     Ok(())
 }
 
@@ -118,10 +110,7 @@ pub async fn remove_paper_from_collection(
     paper_id: i64,
     collection_id: i64,
 ) -> Result<(), turso::Error> {
-    conn.execute(
-        "DELETE FROM paper_collections WHERE paper_id = ?1 AND collection_id = ?2",
-        [paper_id, collection_id],
-    )
-    .await?;
+    conn.execute(queries::COLLECTION_REMOVE_PAPER, [paper_id, collection_id])
+        .await?;
     Ok(())
 }

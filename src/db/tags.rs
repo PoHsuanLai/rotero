@@ -1,32 +1,40 @@
 use rotero_models::Tag;
 use turso::{Connection, Value};
 
+use super::queries;
+
 pub async fn get_or_create_tag(
     conn: &Connection,
     name: &str,
     color: Option<&str>,
 ) -> Result<i64, turso::Error> {
     let mut rows = conn
-        .query(
-            "SELECT id FROM tags WHERE name = ?1",
-            [Value::Text(name.to_string())],
-        )
+        .query(queries::TAG_FIND_BY_NAME, [Value::Text(name.to_string())])
         .await?;
     if let Some(row) = rows.next().await? {
         let id = row.get_value(0)?.as_integer().copied().unwrap_or(0);
         return Ok(id);
     }
+    // Auto-assign a color from the palette if none provided
+    let actual_color = color.map(|c| c.to_string()).unwrap_or_else(|| {
+        const PALETTE: &[&str] = &[
+            "#6b7085", "#7c6b85", "#6b8580", "#857a6b",
+            "#6b7a85", "#856b7a", "#6b856e", "#85706b",
+            "#6e6b85", "#7a856b", "#856b6b", "#6b8585",
+        ];
+        // Use a hash of the name to pick a color deterministically
+        let hash = name.bytes().fold(0usize, |acc, b| acc.wrapping_add(b as usize));
+        PALETTE[hash % PALETTE.len()].to_string()
+    });
     conn.execute(
-        "INSERT INTO tags (name, color) VALUES (?1, ?2)",
+        queries::TAG_INSERT,
         turso::params::Params::Positional(vec![
             Value::Text(name.to_string()),
-            color
-                .map(|c| Value::Text(c.to_string()))
-                .unwrap_or(Value::Null),
+            Value::Text(actual_color),
         ]),
     )
     .await?;
-    let mut rows = conn.query("SELECT last_insert_rowid()", ()).await?;
+    let mut rows = conn.query(queries::LAST_INSERT_ROWID, ()).await?;
     let row = rows
         .next()
         .await?
@@ -36,9 +44,7 @@ pub async fn get_or_create_tag(
 }
 
 pub async fn list_tags(conn: &Connection) -> Result<Vec<Tag>, turso::Error> {
-    let mut rows = conn
-        .query("SELECT id, name, color FROM tags ORDER BY name", ())
-        .await?;
+    let mut rows = conn.query(queries::TAG_LIST, ()).await?;
     let mut tags = Vec::new();
     while let Some(row) = rows.next().await? {
         tags.push(Tag {
@@ -59,17 +65,14 @@ pub async fn add_tag_to_paper(
     paper_id: i64,
     tag_id: i64,
 ) -> Result<(), turso::Error> {
-    conn.execute(
-        "INSERT OR IGNORE INTO paper_tags (paper_id, tag_id) VALUES (?1, ?2)",
-        [paper_id, tag_id],
-    )
-    .await?;
+    conn.execute(queries::TAG_ADD_TO_PAPER, [paper_id, tag_id])
+        .await?;
     Ok(())
 }
 
 pub async fn rename_tag(conn: &Connection, id: i64, name: &str) -> Result<(), turso::Error> {
     conn.execute(
-        "UPDATE tags SET name = ?1 WHERE id = ?2",
+        queries::TAG_RENAME,
         turso::params::Params::Positional(vec![Value::Text(name.to_string()), Value::Integer(id)]),
     )
     .await?;
@@ -78,7 +81,7 @@ pub async fn rename_tag(conn: &Connection, id: i64, name: &str) -> Result<(), tu
 
 pub async fn update_tag_color(conn: &Connection, id: i64, color: &str) -> Result<(), turso::Error> {
     conn.execute(
-        "UPDATE tags SET color = ?1 WHERE id = ?2",
+        queries::TAG_UPDATE_COLOR,
         turso::params::Params::Positional(vec![Value::Text(color.to_string()), Value::Integer(id)]),
     )
     .await?;
@@ -90,10 +93,7 @@ pub async fn list_paper_ids_by_tag(
     tag_id: i64,
 ) -> Result<Vec<i64>, turso::Error> {
     let mut rows = conn
-        .query(
-            "SELECT paper_id FROM paper_tags WHERE tag_id = ?1",
-            [tag_id],
-        )
+        .query(queries::TAG_PAPER_IDS, [tag_id])
         .await?;
     let mut ids = Vec::new();
     while let Some(row) = rows.next().await? {
@@ -105,6 +105,6 @@ pub async fn list_paper_ids_by_tag(
 }
 
 pub async fn delete_tag(conn: &Connection, id: i64) -> Result<(), turso::Error> {
-    conn.execute("DELETE FROM tags WHERE id = ?1", [id]).await?;
+    conn.execute(queries::TAG_DELETE, [id]).await?;
     Ok(())
 }

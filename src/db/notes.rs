@@ -2,10 +2,11 @@ use chrono::Utc;
 use rotero_models::Note;
 use turso::{Connection, Value};
 
+use super::queries;
+
 pub async fn insert_note(conn: &Connection, note: &Note) -> Result<i64, turso::Error> {
     conn.execute(
-        "INSERT INTO notes (paper_id, title, body, created_at, modified_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
+        queries::NOTE_INSERT,
         turso::params::Params::Positional(vec![
             Value::Integer(note.paper_id),
             Value::Text(note.title.clone()),
@@ -16,7 +17,7 @@ pub async fn insert_note(conn: &Connection, note: &Note) -> Result<i64, turso::E
     )
     .await?;
 
-    let mut rows = conn.query("SELECT last_insert_rowid()", ()).await?;
+    let mut rows = conn.query(queries::LAST_INSERT_ROWID, ()).await?;
     let row = rows
         .next()
         .await?
@@ -30,11 +31,7 @@ pub async fn list_notes_for_paper(
     paper_id: i64,
 ) -> Result<Vec<Note>, turso::Error> {
     let mut rows = conn
-        .query(
-            "SELECT id, paper_id, title, body, created_at, modified_at \
-             FROM notes WHERE paper_id = ?1 ORDER BY created_at DESC",
-            [Value::Integer(paper_id)],
-        )
+        .query(queries::NOTE_LIST_FOR_PAPER, [Value::Integer(paper_id)])
         .await?;
     let mut notes = Vec::new();
     while let Some(row) = rows.next().await? {
@@ -51,7 +48,7 @@ pub async fn update_note(
     body: &str,
 ) -> Result<(), turso::Error> {
     conn.execute(
-        "UPDATE notes SET title = ?1, body = ?2, modified_at = ?3 WHERE id = ?4",
+        queries::NOTE_UPDATE,
         turso::params::Params::Positional(vec![
             Value::Text(title.to_string()),
             Value::Text(body.to_string()),
@@ -64,8 +61,7 @@ pub async fn update_note(
 }
 
 pub async fn delete_note(conn: &Connection, id: i64) -> Result<(), turso::Error> {
-    conn.execute("DELETE FROM notes WHERE id = ?1", [id])
-        .await?;
+    conn.execute(queries::NOTE_DELETE, [id]).await?;
     Ok(())
 }
 

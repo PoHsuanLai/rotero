@@ -2,6 +2,8 @@ use chrono::Utc;
 use rotero_models::{Annotation, AnnotationType};
 use turso::{Connection, Value};
 
+use super::queries;
+
 pub async fn insert_annotation(conn: &Connection, ann: &Annotation) -> Result<i64, turso::Error> {
     let ann_type_str = match ann.ann_type {
         AnnotationType::Highlight => "highlight",
@@ -14,8 +16,7 @@ pub async fn insert_annotation(conn: &Connection, ann: &Annotation) -> Result<i6
     let geometry = serde_json::to_string(&ann.geometry).unwrap_or_else(|_| "{}".to_string());
 
     conn.execute(
-        "INSERT INTO annotations (paper_id, page, ann_type, color, content, geometry, created_at, modified_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        queries::ANNOTATION_INSERT,
         turso::params::Params::Positional(vec![
             Value::Integer(ann.paper_id),
             Value::Integer(ann.page as i64),
@@ -29,7 +30,7 @@ pub async fn insert_annotation(conn: &Connection, ann: &Annotation) -> Result<i6
     )
     .await?;
 
-    let mut rows = conn.query("SELECT last_insert_rowid()", ()).await?;
+    let mut rows = conn.query(queries::LAST_INSERT_ROWID, ()).await?;
     let row = rows
         .next()
         .await?
@@ -43,11 +44,7 @@ pub async fn list_annotations_for_paper(
     paper_id: i64,
 ) -> Result<Vec<Annotation>, turso::Error> {
     let mut rows = conn
-        .query(
-            "SELECT id, paper_id, page, ann_type, color, content, geometry, created_at, modified_at
-             FROM annotations WHERE paper_id = ?1 ORDER BY page, created_at",
-            [paper_id],
-        )
+        .query(queries::ANNOTATION_LIST_FOR_PAPER, [paper_id])
         .await?;
 
     let mut anns = Vec::new();
@@ -64,7 +61,7 @@ pub async fn update_annotation_content(
 ) -> Result<(), turso::Error> {
     let now = Utc::now().to_rfc3339();
     conn.execute(
-        "UPDATE annotations SET content = ?1, modified_at = ?2 WHERE id = ?3",
+        queries::ANNOTATION_UPDATE_CONTENT,
         turso::params::Params::Positional(vec![
             content
                 .map(|s| Value::Text(s.to_string()))
@@ -84,7 +81,7 @@ pub async fn update_annotation_color(
 ) -> Result<(), turso::Error> {
     let now = Utc::now().to_rfc3339();
     conn.execute(
-        "UPDATE annotations SET color = ?1, modified_at = ?2 WHERE id = ?3",
+        queries::ANNOTATION_UPDATE_COLOR,
         turso::params::Params::Positional(vec![
             Value::Text(color.to_string()),
             Value::Text(now),
@@ -96,8 +93,7 @@ pub async fn update_annotation_color(
 }
 
 pub async fn delete_annotation(conn: &Connection, id: i64) -> Result<(), turso::Error> {
-    conn.execute("DELETE FROM annotations WHERE id = ?1", [id])
-        .await?;
+    conn.execute(queries::ANNOTATION_DELETE, [id]).await?;
     Ok(())
 }
 
