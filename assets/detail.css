@@ -5,8 +5,10 @@
 
 .paper-detail {
   width: 360px;
+  min-width: 360px;
   padding: var(--space-6);
   overflow-y: auto;
+  min-height: 0;
   font-size: var(--text-base);
   background: var(--bg-surface);
   border-left: 1px solid var(--border);
@@ -106,4 +108,9 @@
   margin-top: var(--space-10);
   padding-top: var(--space-4);
   border-top: 1px solid var(--border);
+}
+
+.detail-actions {
+  display: flex;
+  gap: var(--space-3);
 }

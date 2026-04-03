@@ -1,13 +1,16 @@
 use dioxus::prelude::*;
 
 use crate::db::Database;
-use crate::state::app_state::LibraryState;
+use crate::state::app_state::{LibraryState, LibraryView, PdfTab, PdfTabManager};
+use crate::sync::engine::SyncConfig;
 use super::components::context_menu::{ContextMenu, ContextMenuItem};
 
 #[component]
 pub fn PaperDetail() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
+    let mut tabs = use_context::<Signal<PdfTabManager>>();
+    let config = use_context::<Signal<SyncConfig>>();
 
     let state = lib_state.read();
     let paper = match state.selected_paper() {
@@ -114,22 +117,59 @@ pub fn PaperDetail() -> Element {
                 super::citation_dialog::CitationDialog {}
             }
 
-            // Delete button
+            // Open / Delete buttons
             div { class: "detail-delete-section",
-                button {
-                    class: "btn btn--danger",
-                    onclick: move |_| {
-                        let db = db.clone();
-                        spawn(async move {
-                            if let Ok(()) = crate::db::papers::delete_paper(db.conn(), paper_id).await {
-                                lib_state.with_mut(|s| {
-                                    s.papers.retain(|p| p.id != Some(paper_id));
-                                    s.selected_paper_id = None;
+                div { class: "detail-actions",
+                    if paper.pdf_path.is_some() {
+                        {
+                            let pdf_rel_path = paper.pdf_path.clone();
+                            let title = paper.title.clone();
+                            let db_open = db.clone();
+                            rsx! {
+                                button {
+                                    class: "btn btn--primary",
+                                    onclick: move |_| {
+                                        if let Some(ref rel_path) = pdf_rel_path {
+                                            let full_path = db_open.resolve_pdf_path(rel_path);
+                                            let path_str = full_path.to_string_lossy().to_string();
+                                            tabs.with_mut(|m| {
+                                                if let Some(idx) = m.find_by_paper_id(paper_id) {
+                                                    let tid = m.tabs[idx].id;
+                                                    m.switch_to(tid);
+                                                } else {
+                                                    let cfg = config.read();
+                                                    let id = m.next_id();
+                                                    let mut tab = PdfTab::new(id, path_str.clone(), title.clone(), cfg.default_zoom, cfg.page_batch_size);
+                                                    tab.paper_id = Some(paper_id);
+                                                    m.open_tab(tab);
+                                                }
+                                            });
+                                            lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                        }
+                                    },
+                                    "Open Paper"
+                                }
+                            }
+                        }
+                    }
+                    button {
+                        class: "btn btn--danger",
+                        onclick: {
+                            let db_del = db.clone();
+                            move |_| {
+                                let db = db_del.clone();
+                                spawn(async move {
+                                    if let Ok(()) = crate::db::papers::delete_paper(db.conn(), paper_id).await {
+                                        lib_state.with_mut(|s| {
+                                            s.papers.retain(|p| p.id != Some(paper_id));
+                                            s.selected_paper_id = None;
+                                        });
+                                    }
                                 });
                             }
-                        });
-                    },
-                    "Delete Paper"
+                        },
+                        "Delete Paper"
+                    }
                 }
             }
 

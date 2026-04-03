@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+#[cfg(feature = "desktop")]
 use super::keybindings::GlobalKeyHandler;
 use super::sidebar::Sidebar;
 use super::library_view::LibraryPanel;
@@ -21,8 +22,13 @@ pub fn Layout() -> Element {
 
     let container_class = if dark { "app-container dark" } else { "app-container" };
 
+    #[cfg(feature = "desktop")]
+    let key_handler = rsx! { GlobalKeyHandler {} };
+    #[cfg(not(feature = "desktop"))]
+    let key_handler = rsx! {};
+
     rsx! {
-        GlobalKeyHandler {}
+        {key_handler}
         div {
             class: "{container_class}",
             "data-scale": "{scale}",
@@ -34,7 +40,7 @@ pub fn Layout() -> Element {
                         PdfViewer {}
                     },
                     _ => rsx! {
-                        div { style: "flex: 1; display: flex;",
+                        div { style: "flex: 1; display: flex; min-height: 0;",
                             LibraryPanel {}
                             if lib_state.read().selected_paper_id.is_some() {
                                 PaperDetail {}
