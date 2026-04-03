@@ -14,6 +14,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
     let db = use_context::<Database>();
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+    let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
     let state = lib_state.read();
     let view = state.view.clone();
     let papers = &state.papers;
@@ -200,23 +201,14 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                     onmouseup: move |evt: Event<MouseData>| {
                                         if drag_paper().0.is_none()
                                             && evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary)
-                                                && let Some(ref rel_path) = pdf_rel {
-                                                    let full_path = db_recent.resolve_pdf_path(rel_path);
-                                                    let path_str = full_path.to_string_lossy().to_string();
-                                                    tabs.with_mut(|m| {
-                                                        if let Some(idx) = m.find_by_paper_id(paper_id) {
-                                                            let tid = m.tabs[idx].id;
-                                                            m.switch_to(tid);
-                                                        } else {
-                                                            let cfg = config.read();
-                                                            let id = m.next_id();
-                                                            let mut tab = PdfTab::new(id, path_str.clone(), title.clone(), cfg.default_zoom, cfg.page_batch_size);
-                                                            tab.paper_id = Some(paper_id);
-                                                            m.open_tab(tab);
-                                                        }
-                                                    });
-                                                    lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
-                                                }
+                                            && let Some(ref rel_path) = pdf_rel
+                                        {
+                                            let full_path = db_recent.resolve_pdf_path(rel_path);
+                                            let path_str = full_path.to_string_lossy().to_string();
+                                            let cfg = config.read();
+                                            tabs.with_mut(|m| m.open_or_switch(paper_id, path_str, title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
+                                            lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                        }
                                     },
                                     oncontextmenu: move |evt: Event<MouseData>| {
                                         evt.prevent_default();
@@ -1032,6 +1024,7 @@ fn OpenPdfButton() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+    let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
     let error_msg = use_signal(|| None::<String>);
 
     rsx! {
@@ -1054,7 +1047,7 @@ fn OpenPdfButton() -> Element {
                                 .file_stem()
                                 .map(|s| s.to_string_lossy().to_string())
                                 .unwrap_or_else(|| "Untitled".to_string());
-                            let tab = PdfTab::new(id, path_str.clone(), title, cfg.default_zoom, cfg.page_batch_size);
+                            let tab = PdfTab::new(id, path_str.clone(), title, cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0);
                             m.open_tab(tab);
                         }
                     });

@@ -5,7 +5,7 @@ use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuS
 use super::import_export::ImportExportButtons;
 use super::search_bar::SearchBar;
 use crate::db::Database;
-use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTab, PdfTabManager};
+use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTabManager};
 
 #[component]
 pub fn LibraryPanel() -> Element {
@@ -594,19 +594,8 @@ pub fn LibraryPanel() -> Element {
                                                     if let Some(ref rel_path) = pdf_rel_path {
                                                         let full_path = db_for_view.resolve_pdf_path(rel_path);
                                                         let path_str = full_path.to_string_lossy().to_string();
-                                                        // Create or switch to tab — PdfViewer handles rendering
-                                                        tabs.with_mut(|m| {
-                                                            if let Some(idx) = m.find_by_paper_id(paper_id) {
-                                                                let tid = m.tabs[idx].id;
-                                                                m.switch_to(tid);
-                                                            } else {
-                                                                let cfg = config.read();
-                                                                let id = m.next_id();
-                                                                let mut tab = PdfTab::new(id, path_str.clone(), title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0);
-                                                                tab.paper_id = Some(paper_id);
-                                                                m.open_tab(tab);
-                                                            }
-                                                        });
+                                                        let cfg = config.read();
+                                                        tabs.with_mut(|m| m.open_or_switch(paper_id, path_str, title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
                                                         lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                                     }
                                                 },
@@ -655,18 +644,8 @@ pub fn LibraryPanel() -> Element {
                                             if let Some(ref rel_path) = pdf_rel {
                                                 let full_path = db_ctx.resolve_pdf_path(rel_path);
                                                 let path_str = full_path.to_string_lossy().to_string();
-                                                tabs.with_mut(|m| {
-                                                    if let Some(idx) = m.find_by_paper_id(pid) {
-                                                        let tid = m.tabs[idx].id;
-                                                        m.switch_to(tid);
-                                                    } else {
-                                                        let cfg = config.read();
-                                                        let id = m.next_id();
-                                                        let mut tab = PdfTab::new(id, path_str.clone(), paper.title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0);
-                                                        tab.paper_id = Some(pid);
-                                                        m.open_tab(tab);
-                                                    }
-                                                });
+                                                let cfg = config.read();
+                                                tabs.with_mut(|m| m.open_or_switch(pid, path_str, paper.title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
                                                 lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                             }
                                         },

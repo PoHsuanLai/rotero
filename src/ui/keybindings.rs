@@ -1,7 +1,7 @@
 use dioxus::desktop::use_global_shortcut;
 use dioxus::prelude::*;
 
-use crate::app::{RenderChannel, ShowSettings};
+use crate::app::{DevicePixelRatio, RenderChannel, ShowSettings};
 use crate::db::Database;
 use crate::state::app_state::{
     AnnotationMode, LibraryState, LibraryView, PdfTab, PdfTabManager, ViewerToolState,
@@ -21,6 +21,7 @@ pub fn GlobalKeyHandler() -> Element {
     let mut new_coll_editing = use_context::<Signal<Option<Option<i64>>>>();
     let mut undo_stack = use_context::<Signal<UndoStack>>();
     let mut tools = use_context::<Signal<ViewerToolState>>();
+    let dpr_sig = use_context::<Signal<DevicePixelRatio>>();
 
     // Cmd+, → Open Settings (Escape to close)
     let _ = use_global_shortcut("CmdOrCtrl+,", move |_| {
@@ -52,6 +53,7 @@ pub fn GlobalKeyHandler() -> Element {
                         title,
                         cfg.default_zoom,
                         cfg.page_batch_size,
+                        dpr_sig.read().0,
                     );
                     m.open_tab(tab);
                 }

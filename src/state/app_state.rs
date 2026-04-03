@@ -39,6 +39,8 @@ pub struct ViewState {
     pub render_zoom: f32,
     pub scroll_top: f64,
     pub page_batch_size: u32,
+    /// Device pixel ratio — render at `zoom * dpr` for sharp output on HiDPI screens.
+    pub dpr: f32,
 }
 
 impl Default for ViewState {
@@ -48,6 +50,7 @@ impl Default for ViewState {
             render_zoom: 1.5,
             scroll_top: 0.0,
             page_batch_size: 5,
+            dpr: 1.0,
         }
     }
 }
@@ -88,7 +91,7 @@ pub struct PdfTab {
 }
 
 impl PdfTab {
-    pub fn new(id: TabId, pdf_path: String, title: String, zoom: f32, batch_size: u32) -> Self {
+    pub fn new(id: TabId, pdf_path: String, title: String, zoom: f32, batch_size: u32, dpr: f32) -> Self {
         Self {
             id,
             pdf_path,
@@ -100,8 +103,9 @@ impl PdfTab {
             render: PageRenderData::default(),
             view: ViewState {
                 zoom,
-                render_zoom: zoom,
+                render_zoom: zoom * dpr,
                 page_batch_size: batch_size,
+                dpr,
                 ..Default::default()
             },
             search: SearchState::default(),
@@ -225,6 +229,27 @@ impl PdfTabManager {
         self.tabs.push(tab);
         self.switch_to(tab_id);
         tab_id
+    }
+
+    /// Switch to an existing tab for this paper, or create a new one.
+    pub fn open_or_switch(
+        &mut self,
+        paper_id: i64,
+        pdf_path: String,
+        title: String,
+        zoom: f32,
+        batch_size: u32,
+        dpr: f32,
+    ) {
+        if let Some(idx) = self.find_by_paper_id(paper_id) {
+            let tid = self.tabs[idx].id;
+            self.switch_to(tid);
+        } else {
+            let id = self.next_id();
+            let mut tab = PdfTab::new(id, pdf_path, title, zoom, batch_size, dpr);
+            tab.paper_id = Some(paper_id);
+            self.open_tab(tab);
+        }
     }
 }
 

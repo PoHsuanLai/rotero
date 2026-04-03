@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use super::components::context_menu::{ContextMenu, ContextMenuItem};
 use crate::db::Database;
-use crate::state::app_state::{LibraryState, LibraryView, PdfTab, PdfTabManager};
+use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
 use crate::sync::engine::SyncConfig;
 
 #[component]
@@ -11,6 +11,7 @@ pub fn PaperDetail() -> Element {
     let db = use_context::<Database>();
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let config = use_context::<Signal<SyncConfig>>();
+    let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
 
     let state = lib_state.read();
     let paper = match state.selected_paper() {
@@ -242,18 +243,8 @@ pub fn PaperDetail() -> Element {
                                         if let Some(ref rel_path) = pdf_rel_path {
                                             let full_path = db_open.resolve_pdf_path(rel_path);
                                             let path_str = full_path.to_string_lossy().to_string();
-                                            tabs.with_mut(|m| {
-                                                if let Some(idx) = m.find_by_paper_id(paper_id) {
-                                                    let tid = m.tabs[idx].id;
-                                                    m.switch_to(tid);
-                                                } else {
-                                                    let cfg = config.read();
-                                                    let id = m.next_id();
-                                                    let mut tab = PdfTab::new(id, path_str.clone(), title.clone(), cfg.default_zoom, cfg.page_batch_size);
-                                                    tab.paper_id = Some(paper_id);
-                                                    m.open_tab(tab);
-                                                }
-                                            });
+                                            let cfg = config.read();
+                                            tabs.with_mut(|m| m.open_or_switch(paper_id, path_str, title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
                                             lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                         }
                                     },

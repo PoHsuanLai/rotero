@@ -10,6 +10,10 @@ use crate::ui::layout::Layout;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ShowSettings(pub bool);
 
+/// Device pixel ratio for HiDPI rendering.
+#[derive(Debug, Clone, Copy)]
+pub struct DevicePixelRatio(pub f32);
+
 const FONTS_CSS: &str = include_str!("../assets/fonts.css");
 const TOKENS_CSS: &str = include_str!("../assets/tokens.css");
 const BASE_CSS: &str = include_str!("../assets/base.css");
@@ -66,6 +70,18 @@ pub fn App() -> Element {
     use_context_provider(|| Signal::new(DragPaper(None)));
     // Undo/redo stack for annotation operations
     use_context_provider(|| Signal::new(crate::state::undo::UndoStack::default()));
+
+    // Detect device pixel ratio for HiDPI rendering
+    let mut dpr_signal = use_context_provider(|| Signal::new(DevicePixelRatio(1.0)));
+    use_hook(move || {
+        spawn(async move {
+            let mut eval = document::eval("window.devicePixelRatio || 1.0");
+            if let Ok(ratio) = eval.recv::<f64>().await {
+                let ratio = (ratio as f32).max(1.0);
+                dpr_signal.write().0 = ratio;
+            }
+        });
+    });
 
     // Spawn dedicated PDF render thread and provide channel as context
     use_context_provider(|| RenderChannel {

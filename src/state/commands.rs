@@ -278,18 +278,20 @@ pub async fn upgrade_quality(
     quality: u8,
     data_dir: &std::path::Path,
 ) -> Result<(), String> {
-    let (pdf_path, zoom, render_zoom) = {
+    let (pdf_path, zoom, dpr, render_zoom) = {
         let mgr = tabs.read();
         let tab = mgr
             .tabs
             .iter()
             .find(|t| t.id == tab_id)
             .ok_or("Tab not found")?;
-        (tab.pdf_path.clone(), tab.view.zoom, tab.view.render_zoom)
+        (tab.pdf_path.clone(), tab.view.zoom, tab.view.dpr, tab.view.render_zoom)
     };
 
+    let render_scale = zoom * dpr;
+
     // Skip if zoom changed (pages will be re-rendered at new zoom anyway)
-    if (render_zoom - zoom).abs() > 0.01 {
+    if (render_zoom - render_scale).abs() > 0.01 {
         return Ok(());
     }
 
@@ -320,7 +322,7 @@ pub async fn upgrade_quality(
         .send(RenderRequest::UpgradeQuality {
             pdf_path: pdf_path.clone(),
             page_indices: indices_to_upgrade,
-            zoom,
+            zoom: render_scale,
             quality,
             reply: reply_tx,
         })
@@ -329,14 +331,14 @@ pub async fn upgrade_quality(
     let pages = recv_reply(reply_rx).await?;
 
     // Re-check zoom hasn't changed while we were rendering
-    let current_zoom = tabs
+    let current_render_scale = tabs
         .read()
         .tabs
         .iter()
         .find(|t| t.id == tab_id)
-        .map(|t| t.view.zoom)
+        .map(|t| t.view.zoom * t.view.dpr)
         .unwrap_or(0.0);
-    if (current_zoom - zoom).abs() > 0.01 {
+    if (current_render_scale - render_scale).abs() > 0.01 {
         return Ok(());
     }
 
@@ -360,7 +362,7 @@ pub async fn upgrade_quality(
     let cache_dir = data_dir.to_path_buf();
     let cache_path = pdf_path;
     std::thread::spawn(move || {
-        crate::cache::save_pages(&cache_dir, &cache_path, zoom, page_count, &pages);
+        crate::cache::save_pages(&cache_dir, &cache_path, render_scale, page_count, &pages);
     });
 
     Ok(())
@@ -375,7 +377,7 @@ pub async fn open_pdf(
     data_dir: &std::path::Path,
     quality: u8,
 ) -> Result<(), String> {
-    let (path, zoom, batch_size) = {
+    let (path, zoom, dpr, batch_size) = {
         let mgr = tabs.read();
         let tab = mgr
             .tabs
@@ -385,16 +387,19 @@ pub async fn open_pdf(
         (
             tab.pdf_path.clone(),
             tab.view.zoom,
+            tab.view.dpr,
             tab.view.page_batch_size,
         )
     };
 
+    let render_scale = zoom * dpr;
+
     // Try loading from disk cache first
-    if let Some((meta, cached_pages)) = crate::cache::load_cached(data_dir, &path, zoom) {
+    if let Some((meta, cached_pages)) = crate::cache::load_cached(data_dir, &path, render_scale) {
         tabs.with_mut(|mgr| {
             if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                 tab.page_count = meta.page_count;
-                tab.view.render_zoom = zoom;
+                tab.view.render_zoom = render_scale;
                 tab.render.rendered_pages = cached_pages;
                 tab.is_loading = false;
             }
@@ -415,7 +420,7 @@ pub async fn open_pdf(
     render_tx
         .send(RenderRequest::OpenPdf {
             pdf_path: path.clone(),
-            zoom,
+            zoom: render_scale,
             batch_size,
             quality: PREVIEW_QUALITY,
             reply: reply_tx,
@@ -428,7 +433,7 @@ pub async fn open_pdf(
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
             tab.page_count = page_count;
-            tab.view.render_zoom = zoom;
+            tab.view.render_zoom = render_scale;
             tab.render.rendered_pages = pages;
             tab.is_loading = false;
         }
@@ -506,15 +511,17 @@ pub async fn render_more_pages(
     quality: u8,
     data_dir: &std::path::Path,
 ) -> Result<(), String> {
-    let (pdf_path, zoom) = {
+    let (pdf_path, zoom, dpr) = {
         let mgr = tabs.read();
         let tab = mgr
             .tabs
             .iter()
             .find(|t| t.id == tab_id)
             .ok_or("Tab not found")?;
-        (tab.pdf_path.clone(), tab.view.zoom)
+        (tab.pdf_path.clone(), tab.view.zoom, tab.view.dpr)
     };
+
+    let render_scale = zoom * dpr;
 
     let (reply_tx, reply_rx) = mpsc::channel();
     render_tx
@@ -522,7 +529,7 @@ pub async fn render_more_pages(
             pdf_path: pdf_path.clone(),
             start,
             count,
-            zoom,
+            zoom: render_scale,
             quality: PREVIEW_QUALITY,
             reply: reply_tx,
         })
@@ -544,7 +551,7 @@ pub async fn render_more_pages(
     let cache_path = pdf_path.clone();
     let page_count = tabs.read().active_tab().map(|t| t.page_count).unwrap_or(0);
     std::thread::spawn(move || {
-        crate::cache::save_pages(&cache_dir, &cache_path, zoom, page_count, &cache_pages);
+        crate::cache::save_pages(&cache_dir, &cache_path, render_scale, page_count, &cache_pages);
     });
 
     tabs.with_mut(|mgr| {
@@ -601,15 +608,17 @@ pub async fn set_zoom(
     quality: u8,
     data_dir: &std::path::Path,
 ) -> Result<(), String> {
-    let (pdf_path, page_count) = {
+    let (pdf_path, page_count, dpr) = {
         let mgr = tabs.read();
         let tab = mgr
             .tabs
             .iter()
             .find(|t| t.id == tab_id)
             .ok_or("Tab not found")?;
-        (tab.pdf_path.clone(), tab.rendered_count())
+        (tab.pdf_path.clone(), tab.rendered_count(), tab.view.dpr)
     };
+
+    let render_scale = new_zoom * dpr;
 
     // Set zoom immediately for CSS progressive scaling
     tabs.with_mut(|mgr| {
@@ -623,7 +632,7 @@ pub async fn set_zoom(
         .send(RenderRequest::SetZoom {
             pdf_path,
             page_count,
-            new_zoom,
+            new_zoom: render_scale,
             quality: PREVIEW_QUALITY,
             reply: reply_tx,
         })
@@ -635,7 +644,7 @@ pub async fn set_zoom(
 
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
-            tab.view.render_zoom = new_zoom;
+            tab.view.render_zoom = render_scale;
             tab.render.rendered_pages = pages;
             tab.render.text_data.clear(); // will be re-extracted at new zoom
         }
