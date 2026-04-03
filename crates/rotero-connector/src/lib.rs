@@ -12,8 +12,9 @@ use rotero_models::Paper;
 /// Shared state for the connector server.
 pub struct ConnectorState {
     /// Callback invoked when a paper is saved via the browser extension.
-    /// Arguments: paper, collection_id, tag_ids
-    pub on_paper_saved: Option<Box<dyn Fn(Paper, Option<i64>, Vec<i64>) + Send + Sync>>,
+    /// Arguments: paper, collection_id, tag_ids, pdf_url
+    pub on_paper_saved:
+        Option<Box<dyn Fn(Paper, Option<i64>, Vec<i64>, Option<String>) + Send + Sync>>,
     /// Callback to get the list of collections.
     pub on_get_collections: Option<Box<dyn Fn() -> Vec<CollectionInfo> + Send + Sync>>,
     /// Callback to get the list of tags.
@@ -35,6 +36,7 @@ pub fn router(state: Arc<ConnectorState>) -> Router {
         .route("/api/collections", get(handlers::collections))
         .route("/api/tags", get(handlers::tags))
         .route("/api/save", post(handlers::save_paper))
+        .route("/api/scrape", post(handlers::scrape))
         .layer(cors)
         .with_state(state)
 }

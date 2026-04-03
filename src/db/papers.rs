@@ -116,6 +116,18 @@ pub async fn update_paper_metadata(conn: &Connection, id: i64, paper: &Paper) ->
     Ok(())
 }
 
+pub async fn update_pdf_path(conn: &Connection, id: i64, pdf_path: &str) -> Result<(), turso::Error> {
+    conn.execute(
+        "UPDATE papers SET pdf_path = ?1, date_modified = ?2 WHERE id = ?3",
+        turso::params::Params::Positional(vec![
+            Value::Text(pdf_path.to_string()),
+            Value::Text(chrono::Utc::now().to_rfc3339()),
+            Value::Integer(id),
+        ]),
+    ).await?;
+    Ok(())
+}
+
 pub async fn delete_paper(conn: &Connection, id: i64) -> Result<(), turso::Error> {
     conn.execute("DELETE FROM papers WHERE id = ?1", [id]).await?;
     Ok(())
