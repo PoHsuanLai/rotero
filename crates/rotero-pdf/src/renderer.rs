@@ -3,6 +3,15 @@ use image::codecs::jpeg::JpegEncoder;
 use pdfium_render::prelude::*;
 use thiserror::Error;
 
+fn file_mtime(path: &str) -> u64 {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 #[derive(Error, Debug)]
 pub enum PdfError {
     #[error("Failed to bind PDFium library: {0}")]
@@ -20,10 +29,15 @@ pub enum PdfError {
 }
 
 /// Holds the PDFium bindings and provides PDF operations.
-/// Each operation loads the document fresh to avoid borrow issues with pdfium-render's
-/// lifetime-bound PdfDocument type.
+///
+/// Caches the most recently used PDF file bytes in memory so that repeated operations
+/// on the same document (render pages, extract text, thumbnails, etc.) avoid redundant
+/// disk I/O. The cached bytes are used with `load_pdf_from_byte_vec` which is significantly
+/// faster than `load_pdf_from_file` for repeated access.
 pub struct PdfEngine {
     pdfium: Pdfium,
+    /// Cached (path, mtime, file_bytes) for the most recently opened PDF.
+    cached_bytes: Option<(String, u64, Vec<u8>)>,
 }
 
 pub struct PdfDocumentInfo {
@@ -53,6 +67,7 @@ impl PdfEngine {
             .map_err(|e| PdfError::BindError(e.to_string()))?;
         Ok(Self {
             pdfium: Pdfium::new(bindings),
+            cached_bytes: None,
         })
     }
 
@@ -78,12 +93,34 @@ impl PdfEngine {
 
         Ok(Self {
             pdfium: Pdfium::new(bindings),
+            cached_bytes: None,
         })
     }
 
+    /// Get cached file bytes for a PDF, reading from disk only if the file changed
+    /// or is a different path than what's cached.
+    fn get_pdf_bytes(&mut self, pdf_path: &str) -> Result<Vec<u8>, PdfError> {
+        let mtime = file_mtime(pdf_path);
+        if let Some((ref cached_path, cached_mtime, ref bytes)) = self.cached_bytes {
+            if cached_path == pdf_path && cached_mtime == mtime {
+                return Ok(bytes.clone());
+            }
+        }
+        let bytes = std::fs::read(pdf_path)
+            .map_err(|e| PdfError::RenderError(format!("Failed to read {pdf_path}: {e}")))?;
+        self.cached_bytes = Some((pdf_path.to_string(), mtime, bytes.clone()));
+        Ok(bytes)
+    }
+
+    /// Open a PDF document from the byte cache (avoids repeated disk reads).
+    fn open_document(&mut self, pdf_path: &str) -> Result<pdfium_render::prelude::PdfDocument<'_>, PdfError> {
+        let bytes = self.get_pdf_bytes(pdf_path)?;
+        Ok(self.pdfium.load_pdf_from_byte_vec(bytes, None)?)
+    }
+
     /// Load a PDF and return basic info (page count, path).
-    pub fn load_document(&self, pdf_path: &str) -> Result<PdfDocumentInfo, PdfError> {
-        let document = self.pdfium.load_pdf_from_file(pdf_path, None)?;
+    pub fn load_document(&mut self, pdf_path: &str) -> Result<PdfDocumentInfo, PdfError> {
+        let document = self.open_document(pdf_path)?;
         Ok(PdfDocumentInfo {
             path: pdf_path.to_string(),
             page_count: document.pages().len() as u32,
@@ -94,13 +131,13 @@ impl PdfEngine {
     /// `scale` controls the zoom level (1.0 = 72 DPI, 2.0 = 144 DPI, etc.)
     /// `quality` is JPEG quality (1-100).
     pub fn render_page(
-        &self,
+        &mut self,
         pdf_path: &str,
         page_index: u32,
         scale: f32,
         quality: u8,
     ) -> Result<RenderedPage, PdfError> {
-        let document = self.pdfium.load_pdf_from_file(pdf_path, None)?;
+        let document = self.open_document(pdf_path)?;
         let page_count = document.pages().len() as u32;
 
         if page_index >= page_count {
@@ -127,7 +164,7 @@ impl PdfEngine {
         let img_width = image.width();
         let img_height = image.height();
 
-        let mut img_bytes: Vec<u8> = Vec::new();
+        let mut img_bytes: Vec<u8> = Vec::with_capacity(256 * 1024);
         let encoder = JpegEncoder::new_with_quality(&mut img_bytes, quality);
         image.write_with_encoder(encoder)?;
 
@@ -144,18 +181,19 @@ impl PdfEngine {
 
     /// Render multiple pages (useful for pre-rendering visible pages).
     pub fn render_pages(
-        &self,
+        &mut self,
         pdf_path: &str,
         start: u32,
         count: u32,
         scale: f32,
         quality: u8,
     ) -> Result<Vec<RenderedPage>, PdfError> {
-        let document = self.pdfium.load_pdf_from_file(pdf_path, None)?;
+        let document = self.open_document(pdf_path)?;
         let page_count = document.pages().len() as u32;
         let end = (start + count).min(page_count);
 
-        let mut pages = Vec::new();
+        let mut pages = Vec::with_capacity((end - start) as usize);
+        let mut img_bytes: Vec<u8> = Vec::with_capacity(256 * 1024);
         for i in start..end {
             let page = document
                 .pages()
@@ -177,7 +215,7 @@ impl PdfEngine {
             let img_width = image.width();
             let img_height = image.height();
 
-            let mut img_bytes: Vec<u8> = Vec::new();
+            img_bytes.clear();
             let encoder = JpegEncoder::new_with_quality(&mut img_bytes, quality);
             image.write_with_encoder(encoder)?;
 
@@ -203,14 +241,15 @@ impl PdfEngine {
 
     /// Render all pages as small thumbnails (fixed max width).
     pub fn render_all_thumbnails(
-        &self,
+        &mut self,
         pdf_path: &str,
         max_width: u32,
         quality: u8,
     ) -> Result<Vec<RenderedPage>, PdfError> {
-        let document = self.pdfium.load_pdf_from_file(pdf_path, None)?;
+        let document = self.open_document(pdf_path)?;
         let page_count = document.pages().len() as u32;
-        let mut thumbs = Vec::new();
+        let mut thumbs = Vec::with_capacity(page_count as usize);
+        let mut img_bytes: Vec<u8> = Vec::with_capacity(64 * 1024);
 
         for i in 0..page_count {
             let page = document
@@ -234,7 +273,7 @@ impl PdfEngine {
             let img_width = image.width();
             let img_height = image.height();
 
-            let mut img_bytes: Vec<u8> = Vec::new();
+            img_bytes.clear();
             let encoder = JpegEncoder::new_with_quality(&mut img_bytes, quality);
             image.write_with_encoder(encoder)?;
 
@@ -254,10 +293,10 @@ impl PdfEngine {
 
     /// Extract the document outline/bookmarks.
     pub fn extract_outline(
-        &self,
+        &mut self,
         pdf_path: &str,
     ) -> Result<Vec<BookmarkEntry>, PdfError> {
-        let document = self.pdfium.load_pdf_from_file(pdf_path, None)?;
+        let document = self.open_document(pdf_path)?;
         let bookmarks = document.bookmarks();
         let mut entries = Vec::new();
 
@@ -286,12 +325,12 @@ impl PdfEngine {
 
     /// Get page dimensions (in points) for all pages without rendering.
     pub fn get_page_dimensions(
-        &self,
+        &mut self,
         pdf_path: &str,
     ) -> Result<Vec<(f32, f32)>, PdfError> {
-        let document = self.pdfium.load_pdf_from_file(pdf_path, None)?;
+        let document = self.open_document(pdf_path)?;
         let page_count = document.pages().len() as u32;
-        let mut dims = Vec::new();
+        let mut dims = Vec::with_capacity(page_count as usize);
 
         for i in 0..page_count {
             let page = document
@@ -306,8 +345,8 @@ impl PdfEngine {
 
     /// Extract annotations from the PDF that Rotero can display.
     /// Returns annotations in PDF-point coordinates.
-    pub fn extract_annotations(&self, pdf_path: &str) -> Result<Vec<ExtractedAnnotation>, PdfError> {
-        let document = self.pdfium.load_pdf_from_file(pdf_path, None)?;
+    pub fn extract_annotations(&mut self, pdf_path: &str) -> Result<Vec<ExtractedAnnotation>, PdfError> {
+        let document = self.open_document(pdf_path)?;
         let page_count = document.pages().len() as u32;
         let mut result = Vec::new();
 
