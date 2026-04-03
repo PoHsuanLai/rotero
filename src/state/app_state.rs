@@ -20,7 +20,11 @@ pub struct PageRenderData {
 impl PageRenderData {
     /// Insert a page only if it improves quality (prevents downgrading a hi-res page).
     pub fn insert_if_better(&mut self, page: RenderedPageData) {
-        if let Some(existing) = self.rendered_pages.iter_mut().find(|p| p.page_index == page.page_index) {
+        if let Some(existing) = self
+            .rendered_pages
+            .iter_mut()
+            .find(|p| p.page_index == page.page_index)
+        {
             if existing.quality < page.quality {
                 *existing = page;
             }
@@ -313,11 +317,11 @@ impl SearchSource {
         ]
     }
 
-    pub fn provider(&self) -> Option<&'static dyn rotero_search::PaperSearchProvider> {
+    pub fn provider(&self) -> Option<rotero_search::SearchProvider> {
         match self {
-            Self::OpenAlex => Some(&rotero_search::OpenAlexProvider),
-            Self::ArXiv => Some(&rotero_search::ArXivProvider),
-            Self::SemanticScholar => Some(&rotero_search::SemanticScholarProvider),
+            Self::OpenAlex => Some(rotero_search::SearchProvider::OpenAlex),
+            Self::ArXiv => Some(rotero_search::SearchProvider::ArXiv),
+            Self::SemanticScholar => Some(rotero_search::SearchProvider::SemanticScholar),
             Self::Local => None,
         }
     }

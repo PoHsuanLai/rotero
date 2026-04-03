@@ -5467,6 +5467,7 @@ dependencies = [
  "chrono",
  "dioxus",
  "directories",
+ "futures-util",
  "regex",
  "reqwest",
  "rfd 0.14.1",

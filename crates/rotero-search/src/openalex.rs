@@ -69,10 +69,9 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<FetchedMetad
         urlencoding::encode(query)
     );
 
-    let client = reqwest::Client::new();
+    let client = crate::shared_client();
     let resp = client
         .get(&url)
-        .header("User-Agent", "Rotero/0.1.0 (mailto:rotero@example.com)")
         .send()
         .await
         .map_err(|e| format!("OpenAlex request failed: {e}"))?;
@@ -106,10 +105,9 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<FetchedMetad
 pub async fn autocomplete(query: &str) -> Result<Vec<FetchedMetadata>, String> {
     let url = format!("{OPENALEX_AUTOCOMPLETE}?q={}", urlencoding::encode(query));
 
-    let client = reqwest::Client::new();
+    let client = crate::shared_client();
     let resp = client
         .get(&url)
-        .header("User-Agent", "Rotero/0.1.0 (mailto:rotero@example.com)")
         .send()
         .await
         .map_err(|e| format!("OpenAlex autocomplete failed: {e}"))?;
