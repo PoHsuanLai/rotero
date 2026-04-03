@@ -68,19 +68,19 @@ pub fn GlobalKeyHandler() -> Element {
 
         if let Some(path) = file
             && let Ok(content) = std::fs::read_to_string(&path)
-                && let Ok(papers) = rotero_bib::import_bibtex(&content) {
-                    let db = db_import.clone();
-                    spawn(async move {
-                        for paper in papers {
-                            if let Ok(id) = crate::db::papers::insert_paper(db.conn(), &paper).await
-                            {
-                                let mut paper = paper;
-                                paper.id = Some(id);
-                                lib_state.with_mut(|s| s.papers.insert(0, paper));
-                            }
-                        }
-                    });
+            && let Ok(papers) = rotero_bib::import_bibtex(&content)
+        {
+            let db = db_import.clone();
+            spawn(async move {
+                for paper in papers {
+                    if let Ok(id) = crate::db::papers::insert_paper(db.conn(), &paper).await {
+                        let mut paper = paper;
+                        paper.id = Some(id);
+                        lib_state.with_mut(|s| s.papers.insert(0, paper));
+                    }
                 }
+            });
+        }
     });
 
     // Cmd+E → Export BibTeX
@@ -191,10 +191,11 @@ pub fn GlobalKeyHandler() -> Element {
         tabs.with_mut(|m| {
             if let Some(active_id) = m.active_tab_id
                 && let Some(idx) = m.tabs.iter().position(|t| t.id == active_id)
-                    && idx > 0 {
-                        let prev_id = m.tabs[idx - 1].id;
-                        m.switch_to(prev_id);
-                    }
+                && idx > 0
+            {
+                let prev_id = m.tabs[idx - 1].id;
+                m.switch_to(prev_id);
+            }
         });
         if lib_state.read().view != LibraryView::PdfViewer {
             lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
@@ -207,10 +208,11 @@ pub fn GlobalKeyHandler() -> Element {
         tabs.with_mut(|m| {
             if let Some(active_id) = m.active_tab_id
                 && let Some(idx) = m.tabs.iter().position(|t| t.id == active_id)
-                    && idx + 1 < m.tabs.len() {
-                        let next_id = m.tabs[idx + 1].id;
-                        m.switch_to(next_id);
-                    }
+                && idx + 1 < m.tabs.len()
+            {
+                let next_id = m.tabs[idx + 1].id;
+                m.switch_to(next_id);
+            }
         });
         if lib_state.read().view != LibraryView::PdfViewer {
             lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
@@ -252,12 +254,13 @@ pub fn GlobalKeyHandler() -> Element {
             // Close PDF search bar if open
             tabs.with_mut(|m| {
                 if let Some(t) = m.active_tab_mut()
-                    && t.search.visible {
-                        t.search.visible = false;
-                        t.search.query.clear();
-                        t.search.matches.clear();
-                        t.search.current_index = 0;
-                    }
+                    && t.search.visible
+                {
+                    t.search.visible = false;
+                    t.search.query.clear();
+                    t.search.matches.clear();
+                    t.search.current_index = 0;
+                }
             });
         }
     });

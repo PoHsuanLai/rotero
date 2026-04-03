@@ -1018,7 +1018,9 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
     let note_class = btn(AnnotationMode::Note);
     let ink_class = btn(AnnotationMode::Ink);
     let text_class = btn(AnnotationMode::Text);
-    let colors = ["#ffff00", "#ff6b6b", "#51cf66", "#339af0", "#cc5de8", "#ff922b"];
+    let colors = [
+        "#ffff00", "#ff6b6b", "#51cf66", "#339af0", "#cc5de8", "#ff922b",
+    ];
 
     rsx! {
         div { class: "pdf-toolbar",
@@ -1389,12 +1391,14 @@ fn AnnotationContextMenu() -> Element {
 
     let db_color = db.clone();
     let db_delete = db.clone();
-    let colors = [("#ffff00", "Yellow"),
+    let colors = [
+        ("#ffff00", "Yellow"),
         ("#ff6b6b", "Red"),
         ("#51cf66", "Green"),
         ("#339af0", "Blue"),
         ("#cc5de8", "Purple"),
-        ("#ff922b", "Orange")];
+        ("#ff922b", "Orange"),
+    ];
 
     rsx! {
         ContextMenu {

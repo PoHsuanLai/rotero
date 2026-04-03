@@ -173,34 +173,33 @@ fn LoadLibraryData() -> Element {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 if let Some(flag) = crate::CONNECTOR_DIRTY.get()
-                    && flag.swap(false, std::sync::atomic::Ordering::AcqRel) {
-                        let conn = db.conn();
-                        if let Ok(papers) = crate::db::papers::list_papers(conn).await {
-                            lib_state.with_mut(|s| s.papers = papers);
-                        }
-                        // Refresh collection/tag paper IDs if viewing one
-                        let view = lib_state.read().view.clone();
-                        match view {
-                            LibraryView::Collection(coll_id) => {
-                                if let Ok(ids) =
-                                    crate::db::collections::list_paper_ids_in_collection(
-                                        conn, coll_id,
-                                    )
-                                    .await
-                                {
-                                    lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
-                                }
-                            }
-                            LibraryView::Tag(tag_id) => {
-                                if let Ok(ids) =
-                                    crate::db::tags::list_paper_ids_by_tag(conn, tag_id).await
-                                {
-                                    lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
-                                }
-                            }
-                            _ => {}
-                        }
+                    && flag.swap(false, std::sync::atomic::Ordering::AcqRel)
+                {
+                    let conn = db.conn();
+                    if let Ok(papers) = crate::db::papers::list_papers(conn).await {
+                        lib_state.with_mut(|s| s.papers = papers);
                     }
+                    // Refresh collection/tag paper IDs if viewing one
+                    let view = lib_state.read().view.clone();
+                    match view {
+                        LibraryView::Collection(coll_id) => {
+                            if let Ok(ids) =
+                                crate::db::collections::list_paper_ids_in_collection(conn, coll_id)
+                                    .await
+                            {
+                                lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
+                            }
+                        }
+                        LibraryView::Tag(tag_id) => {
+                            if let Ok(ids) =
+                                crate::db::tags::list_paper_ids_by_tag(conn, tag_id).await
+                            {
+                                lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
     });

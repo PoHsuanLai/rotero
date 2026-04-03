@@ -7,9 +7,7 @@ pub async fn insert_collection(conn: &Connection, coll: &Collection) -> Result<i
         "INSERT INTO collections (name, parent_id, position) VALUES (?1, ?2, ?3)",
         turso::params::Params::Positional(vec![
             Value::Text(coll.name.clone()),
-            coll.parent_id
-                .map(Value::Integer)
-                .unwrap_or(Value::Null),
+            coll.parent_id.map(Value::Integer).unwrap_or(Value::Null),
             Value::Integer(coll.position as i64),
         ]),
     )
@@ -69,9 +67,7 @@ pub async fn reparent_collection(
     conn.execute(
         "UPDATE collections SET parent_id = ?1 WHERE id = ?2",
         turso::params::Params::Positional(vec![
-            new_parent_id
-                .map(Value::Integer)
-                .unwrap_or(Value::Null),
+            new_parent_id.map(Value::Integer).unwrap_or(Value::Null),
             Value::Integer(id),
         ]),
     )

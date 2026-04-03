@@ -113,9 +113,10 @@ pub async fn reverse_action(
             {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()
-                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
-                            a.content = old.clone();
-                        }
+                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id))
+                    {
+                        a.content = old.clone();
+                    }
                 });
             }
         }
@@ -125,9 +126,10 @@ pub async fn reverse_action(
             {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()
-                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
-                            a.color = old.clone();
-                        }
+                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id))
+                    {
+                        a.color = old.clone();
+                    }
                 });
             }
         }
@@ -172,9 +174,10 @@ pub async fn forward_action(
             {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()
-                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
-                            a.content = new.clone();
-                        }
+                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id))
+                    {
+                        a.content = new.clone();
+                    }
                 });
             }
         }
@@ -184,9 +187,10 @@ pub async fn forward_action(
             {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()
-                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
-                            a.color = new.clone();
-                        }
+                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id))
+                    {
+                        a.color = new.clone();
+                    }
                 });
             }
         }

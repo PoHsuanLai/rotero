@@ -868,10 +868,7 @@ fn NewCollectionRow(parent_id: Option<i64>, depth: u32) -> Element {
 /// Needs to be its own component so signal reads are properly tracked
 /// (CollapsibleSection children don't re-render when context signals change).
 #[component]
-fn TagSection(
-    tags: Vec<rotero_models::Tag>,
-    ctx_menu: Signal<Option<TagContextMenu>>,
-) -> Element {
+fn TagSection(tags: Vec<rotero_models::Tag>, ctx_menu: Signal<Option<TagContextMenu>>) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
     let mut drag_paper = use_context::<Signal<DragPaper>>();

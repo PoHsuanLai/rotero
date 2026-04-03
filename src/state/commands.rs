@@ -694,37 +694,39 @@ pub async fn extract_and_fetch_metadata(
 
     // 3. If DOI found and auto_fetch enabled, call CrossRef
     if let Some(ref doi_str) = doi
-        && auto_fetch {
-            match crate::metadata::crossref::fetch_by_doi(doi_str).await {
-                Ok(meta) => {
-                    tracing::info!(title = %meta.title, authors = ?meta.authors, "extract_and_fetch_metadata: CrossRef success");
-                    let fetched = crate::metadata::parser::metadata_to_paper(meta);
-                    if apply_fetched_metadata(conn, paper_id, &fetched, lib_state).await {
-                        return;
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(%e, "extract_and_fetch_metadata: CrossRef lookup failed");
+        && auto_fetch
+    {
+        match crate::metadata::crossref::fetch_by_doi(doi_str).await {
+            Ok(meta) => {
+                tracing::info!(title = %meta.title, authors = ?meta.authors, "extract_and_fetch_metadata: CrossRef success");
+                let fetched = crate::metadata::parser::metadata_to_paper(meta);
+                if apply_fetched_metadata(conn, paper_id, &fetched, lib_state).await {
+                    return;
                 }
             }
+            Err(e) => {
+                tracing::warn!(%e, "extract_and_fetch_metadata: CrossRef lookup failed");
+            }
         }
+    }
 
     // 3b. If arXiv ID found and auto_fetch enabled, call arXiv API
     if let Some(ref arxiv) = arxiv_id
-        && auto_fetch {
-            match crate::metadata::arxiv::fetch_by_arxiv_id(arxiv).await {
-                Ok(meta) => {
-                    tracing::info!(title = %meta.title, authors = ?meta.authors, "extract_and_fetch_metadata: arXiv success");
-                    let fetched = crate::metadata::parser::metadata_to_paper(meta);
-                    if apply_fetched_metadata(conn, paper_id, &fetched, lib_state).await {
-                        return;
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(%e, "extract_and_fetch_metadata: arXiv lookup failed");
+        && auto_fetch
+    {
+        match crate::metadata::arxiv::fetch_by_arxiv_id(arxiv).await {
+            Ok(meta) => {
+                tracing::info!(title = %meta.title, authors = ?meta.authors, "extract_and_fetch_metadata: arXiv success");
+                let fetched = crate::metadata::parser::metadata_to_paper(meta);
+                if apply_fetched_metadata(conn, paper_id, &fetched, lib_state).await {
+                    return;
                 }
             }
+            Err(e) => {
+                tracing::warn!(%e, "extract_and_fetch_metadata: arXiv lookup failed");
+            }
         }
+    }
 
     // 4. Fallback: use PDF document properties + extracted DOI/arXiv ID
     let has_update = doc_meta.title.is_some()

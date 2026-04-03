@@ -105,9 +105,10 @@ impl SyncConfig {
         let path = config_path();
         if path.exists()
             && let Ok(content) = std::fs::read_to_string(&path)
-                && let Ok(config) = serde_json::from_str(&content) {
-                    return config;
-                }
+            && let Ok(config) = serde_json::from_str(&content)
+        {
+            return config;
+        }
         Self::default()
     }
 
@@ -165,9 +166,10 @@ pub fn check_external_modification(
 ) -> bool {
     if let Some(last) = last_known_modified
         && let Ok(metadata) = std::fs::metadata(db_path)
-            && let Ok(modified) = metadata.modified() {
-                return modified > last;
-            }
+        && let Ok(modified) = metadata.modified()
+    {
+        return modified > last;
+    }
     false
 }
 

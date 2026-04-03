@@ -25,9 +25,10 @@ pub fn extract_arxiv_id(text: &str) -> Option<String> {
         let id = c.get(1).unwrap().as_str();
         // Strip version suffix for API lookup
         if let Some(pos) = id.rfind('v')
-            && id[pos + 1..].chars().all(|c| c.is_ascii_digit()) {
-                return id[..pos].to_string();
-            }
+            && id[pos + 1..].chars().all(|c| c.is_ascii_digit())
+        {
+            return id[..pos].to_string();
+        }
         id.to_string()
     })
 }
