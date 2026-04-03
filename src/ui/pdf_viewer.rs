@@ -344,19 +344,13 @@ pub fn PdfViewer() -> Element {
                     class: "pdf-pages",
                     id: "pdf-pages-container",
                     onscroll: move |_| {
-                        tracing::info!(is_loading = is_loading(), "onscroll fired");
-                        if is_loading() {
-                            return;
-                        }
-                        // Read fresh values from tab state (not stale captures)
+                        if is_loading() { return; }
                         let (start, has_more_now, tid) = {
                             let mgr = tabs.read();
                             if let Some(t) = mgr.active_tab() {
                                 let rendered = t.render.rendered_pages.len() as u32;
                                 (rendered, rendered < t.page_count, t.id)
-                            } else {
-                                return;
-                            }
+                            } else { return; }
                         };
                         if !has_more_now { return; }
 
@@ -365,31 +359,11 @@ pub fn PdfViewer() -> Element {
                         let quality = config.read().render_quality;
                         is_loading.set(true);
                         spawn(async move {
-                            // Save scroll position
-                            let mut eval = document::eval(
-                                "let el = document.getElementById('pdf-pages-container'); el ? el.scrollTop : 0"
-                            );
-                            if let Ok(scroll_top) = eval.recv::<f64>().await {
-                                tabs.with_mut(|m| {
-                                    if let Some(t) = m.active_tab_mut() {
-                                        t.view.scroll_top = scroll_top;
-                                    }
-                                });
-                            }
-
-                            // Check if near bottom
-                            let mut eval2 = document::eval(
-                                "let el = document.getElementById('pdf-pages-container'); el ? (el.scrollTop + el.clientHeight >= el.scrollHeight - 800) : false"
-                            );
-                            let near_bottom = eval2.recv::<bool>().await.unwrap_or(false);
-
-                            if near_bottom {
-                                tracing::info!(start, count, tid, "loading more pages");
-                                let _ = crate::state::commands::render_more_pages(
-                                    &render_tx, &mut tabs, tid, start, count, quality,
-                                ).await;
-                                tracing::info!("done loading more pages");
-                            }
+                            tracing::info!(start, count, tid, "loading more pages");
+                            let _ = crate::state::commands::render_more_pages(
+                                &render_tx, &mut tabs, tid, start, count, quality,
+                            ).await;
+                            tracing::info!("done loading more pages");
                             is_loading.set(false);
                         });
                     },
