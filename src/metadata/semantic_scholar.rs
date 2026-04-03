@@ -3,7 +3,7 @@ use serde::Deserialize;
 use super::crossref::FetchedMetadata;
 
 const S2_API: &str = "https://api.semanticscholar.org/graph/v1/paper";
-const S2_FIELDS: &str = "title,authors,year,abstract,venue,externalIds,publicationVenue";
+const S2_FIELDS: &str = "title,authors,year,abstract,venue,externalIds,publicationVenue,citationCount";
 
 #[derive(Debug, Deserialize)]
 struct S2Paper {
@@ -17,6 +17,8 @@ struct S2Paper {
     external_ids: Option<S2ExternalIds>,
     #[serde(rename = "publicationVenue")]
     publication_venue: Option<S2Venue>,
+    #[serde(rename = "citationCount")]
+    citation_count: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,5 +110,6 @@ fn paper_to_metadata(paper: S2Paper, doi: &str) -> Result<FetchedMetadata, Strin
         abstract_text: paper.abstract_text,
         url: None,
         doi: doi.to_string(),
+        citation_count: paper.citation_count,
     })
 }

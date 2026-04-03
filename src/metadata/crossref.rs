@@ -53,6 +53,7 @@ pub struct FetchedMetadata {
     pub abstract_text: Option<String>,
     pub url: Option<String>,
     pub doi: String,
+    pub citation_count: Option<i64>,
 }
 
 pub async fn fetch_by_doi(doi: &str) -> Result<FetchedMetadata, String> {
@@ -122,6 +123,7 @@ pub async fn fetch_by_doi(doi: &str) -> Result<FetchedMetadata, String> {
         abstract_text,
         url: work.url,
         doi: work.doi.unwrap_or_else(|| doi.to_string()),
+        citation_count: None,
     })
 }
 

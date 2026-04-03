@@ -14,6 +14,7 @@ struct OpenAlexWork {
     authorships: Option<Vec<OpenAlexAuthorship>>,
     #[serde(rename = "abstract_inverted_index")]
     abstract_inverted_index: Option<serde_json::Value>,
+    cited_by_count: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -157,6 +158,7 @@ fn work_to_metadata(work: OpenAlexWork, doi: &str) -> Result<FetchedMetadata, St
         } else {
             doi.to_string()
         },
+        citation_count: work.cited_by_count,
     })
 }
 

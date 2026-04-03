@@ -20,6 +20,7 @@ pub struct Paper {
     pub date_modified: DateTime<Utc>,
     pub is_favorite: bool,
     pub is_read: bool,
+    pub citation_count: Option<i64>,
     pub extra_meta: Option<serde_json::Value>,
 }
 
@@ -44,6 +45,7 @@ impl Paper {
             date_modified: now,
             is_favorite: false,
             is_read: false,
+            citation_count: None,
             extra_meta: None,
         }
     }

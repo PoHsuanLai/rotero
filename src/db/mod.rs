@@ -1,6 +1,8 @@
 pub mod annotations;
 pub mod collections;
+pub mod notes;
 pub mod papers;
+pub mod saved_searches;
 pub mod schema;
 pub mod tags;
 
@@ -117,6 +119,51 @@ impl Database {
         std::fs::copy(source, &dest).map_err(|e| format!("Failed to copy PDF: {e}"))?;
 
         // Return path relative to papers_dir
+        let rel_path = format!("{subfolder}/{dest_name}");
+        Ok(rel_path)
+    }
+
+    /// Import a PDF from bytes (e.g. downloaded from the web).
+    /// Returns the relative path within the papers directory.
+    pub fn import_pdf_bytes(
+        &self,
+        bytes: &[u8],
+        title: &str,
+        first_author: Option<&str>,
+        year: Option<i32>,
+    ) -> Result<String, String> {
+        // Validate PDF header
+        if bytes.len() < 5 || &bytes[..5] != b"%PDF-" {
+            return Err("Not a valid PDF file".to_string());
+        }
+
+        let dummy_source = Path::new("download.pdf");
+        let clean_name = build_clean_filename(dummy_source, Some(title), first_author);
+
+        let subfolder = match year {
+            Some(y) => y.to_string(),
+            None => "unsorted".to_string(),
+        };
+
+        let rel_dir = Path::new(&subfolder);
+        let abs_dir = self.papers_dir().join(rel_dir);
+        std::fs::create_dir_all(&abs_dir).map_err(|e| format!("Failed to create folder: {e}"))?;
+
+        let mut dest_name = clean_name.clone();
+        let mut dest = abs_dir.join(&dest_name);
+        let mut counter = 1;
+        while dest.exists() {
+            let stem = Path::new(&clean_name)
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy();
+            dest_name = format!("{stem} ({counter}).pdf");
+            dest = abs_dir.join(&dest_name);
+            counter += 1;
+        }
+
+        std::fs::write(&dest, bytes).map_err(|e| format!("Failed to write PDF: {e}"))?;
+
         let rel_path = format!("{subfolder}/{dest_name}");
         Ok(rel_path)
     }

@@ -64,6 +64,14 @@ pub fn PaperDetail() -> Element {
                 }
             }
 
+            // Citation count
+            if let Some(count) = paper.citation_count {
+                div { class: "detail-field",
+                    label { class: "detail-label", "Citations" }
+                    div { class: "detail-value detail-value--citations", "{count}" }
+                }
+            }
+
             // Journal
             if let Some(ref journal) = paper.journal {
                 div { class: "detail-field",
@@ -117,6 +125,9 @@ pub fn PaperDetail() -> Element {
                 super::citation_dialog::CitationDialog {}
             }
 
+            // Notes section
+            NotesSection { paper_id }
+
             // Open / Delete buttons
             div { class: "detail-delete-section",
                 div { class: "detail-actions",
@@ -148,6 +159,71 @@ pub fn PaperDetail() -> Element {
                                         }
                                     },
                                     "Open Paper"
+                                }
+                            }
+                        }
+                    }
+                    // Find Open Access PDF (when DOI exists but no PDF)
+                    if paper.pdf_path.is_none() && paper.doi.is_some() {
+                        {
+                            let doi_for_oa = paper.doi.clone().unwrap_or_default();
+                            let paper_title = paper.title.clone();
+                            let paper_authors = paper.authors.clone();
+                            let paper_year = paper.year;
+                            let db_oa = db.clone();
+                            let mut oa_status = use_signal(|| None::<String>);
+                            rsx! {
+                                button {
+                                    class: "btn btn--secondary",
+                                    disabled: oa_status().is_some(),
+                                    onclick: move |_| {
+                                        let db = db_oa.clone();
+                                        let doi = doi_for_oa.clone();
+                                        let title = paper_title.clone();
+                                        let authors = paper_authors.clone();
+                                        let year = paper_year;
+                                        oa_status.set(Some("Searching...".to_string()));
+                                        spawn(async move {
+                                            match crate::metadata::unpaywall::fetch_oa_url(&doi).await {
+                                                Ok(Some(pdf_url)) => {
+                                                    oa_status.set(Some("Downloading...".to_string()));
+                                                    // Download the PDF
+                                                    match reqwest::get(&pdf_url).await {
+                                                        Ok(resp) if resp.status().is_success() => {
+                                                            match resp.bytes().await {
+                                                                Ok(bytes) => {
+                                                                    // Save to library
+                                                                    let first_author = authors.first().map(|a| a.as_str());
+                                                                    match db.import_pdf_bytes(&bytes, &title, first_author, year) {
+                                                                        Ok(rel_path) => {
+                                                                            let _ = crate::db::papers::update_pdf_path(db.conn(), paper_id, &rel_path).await;
+                                                                            lib_state.with_mut(|s| {
+                                                                                if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(paper_id)) {
+                                                                                    p.pdf_path = Some(rel_path);
+                                                                                }
+                                                                            });
+                                                                            oa_status.set(Some("PDF downloaded!".to_string()));
+                                                                        }
+                                                                        Err(e) => oa_status.set(Some(format!("Save failed: {e}"))),
+                                                                    }
+                                                                }
+                                                                Err(e) => oa_status.set(Some(format!("Download failed: {e}"))),
+                                                            }
+                                                        }
+                                                        Ok(resp) => oa_status.set(Some(format!("HTTP {}", resp.status()))),
+                                                        Err(e) => oa_status.set(Some(format!("Request failed: {e}"))),
+                                                    }
+                                                }
+                                                Ok(None) => oa_status.set(Some("No OA version found".to_string())),
+                                                Err(e) => oa_status.set(Some(format!("Error: {e}"))),
+                                            }
+                                        });
+                                    },
+                                    if let Some(ref status) = oa_status() {
+                                        "{status}"
+                                    } else {
+                                        "Find Open Access PDF"
+                                    }
                                 }
                             }
                         }
@@ -277,6 +353,67 @@ fn TagEditor(paper_id: i64) -> Element {
                         });
                     }
                 },
+            }
+        }
+    }
+}
+
+#[component]
+fn NotesSection(paper_id: i64) -> Element {
+    let db = use_context::<Database>();
+    let mut notes = use_signal(Vec::new);
+
+    // Load notes for this paper
+    {
+        let db = db.clone();
+        use_effect(move || {
+            let db = db.clone();
+            spawn(async move {
+                if let Ok(paper_notes) = crate::db::notes::list_notes_for_paper(db.conn(), paper_id).await {
+                    notes.set(paper_notes);
+                }
+            });
+        });
+    }
+
+    let note_list = notes.read();
+    if note_list.is_empty() {
+        return rsx! {};
+    }
+
+    rsx! {
+        div { class: "detail-notes-section",
+            label { class: "detail-label", "Notes ({note_list.len()})" }
+            for note in note_list.iter() {
+                {
+                    let note_id = note.id.unwrap_or(0);
+                    let title = note.title.clone();
+                    let body_preview = if note.body.len() > 120 {
+                        format!("{}...", &note.body[..117])
+                    } else {
+                        note.body.clone()
+                    };
+                    let db_del = db.clone();
+                    rsx! {
+                        div { key: "note-{note_id}", class: "detail-note-card",
+                            div { class: "detail-note-title", "{title}" }
+                            div { class: "detail-note-body", "{body_preview}" }
+                            button {
+                                class: "btn--danger-sm",
+                                onclick: move |_| {
+                                    let db = db_del.clone();
+                                    spawn(async move {
+                                        let _ = crate::db::notes::delete_note(db.conn(), note_id).await;
+                                        if let Ok(paper_notes) = crate::db::notes::list_notes_for_paper(db.conn(), paper_id).await {
+                                            notes.set(paper_notes);
+                                        }
+                                    });
+                                },
+                                "Delete"
+                            }
+                        }
+                    }
+                }
             }
         }
     }

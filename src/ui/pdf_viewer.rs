@@ -709,6 +709,97 @@ fn PdfPageWithOverlay(
                                         evt.preventDefault();
                                     }}
                                 }});
+
+                                // Per-layer mousedown: activate selecting mode
+                                layer.addEventListener('mousedown', function(e) {{
+                                    if (e.button !== 0) return;
+                                    this.classList.add('selecting');
+                                    let eoc = this.querySelector('.endOfContent');
+                                    if (eoc) this.appendChild(eoc);
+                                }});
+
+                                // Global selection handlers (install once)
+                                if (!window.__roteroSelectionInit) {{
+                                    window.__roteroSelectionInit = true;
+                                    let prevRange = null;
+
+                                    document.addEventListener('selectionchange', function() {{
+                                        let sel = document.getSelection();
+                                        if (!sel || sel.rangeCount === 0) {{
+                                            document.querySelectorAll('.text-layer.selecting').forEach(function(tl) {{
+                                                tl.classList.remove('selecting');
+                                                let eoc = tl.querySelector('.endOfContent');
+                                                if (eoc) {{ tl.appendChild(eoc); eoc.style.width = ''; eoc.style.height = ''; }}
+                                            }});
+                                            return;
+                                        }}
+
+                                        let range = sel.getRangeAt(0);
+
+                                        // Detect which end is being modified (PDF.js approach)
+                                        let modifyStart = prevRange &&
+                                            (range.compareBoundaryPoints(Range.END_TO_END, prevRange) === 0 ||
+                                             range.compareBoundaryPoints(Range.START_TO_END, prevRange) === 0);
+
+                                        let anchor = modifyStart ? range.startContainer : range.endContainer;
+                                        if (anchor.nodeType === Node.TEXT_NODE) {{
+                                            anchor = anchor.parentNode;
+                                        }}
+
+                                        // Edge case: endOffset === 0 means cursor is at start of node
+                                        if (!modifyStart && range.endOffset === 0) {{
+                                            try {{
+                                                while (!anchor.previousSibling) {{
+                                                    anchor = anchor.parentNode;
+                                                }}
+                                                anchor = anchor.previousSibling;
+                                                while (anchor.childNodes && anchor.childNodes.length) {{
+                                                    anchor = anchor.lastChild;
+                                                }}
+                                                if (anchor.nodeType === Node.TEXT_NODE) {{
+                                                    anchor = anchor.parentNode;
+                                                }}
+                                            }} catch(e) {{}}
+                                        }}
+
+                                        let textLayer = anchor && anchor.closest && anchor.closest('.text-layer');
+                                        if (!textLayer || !textLayer.classList.contains('selecting')) {{
+                                            prevRange = range.cloneRange();
+                                            return;
+                                        }}
+
+                                        let eoc = textLayer.querySelector('.endOfContent');
+                                        if (eoc) {{
+                                            eoc.style.width = textLayer.style.width;
+                                            eoc.style.height = textLayer.style.height;
+                                            if (anchor.parentElement) {{
+                                                anchor.parentElement.insertBefore(
+                                                    eoc,
+                                                    modifyStart ? anchor : anchor.nextSibling
+                                                );
+                                            }}
+                                        }}
+
+                                        prevRange = range.cloneRange();
+                                    }});
+
+                                    function resetEndOfContent() {{
+                                        document.querySelectorAll('.text-layer.selecting').forEach(function(tl) {{
+                                            tl.classList.remove('selecting');
+                                            let eoc = tl.querySelector('.endOfContent');
+                                            if (eoc) {{ tl.appendChild(eoc); eoc.style.width = ''; eoc.style.height = ''; }}
+                                        }});
+                                        prevRange = null;
+                                    }}
+
+                                    document.addEventListener('pointerup', resetEndOfContent);
+                                    window.addEventListener('blur', resetEndOfContent);
+                                    document.addEventListener('keyup', function(e) {{
+                                        if (!document.querySelector('.text-layer.selecting')) {{
+                                            resetEndOfContent();
+                                        }}
+                                    }});
+                                }}
                             }})()
                         "#);
                         let _ = document::eval(&js);
@@ -716,6 +807,8 @@ fn PdfPageWithOverlay(
                 },
                 {
                     let lines = rotero_pdf::group_into_lines(&text_segments);
+                    let w = width as f64;
+                    let h = height as f64;
                     rsx! {
                         for (line_idx, line) in lines.iter().enumerate() {
                             if line_idx > 0 {
@@ -724,19 +817,22 @@ fn PdfPageWithOverlay(
                             for &seg_idx in line.iter() {
                                 {
                                     let seg = &text_segments[seg_idx];
+                                    let left_pct = seg.x / w * 100.0;
+                                    let top_pct = seg.y / h * 100.0;
                                     rsx! {
                                         span {
                                             key: "text-{page_index}-{seg_idx}",
                                             "data-target-w": "{seg.width}",
                                             "data-font-weight": "{seg.font_weight}",
                                             "data-font-style": "{seg.font_style}",
-                                            style: "left: {seg.x}px; top: {seg.y}px; font-size: {seg.font_size}px; font-family: {seg.font_family}; font-weight: {seg.font_weight}; font-style: {seg.font_style};",
+                                            style: "left: {left_pct:.4}%; top: {top_pct:.4}%; font-size: {seg.font_size}px; font-family: {seg.font_family}; font-weight: {seg.font_weight}; font-style: {seg.font_style};",
                                             "{seg.text}"
                                         }
                                     }
                                 }
                             }
                         }
+                        div { class: "endOfContent" }
                     }
                 }
             }
@@ -1269,7 +1365,61 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
 
     rsx! {
         div { class: "annotation-panel",
-            div { class: "annotation-panel-header", "Annotations ({annotations.len()})" }
+            div { class: "annotation-panel-header",
+                span { "Annotations ({annotations.len()})" }
+                if !annotations.is_empty() {
+                    {
+                        let db_extract = db.clone();
+                        let anns_for_extract = annotations.clone();
+                        rsx! {
+                            button {
+                                class: "btn btn--ghost btn--sm",
+                                title: "Extract annotations to a note",
+                                onclick: move |_| {
+                                    let db = db_extract.clone();
+                                    let anns = anns_for_extract.clone();
+                                    let paper_id = tabs.read().tab().paper_id;
+                                    let paper_title = tabs.read().tab().title.clone();
+                                    spawn(async move {
+                                        if let Some(pid) = paper_id {
+                                            let mut body = String::new();
+                                            let mut current_page: Option<i32> = None;
+                                            for ann in &anns {
+                                                if current_page != Some(ann.page) {
+                                                    if !body.is_empty() {
+                                                        body.push('\n');
+                                                    }
+                                                    body.push_str(&format!("## Page {}\n", ann.page + 1));
+                                                    current_page = Some(ann.page);
+                                                }
+                                                let type_label = match ann.ann_type {
+                                                    rotero_models::AnnotationType::Highlight => "Highlight",
+                                                    rotero_models::AnnotationType::Note => "Note",
+                                                    rotero_models::AnnotationType::Area => "Area",
+                                                    rotero_models::AnnotationType::Underline => "Underline",
+                                                    rotero_models::AnnotationType::Ink => "Ink",
+                                                    rotero_models::AnnotationType::Text => "Text",
+                                                };
+                                                let content = ann.content.as_deref().unwrap_or("");
+                                                if content.is_empty() {
+                                                    body.push_str(&format!("- [{type_label}] ({}) \n", ann.color));
+                                                } else {
+                                                    body.push_str(&format!("- [{type_label}] \"{content}\" ({}) \n", ann.color));
+                                                }
+                                            }
+                                            let title = format!("Annotations from {}", paper_title);
+                                            let mut note = rotero_models::Note::new(pid, title);
+                                            note.body = body;
+                                            let _ = crate::db::notes::insert_note(db.conn(), &note).await;
+                                        }
+                                    });
+                                },
+                                "Extract to Note"
+                            }
+                        }
+                    }
+                }
+            }
             if annotations.is_empty() {
                 div { class: "annotation-panel-empty", "No annotations yet. Use the Highlight or Note tool to add annotations." }
             } else {

@@ -797,7 +797,14 @@ async fn apply_fetched_metadata(
             p.pages = fetched.pages.clone();
             p.publisher = fetched.publisher.clone();
             p.url = fetched.url.clone();
+            if fetched.citation_count.is_some() {
+                p.citation_count = fetched.citation_count;
+            }
         }
     });
+    // Persist citation count separately (update_paper_metadata doesn't include it)
+    if let Some(count) = fetched.citation_count {
+        let _ = crate::db::papers::update_citation_count(conn, paper_id, count).await;
+    }
     true
 }

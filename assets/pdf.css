@@ -266,6 +266,20 @@
   background: var(--selection-color, rgba(0, 100, 255, 0.3));
 }
 
+.text-layer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.text-layer.selecting .endOfContent {
+  top: 0;
+}
+
 
 /* --- PDF Search Bar --- */
 .pdf-search-bar {

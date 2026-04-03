@@ -104,6 +104,40 @@
   color: var(--text-secondary);
 }
 
+.detail-value--citations {
+  font-weight: 600;
+  color: var(--accent, #0d9488);
+}
+
+/* --- Notes Section --- */
+.detail-notes-section {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.detail-note-card {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+}
+
+.detail-note-title {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: var(--space-1);
+}
+
+.detail-note-body {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  line-height: var(--leading-normal);
+}
+
 .detail-delete-section {
   margin-top: var(--space-10);
   padding-top: var(--space-4);

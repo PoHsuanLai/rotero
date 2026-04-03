@@ -279,6 +279,8 @@ pub struct LibraryState {
     pub search_results: Option<Vec<Paper>>,
     pub collection_paper_ids: Option<Vec<i64>>,
     pub tag_paper_ids: Option<Vec<i64>>,
+    pub duplicate_groups: Option<Vec<Vec<Paper>>>,
+    pub saved_searches: Vec<rotero_models::SavedSearch>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -290,6 +292,8 @@ pub enum LibraryView {
     Unread,
     Collection(i64),
     Tag(i64),
+    Duplicates,
+    SavedSearch(i64),
     PdfViewer,
 }
 

@@ -5,3 +5,4 @@ pub mod enrich;
 pub mod openalex;
 pub mod parser;
 pub mod semantic_scholar;
+pub mod unpaywall;

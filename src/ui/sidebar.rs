@@ -161,6 +161,13 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                     active: view == LibraryView::Unread,
                     view: LibraryView::Unread,
                 }
+                SidebarItem {
+                    label: format!("Duplicates"),
+                    count: None,
+                    icon: "copy",
+                    active: view == LibraryView::Duplicates,
+                    view: LibraryView::Duplicates,
+                }
             }
 
             // Recently opened
@@ -270,6 +277,52 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
 
             // Tags
             TagSection { tags: state.tags.clone(), ctx_menu: tag_ctx }
+
+            // Saved Searches
+            if !state.saved_searches.is_empty() {
+                CollapsibleSection { title: "Saved Searches", initially_open: true,
+                    for search in state.saved_searches.iter() {
+                        {
+                            let search_id = search.id.unwrap_or(0);
+                            let search_name = search.name.clone();
+                            let search_query = search.query.clone();
+                            let is_active = view == LibraryView::SavedSearch(search_id);
+                            let item_class = if is_active { "sidebar-filter-item sidebar-filter-item--active" } else { "sidebar-filter-item" };
+                            let db_del = db.clone();
+                            rsx! {
+                                div {
+                                    key: "saved-search-{search_id}",
+                                    class: "{item_class}",
+                                    onclick: move |_| {
+                                        lib_state.with_mut(|s| {
+                                            s.search_query = search_query.clone();
+                                            s.view = LibraryView::SavedSearch(search_id);
+                                        });
+                                    },
+                                    div { class: "sidebar-filter-left",
+                                        i { class: "bi bi-search sidebar-filter-icon" }
+                                        span { class: "sidebar-filter-label", "{search_name}" }
+                                    }
+                                    button {
+                                        class: "btn--danger-sm",
+                                        onclick: move |evt| {
+                                            evt.stop_propagation();
+                                            let db = db_del.clone();
+                                            spawn(async move {
+                                                let _ = crate::db::saved_searches::delete_saved_search(db.conn(), search_id).await;
+                                                if let Ok(searches) = crate::db::saved_searches::list_saved_searches(db.conn()).await {
+                                                    lib_state.with_mut(|s| s.saved_searches = searches);
+                                                }
+                                            });
+                                        },
+                                        "x"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // Spacer + Settings
             div { class: "sidebar-spacer" }

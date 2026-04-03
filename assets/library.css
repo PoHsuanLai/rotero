@@ -253,6 +253,66 @@
 }
 
 
+/* --- Citation Count --- */
+.library-card-citations {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+/* --- Duplicate Groups --- */
+.duplicate-group {
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-3);
+  overflow: hidden;
+}
+
+.duplicate-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-medium);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.duplicate-group-reason {
+  font-weight: 500;
+}
+
+.duplicate-group-count {
+  color: var(--text-tertiary);
+}
+
+.duplicate-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.duplicate-item:last-child {
+  border-bottom: none;
+}
+
+.duplicate-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.duplicate-item-actions {
+  flex-shrink: 0;
+  margin-left: var(--space-2);
+}
+
+.duplicate-field-count {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
 /* --- Error --- */
 .error-message {
   margin-top: var(--space-2);

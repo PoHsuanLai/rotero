@@ -1,6 +1,11 @@
 use turso::Connection;
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 5;
+
+const CREATE_FTS_INDEX: &str =
+    "CREATE INDEX IF NOT EXISTS idx_papers_fts ON papers \
+     USING fts (title, authors, abstract_text, journal, fulltext) \
+     WITH (weights = 'title=3.0,authors=2.0,abstract_text=1.5,journal=1.0,fulltext=1.0')";
 
 const CREATE_TABLES: &str = "
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -74,6 +79,13 @@ CREATE TABLE IF NOT EXISTS notes (
     created_at  TEXT NOT NULL,
     modified_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS saved_searches (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    query      TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 ";
 
 pub async fn initialize_db(conn: &Connection) -> Result<(), turso::Error> {
@@ -89,7 +101,8 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
     let current_version = get_schema_version(conn).await;
 
     if current_version < 1 {
-        // Fresh database — just set the version
+        // Fresh database — create FTS index and set the version
+        let _ = conn.execute(CREATE_FTS_INDEX, ()).await;
         conn.execute(
             "INSERT INTO schema_version (version) VALUES (?1)",
             [SCHEMA_VERSION],
@@ -120,6 +133,40 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
             .execute("ALTER TABLE papers ADD COLUMN fulltext TEXT", ())
             .await;
     }
+
+    // Migration to v4: add citation_count column + saved_searches table
+    if current_version < 4 {
+        let _ = conn
+            .execute(
+                "ALTER TABLE papers ADD COLUMN citation_count INTEGER",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "CREATE TABLE IF NOT EXISTS saved_searches (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name       TEXT NOT NULL,
+                    query      TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )",
+                (),
+            )
+            .await;
+    }
+
+    // Migration to v5: add FTS index for full-text search
+    if current_version < 5 {
+        let _ = conn.execute(CREATE_FTS_INDEX, ()).await;
+    }
+
+    // Ensure citation_count column exists (may have been missed if v4 migration partially ran)
+    let _ = conn
+        .execute(
+            "ALTER TABLE papers ADD COLUMN citation_count INTEGER",
+            (),
+        )
+        .await;
 
     if current_version < SCHEMA_VERSION {
         conn.execute("UPDATE schema_version SET version = ?1", [SCHEMA_VERSION])

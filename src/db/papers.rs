@@ -2,7 +2,7 @@ use chrono::Utc;
 use rotero_models::Paper;
 use turso::{Connection, Value};
 
-const SELECT_COLS: &str = "id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta";
+const SELECT_COLS: &str = "id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count";
 
 pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<i64, turso::Error> {
     let authors_json = serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
@@ -12,8 +12,8 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<i64, turso
         .map(|v| serde_json::to_string(v).unwrap_or_default());
 
     conn.execute(
-        "INSERT INTO papers (title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+        "INSERT INTO papers (title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         turso::params::Params::Positional(vec![
             Value::Text(paper.title.clone()),
             Value::Text(authors_json),
@@ -32,6 +32,7 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<i64, turso
             Value::Integer(paper.is_favorite as i64),
             Value::Integer(paper.is_read as i64),
             extra_meta.map(Value::Text).unwrap_or(Value::Null),
+            paper.citation_count.map(Value::Integer).unwrap_or(Value::Null),
         ]),
     )
     .await?;
@@ -56,6 +57,30 @@ pub async fn list_papers(conn: &Connection) -> Result<Vec<Paper>, turso::Error> 
 }
 
 pub async fn search_papers(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
+    // Try FTS first, fall back to LIKE if FTS is unavailable or query fails
+    match search_papers_fts(conn, query).await {
+        Ok(results) => Ok(results),
+        Err(_) => search_papers_like(conn, query).await,
+    }
+}
+
+async fn search_papers_fts(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
+    let sql = format!(
+        "SELECT {SELECT_COLS}, fts_score(title, authors, abstract_text, journal, fulltext, ?1) AS score \
+         FROM papers \
+         WHERE (title, authors, abstract_text, journal, fulltext) MATCH ?1 OR doi = ?1 \
+         ORDER BY score DESC \
+         LIMIT 50"
+    );
+    let mut rows = conn.query(&sql, [Value::Text(query.to_string())]).await?;
+    let mut papers = Vec::new();
+    while let Some(row) = rows.next().await? {
+        papers.push(row_to_paper(&row));
+    }
+    Ok(papers)
+}
+
+async fn search_papers_like(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
     let pattern = format!("%{query}%");
     let sql = format!(
         "SELECT {SELECT_COLS} FROM papers WHERE title LIKE ?1 OR authors LIKE ?1 OR abstract_text LIKE ?1 OR journal LIKE ?1 OR doi LIKE ?1 OR fulltext LIKE ?1 ORDER BY date_added DESC LIMIT 50"
@@ -244,6 +269,112 @@ fn row_to_paper(row: &turso::Row) -> Paper {
             .unwrap_or_else(|_| Utc::now()),
         is_favorite: get_bool(row, 15),
         is_read: get_bool(row, 16),
+        citation_count: get_opt_i64(row, 18),
         extra_meta: extra_meta_str.and_then(|s| serde_json::from_str(&s).ok()),
     }
+}
+
+/// Find duplicate papers grouped by DOI or normalized title.
+/// Returns groups of 2+ papers that share the same DOI or similar title.
+pub async fn find_duplicates(conn: &Connection) -> Result<Vec<Vec<Paper>>, turso::Error> {
+    let mut groups: Vec<Vec<Paper>> = Vec::new();
+
+    // Group 1: exact DOI duplicates
+    let doi_sql = format!(
+        "SELECT {SELECT_COLS} FROM papers WHERE doi IS NOT NULL AND doi != '' \
+         AND doi IN (SELECT doi FROM papers WHERE doi IS NOT NULL AND doi != '' GROUP BY doi HAVING COUNT(*) > 1) \
+         ORDER BY doi, date_added DESC"
+    );
+    let mut rows = conn.query(&doi_sql, ()).await?;
+    let mut doi_papers: Vec<Paper> = Vec::new();
+    while let Some(row) = rows.next().await? {
+        doi_papers.push(row_to_paper(&row));
+    }
+    // Group by DOI
+    let mut current_doi = String::new();
+    let mut current_group: Vec<Paper> = Vec::new();
+    for paper in doi_papers {
+        let doi = paper.doi.clone().unwrap_or_default();
+        if doi != current_doi && !current_group.is_empty() {
+            groups.push(std::mem::take(&mut current_group));
+        }
+        current_doi = doi;
+        current_group.push(paper);
+    }
+    if !current_group.is_empty() {
+        groups.push(current_group);
+    }
+
+    // Group 2: normalized title duplicates (excluding papers already found by DOI)
+    let doi_ids: Vec<i64> = groups.iter().flatten().filter_map(|p| p.id).collect();
+    let all = list_papers(conn).await?;
+    let mut title_map: std::collections::HashMap<String, Vec<Paper>> =
+        std::collections::HashMap::new();
+    for paper in all {
+        if doi_ids.contains(&paper.id.unwrap_or(0)) {
+            continue;
+        }
+        let normalized = normalize_title(&paper.title);
+        if normalized.is_empty() {
+            continue;
+        }
+        title_map.entry(normalized).or_default().push(paper);
+    }
+    for (_title, papers) in title_map {
+        if papers.len() > 1 {
+            groups.push(papers);
+        }
+    }
+
+    Ok(groups)
+}
+
+fn normalize_title(title: &str) -> String {
+    title
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Merge two papers: transfer associations from `delete_id` to `keep_id`, then delete.
+pub async fn merge_papers(
+    conn: &Connection,
+    keep_id: i64,
+    delete_id: i64,
+) -> Result<(), turso::Error> {
+    // Transfer collection memberships
+    conn.execute(
+        "INSERT OR IGNORE INTO paper_collections (paper_id, collection_id) \
+         SELECT ?1, collection_id FROM paper_collections WHERE paper_id = ?2",
+        [Value::Integer(keep_id), Value::Integer(delete_id)],
+    )
+    .await?;
+    // Transfer tag assignments
+    conn.execute(
+        "INSERT OR IGNORE INTO paper_tags (paper_id, tag_id) \
+         SELECT ?1, tag_id FROM paper_tags WHERE paper_id = ?2",
+        [Value::Integer(keep_id), Value::Integer(delete_id)],
+    )
+    .await?;
+    // Delete the duplicate
+    delete_paper(conn, delete_id).await?;
+    Ok(())
+}
+
+/// Update citation count for a paper.
+pub async fn update_citation_count(
+    conn: &Connection,
+    id: i64,
+    count: i64,
+) -> Result<(), turso::Error> {
+    conn.execute(
+        "UPDATE papers SET citation_count = ?1 WHERE id = ?2",
+        [Value::Integer(count), Value::Integer(id)],
+    )
+    .await?;
+    Ok(())
 }

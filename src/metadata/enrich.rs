@@ -47,15 +47,19 @@ async fn fetch_from_sources_doi(doi: &str) -> Option<FetchedMetadata> {
         }
     };
 
-    // If CrossRef returned no abstract, try Semantic Scholar (which often has it)
-    if primary.as_ref().is_none_or(|m| m.abstract_text.is_none()) {
+    // Try Semantic Scholar for abstract and citation count
+    if primary.as_ref().is_none_or(|m| m.abstract_text.is_none() || m.citation_count.is_none()) {
         match super::semantic_scholar::fetch_by_doi(doi).await {
             Ok(s2_meta) => match primary {
-                Some(ref mut p) if p.abstract_text.is_none() => {
-                    p.abstract_text = s2_meta.abstract_text;
+                Some(ref mut p) => {
+                    if p.abstract_text.is_none() {
+                        p.abstract_text = s2_meta.abstract_text;
+                    }
+                    if p.citation_count.is_none() {
+                        p.citation_count = s2_meta.citation_count;
+                    }
                 }
                 None => primary = Some(s2_meta),
-                _ => {}
             },
             Err(e) => tracing::debug!("Semantic Scholar failed for {doi}: {e}"),
         }
@@ -82,16 +86,18 @@ async fn fetch_from_sources_arxiv(arxiv_id: &str) -> Option<FetchedMetadata> {
         }
     };
 
-    // Semantic Scholar often has richer data for arXiv papers
+    // Semantic Scholar often has richer data for arXiv papers (abstract, year, citation count)
     match super::semantic_scholar::fetch_by_arxiv_id(arxiv_id).await {
         Ok(s2_meta) => {
             if let Some(ref mut p) = primary {
-                // Fill in gaps
                 if p.abstract_text.is_none() {
                     p.abstract_text = s2_meta.abstract_text;
                 }
                 if p.year.is_none() {
                     p.year = s2_meta.year;
+                }
+                if p.citation_count.is_none() {
+                    p.citation_count = s2_meta.citation_count;
                 }
             } else {
                 primary = Some(s2_meta);

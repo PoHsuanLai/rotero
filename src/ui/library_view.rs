@@ -47,10 +47,39 @@ pub fn LibraryPanel() -> Element {
                         }
                     });
                 }
+                LibraryView::Duplicates => {
+                    let db = db_coll.clone();
+                    spawn(async move {
+                        match crate::db::papers::find_duplicates(db.conn()).await {
+                            Ok(groups) => {
+                                lib_state.with_mut(|s| s.duplicate_groups = Some(groups));
+                            }
+                            Err(e) => eprintln!("Failed to find duplicates: {e}"),
+                        }
+                    });
+                }
+                LibraryView::SavedSearch(search_id) => {
+                    // Find the query for this saved search
+                    let query = lib_state.read().saved_searches.iter()
+                        .find(|s| s.id == Some(search_id))
+                        .map(|s| s.query.clone());
+                    if let Some(query) = query {
+                        let db = db_coll.clone();
+                        spawn(async move {
+                            match crate::db::papers::search_papers(db.conn(), &query).await {
+                                Ok(papers) => {
+                                    lib_state.with_mut(|s| s.search_results = Some(papers));
+                                }
+                                Err(e) => eprintln!("Failed to run saved search: {e}"),
+                            }
+                        });
+                    }
+                }
                 _ => {
                     lib_state.with_mut(|s| {
                         s.collection_paper_ids = None;
                         s.tag_paper_ids = None;
+                        s.duplicate_groups = None;
                     });
                 }
             }
@@ -108,8 +137,22 @@ pub fn LibraryPanel() -> Element {
                     Vec::new()
                 }
             }
+            LibraryView::Duplicates => {
+                if let Some(ref groups) = state.duplicate_groups {
+                    groups.iter().flatten().cloned().collect()
+                } else {
+                    Vec::new()
+                }
+            }
             _ => state.papers.clone(),
         }
+    };
+
+    // Duplicate groups for merge UI
+    let duplicate_groups = if matches!(state.view, LibraryView::Duplicates) {
+        state.duplicate_groups.clone()
+    } else {
+        None
     };
 
     let view_title: String = if is_searching {
@@ -132,6 +175,13 @@ pub fn LibraryPanel() -> Element {
                 .find(|t| t.id == Some(*id))
                 .map(|t| format!("Tag: {}", t.name))
                 .unwrap_or_else(|| "Tag".to_string()),
+            LibraryView::Duplicates => "Duplicates".to_string(),
+            LibraryView::SavedSearch(id) => state
+                .saved_searches
+                .iter()
+                .find(|s| s.id == Some(*id))
+                .map(|s| format!("Search: {}", s.name))
+                .unwrap_or_else(|| "Saved Search".to_string()),
             _ => "Papers".to_string(),
         }
     };
@@ -198,22 +248,28 @@ pub fn LibraryPanel() -> Element {
                     spawn(async move {
                         for file_data in &dropped_files {
                             let file_name = file_data.name();
+                            let file_path = file_data.path();
+                            let file_path_str = file_path.to_string_lossy().to_string();
                             if file_name.ends_with(".pdf") {
                                 let title = std::path::Path::new(&file_name)
                                     .file_stem()
                                     .map(|s| s.to_string_lossy().to_string())
                                     .unwrap_or_else(|| "Untitled".to_string());
 
-                                match db.import_pdf(&file_name, Some(&title), None, None) {
+                                match db.import_pdf(&file_path_str, Some(&title), None, None) {
                                     Ok(rel_path) => {
                                         let mut paper = rotero_models::Paper::new(title);
                                         paper.pdf_path = Some(rel_path.clone());
-                                        let paper_id = if let Ok(id) = crate::db::papers::insert_paper(db.conn(), &paper).await {
-                                            paper.id = Some(id);
-                                            lib_state.with_mut(|s| s.papers.insert(0, paper));
-                                            Some(id)
-                                        } else {
-                                            None
+                                        let paper_id = match crate::db::papers::insert_paper(db.conn(), &paper).await {
+                                            Ok(id) => {
+                                                paper.id = Some(id);
+                                                lib_state.with_mut(|s| s.papers.insert(0, paper));
+                                                Some(id)
+                                            }
+                                            Err(e) => {
+                                                eprintln!("Failed to insert paper: {e}");
+                                                None
+                                            }
                                         };
                                         // Pre-cache in background
                                         let full_path = db.resolve_pdf_path(&rel_path).to_string_lossy().to_string();
@@ -291,12 +347,112 @@ pub fn LibraryPanel() -> Element {
                         } else if matches!(state.view, LibraryView::Unread) {
                             p { class: "library-empty-heading", "All caught up" }
                             p { class: "library-empty-sub", "No unread papers." }
+                        } else if matches!(state.view, LibraryView::Duplicates) {
+                            p { class: "library-empty-heading", "No duplicates found" }
+                            p { class: "library-empty-sub", "Your library has no duplicate papers." }
                         } else if matches!(state.view, LibraryView::RecentlyAdded) {
                             p { class: "library-empty-heading", "No papers yet" }
                             p { class: "library-empty-sub", "Use \"+ Add PDF\" or the browser connector to import papers." }
                         } else {
                             p { class: "library-empty-heading", "No papers yet" }
                             p { class: "library-empty-sub", "Use \"+ Add PDF\" or the browser connector to import papers." }
+                        }
+                    }
+                } else if let Some(ref groups) = duplicate_groups {
+                    // Duplicate groups with merge buttons
+                    for (gi, group) in groups.iter().enumerate() {
+                        {
+                            let group_key = format!("dup-group-{gi}");
+                            let reason = if group.len() >= 2 && group[0].doi.is_some() && group[0].doi == group[1].doi {
+                                format!("Shared DOI: {}", group[0].doi.as_deref().unwrap_or(""))
+                            } else {
+                                "Similar title".to_string()
+                            };
+                            rsx! {
+                                div { key: "{group_key}", class: "duplicate-group",
+                                    div { class: "duplicate-group-header",
+                                        span { class: "duplicate-group-reason", "{reason}" }
+                                        span { class: "duplicate-group-count", "{group.len()} papers" }
+                                    }
+                                    for paper in group.iter() {
+                                        {
+                                            let pid = paper.id.unwrap_or(0);
+                                            let title = paper.title.clone();
+                                            let authors = if paper.authors.is_empty() {
+                                                "Unknown".to_string()
+                                            } else if paper.authors.len() <= 2 {
+                                                paper.authors.join(", ")
+                                            } else {
+                                                format!("{} et al.", paper.authors[0])
+                                            };
+                                            let year = paper.year.map(|y| y.to_string()).unwrap_or_default();
+                                            let has_pdf = paper.pdf_path.is_some();
+                                            let field_count = [
+                                                paper.doi.is_some(),
+                                                paper.abstract_text.is_some(),
+                                                paper.journal.is_some(),
+                                                paper.year.is_some(),
+                                                paper.pdf_path.is_some(),
+                                                !paper.authors.is_empty(),
+                                            ].iter().filter(|&&b| b).count();
+                                            rsx! {
+                                                div { class: "duplicate-item",
+                                                    div { class: "duplicate-item-info",
+                                                        div { class: "library-card-title", "{title}" }
+                                                        div { class: "library-card-meta",
+                                                            span { class: "library-card-authors", "{authors}" }
+                                                            if !year.is_empty() {
+                                                                span { class: "library-card-sep", "\u{00b7}" }
+                                                                span { class: "library-card-year", "{year}" }
+                                                            }
+                                                            if has_pdf {
+                                                                span { class: "library-card-sep", "\u{00b7}" }
+                                                                span { "PDF" }
+                                                            }
+                                                            span { class: "library-card-sep", "\u{00b7}" }
+                                                            span { class: "duplicate-field-count", "{field_count}/6 fields" }
+                                                        }
+                                                    }
+                                                    div { class: "duplicate-item-actions",
+                                                        button {
+                                                            class: "btn btn--sm btn--primary",
+                                                            title: "Keep this paper and merge others into it",
+                                                            onclick: {
+                                                                let db = db.clone();
+                                                                let other_ids: Vec<i64> = group.iter()
+                                                                    .filter_map(|p| p.id)
+                                                                    .filter(|&id| id != pid)
+                                                                    .collect();
+                                                                move |_| {
+                                                                    let db = db.clone();
+                                                                    let other_ids = other_ids.clone();
+                                                                    spawn(async move {
+                                                                        for del_id in &other_ids {
+                                                                            let _ = crate::db::papers::merge_papers(db.conn(), pid, *del_id).await;
+                                                                        }
+                                                                        // Reload library
+                                                                        if let Ok(papers) = crate::db::papers::list_papers(db.conn()).await {
+                                                                            lib_state.with_mut(|s| {
+                                                                                s.papers = papers;
+                                                                                s.duplicate_groups = None;
+                                                                            });
+                                                                        }
+                                                                        // Re-scan duplicates
+                                                                        if let Ok(groups) = crate::db::papers::find_duplicates(db.conn()).await {
+                                                                            lib_state.with_mut(|s| s.duplicate_groups = Some(groups));
+                                                                        }
+                                                                    });
+                                                                }
+                                                            },
+                                                            "Keep"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 } else {
@@ -314,6 +470,7 @@ pub fn LibraryPanel() -> Element {
                             };
                             let year = paper.year.map(|y| y.to_string()).unwrap_or_default();
                             let journal = paper.journal.clone().unwrap_or_default();
+                            let citation_count = paper.citation_count;
                             let has_pdf = paper.pdf_path.is_some();
                             let is_read = paper.is_read;
                             let is_fav = paper.is_favorite;
@@ -376,6 +533,10 @@ pub fn LibraryPanel() -> Element {
                                             if !journal.is_empty() {
                                                 span { class: "library-card-sep", "\u{00b7}" }
                                                 span { class: "library-card-journal", "{journal}" }
+                                            }
+                                            if let Some(count) = citation_count {
+                                                span { class: "library-card-sep", "\u{00b7}" }
+                                                span { class: "library-card-citations", title: "Citation count", "{count} cited" }
                                             }
                                         }
                                     }

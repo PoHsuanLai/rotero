@@ -42,6 +42,26 @@ pub fn SearchBar() -> Element {
             }
             if !query.is_empty() {
                 button {
+                    class: "btn btn--ghost btn--sm search-save",
+                    title: "Save this search",
+                    onclick: {
+                        let query_to_save = query.clone();
+                        let db_save = db.clone();
+                        move |_| {
+                            let q = query_to_save.clone();
+                            let db = db_save.clone();
+                            spawn(async move {
+                                let search = rotero_models::SavedSearch::new(q.clone(), q);
+                                let _ = crate::db::saved_searches::insert_saved_search(db.conn(), &search).await;
+                                if let Ok(searches) = crate::db::saved_searches::list_saved_searches(db.conn()).await {
+                                    lib_state.with_mut(|s| s.saved_searches = searches);
+                                }
+                            });
+                        }
+                    },
+                    i { class: "bi bi-bookmark-plus" }
+                }
+                button {
                     class: "search-clear",
                     onclick: move |_| {
                         lib_state.with_mut(|s| {

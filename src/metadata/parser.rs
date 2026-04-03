@@ -15,5 +15,6 @@ pub fn metadata_to_paper(meta: FetchedMetadata) -> Paper {
     paper.pages = meta.pages;
     paper.publisher = meta.publisher;
     paper.url = meta.url;
+    paper.citation_count = meta.citation_count;
     paper
 }

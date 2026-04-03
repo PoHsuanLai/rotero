@@ -65,6 +65,7 @@ fn parse_arxiv_atom(xml: &str, arxiv_id: &str) -> Result<FetchedMetadata, String
         abstract_text,
         url: Some(format!("https://arxiv.org/abs/{arxiv_id}")),
         doi: format!("arXiv:{arxiv_id}"),
+        citation_count: None,
     })
 }
 
