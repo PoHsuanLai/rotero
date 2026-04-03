@@ -8,40 +8,23 @@ use rotero_pdf::{BookmarkEntry, PageTextData, RenderedPage, SearchMatch};
 
 pub type TabId = u64;
 
-/// Maximum number of rendered pages kept in memory at once.
-/// Pages outside this window are evicted (they live on the disk cache).
-const MAX_RESIDENT_PAGES: usize = 30;
-
 /// Heavy render data — cleared when a tab is suspended to free memory.
 #[derive(Debug, Clone, Default)]
 pub struct PageRenderData {
-    pub rendered_pages: HashMap<u32, RenderedPageData>,
+    pub rendered_pages: Vec<RenderedPageData>,
     pub text_data: HashMap<u32, PageTextData>,
-    pub thumbnails: Vec<RenderedPageData>,
+    pub thumbnails: HashMap<u32, RenderedPageData>,
     pub _page_dimensions: Vec<(f32, f32)>,
 }
 
 impl PageRenderData {
     /// Insert a page only if it improves quality (prevents downgrading a hi-res page).
     pub fn insert_if_better(&mut self, page: RenderedPageData) {
-        if self
-            .rendered_pages
-            .get(&page.page_index)
-            .map_or(true, |existing| existing.quality < page.quality)
-        {
-            self.rendered_pages.insert(page.page_index, page);
+        if let Some(existing) = self.rendered_pages.iter_mut().find(|p| p.page_index == page.page_index) {
+            if existing.quality < page.quality {
+                *existing = page;
+            }
         }
-    }
-
-    /// Evict rendered pages that are far from `center_page` to keep memory bounded.
-    pub fn evict_distant_pages(&mut self, center_page: u32) {
-        if self.rendered_pages.len() <= MAX_RESIDENT_PAGES {
-            return;
-        }
-        let half = MAX_RESIDENT_PAGES as u32 / 2;
-        let lo = center_page.saturating_sub(half);
-        let hi = center_page.saturating_add(half);
-        self.rendered_pages.retain(|&idx, _| idx >= lo && idx <= hi);
     }
 }
 
@@ -128,19 +111,9 @@ impl PdfTab {
         self.render.rendered_pages.is_empty() && self.page_count > 0
     }
 
-    /// Number of currently resident (in-memory) rendered pages.
+    /// Number of rendered pages loaded so far.
     pub fn rendered_count(&self) -> u32 {
-        if self.render.rendered_pages.is_empty() {
-            return 0;
-        }
-        // The highest page index present + 1 gives the "loaded up to" count,
-        // which is what scroll-loading cares about.
-        self.render
-            .rendered_pages
-            .keys()
-            .max()
-            .map(|&m| m + 1)
-            .unwrap_or(0)
+        self.render.rendered_pages.len() as u32
     }
 
     /// Clear heavy render data to free memory (called on suspend).

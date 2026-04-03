@@ -1,9 +1,8 @@
 use turso::Connection;
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
-const CREATE_FTS_INDEX: &str =
-    "CREATE INDEX IF NOT EXISTS idx_papers_fts ON papers \
+const CREATE_FTS_INDEX: &str = "CREATE INDEX IF NOT EXISTS idx_papers_fts ON papers \
      USING fts (title, authors, abstract_text, journal, fulltext) \
      WITH (weights = 'title=3.0,authors=2.0,abstract_text=1.5,journal=1.0,fulltext=1.0')";
 
@@ -137,10 +136,7 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
     // Migration to v4: add citation_count column + saved_searches table
     if current_version < 4 {
         let _ = conn
-            .execute(
-                "ALTER TABLE papers ADD COLUMN citation_count INTEGER",
-                (),
-            )
+            .execute("ALTER TABLE papers ADD COLUMN citation_count INTEGER", ())
             .await;
         let _ = conn
             .execute(
@@ -160,12 +156,16 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
         let _ = conn.execute(CREATE_FTS_INDEX, ()).await;
     }
 
+    // Migration to v6: add citation_key column for Better BibTeX
+    if current_version < 6 {
+        let _ = conn
+            .execute("ALTER TABLE papers ADD COLUMN citation_key TEXT", ())
+            .await;
+    }
+
     // Ensure citation_count column exists (may have been missed if v4 migration partially ran)
     let _ = conn
-        .execute(
-            "ALTER TABLE papers ADD COLUMN citation_count INTEGER",
-            (),
-        )
+        .execute("ALTER TABLE papers ADD COLUMN citation_count INTEGER", ())
         .await;
 
     if current_version < SCHEMA_VERSION {

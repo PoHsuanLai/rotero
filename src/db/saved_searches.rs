@@ -60,10 +60,7 @@ pub async fn rename_saved_search(
 }
 
 fn row_to_saved_search(row: &turso::Row) -> SavedSearch {
-    let id = row
-        .get_value(0)
-        .ok()
-        .and_then(|v| v.as_integer().copied());
+    let id = row.get_value(0).ok().and_then(|v| v.as_integer().copied());
     let name = row
         .get_value(1)
         .ok()

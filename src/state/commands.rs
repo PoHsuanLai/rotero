@@ -44,6 +44,8 @@ pub enum RenderRequest {
     },
     RenderThumbnails {
         pdf_path: String,
+        start: u32,
+        count: u32,
         quality: u8,
         reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
@@ -172,12 +174,14 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                 }
                 RenderRequest::RenderThumbnails {
                     pdf_path,
+                    start,
+                    count,
                     quality,
                     reply,
                 } => {
                     let result = (|| {
                         let rendered = engine
-                            .render_all_thumbnails(&pdf_path, 120, quality)
+                            .render_thumbnails_range(&pdf_path, start, count, 120, quality)
                             .map_err(|e| e.to_string())?;
                         Ok(rendered
                             .into_iter()
@@ -284,11 +288,7 @@ pub async fn upgrade_quality(
             .iter()
             .find(|t| t.id == tab_id)
             .ok_or("Tab not found")?;
-        (
-            tab.pdf_path.clone(),
-            tab.view.zoom,
-            tab.view.render_zoom,
-        )
+        (tab.pdf_path.clone(), tab.view.zoom, tab.view.render_zoom)
     };
 
     // Skip if zoom changed (pages will be re-rendered at new zoom anyway)
@@ -397,7 +397,8 @@ pub async fn open_pdf(
             if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                 tab.page_count = meta.page_count;
                 tab.view.render_zoom = zoom;
-                tab.render.rendered_pages = cached_pages.into_iter().map(|p| (p.page_index, p)).collect();
+                tab.render.rendered_pages = cached_pages
+                    ;
                 tab.is_loading = false;
             }
         });
@@ -431,7 +432,7 @@ pub async fn open_pdf(
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
             tab.page_count = page_count;
             tab.view.render_zoom = zoom;
-            tab.render.rendered_pages = pages.into_iter().map(|p| (p.page_index, p)).collect();
+            tab.render.rendered_pages = pages;
             tab.is_loading = false;
         }
     });
@@ -462,7 +463,7 @@ pub async fn open_pdf(
             .map(|t| {
                 t.render
                     .rendered_pages
-                    .values()
+                    .iter()
                     .map(|p| (p.page_index, p.width, p.height))
                     .collect()
             })
@@ -542,11 +543,7 @@ pub async fn render_more_pages(
 
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
-            for p in pages {
-                tab.render.rendered_pages.insert(p.page_index, p);
-            }
-            // Evict pages far from the newly loaded range to bound memory
-            tab.render.evict_distant_pages(start + count / 2);
+            tab.render.rendered_pages.extend(pages);
         }
     });
 
@@ -587,7 +584,9 @@ pub async fn render_more_pages(
     Ok(())
 }
 
-/// Change zoom level and re-render all loaded pages.
+/// Change zoom level and re-render pages around the current viewport.
+/// Only re-renders up to MAX_RESIDENT_PAGES pages instead of all loaded pages,
+/// and evicts distant pages afterward to bound peak memory during zoom.
 pub async fn set_zoom(
     render_tx: &mpsc::Sender<RenderRequest>,
     tabs: &mut Signal<PdfTabManager>,
@@ -631,7 +630,7 @@ pub async fn set_zoom(
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
             tab.view.render_zoom = new_zoom;
-            tab.render.rendered_pages = pages.into_iter().map(|p| (p.page_index, p)).collect();
+            tab.render.rendered_pages = pages;
             tab.render.text_data.clear(); // will be re-extracted at new zoom
         }
     });
@@ -655,11 +654,16 @@ pub async fn set_zoom(
     Ok(())
 }
 
-/// Load thumbnails for all pages.
+/// Maximum number of thumbnails kept in memory at once.
+const MAX_RESIDENT_THUMBS: usize = 50;
+
+/// Load a batch of thumbnails starting from `start`.
 pub async fn load_thumbnails(
     render_tx: &mpsc::Sender<RenderRequest>,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
+    start: u32,
+    count: u32,
     quality: u8,
 ) -> Result<(), String> {
     let pdf_path = {
@@ -676,6 +680,8 @@ pub async fn load_thumbnails(
     render_tx
         .send(RenderRequest::RenderThumbnails {
             pdf_path,
+            start,
+            count,
             quality,
             reply: reply_tx,
         })
@@ -685,7 +691,17 @@ pub async fn load_thumbnails(
 
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
-            tab.render.thumbnails = thumbnails;
+            for thumb in thumbnails {
+                tab.render.thumbnails.insert(thumb.page_index, thumb);
+            }
+            // Evict distant thumbnails to bound memory
+            let center = start + count / 2;
+            if tab.render.thumbnails.len() > MAX_RESIDENT_THUMBS {
+                let half = MAX_RESIDENT_THUMBS as u32 / 2;
+                let lo = center.saturating_sub(half);
+                let hi = center.saturating_add(half);
+                tab.render.thumbnails.retain(|&idx, _| idx >= lo && idx <= hi);
+            }
         }
     });
 

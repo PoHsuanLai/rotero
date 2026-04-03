@@ -149,6 +149,7 @@ fn longpress_script() -> Element {
 fn LoadLibraryData() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
+    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
 
     // Initial load
     let db2 = db.clone();
@@ -179,6 +180,140 @@ fn LoadLibraryData() -> Element {
             let _ = crate::sync::engine::file_modified_time(&db_path);
         });
     });
+
+    // Background citation count refresh
+    #[cfg(feature = "desktop")]
+    {
+        let db_cite = db.clone();
+        use_future(move || {
+            let db = db_cite.clone();
+            async move {
+                // Wait for initial library load to complete
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+                loop {
+                    // Find papers with DOI but no citation count — query DB directly
+                    // to avoid cloning the entire papers Vec.
+                    let needs_update = crate::db::papers::list_papers_needing_citations(db.conn())
+                        .await
+                        .unwrap_or_default();
+
+                    for (paper_id, doi) in needs_update {
+                        let result = if doi.starts_with("arXiv:") {
+                            let arxiv_id = doi.strip_prefix("arXiv:").unwrap_or(&doi);
+                            crate::metadata::semantic_scholar::fetch_by_arxiv_id(arxiv_id).await
+                        } else {
+                            crate::metadata::semantic_scholar::fetch_by_doi(&doi).await
+                        };
+
+                        match result {
+                            Ok(meta) => {
+                                if let Some(count) = meta.citation_count {
+                                    let _ = crate::db::papers::update_citation_count(
+                                        db.conn(),
+                                        paper_id,
+                                        count,
+                                    )
+                                    .await;
+                                    lib_state.with_mut(|s| {
+                                        if let Some(p) =
+                                            s.papers.iter_mut().find(|p| p.id == Some(paper_id))
+                                        {
+                                            p.citation_count = Some(count);
+                                        }
+                                    });
+                                }
+                                // Normal rate limit: 3 seconds between requests
+                                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                            }
+                            Err(e) => {
+                                if e.contains("429") {
+                                    // Rate limited — back off for 60 seconds
+                                    tracing::debug!("S2 rate limited, backing off 60s");
+                                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                                } else {
+                                    tracing::debug!("Citation count fetch failed for {doi}: {e}");
+                                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                                }
+                            }
+                        }
+                    }
+
+                    // Re-check every hour
+                    tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+                }
+            }
+        });
+    }
+
+    // Background citation key generation + auto-export
+    #[cfg(feature = "desktop")]
+    {
+        let db_bib = db.clone();
+        use_future(move || {
+            let db = db_bib.clone();
+            async move {
+                // Wait for initial load
+                tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+
+                loop {
+                    // Generate citation keys for papers that don't have one
+                    let existing_keys = crate::db::papers::list_citation_keys(db.conn())
+                        .await
+                        .unwrap_or_default();
+
+                    // Query DB directly for papers needing keys — avoids cloning
+                    // the entire papers Vec every 30 seconds.
+                    let needs_keys =
+                        crate::db::papers::list_papers_needing_citation_keys(db.conn())
+                            .await
+                            .unwrap_or_default();
+                    let mut keys_updated = false;
+                    let mut all_keys = existing_keys;
+
+                    for (paper_id, title, authors, year) in &needs_keys {
+                        // Build a minimal Paper for key generation (only needs authors + year)
+                        let mut stub = rotero_models::Paper::new(title.clone());
+                        stub.id = Some(*paper_id);
+                        stub.authors = authors.clone();
+                        stub.year = *year;
+
+                        let key = rotero_bib::generate_unique_cite_key(&stub, &all_keys);
+                        if crate::db::papers::update_citation_key(db.conn(), *paper_id, &key)
+                            .await
+                            .is_ok()
+                        {
+                            let pid = *paper_id;
+                            lib_state.with_mut(|s| {
+                                if let Some(p) =
+                                    s.papers.iter_mut().find(|p| p.id == Some(pid))
+                                {
+                                    p.citation_key = Some(key.clone());
+                                }
+                            });
+                            all_keys.push(key);
+                            keys_updated = true;
+                        }
+                    }
+
+                    // Auto-export .bib if configured and keys were updated
+                    if keys_updated {
+                        let config = config.read();
+                        if let Some(ref bib_path) = config.auto_export_bib_path {
+                            let state = lib_state.read();
+                            let bib_content = rotero_bib::export_bibtex(&state.papers);
+                            if let Err(e) = std::fs::write(bib_path, &bib_content) {
+                                tracing::warn!("Auto-export .bib failed: {e}");
+                            }
+                        }
+                    }
+
+                    // Re-check every 30 seconds (quick for new imports)
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                }
+            }
+        });
+    }
 
     // Poll the connector dirty flag to refresh after browser extension saves
     #[cfg(feature = "desktop")]

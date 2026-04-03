@@ -72,6 +72,105 @@ pub fn PaperDetail() -> Element {
                 }
             }
 
+            // Citation key
+            if let Some(ref cite_key) = paper.citation_key {
+                {
+                    let key_for_copy = cite_key.clone();
+                    let key_for_copy2 = cite_key.clone();
+                    let key_display = cite_key.clone();
+                    let mut editing_key = use_signal(|| false);
+                    let mut edit_key_value = use_signal(|| cite_key.clone());
+                    let mut copied_hint = use_signal(|| false);
+                    let db_key = db.clone();
+                    let db_key2 = db.clone();
+
+                    rsx! {
+                        div { class: "detail-field",
+                            label { class: "detail-label", "Citation Key" }
+                            if editing_key() {
+                                div { class: "detail-cite-key-edit",
+                                    input {
+                                        class: "input input--sm",
+                                        value: "{edit_key_value}",
+                                        autofocus: true,
+                                        oninput: move |evt| edit_key_value.set(evt.value()),
+                                        onkeypress: {
+                                            let db = db_key.clone();
+                                            move |evt: Event<KeyboardData>| {
+                                                if evt.key() == Key::Enter {
+                                                    let new_key = edit_key_value().trim().to_string();
+                                                    if !new_key.is_empty() {
+                                                        let db = db.clone();
+                                                        spawn(async move {
+                                                            let _ = crate::db::papers::update_citation_key(db.conn(), paper_id, &new_key).await;
+                                                            lib_state.with_mut(|s| {
+                                                                if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(paper_id)) {
+                                                                    p.citation_key = Some(new_key);
+                                                                }
+                                                            });
+                                                            editing_key.set(false);
+                                                        });
+                                                    }
+                                                } else if evt.key() == Key::Escape {
+                                                    editing_key.set(false);
+                                                }
+                                            }
+                                        },
+                                        onfocusout: move |_| {
+                                            let new_key = edit_key_value().trim().to_string();
+                                            if !new_key.is_empty() {
+                                                let db = db_key2.clone();
+                                                spawn(async move {
+                                                    let _ = crate::db::papers::update_citation_key(db.conn(), paper_id, &new_key).await;
+                                                    lib_state.with_mut(|s| {
+                                                        if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(paper_id)) {
+                                                            p.citation_key = Some(new_key);
+                                                        }
+                                                    });
+                                                    editing_key.set(false);
+                                                });
+                                            } else {
+                                                editing_key.set(false);
+                                            }
+                                        },
+                                    }
+                                }
+                            } else {
+                                div {
+                                    class: "detail-value detail-value--cite-key",
+                                    onclick: move |_| {
+                                        if !copied_hint() {
+                                            edit_key_value.set(key_display.clone());
+                                            editing_key.set(true);
+                                        }
+                                    },
+                                    if copied_hint() {
+                                        code { class: "cite-key-copied-code", "Copied!" }
+                                    } else {
+                                        code { "{key_for_copy}" }
+                                        button {
+                                            class: "btn--ghost-sm cite-key-copy",
+                                            title: "Copy citation key",
+                                            onclick: move |evt| {
+                                                evt.stop_propagation();
+                                                let js = format!("navigator.clipboard.writeText({})", serde_json::to_string(&key_for_copy2).unwrap_or_default());
+                                                let _ = document::eval(&js);
+                                                copied_hint.set(true);
+                                                spawn(async move {
+                                                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                                    copied_hint.set(false);
+                                                });
+                                            },
+                                            i { class: "bi bi-clipboard" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Journal
             if let Some(ref journal) = paper.journal {
                 div { class: "detail-field",
@@ -369,7 +468,9 @@ fn NotesSection(paper_id: i64) -> Element {
         use_effect(move || {
             let db = db.clone();
             spawn(async move {
-                if let Ok(paper_notes) = crate::db::notes::list_notes_for_paper(db.conn(), paper_id).await {
+                if let Ok(paper_notes) =
+                    crate::db::notes::list_notes_for_paper(db.conn(), paper_id).await
+                {
                     notes.set(paper_notes);
                 }
             });

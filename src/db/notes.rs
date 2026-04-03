@@ -70,10 +70,7 @@ pub async fn delete_note(conn: &Connection, id: i64) -> Result<(), turso::Error>
 }
 
 fn row_to_note(row: &turso::Row) -> Note {
-    let id = row
-        .get_value(0)
-        .ok()
-        .and_then(|v| v.as_integer().copied());
+    let id = row.get_value(0).ok().and_then(|v| v.as_integer().copied());
     let paper_id = row
         .get_value(1)
         .ok()

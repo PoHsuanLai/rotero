@@ -2,7 +2,7 @@ use chrono::Utc;
 use rotero_models::Paper;
 use turso::{Connection, Value};
 
-const SELECT_COLS: &str = "id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count";
+const SELECT_COLS: &str = "id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key";
 
 pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<i64, turso::Error> {
     let authors_json = serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
@@ -12,8 +12,8 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<i64, turso
         .map(|v| serde_json::to_string(v).unwrap_or_default());
 
     conn.execute(
-        "INSERT INTO papers (title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+        "INSERT INTO papers (title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         turso::params::Params::Positional(vec![
             Value::Text(paper.title.clone()),
             Value::Text(authors_json),
@@ -33,6 +33,7 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<i64, turso
             Value::Integer(paper.is_read as i64),
             extra_meta.map(Value::Text).unwrap_or(Value::Null),
             paper.citation_count.map(Value::Integer).unwrap_or(Value::Null),
+            paper.citation_key.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
         ]),
     )
     .await?;
@@ -47,13 +48,39 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<i64, turso
 }
 
 pub async fn list_papers(conn: &Connection) -> Result<Vec<Paper>, turso::Error> {
-    let sql = format!("SELECT {SELECT_COLS} FROM papers ORDER BY date_added DESC");
-    let mut rows = conn.query(&sql, ()).await?;
+    list_papers_paginated(conn, 0, 500).await
+}
+
+/// Load papers with pagination support.
+pub async fn list_papers_paginated(
+    conn: &Connection,
+    offset: u32,
+    limit: u32,
+) -> Result<Vec<Paper>, turso::Error> {
+    let sql =
+        format!("SELECT {SELECT_COLS} FROM papers ORDER BY date_added DESC LIMIT ?1 OFFSET ?2");
+    let mut rows = conn
+        .query(
+            &sql,
+            [Value::Integer(limit as i64), Value::Integer(offset as i64)],
+        )
+        .await?;
     let mut papers = Vec::new();
     while let Some(row) = rows.next().await? {
         papers.push(row_to_paper(&row));
     }
     Ok(papers)
+}
+
+/// Return total number of papers in the library.
+#[allow(dead_code)]
+pub async fn count_papers(conn: &Connection) -> Result<u32, turso::Error> {
+    let mut rows = conn.query("SELECT COUNT(*) FROM papers", ()).await?;
+    let row = rows
+        .next()
+        .await?
+        .ok_or(turso::Error::QueryReturnedNoRows)?;
+    Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0) as u32)
 }
 
 pub async fn search_papers(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
@@ -270,6 +297,7 @@ fn row_to_paper(row: &turso::Row) -> Paper {
         is_favorite: get_bool(row, 15),
         is_read: get_bool(row, 16),
         citation_count: get_opt_i64(row, 18),
+        citation_key: get_opt_text(row, 19),
         extra_meta: extra_meta_str.and_then(|s| serde_json::from_str(&s).ok()),
     }
 }
@@ -366,6 +394,27 @@ pub async fn merge_papers(
 }
 
 /// Update citation count for a paper.
+/// Return (id, doi) pairs for papers that have a DOI but no citation count yet.
+pub async fn list_papers_needing_citations(
+    conn: &Connection,
+) -> Result<Vec<(i64, String)>, turso::Error> {
+    let mut rows = conn
+        .query(
+            "SELECT id, doi FROM papers WHERE doi IS NOT NULL AND citation_count IS NULL",
+            (),
+        )
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let id = row.get_value(0)?.as_integer().copied().unwrap_or(0);
+        let doi = row.get_value(1)?.as_text().cloned().unwrap_or_default();
+        if !doi.is_empty() {
+            out.push((id, doi));
+        }
+    }
+    Ok(out)
+}
+
 pub async fn update_citation_count(
     conn: &Connection,
     id: i64,
@@ -377,4 +426,70 @@ pub async fn update_citation_count(
     )
     .await?;
     Ok(())
+}
+
+/// Update the citation key for a paper.
+pub async fn update_citation_key(
+    conn: &Connection,
+    id: i64,
+    key: &str,
+) -> Result<(), turso::Error> {
+    conn.execute(
+        "UPDATE papers SET citation_key = ?1 WHERE id = ?2",
+        turso::params::Params::Positional(vec![Value::Text(key.to_string()), Value::Integer(id)]),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Return (id, title, authors_json, year) for papers that need a citation key generated.
+pub async fn list_papers_needing_citation_keys(
+    conn: &Connection,
+) -> Result<Vec<(i64, String, Vec<String>, Option<i32>)>, turso::Error> {
+    let mut rows = conn
+        .query(
+            "SELECT id, title, authors, year FROM papers \
+             WHERE citation_key IS NULL AND title != '' AND title != 'Untitled'",
+            (),
+        )
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let id = row.get_value(0)?.as_integer().copied().unwrap_or(0);
+        let title = row
+            .get_value(1)
+            .ok()
+            .and_then(|v| v.as_text().cloned())
+            .unwrap_or_default();
+        let authors_str = row
+            .get_value(2)
+            .ok()
+            .and_then(|v| v.as_text().cloned())
+            .unwrap_or_else(|| "[]".to_string());
+        let authors: Vec<String> = serde_json::from_str(&authors_str).unwrap_or_default();
+        let year = row
+            .get_value(3)
+            .ok()
+            .and_then(|v| v.as_integer().copied())
+            .map(|y| y as i32);
+        out.push((id, title, authors, year));
+    }
+    Ok(out)
+}
+
+/// List all existing citation keys (for deduplication).
+pub async fn list_citation_keys(conn: &Connection) -> Result<Vec<String>, turso::Error> {
+    let mut rows = conn
+        .query(
+            "SELECT citation_key FROM papers WHERE citation_key IS NOT NULL",
+            (),
+        )
+        .await?;
+    let mut keys = Vec::new();
+    while let Some(row) = rows.next().await? {
+        if let Some(key) = row.get_value(0).ok().and_then(|v| v.as_text().cloned()) {
+            keys.push(key);
+        }
+    }
+    Ok(keys)
 }

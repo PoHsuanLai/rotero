@@ -109,6 +109,52 @@
   color: var(--accent, #0d9488);
 }
 
+.detail-value--cite-key {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.detail-value--cite-key code {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-sm);
+  background: var(--bg-elevated);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--accent, #0d9488);
+}
+
+.detail-value--cite-key:hover code {
+  background: var(--bg-hover);
+}
+
+.cite-key-copy {
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.detail-value--cite-key:hover .cite-key-copy {
+  opacity: 1;
+}
+
+.cite-key-copied-code {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-sm);
+  background: var(--border-medium);
+  padding: 2px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-weight: 500;
+  text-align: center;
+  width: 100%;
+}
+
+.detail-cite-key-edit {
+  display: flex;
+  gap: var(--space-2);
+}
+
 /* --- Notes Section --- */
 .detail-notes-section {
   margin-top: var(--space-4);

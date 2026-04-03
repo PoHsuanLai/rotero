@@ -312,8 +312,9 @@ pub fn LibraryPanel() -> Element {
             // Drop zone overlay
             if drag_over() {
                 div { class: "library-drop-overlay",
-                    div { class: "library-drop-message",
-                        "Drop PDF files here to import"
+                    div { class: "library-drop-zone",
+                        i { class: "library-drop-icon bi bi-archive" }
+                        div { class: "library-drop-message", "Drop to import" }
                     }
                 }
             }

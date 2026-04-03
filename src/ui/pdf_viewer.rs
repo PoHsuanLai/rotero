@@ -326,10 +326,8 @@ pub fn PdfViewer() -> Element {
                                 }
 
                                 // Convert PDF points to pixel coords
-                                let (rw, rh) = rendered_pages
-                                    .get(&ext.page)
-                                    .copied()
-                                    .unwrap_or((1, 1));
+                                let (rw, rh) =
+                                    rendered_pages.get(&ext.page).copied().unwrap_or((1, 1));
                                 let sx = rw as f32 / ext.page_width_pts;
                                 let sy = rh as f32 / ext.page_height_pts;
                                 let x = ext.rect_pts[0] * sx;
@@ -494,10 +492,10 @@ pub fn PdfViewer() -> Element {
                                 (rendered, rendered < t.page_count, t.id, t.page_count, t.view.zoom)
                             } else { return; }
                         };
+                        if !has_more_now { return; }
 
                         is_loading.set(true);
                         spawn(async move {
-                            // Estimate current scroll position as a page index
                             let mut eval = document::eval(
                                 "(function() { let el = document.getElementById('pdf-pages-container'); \
                                  if (!el) return JSON.stringify([0.0, 0.0]); \
@@ -549,7 +547,7 @@ pub fn PdfViewer() -> Element {
                             }
 
                             // Load more pages when near the bottom
-                            if has_more_now && remaining_viewports <= 2.0 {
+                            if remaining_viewports <= 2.0 {
                                 let render_tx = render_ch.sender();
                                 let count = batch_size;
                                 let quality = config.read().render_quality;
@@ -1302,7 +1300,7 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                     tabs.with_mut(|m| m.tab_mut().nav.show_thumbnails = !m.tab().nav.show_thumbnails);
                     if tabs.read().tab().render.thumbnails.is_empty() {
                         spawn(async move {
-                            let _ = crate::state::commands::load_thumbnails(&render_tx, &mut tabs, tab_id, config.read().thumbnail_quality).await;
+                            let _ = crate::state::commands::load_thumbnails(&render_tx, &mut tabs, tab_id, 0, 50, config.read().thumbnail_quality).await;
                         });
                     }
                 },
@@ -1801,30 +1799,73 @@ fn PdfSearchBar(tab_id: TabId) -> Element {
 
 #[component]
 fn ThumbnailSidebar() -> Element {
-    let tabs = use_context::<Signal<PdfTabManager>>();
-    let thumbnails = tabs.read().tab().render.thumbnails.clone();
+    let mut tabs = use_context::<Signal<PdfTabManager>>();
+    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+    let render_ch = use_context::<RenderChannel>();
+    let mut is_loading_thumbs = use_signal(|| false);
+
+    let mgr = tabs.read();
+    let tab = mgr.tab();
+    let page_count = tab.page_count;
+    let tab_id = tab.id;
+    let thumbnails = tab.render.thumbnails.clone();
+    drop(mgr);
 
     rsx! {
-        div { class: "thumbnail-sidebar",
-            for thumb in thumbnails.iter() {
-                {
-                    let page_idx = thumb.page_index;
-                    let base64 = thumb.base64_data.clone();
-                    let mime = thumb.mime;
-                    let w = thumb.width;
-                    let h = thumb.height;
-                    let page_num = page_idx + 1;
-                    rsx! {
-                        div {
-                            key: "thumb-{page_idx}", class: "thumbnail-item",
-                            onclick: move |_| {
-                                spawn(async move {
-                                    let js = format!("let pages = document.querySelectorAll('.pdf-page-wrapper'); if (pages[{page_idx}]) {{ pages[{page_idx}].scrollIntoView({{ behavior: 'smooth', block: 'start' }}); }}");
-                                    let _ = document::eval(&js);
-                                });
-                            },
-                            img { class: "thumbnail-img", src: "data:{mime};base64,{base64}", width: "{w}", height: "{h}" }
-                            span { class: "thumbnail-page-num", "{page_num}" }
+        div {
+            class: "thumbnail-sidebar",
+            onscroll: move |_| {
+                if is_loading_thumbs() { return; }
+                is_loading_thumbs.set(true);
+                spawn(async move {
+                    // Estimate which thumbnail is visible from scroll position
+                    let mut eval = document::eval(
+                        "(function() { let el = document.querySelector('.thumbnail-sidebar'); \
+                         if (!el) return 0.0; \
+                         return el.scrollTop / Math.max(el.scrollHeight, 1); })()"
+                    );
+                    let ratio = eval.recv::<f64>().await.unwrap_or(0.0);
+                    let center = (ratio * page_count as f64) as u32;
+                    let start = center.saturating_sub(25);
+                    let render_tx = render_ch.sender();
+                    let quality = config.read().thumbnail_quality;
+                    let _ = crate::state::commands::load_thumbnails(
+                        &render_tx, &mut tabs, tab_id, start, 50, quality,
+                    ).await;
+                    is_loading_thumbs.set(false);
+                });
+            },
+
+            for page_idx in 0..page_count {
+                if let Some(thumb) = thumbnails.get(&page_idx) {
+                    {
+                        let base64 = thumb.base64_data.clone();
+                        let mime = thumb.mime;
+                        let w = thumb.width;
+                        let h = thumb.height;
+                        let page_num = page_idx + 1;
+                        rsx! {
+                            div {
+                                key: "thumb-{page_idx}", class: "thumbnail-item",
+                                onclick: move |_| {
+                                    spawn(async move {
+                                        let js = format!("let pages = document.querySelectorAll('.pdf-page-wrapper'); if (pages[{page_idx}]) {{ pages[{page_idx}].scrollIntoView({{ behavior: 'smooth', block: 'start' }}); }}");
+                                        let _ = document::eval(&js);
+                                    });
+                                },
+                                img { class: "thumbnail-img", src: "data:{mime};base64,{base64}", width: "{w}", height: "{h}" }
+                                span { class: "thumbnail-page-num", "{page_num}" }
+                            }
+                        }
+                    }
+                } else {
+                    // Placeholder for unloaded thumbnail
+                    div {
+                        key: "thumb-{page_idx}", class: "thumbnail-item thumbnail-placeholder",
+                        style: "width: 120px; height: 160px; background: var(--bg-secondary, #e0e0e0);",
+                        {
+                            let num = page_idx + 1;
+                            rsx! { span { class: "thumbnail-page-num", "{num}" } }
                         }
                     }
                 }

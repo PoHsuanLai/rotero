@@ -50,6 +50,10 @@ pub struct SyncConfig {
     /// JPEG quality for thumbnail images (1-100).
     #[serde(default = "default_thumbnail_quality")]
     pub thumbnail_quality: u8,
+
+    /// Path for auto-exported .bib file (Better BibTeX). None = disabled.
+    #[serde(default)]
+    pub auto_export_bib_path: Option<String>,
 }
 
 fn default_zoom() -> f32 {
@@ -95,6 +99,7 @@ impl Default for SyncConfig {
             auto_fetch_metadata: default_true(),
             render_quality: default_render_quality(),
             thumbnail_quality: default_thumbnail_quality(),
+            auto_export_bib_path: None,
         }
     }
 }
