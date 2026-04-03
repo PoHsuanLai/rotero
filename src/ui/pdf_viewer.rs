@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use dioxus::prelude::*;
 
 use crate::app::RenderChannel;
@@ -487,7 +489,7 @@ pub fn PdfViewer() -> Element {
 #[component]
 fn PdfPageWithOverlay(
     page_index: u32,
-    base64_data: String,
+    base64_data: Arc<String>,
     mime: &'static str,
     width: u32,
     height: u32,
@@ -610,13 +612,25 @@ fn PdfPageWithOverlay(
                                 }}
 
                                 // --- Custom selection overlay ---
-                                // Hide native ::selection and draw our own per-line merged rects
                                 let selColor = getComputedStyle(layer).getPropertyValue('--selection-color').trim()
                                     || 'rgba(0, 100, 255, 0.3)';
 
+                                // Build span lookup array once
+                                let spanData = [];
+                                for (let span of spans) {{
+                                    spanData.push({{
+                                        el: span,
+                                        x: parseFloat(span.dataset.segX),
+                                        y: parseFloat(span.dataset.segY),
+                                        w: parseFloat(span.dataset.targetW),
+                                        h: parseFloat(span.dataset.segH)
+                                    }});
+                                }}
+
                                 document.addEventListener('selectionchange', function() {{
                                     // Remove old highlights
-                                    layer.querySelectorAll('.selection-highlight').forEach(function(el) {{ el.remove(); }});
+                                    let old = layer.querySelectorAll('.selection-highlight');
+                                    for (let i = 0; i < old.length; i++) old[i].remove();
 
                                     let sel = document.getSelection();
                                     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
@@ -624,18 +638,16 @@ fn PdfPageWithOverlay(
                                     let range = sel.getRangeAt(0);
                                     if (!range.intersectsNode(layer)) return;
 
-                                    // Collect selected spans and group by line (similar y)
+                                    // Collect selected spans using range.intersectsNode
                                     let selected = [];
-                                    for (let span of spans) {{
-                                        if (sel.containsNode(span, true)) {{
-                                            let x = parseFloat(span.dataset.segX);
-                                            let y = parseFloat(span.dataset.segY);
-                                            let w = parseFloat(span.dataset.targetW);
-                                            let h = parseFloat(span.dataset.segH);
-                                            if (!isNaN(x) && !isNaN(y) && !isNaN(w) && !isNaN(h)) {{
-                                                selected.push({{ x: x, y: y, w: w, h: h }});
+                                    for (let sd of spanData) {{
+                                        try {{
+                                            if (range.intersectsNode(sd.el)) {{
+                                                if (!isNaN(sd.x) && !isNaN(sd.y) && !isNaN(sd.w) && !isNaN(sd.h)) {{
+                                                    selected.push(sd);
+                                                }}
                                             }}
-                                        }}
+                                        }} catch(e) {{}}
                                     }}
 
                                     if (!selected.length) return;
@@ -667,14 +679,14 @@ fn PdfPageWithOverlay(
                                             if (s.x + s.w > maxR) maxR = s.x + s.w;
                                             if (s.y + s.h > maxB) maxB = s.y + s.h;
                                         }}
-                                        let div = document.createElement('div');
-                                        div.className = 'selection-highlight';
-                                        div.style.left = minX + 'px';
-                                        div.style.top = minY + 'px';
-                                        div.style.width = (maxR - minX) + 'px';
-                                        div.style.height = (maxB - minY) + 'px';
-                                        div.style.background = selColor;
-                                        layer.appendChild(div);
+                                        let hl = document.createElement('div');
+                                        hl.className = 'selection-highlight';
+                                        hl.style.left = minX + 'px';
+                                        hl.style.top = minY + 'px';
+                                        hl.style.width = (maxR - minX) + 'px';
+                                        hl.style.height = (maxB - minY) + 'px';
+                                        hl.style.background = selColor;
+                                        layer.appendChild(hl);
                                     }}
                                 }});
 
@@ -977,40 +989,50 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
             span { class: "toolbar-page-count", "{page_count} pages" }
             div { class: "toolbar-separator" }
 
-            button {
-                class: "{highlight_class}",
-                onclick: move |_| {
-                    tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Highlight { AnnotationMode::None } else { AnnotationMode::Highlight });
-                },
-                span { class: "bi bi-highlighter" }
+            div { class: "toolbar-tooltip", "data-tooltip": "Highlight",
+                button {
+                    class: "{highlight_class}",
+                    onclick: move |_| {
+                        tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Highlight { AnnotationMode::None } else { AnnotationMode::Highlight });
+                    },
+                    span { class: "bi bi-highlighter" }
+                }
             }
-            button {
-                class: "{underline_class}",
-                onclick: move |_| {
-                    tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Underline { AnnotationMode::None } else { AnnotationMode::Underline });
-                },
-                span { class: "bi bi-type-underline" }
+            div { class: "toolbar-tooltip", "data-tooltip": "Underline",
+                button {
+                    class: "{underline_class}",
+                    onclick: move |_| {
+                        tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Underline { AnnotationMode::None } else { AnnotationMode::Underline });
+                    },
+                    span { class: "bi bi-type-underline" }
+                }
             }
-            button {
-                class: "{note_class}",
-                onclick: move |_| {
-                    tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Note { AnnotationMode::None } else { AnnotationMode::Note });
-                },
-                span { class: "bi bi-sticky" }
+            div { class: "toolbar-tooltip", "data-tooltip": "Sticky Note",
+                button {
+                    class: "{note_class}",
+                    onclick: move |_| {
+                        tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Note { AnnotationMode::None } else { AnnotationMode::Note });
+                    },
+                    span { class: "bi bi-sticky" }
+                }
             }
-            button {
-                class: "{ink_class}",
-                onclick: move |_| {
-                    tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Ink { AnnotationMode::None } else { AnnotationMode::Ink });
-                },
-                span { class: "bi bi-pencil" }
+            div { class: "toolbar-tooltip", "data-tooltip": "Draw",
+                button {
+                    class: "{ink_class}",
+                    onclick: move |_| {
+                        tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Ink { AnnotationMode::None } else { AnnotationMode::Ink });
+                    },
+                    span { class: "bi bi-pencil" }
+                }
             }
-            button {
-                class: "{text_class}",
-                onclick: move |_| {
-                    tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Text { AnnotationMode::None } else { AnnotationMode::Text });
-                },
-                span { class: "bi bi-fonts" }
+            div { class: "toolbar-tooltip", "data-tooltip": "Text",
+                button {
+                    class: "{text_class}",
+                    onclick: move |_| {
+                        tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Text { AnnotationMode::None } else { AnnotationMode::Text });
+                    },
+                    span { class: "bi bi-fonts" }
+                }
             }
 
             if mode != AnnotationMode::None {
@@ -1043,22 +1065,25 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 let undo_class = if can_undo { "btn btn--ghost btn--sm toolbar-zoom-btn" } else { "btn btn--ghost btn--sm toolbar-zoom-btn btn--disabled" };
                 let redo_class = if can_redo { "btn btn--ghost btn--sm toolbar-zoom-btn" } else { "btn btn--ghost btn--sm toolbar-zoom-btn btn--disabled" };
                 rsx! {
-                    button {
-                        class: "{undo_class}",
-                        onclick: move |_| {
-                            if !undo_stack.read().can_undo() { return; }
-                            let action = undo_stack.with_mut(|s| s.pop_undo());
-                            if let Some(action) = action {
-                                let db = db_undo.clone();
-                                spawn(async move {
-                                    crate::state::undo::reverse_action(db, &mut tabs, &mut undo_stack, action).await;
-                                });
-                            }
-                        },
-                        span { class: "bi bi-arrow-counterclockwise" }
+                    div { class: "toolbar-tooltip", "data-tooltip": "Undo",
+                        button {
+                            class: "{undo_class}",
+                            onclick: move |_| {
+                                if !undo_stack.read().can_undo() { return; }
+                                let action = undo_stack.with_mut(|s| s.pop_undo());
+                                if let Some(action) = action {
+                                    let db = db_undo.clone();
+                                    spawn(async move {
+                                        crate::state::undo::reverse_action(db, &mut tabs, &mut undo_stack, action).await;
+                                    });
+                                }
+                            },
+                            span { class: "bi bi-arrow-counterclockwise" }
+                        }
                     }
-                    button {
-                        class: "{redo_class}",
+                    div { class: "toolbar-tooltip", "data-tooltip": "Redo",
+                        button {
+                            class: "{redo_class}",
                         onclick: move |_| {
                             if !undo_stack.read().can_redo() { return; }
                             let action = undo_stack.with_mut(|s| s.pop_redo());
@@ -1070,6 +1095,7 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                             }
                         },
                         span { class: "bi bi-arrow-clockwise" }
+                    }
                     }
                 }
             }
