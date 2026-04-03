@@ -93,5 +93,7 @@ body {
 .bi-folder2-open::before { content: "\f3d8"; }
 .bi-tag::before { content: "\f5b0"; }
 .bi-tags::before { content: "\f5b2"; }
+.bi-arrow-counterclockwise::before { content: "\f117"; }
+.bi-arrow-clockwise::before { content: "\f116"; }
 .bi-zoom-in::before { content: "\f62c"; }
 .bi-zoom-out::before { content: "\f62d"; }

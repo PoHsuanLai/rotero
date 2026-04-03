@@ -162,6 +162,7 @@
   padding: 0;
   border-radius: var(--radius-full);
   font-size: var(--text-sm);
+  cursor: pointer;
 }
 
 .toolbar-zoom-value {

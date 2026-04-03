@@ -1,4 +1,8 @@
+use dioxus::prelude::*;
 use rotero_models::Annotation;
+
+use crate::db::Database;
+use crate::state::app_state::PdfTabManager;
 
 /// A forward annotation action (what was done).
 #[derive(Debug, Clone)]
@@ -34,5 +38,121 @@ impl UndoStack {
         let action = self.redo.pop()?;
         self.undo.push(action.clone());
         Some(action)
+    }
+
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
+    }
+}
+
+/// Reverse an action (for undo).
+pub async fn reverse_action(
+    db: Database,
+    tabs: &mut Signal<PdfTabManager>,
+    action: UndoAction,
+) {
+    match action {
+        UndoAction::Create(ref ann) => {
+            let ann_id = ann.id.unwrap_or(0);
+            if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), ann_id).await {
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        t.annotations.retain(|a| a.id != Some(ann_id));
+                    }
+                });
+            }
+        }
+        UndoAction::Delete(ref ann) => {
+            if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), ann).await {
+                let mut ann = ann.clone();
+                ann.id = Some(id);
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        t.annotations.push(ann);
+                    }
+                });
+            }
+        }
+        UndoAction::UpdateContent { id, ref old, .. } => {
+            let opt = old.as_deref();
+            if let Ok(()) = crate::db::annotations::update_annotation_content(db.conn(), id, opt).await {
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
+                            a.content = old.clone();
+                        }
+                    }
+                });
+            }
+        }
+        UndoAction::UpdateColor { id, ref old, .. } => {
+            if let Ok(()) = crate::db::annotations::update_annotation_color(db.conn(), id, old).await {
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
+                            a.color = old.clone();
+                        }
+                    }
+                });
+            }
+        }
+    }
+}
+
+/// Re-apply an action (for redo).
+pub async fn forward_action(
+    db: Database,
+    tabs: &mut Signal<PdfTabManager>,
+    action: UndoAction,
+) {
+    match action {
+        UndoAction::Create(ref ann) => {
+            if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), ann).await {
+                let mut ann = ann.clone();
+                ann.id = Some(id);
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        t.annotations.push(ann);
+                    }
+                });
+            }
+        }
+        UndoAction::Delete(ref ann) => {
+            let ann_id = ann.id.unwrap_or(0);
+            if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), ann_id).await {
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        t.annotations.retain(|a| a.id != Some(ann_id));
+                    }
+                });
+            }
+        }
+        UndoAction::UpdateContent { id, ref new, .. } => {
+            let opt = new.as_deref();
+            if let Ok(()) = crate::db::annotations::update_annotation_content(db.conn(), id, opt).await {
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
+                            a.content = new.clone();
+                        }
+                    }
+                });
+            }
+        }
+        UndoAction::UpdateColor { id, ref new, .. } => {
+            if let Ok(()) = crate::db::annotations::update_annotation_color(db.conn(), id, new).await {
+                tabs.with_mut(|m| {
+                    if let Some(t) = m.active_tab_mut() {
+                        if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
+                            a.color = new.clone();
+                        }
+                    }
+                });
+            }
+        }
     }
 }

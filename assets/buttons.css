@@ -31,8 +31,10 @@
   box-shadow: 0 0 0 2px var(--bg-main), 0 0 0 4px var(--accent-ring);
 }
 
-.btn:disabled {
-  opacity: 0.5;
+.btn:disabled,
+.btn.btn--disabled {
+  opacity: 0.35;
+  cursor: default;
   pointer-events: none;
 }
 
