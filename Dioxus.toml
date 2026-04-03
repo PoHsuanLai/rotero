@@ -1,0 +1,6 @@
+[application]
+name = "Rotero"
+
+[bundle]
+identifier = "com.rotero.Rotero"
+publisher = "Rotero"

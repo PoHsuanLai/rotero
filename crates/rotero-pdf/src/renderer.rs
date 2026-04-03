@@ -45,7 +45,18 @@ impl PdfEngine {
         &self.pdfium
     }
 
-    /// Create a new PdfEngine by binding to the PDFium library.
+    /// Create a new PdfEngine by binding to a statically linked PDFium library.
+    /// Use this on platforms where dynamic loading isn't available (iOS, Android).
+    #[cfg(feature = "static")]
+    pub fn new_static() -> Result<Self, PdfError> {
+        let bindings = Pdfium::bind_to_statically_linked_library()
+            .map_err(|e| PdfError::BindError(e.to_string()))?;
+        Ok(Self {
+            pdfium: Pdfium::new(bindings),
+        })
+    }
+
+    /// Create a new PdfEngine by dynamically binding to the PDFium library.
     ///
     /// Resolution order:
     /// 1. Explicit `lib_path` argument

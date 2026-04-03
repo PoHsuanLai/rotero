@@ -28,9 +28,7 @@ pub fn LibrarySection() -> Element {
                 button {
                     class: "btn btn--primary",
                     onclick: move |_| {
-                        let folder = rfd::FileDialog::new()
-                            .set_title("Choose Library Folder")
-                            .pick_folder();
+                        let folder = crate::ui::pick_folder("Choose Library Folder");
 
                         if let Some(path) = folder {
                             let path_str = path.to_string_lossy().to_string();

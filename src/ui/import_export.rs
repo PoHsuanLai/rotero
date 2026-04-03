@@ -23,11 +23,7 @@ fn ImportBibtexButton() -> Element {
         button {
             class: "btn btn--ghost",
             onclick: move |_| {
-                let file = rfd::FileDialog::new()
-                    .add_filter("BibTeX", &["bib", "bibtex"])
-                    .set_title("Import BibTeX")
-                    .pick_file();
-
+                let file = super::pick_file(&["bib", "bibtex"], "Import BibTeX");
                 if let Some(path) = file {
                     match std::fs::read_to_string(&path) {
                         Ok(content) => {
@@ -78,11 +74,7 @@ fn ExportBibtexButton() -> Element {
                     return;
                 }
 
-                let file = rfd::FileDialog::new()
-                    .add_filter("BibTeX", &["bib"])
-                    .set_title("Export BibTeX")
-                    .set_file_name("rotero-export.bib")
-                    .save_file();
+                let file = super::save_file(&["bib"], "Export BibTeX", "rotero-export.bib");
 
                 if let Some(path) = file {
                     let bibtex = rotero_bib::export_bibtex(&papers);

@@ -36,13 +36,13 @@ edition.workspace = true
 rotero-models.workspace = true
 rotero-pdf.workspace = true
 rotero-bib.workspace = true
-rotero-connector.workspace = true
+rotero-connector = { workspace = true, optional = true }
 
-dioxus = { version = "0.6", features = ["desktop"] }
-rfd = "0.14"
+dioxus = "0.6"
+rfd = { version = "0.14", optional = true }
 turso = "0.6.0-pre.15"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
-directories = "6"
+directories = { version = "6", optional = true }
 base64 = "0.22"
 serde.workspace = true
 serde_json.workspace = true
@@ -53,3 +53,8 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 regex = "1"
 urlencoding = "2"
+
+[features]
+default = ["desktop"]
+desktop = ["dioxus/desktop", "dep:rfd", "dep:rotero-connector", "dep:directories"]
+mobile = ["dioxus/mobile"]

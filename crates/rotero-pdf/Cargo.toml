@@ -13,3 +13,8 @@ image = "0.25"
 base64 = "0.22"
 lopdf = "0.40"
 serde_json = "1"
+
+[features]
+default = ["dynamic"]
+dynamic = []
+static = ["pdfium-render/static", "pdfium-render/libc++", "pdfium-render/core_graphics"]

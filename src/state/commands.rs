@@ -62,7 +62,11 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
     let (tx, rx) = mpsc::channel::<RenderRequest>();
 
     std::thread::spawn(move || {
-        let engine = match rotero_pdf::PdfEngine::new(None) {
+        #[cfg(feature = "mobile")]
+        let engine_result = rotero_pdf::PdfEngine::new_static();
+        #[cfg(not(feature = "mobile"))]
+        let engine_result = rotero_pdf::PdfEngine::new(None);
+        let engine = match engine_result {
             Ok(e) => e,
             Err(e) => {
                 eprintln!("Failed to bind PDFium: {e}");

@@ -28,10 +28,7 @@ pub fn GlobalKeyHandler() -> Element {
     // Cmd+O → Open PDF
     let _ = use_global_shortcut("CmdOrCtrl+O", move || {
         tracing::info!("Shortcut: Cmd+O (open PDF)");
-        let file = rfd::FileDialog::new()
-            .add_filter("PDF", &["pdf"])
-            .set_title("Open PDF")
-            .pick_file();
+        let file = crate::ui::pick_file(&["pdf"], "Open PDF");
 
         if let Some(path) = file {
             let path_str = path.to_string_lossy().to_string();
@@ -58,10 +55,7 @@ pub fn GlobalKeyHandler() -> Element {
     let db_import = db.clone();
     let _ = use_global_shortcut("CmdOrCtrl+I", move || {
         tracing::info!("Shortcut: Cmd+I (import BibTeX)");
-        let file = rfd::FileDialog::new()
-            .add_filter("BibTeX", &["bib", "bibtex"])
-            .set_title("Import BibTeX")
-            .pick_file();
+        let file = crate::ui::pick_file(&["bib", "bibtex"], "Import BibTeX");
 
         if let Some(path) = file {
             if let Ok(content) = std::fs::read_to_string(&path) {
@@ -86,11 +80,7 @@ pub fn GlobalKeyHandler() -> Element {
         tracing::info!("Shortcut: Cmd+E (export BibTeX)");
         let papers = lib_state.read().papers.clone();
         if !papers.is_empty() {
-            let file = rfd::FileDialog::new()
-                .add_filter("BibTeX", &["bib"])
-                .set_title("Export BibTeX")
-                .set_file_name("rotero-export.bib")
-                .save_file();
+            let file = crate::ui::save_file(&["bib"], "Export BibTeX", "rotero-export.bib");
 
             if let Some(path) = file {
                 let bibtex = rotero_bib::export_bibtex(&papers);

@@ -165,6 +165,7 @@ fn LoadLibraryData() -> Element {
     });
 
     // Poll the connector dirty flag to refresh after browser extension saves
+    #[cfg(feature = "desktop")]
     use_future(move || {
         let db = db.clone();
         async move {

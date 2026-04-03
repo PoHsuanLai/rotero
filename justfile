@@ -51,19 +51,23 @@ setup-pdfium:
 
 # Build the project (debug)
 build: setup-pdfium
-    cargo build
+    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" dx build
 
 # Build the project (release)
 build-release: setup-pdfium
-    cargo build --release
+    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" dx build --release
 
-# Run the app (debug)
+# Run the app (debug, with hot-reload)
 run: setup-pdfium
-    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" cargo run
+    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" dx serve
 
 # Run the app (release)
 run-release: setup-pdfium
-    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" cargo run --release
+    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" dx serve --release
+
+# Bundle the desktop app for distribution
+bundle: setup-pdfium
+    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" dx bundle --release
 
 # Check all crates compile
 check:
@@ -94,3 +98,37 @@ test-save-paper:
         -H "Content-Type: application/json" \
         -d '{"title":"Test Paper","doi":"10.1234/test","authors":["Test Author"]}' \
         | python3 -m json.tool
+
+# Download static PDFium for iOS (from paulocoutinhox/pdfium-lib)
+setup-pdfium-ios:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    DEVICE_DIR="{{justfile_directory()}}/lib/ios-device"
+    SIM_DIR="{{justfile_directory()}}/lib/ios-sim"
+
+    if [ -f "$DEVICE_DIR/libpdfium.a" ] && [ -f "$SIM_DIR/libpdfium.a" ]; then
+        echo "PDFium iOS static libs already present"
+        exit 0
+    fi
+
+    echo "Downloading static PDFium for iOS from paulocoutinhox/pdfium-lib..."
+    TMP=$(mktemp -d)
+    gh release download --repo paulocoutinhox/pdfium-lib --pattern "ios.tgz" --dir "$TMP"
+    mkdir -p "$TMP/extracted"
+    tar -xzf "$TMP/ios.tgz" -C "$TMP/extracted"
+
+    mkdir -p "$DEVICE_DIR" "$SIM_DIR"
+    cp "$TMP/extracted/release/lib/device/libpdfium.a" "$DEVICE_DIR/libpdfium.a"
+    cp "$TMP/extracted/release/lib/simulator/libpdfium.a" "$SIM_DIR/libpdfium.a"
+    rm -rf "$TMP"
+
+    echo "PDFium iOS static libs installed to lib/ios-device/ and lib/ios-sim/"
+
+# Serve iOS app on simulator
+run-ios: setup-pdfium-ios
+    PDFIUM_STATIC_LIB_PATH="{{justfile_directory()}}/lib/ios-sim" dx serve --platform ios --features mobile --no-default-features
+
+# Bundle iOS app for device
+build-ios: setup-pdfium-ios
+    PDFIUM_STATIC_LIB_PATH="{{justfile_directory()}}/lib/ios-device" dx bundle --platform ios --features mobile --no-default-features

@@ -111,15 +111,28 @@ impl SyncConfig {
 }
 
 fn config_path() -> PathBuf {
-    let dirs = directories::ProjectDirs::from("com", "rotero", "Rotero")
-        .expect("Could not determine config directory");
-    dirs.config_dir().join("config.json")
+    app_support_dir().join("config.json")
 }
 
 fn default_library_path() -> PathBuf {
+    app_support_dir()
+}
+
+/// Returns the platform-appropriate app data directory.
+#[cfg(feature = "desktop")]
+fn app_support_dir() -> PathBuf {
     let dirs = directories::ProjectDirs::from("com", "rotero", "Rotero")
         .expect("Could not determine data directory");
     dirs.data_dir().to_path_buf()
+}
+
+/// On iOS/Android, use the app's sandboxed Documents directory.
+#[cfg(not(feature = "desktop"))]
+fn app_support_dir() -> PathBuf {
+    // On iOS, the app sandbox HOME contains Documents/, Library/, etc.
+    // We use the Documents dir so data persists and is accessible.
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join("Documents").join("Rotero")
 }
 
 /// Check if the database file was modified since our last known timestamp.
