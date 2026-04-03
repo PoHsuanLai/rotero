@@ -948,15 +948,7 @@ fn TagSection(tags: Vec<rotero_models::Tag>, ctx_menu: Signal<Option<TagContextM
                                     let tag_id = tag.id.unwrap_or(0);
                                     let tag_name = tag.name.clone();
                                     let tag_color = tag.color.clone();
-                                    let bg = tag_color.clone().unwrap_or_else(|| {
-                                        // Auto-assign a muted color based on tag id
-                                        const PALETTE: &[&str] = &[
-                                            "#6b7085", "#7c6b85", "#6b8580", "#857a6b",
-                                            "#6b7a85", "#856b7a", "#6b856e", "#85706b",
-                                            "#6e6b85", "#7a856b", "#856b6b", "#6b8585",
-                                        ];
-                                        PALETTE[tag_id as usize % PALETTE.len()].to_string()
-                                    });
+                                    let bg = tag_color.clone().unwrap_or_else(|| "#6b7085".to_string());
                                     let is_paper_drop = drag_paper.read().0.is_some();
                                     let is_hover = drop_hover().as_deref() == Some(&format!("tag-{tag_id}"));
                                     let tag_class = if is_paper_drop && is_hover {

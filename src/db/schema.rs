@@ -1,6 +1,6 @@
 use turso::Connection;
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 const CREATE_FTS_INDEX: &str = "CREATE INDEX IF NOT EXISTS idx_papers_fts ON papers \
      USING fts (title, authors, abstract_text, journal, fulltext) \
@@ -161,6 +161,36 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
         let _ = conn
             .execute("ALTER TABLE papers ADD COLUMN citation_key TEXT", ())
             .await;
+    }
+
+    // Migration to v7: backfill NULL tag colors with palette colors
+    if current_version < 7 {
+        const PALETTE: &[&str] = &[
+            "#6b7085", "#7c6b85", "#6b8580", "#857a6b",
+            "#6b7a85", "#856b7a", "#6b856e", "#85706b",
+            "#6e6b85", "#7a856b", "#856b6b", "#6b8585",
+        ];
+        let mut rows = conn
+            .query(super::queries::TAG_LIST_NULL_COLOR, ())
+            .await?;
+        let mut updates: Vec<(i64, String)> = Vec::new();
+        while let Some(row) = rows.next().await? {
+            let id = row.get_value(0)?.as_integer().copied().unwrap_or(0);
+            let name = row.get_value(1)?.as_text().cloned().unwrap_or_default();
+            let hash = name.bytes().fold(0usize, |acc, b| acc.wrapping_add(b as usize));
+            updates.push((id, PALETTE[hash % PALETTE.len()].to_string()));
+        }
+        for (id, color) in updates {
+            let _ = conn
+                .execute(
+                    super::queries::TAG_UPDATE_COLOR,
+                    turso::params::Params::Positional(vec![
+                        turso::Value::Text(color),
+                        turso::Value::Integer(id),
+                    ]),
+                )
+                .await;
+        }
     }
 
     // Ensure citation_count column exists (may have been missed if v4 migration partially ran)

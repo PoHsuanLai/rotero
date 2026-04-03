@@ -86,6 +86,7 @@ pub const TAG_LIST: &str = "SELECT id, name, color FROM tags ORDER BY name";
 pub const TAG_ADD_TO_PAPER: &str = "INSERT OR IGNORE INTO paper_tags (paper_id, tag_id) VALUES (?1, ?2)";
 pub const TAG_RENAME: &str = "UPDATE tags SET name = ?1 WHERE id = ?2";
 pub const TAG_UPDATE_COLOR: &str = "UPDATE tags SET color = ?1 WHERE id = ?2";
+pub const TAG_LIST_NULL_COLOR: &str = "SELECT id, name FROM tags WHERE color IS NULL";
 pub const TAG_PAPER_IDS: &str = "SELECT paper_id FROM paper_tags WHERE tag_id = ?1";
 pub const TAG_DELETE: &str = "DELETE FROM tags WHERE id = ?1";
 
