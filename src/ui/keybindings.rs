@@ -3,7 +3,7 @@ use dioxus::desktop::use_global_shortcut;
 
 use crate::app::{RenderChannel, ShowSettings};
 use crate::db::Database;
-use crate::state::app_state::{LibraryState, LibraryView, PdfTab, PdfTabManager};
+use crate::state::app_state::{AnnotationMode, LibraryState, LibraryView, PdfTab, PdfTabManager, ViewerToolState};
 use crate::state::undo::{UndoStack, reverse_action, forward_action};
 use crate::sync::engine::SyncConfig;
 
@@ -18,15 +18,16 @@ pub fn GlobalKeyHandler() -> Element {
     let config = use_context::<Signal<SyncConfig>>();
     let mut new_coll_editing = use_context::<Signal<Option<Option<i64>>>>();
     let mut undo_stack = use_context::<Signal<UndoStack>>();
+    let mut tools = use_context::<Signal<ViewerToolState>>();
 
     // Cmd+, → Open Settings (Escape to close)
-    let _ = use_global_shortcut("CmdOrCtrl+,", move || {
+    let _ = use_global_shortcut("CmdOrCtrl+,", move |_| {
         tracing::info!("Shortcut: Cmd+, (open settings)");
         show_settings.set(ShowSettings(true));
     });
 
     // Cmd+O → Open PDF
-    let _ = use_global_shortcut("CmdOrCtrl+O", move || {
+    let _ = use_global_shortcut("CmdOrCtrl+O", move |_| {
         tracing::info!("Shortcut: Cmd+O (open PDF)");
         let file = crate::ui::pick_file(&["pdf"], "Open PDF");
 
@@ -53,7 +54,7 @@ pub fn GlobalKeyHandler() -> Element {
 
     // Cmd+I → Import BibTeX
     let db_import = db.clone();
-    let _ = use_global_shortcut("CmdOrCtrl+I", move || {
+    let _ = use_global_shortcut("CmdOrCtrl+I", move |_| {
         tracing::info!("Shortcut: Cmd+I (import BibTeX)");
         let file = crate::ui::pick_file(&["bib", "bibtex"], "Import BibTeX");
 
@@ -76,7 +77,7 @@ pub fn GlobalKeyHandler() -> Element {
     });
 
     // Cmd+E → Export BibTeX
-    let _ = use_global_shortcut("CmdOrCtrl+E", move || {
+    let _ = use_global_shortcut("CmdOrCtrl+E", move |_| {
         tracing::info!("Shortcut: Cmd+E (export BibTeX)");
         let papers = lib_state.read().papers.clone();
         if !papers.is_empty() {
@@ -90,7 +91,7 @@ pub fn GlobalKeyHandler() -> Element {
     });
 
     // Cmd+F → Search (context-dependent: library search bar or PDF in-document search)
-    let _ = use_global_shortcut("CmdOrCtrl+F", move || {
+    let _ = use_global_shortcut("CmdOrCtrl+F", move |_| {
         tracing::info!("Shortcut: Cmd+F (search)");
         let view = lib_state.read().view.clone();
         if view == LibraryView::PdfViewer {
@@ -116,7 +117,7 @@ pub fn GlobalKeyHandler() -> Element {
     });
 
     // Cmd+L → Focus library search
-    let _ = use_global_shortcut("CmdOrCtrl+L", move || {
+    let _ = use_global_shortcut("CmdOrCtrl+L", move |_| {
         tracing::info!("Shortcut: Cmd+L (focus search)");
         let view = lib_state.read().view.clone();
         if view == LibraryView::PdfViewer {
@@ -130,7 +131,7 @@ pub fn GlobalKeyHandler() -> Element {
     });
 
     // Cmd+W → Close active PDF tab
-    let _ = use_global_shortcut("CmdOrCtrl+W", move || {
+    let _ = use_global_shortcut("CmdOrCtrl+W", move |_| {
         tracing::info!("Shortcut: Cmd+W (close tab)");
         let has_active = tabs.read().active_tab_id.is_some();
         if has_active {
@@ -155,7 +156,7 @@ pub fn GlobalKeyHandler() -> Element {
     });
 
     // Cmd+N → New collection
-    let _ = use_global_shortcut("CmdOrCtrl+N", move || {
+    let _ = use_global_shortcut("CmdOrCtrl+N", move |_| {
         tracing::info!("Shortcut: Cmd+N (new collection)");
         let parent = match lib_state.read().view {
             LibraryView::Collection(id) => Some(id),
@@ -165,13 +166,13 @@ pub fn GlobalKeyHandler() -> Element {
     });
 
     // Cmd+1 → Go to Library view
-    let _ = use_global_shortcut("CmdOrCtrl+1", move || {
+    let _ = use_global_shortcut("CmdOrCtrl+1", move |_| {
         tracing::info!("Shortcut: Cmd+1 (library view)");
         lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
     });
 
     // Cmd+[ → Previous PDF tab
-    let _ = use_global_shortcut("CmdOrCtrl+[", move || {
+    let _ = use_global_shortcut("CmdOrCtrl+[", move |_| {
         tracing::info!("Shortcut: Cmd+[ (prev tab)");
         tabs.with_mut(|m| {
             if let Some(active_id) = m.active_tab_id {
@@ -189,7 +190,7 @@ pub fn GlobalKeyHandler() -> Element {
     });
 
     // Cmd+] → Next PDF tab
-    let _ = use_global_shortcut("CmdOrCtrl+]", move || {
+    let _ = use_global_shortcut("CmdOrCtrl+]", move |_| {
         tracing::info!("Shortcut: Cmd+] (next tab)");
         tabs.with_mut(|m| {
             if let Some(active_id) = m.active_tab_id {
@@ -208,7 +209,7 @@ pub fn GlobalKeyHandler() -> Element {
 
     // Cmd+Z → Undo annotation action (reverse the action)
     let db_undo = db.clone();
-    let _ = use_global_shortcut("CmdOrCtrl+Z", move || {
+    let _ = use_global_shortcut("CmdOrCtrl+Z", move |_| {
         let action = undo_stack.with_mut(|s| s.pop_undo());
         if let Some(action) = action {
             let db = db_undo.clone();
@@ -220,7 +221,7 @@ pub fn GlobalKeyHandler() -> Element {
 
     // Cmd+Shift+Z → Redo annotation action (re-apply the action)
     let db_redo = db.clone();
-    let _ = use_global_shortcut("CmdOrCtrl+Shift+Z", move || {
+    let _ = use_global_shortcut("CmdOrCtrl+Shift+Z", move |_| {
         let action = undo_stack.with_mut(|s| s.pop_redo());
         if let Some(action) = action {
             let db = db_redo.clone();
@@ -230,11 +231,25 @@ pub fn GlobalKeyHandler() -> Element {
         }
     });
 
-    // Escape → Close settings
-    let _ = use_global_shortcut("Escape", move || {
-        tracing::info!("Shortcut: Escape");
-        if show_settings.read().0 {
+    // Escape → Exit annotation mode, or close settings/search
+    let _ = use_global_shortcut("Escape", move |_| {
+        let mode = tools.read().annotation_mode;
+        if mode != AnnotationMode::None {
+            tools.with_mut(|t| t.annotation_mode = AnnotationMode::None);
+        } else if show_settings.read().0 {
             show_settings.set(ShowSettings(false));
+        } else {
+            // Close PDF search bar if open
+            tabs.with_mut(|m| {
+                if let Some(t) = m.active_tab_mut() {
+                    if t.search.visible {
+                        t.search.visible = false;
+                        t.search.query.clear();
+                        t.search.matches.clear();
+                        t.search.current_index = 0;
+                    }
+                }
+            });
         }
     });
 

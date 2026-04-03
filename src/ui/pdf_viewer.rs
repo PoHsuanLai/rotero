@@ -9,6 +9,19 @@ use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuS
 /// Shared annotation context menu state: (ann_id, ann_type, page, color, content, x, y)
 type AnnCtxState = Signal<Option<(i64, AnnotationType, i32, String, String, f64, f64)>>;
 
+/// Convert a hex color like "#ff0000" to "rgba(r, g, b, alpha)".
+fn hex_to_rgba(hex: &str, alpha: f32) -> String {
+    let hex = hex.trim_start_matches('#');
+    if hex.len() >= 6 {
+        let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0);
+        let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0);
+        let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0);
+        format!("rgba({r}, {g}, {b}, {alpha})")
+    } else {
+        format!("rgba(0, 100, 255, {alpha})")
+    }
+}
+
 // ── Tab bar ───────────────────────────────────────────────────────
 
 #[component]
@@ -308,15 +321,7 @@ pub fn PdfViewer() -> Element {
                         });
                     }
                     Key::Escape => {
-                        tabs.with_mut(|m| {
-                            let t = m.tab_mut();
-                            if t.search.visible {
-                                t.search.visible = false;
-                                t.search.query.clear();
-                                t.search.matches.clear();
-                                t.search.current_index = 0;
-                            }
-                        });
+                        // Handled by global shortcut in keybindings.rs
                     }
                     _ => {}
                 }
@@ -427,6 +432,7 @@ fn PdfPageWithOverlay(
     let db = use_context::<Database>();
     let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
     let ann_ctx = use_context::<AnnCtxState>();
+    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
 
     let mgr = tabs.read();
     let tab = mgr.tab();
@@ -439,6 +445,11 @@ fn PdfPageWithOverlay(
         .iter().filter(|m| m.page_index == page_index)
         .flat_map(|m| m.bounds.iter().copied()).collect();
     drop(mgr);
+
+    let selection_color = {
+        let hex = &config.read().selection_color;
+        hex_to_rgba(hex, 0.3)
+    };
 
     let t = tools.read();
     let mode = t.annotation_mode;
@@ -475,7 +486,7 @@ fn PdfPageWithOverlay(
             div {
                 class: "text-layer",
                 id: "text-layer-{page_index}",
-                style: "width: {width}px; height: {height}px;",
+                style: "width: {width}px; height: {height}px; --selection-color: {selection_color};",
                 onmounted: move |_| {
                     spawn(async move {
                         let js = format!(r#"
