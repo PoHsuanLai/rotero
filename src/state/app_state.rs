@@ -63,7 +63,7 @@ pub struct NavPanels {
 pub struct PdfTab {
     pub id: TabId,
     pub pdf_path: String,
-    pub paper_id: Option<i64>,
+    pub paper_id: Option<String>,
     pub title: String,
     pub page_count: u32,
     pub is_loading: bool,
@@ -131,8 +131,8 @@ impl PdfTabManager {
         self.next_id
     }
 
-    pub fn find_by_paper_id(&self, paper_id: i64) -> Option<usize> {
-        self.tabs.iter().position(|t| t.paper_id == Some(paper_id))
+    pub fn find_by_paper_id(&self, paper_id: &str) -> Option<usize> {
+        self.tabs.iter().position(|t| t.paper_id.as_deref() == Some(paper_id))
     }
 
     pub fn find_by_path(&self, path: &str) -> Option<usize> {
@@ -220,14 +220,14 @@ impl PdfTabManager {
     /// Switch to an existing tab for this paper, or create a new one.
     pub fn open_or_switch(
         &mut self,
-        paper_id: i64,
+        paper_id: String,
         pdf_path: String,
         title: String,
         zoom: f32,
         batch_size: u32,
         dpr: f32,
     ) {
-        if let Some(idx) = self.find_by_paper_id(paper_id) {
+        if let Some(idx) = self.find_by_paper_id(&paper_id) {
             let tid = self.tabs[idx].id;
             self.switch_to(tid);
         } else {
@@ -342,16 +342,16 @@ pub struct LibraryState {
     pub papers: Vec<Paper>,
     pub collections: Vec<Collection>,
     pub tags: Vec<Tag>,
-    pub selected_paper_id: Option<i64>,
-    pub _selected_collection_id: Option<i64>,
+    pub selected_paper_id: Option<String>,
+    pub _selected_collection_id: Option<String>,
     pub view: LibraryView,
     pub search_query: String,
     pub search_results: Option<Vec<Paper>>,
     pub search_source: SearchSource,
     pub external_results: Option<Vec<Paper>>,
     pub external_searching: bool,
-    pub collection_paper_ids: Option<Vec<i64>>,
-    pub tag_paper_ids: Option<Vec<i64>>,
+    pub collection_paper_ids: Option<Vec<String>>,
+    pub tag_paper_ids: Option<Vec<String>>,
     pub duplicate_groups: Option<Vec<Vec<Paper>>>,
     pub saved_searches: Vec<rotero_models::SavedSearch>,
 }
@@ -363,20 +363,20 @@ pub enum LibraryView {
     RecentlyAdded,
     Favorites,
     Unread,
-    Collection(i64),
-    Tag(i64),
+    Collection(String),
+    Tag(String),
     Duplicates,
-    SavedSearch(i64),
+    SavedSearch(String),
     PdfViewer,
 }
 
 impl LibraryState {
     pub fn selected_paper(&self) -> Option<&Paper> {
-        self.selected_paper_id
-            .and_then(|id| self.papers.iter().find(|p| p.id == Some(id)))
+        self.selected_paper_id.as_ref()
+            .and_then(|id| self.papers.iter().find(|p| p.id.as_ref() == Some(id)))
     }
 }
 
-/// Newtype for drag-paper signal to avoid context ambiguity with other `Signal<Option<i64>>`.
-#[derive(Debug, Clone, Copy)]
-pub struct DragPaper(pub Option<i64>);
+/// Newtype for drag-paper signal to avoid context ambiguity with other `Signal<Option<String>>`.
+#[derive(Debug, Clone)]
+pub struct DragPaper(pub Option<String>);

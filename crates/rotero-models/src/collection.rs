@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Collection {
-    pub id: Option<i64>,
+    pub id: Option<String>,
     pub name: String,
-    pub parent_id: Option<i64>,
+    pub parent_id: Option<String>,
     pub position: i32,
 }
 

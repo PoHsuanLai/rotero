@@ -1,0 +1,12 @@
+[package]
+name = "rotero-db"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rotero-models.workspace = true
+turso = "0.6.0-pre.15"
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid = { version = "1", features = ["v7"] }

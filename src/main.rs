@@ -83,16 +83,17 @@ fn main() {
                                 tokio::runtime::Handle::current().block_on(async {
                                     match db::papers::insert_paper(&conn, &paper).await {
                                         Ok(paper_id) => {
-                                            if let Some(coll_id) = collection_id {
-                                                let _ = db::collections::add_paper_to_collection(&conn, paper_id, coll_id).await;
+                                            if let Some(ref coll_id) = collection_id {
+                                                let _ = db::collections::add_paper_to_collection(&conn, &paper_id, coll_id).await;
                                             }
-                                            for tag_id in tag_ids {
-                                                let _ = db::tags::add_tag_to_paper(&conn, paper_id, tag_id).await;
+                                            for tag_id in &tag_ids {
+                                                let _ = db::tags::add_tag_to_paper(&conn, &paper_id, tag_id).await;
                                             }
                                             dirty.store(true, Ordering::Release);
-                                            tracing::info!("Connector saved paper id={paper_id}: {}", paper.title);
+                                            tracing::info!("Connector saved paper id={}: {}", paper_id, paper.title);
 
                                             // Download PDF in background
+                                            let paper_id_enrich = paper_id.clone();
                                             if let Some(pdf_url) = pdf_url {
                                                 let conn_pdf = conn.clone();
                                                 let dirty_pdf = dirty.clone();
@@ -102,13 +103,13 @@ fn main() {
                                                     if let Err(e) = download_and_import_pdf(
                                                         &conn_pdf,
                                                         &lib_path,
-                                                        paper_id,
+                                                        &paper_id,
                                                         &paper_clone,
                                                         &pdf_url,
                                                     )
                                                     .await
                                                     {
-                                                        tracing::error!("PDF download failed for paper id={paper_id}: {e}");
+                                                        tracing::error!("PDF download failed for paper id={}: {e}", paper_id);
                                                     } else {
                                                         dirty_pdf.store(true, Ordering::Release);
                                                     }
@@ -120,10 +121,10 @@ fn main() {
                                             let dirty_enrich = dirty.clone();
                                             tokio::spawn(async move {
                                                 if let Some(enriched) = metadata::enrich::enrich_paper(&paper).await
-                                                    && db::papers::update_paper_metadata(&conn_enrich, paper_id, &enriched).await.is_ok()
+                                                    && db::papers::update_paper_metadata(&conn_enrich, &paper_id_enrich, &enriched).await.is_ok()
                                                 {
                                                     dirty_enrich.store(true, Ordering::Release);
-                                                    tracing::info!("Connector enriched metadata for paper id={paper_id}");
+                                                    tracing::info!("Connector enriched metadata for paper id={}", paper_id_enrich);
                                                 }
                                             });
                                         }
@@ -145,7 +146,7 @@ fn main() {
                                         .into_iter()
                                         .filter_map(|c| {
                                             Some(rotero_connector::handlers::CollectionInfo {
-                                                id: c.id?,
+                                                id: c.id.clone()?,
                                                 name: c.name,
                                             })
                                         })
@@ -164,7 +165,7 @@ fn main() {
                                         .into_iter()
                                         .filter_map(|t| {
                                             Some(rotero_connector::handlers::TagInfo {
-                                                id: t.id?,
+                                                id: t.id.clone()?,
                                                 name: t.name,
                                                 color: t.color,
                                             })
@@ -359,7 +360,7 @@ fn build_menu_bar() -> dioxus::desktop::muda::Menu {
 async fn download_and_import_pdf(
     conn: &turso::Connection,
     lib_path: &std::path::Path,
-    paper_id: i64,
+    paper_id: &str,
     paper: &rotero_models::Paper,
     pdf_url: &str,
 ) -> Result<(), String> {
@@ -455,6 +456,6 @@ async fn download_and_import_pdf(
         .await
         .map_err(|e| format!("Failed to update pdf_path: {e}"))?;
 
-    tracing::info!(paper_id, rel_path, "PDF downloaded and imported");
+    tracing::info!(paper_id = paper_id, rel_path = rel_path.as_str(), "PDF downloaded and imported");
     Ok(())
 }

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Paper {
-    pub id: Option<i64>,
+    pub id: Option<String>,
     pub title: String,
     pub authors: Vec<String>,
     pub year: Option<i32>,

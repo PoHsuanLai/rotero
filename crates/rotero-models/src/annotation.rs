@@ -13,8 +13,8 @@ pub enum AnnotationType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Annotation {
-    pub id: Option<i64>,
-    pub paper_id: i64,
+    pub id: Option<String>,
+    pub paper_id: String,
     pub page: i32,
     pub ann_type: AnnotationType,
     pub color: String,

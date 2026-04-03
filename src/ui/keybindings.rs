@@ -151,10 +151,10 @@ fn action_close_tab(
 
 fn action_new_collection(
     lib_state: Signal<LibraryState>,
-    mut new_coll_editing: Signal<Option<Option<i64>>>,
+    mut new_coll_editing: Signal<Option<Option<String>>>,
 ) {
-    let parent = match lib_state.read().view {
-        LibraryView::Collection(id) => Some(id),
+    let parent = match &lib_state.read().view {
+        LibraryView::Collection(id) => Some(id.clone()),
         _ => None,
     };
     new_coll_editing.set(Some(parent));
@@ -247,7 +247,7 @@ pub fn GlobalKeyHandler() -> Element {
     let db = use_context::<Database>();
     let render_ch = use_context::<RenderChannel>();
     let config = use_context::<Signal<SyncConfig>>();
-    let new_coll_editing = use_context::<Signal<Option<Option<i64>>>>();
+    let new_coll_editing = use_context::<Signal<Option<Option<String>>>>();
     let undo_stack = use_context::<Signal<UndoStack>>();
     let tools = use_context::<Signal<ViewerToolState>>();
     let dpr_sig = use_context::<Signal<DevicePixelRatio>>();

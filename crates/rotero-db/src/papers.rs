@@ -2,9 +2,10 @@ use chrono::Utc;
 use rotero_models::Paper;
 use turso::{Connection, Value};
 
-use super::queries;
+use crate::queries;
 
 pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, turso::Error> {
+    let uuid = uuid::Uuid::now_v7().to_string();
     let authors_json = serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
     let extra_meta = paper
         .extra_meta
@@ -14,6 +15,7 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, tu
     conn.execute(
         queries::PAPER_INSERT,
         turso::params::Params::Positional(vec![
+            Value::Text(uuid.clone()),
             Value::Text(paper.title.clone()),
             Value::Text(authors_json),
             paper.year.map(|y| Value::Integer(y as i64)).unwrap_or(Value::Null),
@@ -37,13 +39,7 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, tu
     )
     .await?;
 
-    let mut rows = conn.query(queries::LAST_INSERT_ROWID, ()).await?;
-    let row = rows
-        .next()
-        .await?
-        .ok_or(turso::Error::QueryReturnedNoRows)?;
-    let id = row.get_value(0)?.as_integer().copied().unwrap_or(0);
-    Ok(id.to_string())
+    Ok(uuid)
 }
 
 pub async fn list_papers(conn: &Connection) -> Result<Vec<Paper>, turso::Error> {
@@ -114,20 +110,18 @@ async fn search_papers_like(conn: &Connection, query: &str) -> Result<Vec<Paper>
 }
 
 pub async fn set_favorite(conn: &Connection, id: &str, favorite: bool) -> Result<(), turso::Error> {
-    let id_int: i64 = id.parse().unwrap_or(0);
     conn.execute(
         queries::PAPER_SET_FAVORITE,
-        [Value::Integer(favorite as i64), Value::Integer(id_int)],
+        [Value::Integer(favorite as i64), Value::Text(id.to_string())],
     )
     .await?;
     Ok(())
 }
 
 pub async fn set_read(conn: &Connection, id: &str, read: bool) -> Result<(), turso::Error> {
-    let id_int: i64 = id.parse().unwrap_or(0);
     conn.execute(
         queries::PAPER_SET_READ,
-        [Value::Integer(read as i64), Value::Integer(id_int)],
+        [Value::Integer(read as i64), Value::Text(id.to_string())],
     )
     .await?;
     Ok(())
@@ -139,10 +133,9 @@ pub async fn update_paper_fulltext(
     id: &str,
     text: &str,
 ) -> Result<(), turso::Error> {
-    let id_int: i64 = id.parse().unwrap_or(0);
     conn.execute(
         queries::PAPER_UPDATE_FULLTEXT,
-        turso::params::Params::Positional(vec![Value::Text(text.to_string()), Value::Integer(id_int)]),
+        turso::params::Params::Positional(vec![Value::Text(text.to_string()), Value::Text(id.to_string())]),
     )
     .await?;
     Ok(())
@@ -154,7 +147,6 @@ pub async fn update_paper_metadata(
     id: &str,
     paper: &Paper,
 ) -> Result<(), turso::Error> {
-    let id_int: i64 = id.parse().unwrap_or(0);
     let authors_json = serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
     conn.execute(
         queries::PAPER_UPDATE_METADATA,
@@ -206,7 +198,7 @@ pub async fn update_paper_metadata(
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
             Value::Text(Utc::now().to_rfc3339()),
-            Value::Integer(id_int),
+            Value::Text(id.to_string()),
         ]),
     )
     .await?;
@@ -218,13 +210,12 @@ pub async fn update_pdf_path(
     id: &str,
     pdf_path: &str,
 ) -> Result<(), turso::Error> {
-    let id_int: i64 = id.parse().unwrap_or(0);
     conn.execute(
         queries::PAPER_UPDATE_PDF_PATH,
         turso::params::Params::Positional(vec![
             Value::Text(pdf_path.to_string()),
             Value::Text(chrono::Utc::now().to_rfc3339()),
-            Value::Integer(id_int),
+            Value::Text(id.to_string()),
         ]),
     )
     .await?;
@@ -232,8 +223,7 @@ pub async fn update_pdf_path(
 }
 
 pub async fn delete_paper(conn: &Connection, id: &str) -> Result<(), turso::Error> {
-    let id_int: i64 = id.parse().unwrap_or(0);
-    conn.execute(queries::PAPER_DELETE, [id_int]).await?;
+    conn.execute(queries::PAPER_DELETE, [Value::Text(id.to_string())]).await?;
     Ok(())
 }
 
@@ -271,7 +261,7 @@ fn row_to_paper(row: &turso::Row) -> Paper {
     let extra_meta_str = get_opt_text(row, 17);
 
     Paper {
-        id: get_opt_i64(row, 0).map(|i| i.to_string()),
+        id: get_opt_text(row, 0),
         title: get_text(row, 1),
         authors,
         year: get_opt_i64(row, 3).map(|i| i as i32),
@@ -366,18 +356,16 @@ pub async fn merge_papers(
     keep_id: &str,
     delete_id: &str,
 ) -> Result<(), turso::Error> {
-    let keep_int: i64 = keep_id.parse().unwrap_or(0);
-    let delete_int: i64 = delete_id.parse().unwrap_or(0);
     // Transfer collection memberships
     conn.execute(
         queries::PAPER_MERGE_COLLECTIONS,
-        [Value::Integer(keep_int), Value::Integer(delete_int)],
+        [Value::Text(keep_id.to_string()), Value::Text(delete_id.to_string())],
     )
     .await?;
     // Transfer tag assignments
     conn.execute(
         queries::PAPER_MERGE_TAGS,
-        [Value::Integer(keep_int), Value::Integer(delete_int)],
+        [Value::Text(keep_id.to_string()), Value::Text(delete_id.to_string())],
     )
     .await?;
     // Delete the duplicate
@@ -395,7 +383,7 @@ pub async fn list_papers_needing_citations(
         .await?;
     let mut out = Vec::new();
     while let Some(row) = rows.next().await? {
-        let id = row.get_value(0)?.as_integer().copied().unwrap_or(0).to_string();
+        let id = row.get_value(0)?.as_text().cloned().unwrap_or_default();
         let doi = row.get_value(1)?.as_text().cloned().unwrap_or_default();
         if !doi.is_empty() {
             out.push((id, doi));
@@ -409,10 +397,9 @@ pub async fn update_citation_count(
     id: &str,
     count: i64,
 ) -> Result<(), turso::Error> {
-    let id_int: i64 = id.parse().unwrap_or(0);
     conn.execute(
         queries::PAPER_UPDATE_CITATION_COUNT,
-        [Value::Integer(count), Value::Integer(id_int)],
+        [Value::Integer(count), Value::Text(id.to_string())],
     )
     .await?;
     Ok(())
@@ -424,10 +411,9 @@ pub async fn update_citation_key(
     id: &str,
     key: &str,
 ) -> Result<(), turso::Error> {
-    let id_int: i64 = id.parse().unwrap_or(0);
     conn.execute(
         queries::PAPER_UPDATE_CITATION_KEY,
-        turso::params::Params::Positional(vec![Value::Text(key.to_string()), Value::Integer(id_int)]),
+        turso::params::Params::Positional(vec![Value::Text(key.to_string()), Value::Text(id.to_string())]),
     )
     .await?;
     Ok(())
@@ -442,7 +428,7 @@ pub async fn list_papers_needing_citation_keys(
         .await?;
     let mut out = Vec::new();
     while let Some(row) = rows.next().await? {
-        let id = row.get_value(0)?.as_integer().copied().unwrap_or(0).to_string();
+        let id = row.get_value(0)?.as_text().cloned().unwrap_or_default();
         let title = row
             .get_value(1)
             .ok()

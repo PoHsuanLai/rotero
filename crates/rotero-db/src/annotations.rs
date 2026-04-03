@@ -2,9 +2,10 @@ use chrono::Utc;
 use rotero_models::{Annotation, AnnotationType};
 use turso::{Connection, Value};
 
-use super::queries;
+use crate::queries;
 
 pub async fn insert_annotation(conn: &Connection, ann: &Annotation) -> Result<String, turso::Error> {
+    let uuid = uuid::Uuid::now_v7().to_string();
     let ann_type_str = match ann.ann_type {
         AnnotationType::Highlight => "highlight",
         AnnotationType::Note => "note",
@@ -14,12 +15,12 @@ pub async fn insert_annotation(conn: &Connection, ann: &Annotation) -> Result<St
         AnnotationType::Text => "text",
     };
     let geometry = serde_json::to_string(&ann.geometry).unwrap_or_else(|_| "{}".to_string());
-    let paper_id_int: i64 = ann.paper_id.parse().unwrap_or(0);
 
     conn.execute(
         queries::ANNOTATION_INSERT,
         turso::params::Params::Positional(vec![
-            Value::Integer(paper_id_int),
+            Value::Text(uuid.clone()),
+            Value::Text(ann.paper_id.clone()),
             Value::Integer(ann.page as i64),
             Value::Text(ann_type_str.to_string()),
             Value::Text(ann.color.clone()),
@@ -31,22 +32,15 @@ pub async fn insert_annotation(conn: &Connection, ann: &Annotation) -> Result<St
     )
     .await?;
 
-    let mut rows = conn.query(queries::LAST_INSERT_ROWID, ()).await?;
-    let row = rows
-        .next()
-        .await?
-        .ok_or(turso::Error::QueryReturnedNoRows)?;
-    let id = row.get_value(0)?.as_integer().copied().unwrap_or(0);
-    Ok(id.to_string())
+    Ok(uuid)
 }
 
 pub async fn list_annotations_for_paper(
     conn: &Connection,
     paper_id: &str,
 ) -> Result<Vec<Annotation>, turso::Error> {
-    let pid: i64 = paper_id.parse().unwrap_or(0);
     let mut rows = conn
-        .query(queries::ANNOTATION_LIST_FOR_PAPER, [pid])
+        .query(queries::ANNOTATION_LIST_FOR_PAPER, [Value::Text(paper_id.to_string())])
         .await?;
 
     let mut anns = Vec::new();
@@ -61,7 +55,6 @@ pub async fn update_annotation_content(
     id: &str,
     content: Option<&str>,
 ) -> Result<(), turso::Error> {
-    let id_int: i64 = id.parse().unwrap_or(0);
     let now = Utc::now().to_rfc3339();
     conn.execute(
         queries::ANNOTATION_UPDATE_CONTENT,
@@ -70,7 +63,7 @@ pub async fn update_annotation_content(
                 .map(|s| Value::Text(s.to_string()))
                 .unwrap_or(Value::Null),
             Value::Text(now),
-            Value::Integer(id_int),
+            Value::Text(id.to_string()),
         ]),
     )
     .await?;
@@ -82,14 +75,13 @@ pub async fn update_annotation_color(
     id: &str,
     color: &str,
 ) -> Result<(), turso::Error> {
-    let id_int: i64 = id.parse().unwrap_or(0);
     let now = Utc::now().to_rfc3339();
     conn.execute(
         queries::ANNOTATION_UPDATE_COLOR,
         turso::params::Params::Positional(vec![
             Value::Text(color.to_string()),
             Value::Text(now),
-            Value::Integer(id_int),
+            Value::Text(id.to_string()),
         ]),
     )
     .await?;
@@ -97,8 +89,7 @@ pub async fn update_annotation_color(
 }
 
 pub async fn delete_annotation(conn: &Connection, id: &str) -> Result<(), turso::Error> {
-    let id_int: i64 = id.parse().unwrap_or(0);
-    conn.execute(queries::ANNOTATION_DELETE, [id_int]).await?;
+    conn.execute(queries::ANNOTATION_DELETE, [Value::Text(id.to_string())]).await?;
     Ok(())
 }
 
@@ -137,13 +128,12 @@ fn row_to_annotation(row: &turso::Row) -> Annotation {
         .unwrap_or_default();
 
     Annotation {
-        id: row.get_value(0).ok().and_then(|v| v.as_integer().copied()).map(|i| i.to_string()),
+        id: row.get_value(0).ok().and_then(|v| v.as_text().cloned()),
         paper_id: row
             .get_value(1)
             .ok()
-            .and_then(|v| v.as_integer().copied())
-            .unwrap_or(0)
-            .to_string(),
+            .and_then(|v| v.as_text().cloned())
+            .unwrap_or_default(),
         page: row
             .get_value(2)
             .ok()

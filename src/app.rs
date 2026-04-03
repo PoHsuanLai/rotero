@@ -65,7 +65,7 @@ pub fn App() -> Element {
     use_context_provider(|| Signal::new(LibraryState::default()));
     use_context_provider(|| Signal::new(ShowSettings(false)));
     // New-collection editing state: None = not editing, Some(None) = top-level, Some(Some(id)) = subcollection
-    use_context_provider(|| Signal::new(None::<Option<i64>>));
+    use_context_provider(|| Signal::new(None::<Option<String>>));
     // Drag paper state: paper_id being dragged from library to sidebar collections/tags
     use_context_provider(|| Signal::new(DragPaper(None)));
     // Undo/redo stack for annotation operations
@@ -227,13 +227,13 @@ fn LoadLibraryData() -> Element {
                                 if let Some(count) = meta.citation_count {
                                     let _ = crate::db::papers::update_citation_count(
                                         db.conn(),
-                                        paper_id,
+                                        &paper_id,
                                         count,
                                     )
                                     .await;
                                     lib_state.with_mut(|s| {
                                         if let Some(p) =
-                                            s.papers.iter_mut().find(|p| p.id == Some(paper_id))
+                                            s.papers.iter_mut().find(|p| p.id.as_ref().map(|x| x.to_string()) == Some(paper_id.clone()))
                                         {
                                             p.citation_count = Some(count);
                                         }
@@ -290,18 +290,18 @@ fn LoadLibraryData() -> Element {
                     for (paper_id, title, authors, year) in &needs_keys {
                         // Build a minimal Paper for key generation (only needs authors + year)
                         let mut stub = rotero_models::Paper::new(title.clone());
-                        stub.id = Some(*paper_id);
+                        stub.id = Some(paper_id.clone());
                         stub.authors = authors.clone();
                         stub.year = *year;
 
                         let key = rotero_bib::generate_unique_cite_key(&stub, &all_keys);
-                        if crate::db::papers::update_citation_key(db.conn(), *paper_id, &key)
+                        if crate::db::papers::update_citation_key(db.conn(), paper_id, &key)
                             .await
                             .is_ok()
                         {
-                            let pid = *paper_id;
+                            let pid = paper_id.clone();
                             lib_state.with_mut(|s| {
-                                if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(pid)) {
+                                if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_ref().map(|x| x.to_string()) == Some(pid.clone())) {
                                     p.citation_key = Some(key.clone());
                                 }
                             });
@@ -349,7 +349,7 @@ fn LoadLibraryData() -> Element {
                     match view {
                         LibraryView::Collection(coll_id) => {
                             if let Ok(ids) =
-                                crate::db::collections::list_paper_ids_in_collection(conn, coll_id)
+                                crate::db::collections::list_paper_ids_in_collection(conn, &coll_id)
                                     .await
                             {
                                 lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
@@ -357,7 +357,7 @@ fn LoadLibraryData() -> Element {
                         }
                         LibraryView::Tag(tag_id) => {
                             if let Ok(ids) =
-                                crate::db::tags::list_paper_ids_by_tag(conn, tag_id).await
+                                crate::db::tags::list_paper_ids_by_tag(conn, &tag_id).await
                             {
                                 lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
                             }

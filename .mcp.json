@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "rotero": {
+      "type": "stdio",
+      "command": "/Users/pohsuanlai/Documents/rotero/target/release/rotero-mcp",
+      "args": [],
+      "env": {
+        "PDFIUM_DYNAMIC_LIB_PATH": "/Users/pohsuanlai/Documents/rotero/lib"
+      }
+    }
+  }
+}

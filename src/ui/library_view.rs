@@ -26,7 +26,7 @@ pub fn LibraryPanel() -> Element {
                     spawn(async move {
                         match crate::db::collections::list_paper_ids_in_collection(
                             db.conn(),
-                            coll_id,
+                            &coll_id,
                         )
                         .await
                         {
@@ -40,7 +40,7 @@ pub fn LibraryPanel() -> Element {
                 LibraryView::Tag(tag_id) => {
                     let db = db_coll.clone();
                     spawn(async move {
-                        match crate::db::tags::list_paper_ids_by_tag(db.conn(), tag_id).await {
+                        match crate::db::tags::list_paper_ids_by_tag(db.conn(), &tag_id).await {
                             Ok(ids) => {
                                 lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
                             }
@@ -65,7 +65,7 @@ pub fn LibraryPanel() -> Element {
                         .read()
                         .saved_searches
                         .iter()
-                        .find(|s| s.id == Some(search_id))
+                        .find(|s| s.id.as_deref() == Some(search_id.as_str()))
                         .map(|s| s.query.clone());
                     if let Some(query) = query {
                         let db = db_coll.clone();
@@ -124,7 +124,7 @@ pub fn LibraryPanel() -> Element {
                     state
                         .papers
                         .iter()
-                        .filter(|p| p.id.is_some_and(|pid| ids.contains(&pid)))
+                        .filter(|p| p.id.as_ref().is_some_and(|pid| ids.contains(pid)))
                         .cloned()
                         .collect()
                 } else {
@@ -136,7 +136,7 @@ pub fn LibraryPanel() -> Element {
                     state
                         .papers
                         .iter()
-                        .filter(|p| p.id.is_some_and(|pid| ids.contains(&pid)))
+                        .filter(|p| p.id.as_ref().is_some_and(|pid| ids.contains(pid)))
                         .cloned()
                         .collect()
                 } else {
@@ -172,20 +172,20 @@ pub fn LibraryPanel() -> Element {
             LibraryView::Collection(id) => state
                 .collections
                 .iter()
-                .find(|c| c.id == Some(*id))
+                .find(|c| c.id.as_deref() == Some(id.as_str()))
                 .map(|c| c.name.clone())
                 .unwrap_or_else(|| "Collection".to_string()),
             LibraryView::Tag(id) => state
                 .tags
                 .iter()
-                .find(|t| t.id == Some(*id))
+                .find(|t| t.id.as_deref() == Some(id.as_str()))
                 .map(|t| format!("Tag: {}", t.name))
                 .unwrap_or_else(|| "Tag".to_string()),
             LibraryView::Duplicates => "Duplicates".to_string(),
             LibraryView::SavedSearch(id) => state
                 .saved_searches
                 .iter()
-                .find(|s| s.id == Some(*id))
+                .find(|s| s.id.as_deref() == Some(id.as_str()))
                 .map(|s| format!("Search: {}", s.name))
                 .unwrap_or_else(|| "Saved Search".to_string()),
             _ => "Papers".to_string(),
@@ -195,7 +195,7 @@ pub fn LibraryPanel() -> Element {
     let paper_count = filtered.len();
 
     // Context menu state: (paper_id, x, y)
-    let mut ctx_menu = use_signal(|| None::<(i64, f64, f64)>);
+    let mut ctx_menu = use_signal(|| None::<(String, f64, f64)>);
 
     // Paper drag state (shared with sidebar for drop onto collections/tags)
     let mut drag_paper = use_context::<Signal<DragPaper>>();
@@ -272,7 +272,7 @@ pub fn LibraryPanel() -> Element {
                                         paper.pdf_path = Some(rel_path.clone());
                                         let paper_id = match crate::db::papers::insert_paper(db.conn(), &paper).await {
                                             Ok(id) => {
-                                                paper.id = Some(id);
+                                                paper.id = Some(id.clone());
                                                 lib_state.with_mut(|s| s.papers.insert(0, paper));
                                                 Some(id)
                                             }
@@ -295,14 +295,15 @@ pub fn LibraryPanel() -> Element {
                                         let meta_full_path = full_path.clone();
                                         let meta_render_tx = render_ch.sender();
                                         let meta_db = db.clone();
+                                        let paper_id2 = paper_id.clone();
                                         spawn(async move {
                                             crate::state::commands::precache_pdf(&render_tx, &full_path, &data_dir, zoom, quality, fmt, paper_id, Some(db_for_cache.conn())).await;
                                         });
                                         // Extract metadata (DOI + CrossRef) in background
-                                        if let Some(pid) = paper_id {
+                                        if let Some(pid) = paper_id2 {
                                             spawn(async move {
                                                 crate::state::commands::extract_and_fetch_metadata(
-                                                    &meta_render_tx, meta_db.conn(), pid, &meta_full_path, auto_fetch, &mut lib_state,
+                                                    &meta_render_tx, meta_db.conn(), &pid, &meta_full_path, auto_fetch, &mut lib_state,
                                                 ).await;
                                             });
                                         }
@@ -398,7 +399,7 @@ pub fn LibraryPanel() -> Element {
                                     }
                                     for paper in group.iter() {
                                         {
-                                            let pid = paper.id.unwrap_or(0);
+                                            let pid = paper.id.clone().unwrap_or_default();
                                             let title = paper.title.clone();
                                             let authors = if paper.authors.is_empty() {
                                                 "Unknown".to_string()
@@ -441,16 +442,18 @@ pub fn LibraryPanel() -> Element {
                                                             title: "Keep this paper and merge others into it",
                                                             onclick: {
                                                                 let db = db.clone();
-                                                                let other_ids: Vec<i64> = group.iter()
-                                                                    .filter_map(|p| p.id)
-                                                                    .filter(|&id| id != pid)
+                                                                let other_ids: Vec<String> = group.iter()
+                                                                    .filter_map(|p| p.id.clone())
+                                                                    .filter(|id| *id != pid)
                                                                     .collect();
+                                                                let pid2 = pid.clone();
                                                                 move |_| {
                                                                     let db = db.clone();
                                                                     let other_ids = other_ids.clone();
+                                                                    let pid = pid2.clone();
                                                                     spawn(async move {
                                                                         for del_id in &other_ids {
-                                                                            let _ = crate::db::papers::merge_papers(db.conn(), pid, *del_id).await;
+                                                                            let _ = crate::db::papers::merge_papers(db.conn(), &pid, del_id).await;
                                                                         }
                                                                         // Reload library
                                                                         if let Ok(papers) = crate::db::papers::list_papers(db.conn()).await {
@@ -480,7 +483,7 @@ pub fn LibraryPanel() -> Element {
                 } else {
                     for paper in filtered.iter() {
                         {
-                            let paper_id = paper.id.unwrap_or(0);
+                            let paper_id = paper.id.clone().unwrap_or_default();
                             let title = paper.title.clone();
                             let pdf_rel_path = paper.pdf_path.clone();
                             let authors = if paper.authors.is_empty() {
@@ -496,7 +499,7 @@ pub fn LibraryPanel() -> Element {
                             let has_pdf = paper.pdf_path.is_some();
                             let is_read = paper.is_read;
                             let is_fav = paper.is_favorite;
-                            let selected = state.selected_paper_id == Some(paper_id);
+                            let selected = state.selected_paper_id.as_deref() == Some(paper_id.as_str());
                             let row_class = if selected {
                                 "library-card library-card--selected"
                             } else {
@@ -504,6 +507,11 @@ pub fn LibraryPanel() -> Element {
                             };
                             let db_for_view = db.clone();
                             let db_for_fav = db.clone();
+                            let pid_drag = paper_id.clone();
+                            let pid_sel = paper_id.clone();
+                            let pid_ctx = paper_id.clone();
+                            let pid_fav = paper_id.clone();
+                            let pid_open = paper_id.clone();
 
                             rsx! {
                                 div {
@@ -511,7 +519,7 @@ pub fn LibraryPanel() -> Element {
                                     class: "{row_class}",
                                     draggable: "true",
                                     ondragstart: move |_| {
-                                        drag_paper.set(DragPaper(Some(paper_id)));
+                                        drag_paper.set(DragPaper(Some(pid_drag.clone())));
                                     },
                                     ondragend: move |evt: Event<DragData>| {
                                         // Delay clearing so ondrop on the target fires first
@@ -525,15 +533,16 @@ pub fn LibraryPanel() -> Element {
                                         // Only select if this wasn't a drag operation
                                         if drag_paper().0.is_none()
                                             && evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
+                                                let pid = pid_sel.clone();
                                                 lib_state.with_mut(|s| {
-                                                    s.selected_paper_id = Some(paper_id);
+                                                    s.selected_paper_id = Some(pid);
                                                 });
                                             }
                                     },
                                     oncontextmenu: move |evt| {
                                         evt.prevent_default();
                                         let coords = evt.page_coordinates();
-                                        ctx_menu.set(Some((paper_id, coords.x, coords.y)));
+                                        ctx_menu.set(Some((pid_ctx.clone(), coords.x, coords.y)));
                                     },
 
                                     // Left: read indicator
@@ -569,20 +578,24 @@ pub fn LibraryPanel() -> Element {
                                         button {
                                             class: if is_fav { "library-fav-btn library-fav-btn--active" } else { "library-fav-btn" },
                                             title: if is_fav { "Unfavorite" } else { "Favorite" },
-                                            onclick: move |evt| {
+                                            onclick: {
+                                                let pid = pid_fav.clone();
+                                                move |evt: Event<MouseData>| {
                                                 evt.stop_propagation();
                                                 let db = db_for_fav.clone();
                                                 let new_val = !is_fav;
+                                                let pid = pid.clone();
                                                 spawn(async move {
-                                                    if let Ok(()) = crate::db::papers::set_favorite(db.conn(), paper_id, new_val).await {
+                                                    if let Ok(()) = crate::db::papers::set_favorite(db.conn(), &pid, new_val).await {
+                                                        let pid2 = pid.clone();
                                                         lib_state.with_mut(|s| {
-                                                            if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(paper_id)) {
+                                                            if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
                                                                 p.is_favorite = new_val;
                                                             }
                                                         });
                                                     }
                                                 });
-                                            },
+                                            }},
                                             i { class: if is_fav { "bi bi-star-fill" } else { "bi bi-star" } }
                                         }
 
@@ -596,7 +609,7 @@ pub fn LibraryPanel() -> Element {
                                                         let full_path = db_for_view.resolve_pdf_path(rel_path);
                                                         let path_str = full_path.to_string_lossy().to_string();
                                                         let cfg = config.read();
-                                                        tabs.with_mut(|m| m.open_or_switch(paper_id, path_str, title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
+                                                        tabs.with_mut(|m| m.open_or_switch(pid_open.clone(), path_str, title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
                                                         lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                                     }
                                                 },
@@ -616,7 +629,7 @@ pub fn LibraryPanel() -> Element {
             if let Some((menu_paper_id, mx, my)) = ctx_menu() {
                 {
                     let state = lib_state.read();
-                    let menu_paper = state.papers.iter().find(|p| p.id == Some(menu_paper_id)).cloned();
+                    let menu_paper = state.papers.iter().find(|p| p.id.as_deref() == Some(menu_paper_id.as_str())).cloned();
                     drop(state);
 
                     if let Some(paper) = menu_paper {
@@ -641,13 +654,16 @@ pub fn LibraryPanel() -> Element {
                                     ContextMenuItem {
                                         label: "Open PDF".to_string(),
                                         icon: Some("bi-eye".to_string()),
-                                        on_click: move |_| {
-                                            if let Some(ref rel_path) = pdf_rel {
-                                                let full_path = db_ctx.resolve_pdf_path(rel_path);
-                                                let path_str = full_path.to_string_lossy().to_string();
-                                                let cfg = config.read();
-                                                tabs.with_mut(|m| m.open_or_switch(pid, path_str, paper.title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
-                                                lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                        on_click: {
+                                            let pid = pid.clone();
+                                            move |_| {
+                                                if let Some(ref rel_path) = pdf_rel {
+                                                    let full_path = db_ctx.resolve_pdf_path(rel_path);
+                                                    let path_str = full_path.to_string_lossy().to_string();
+                                                    let cfg = config.read();
+                                                    tabs.with_mut(|m| m.open_or_switch(pid.clone(), path_str, paper.title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
+                                                    lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                                }
                                             }
                                         },
                                     }
@@ -656,48 +672,61 @@ pub fn LibraryPanel() -> Element {
                                 ContextMenuItem {
                                     label: if is_fav { "Unfavorite".to_string() } else { "Favorite".to_string() },
                                     icon: Some(if is_fav { "bi-star-fill".to_string() } else { "bi-star".to_string() }),
-                                    on_click: move |_| {
-                                        let db = db_fav.clone();
-                                        let new_val = !is_fav;
-                                        spawn(async move {
-                                            if let Ok(()) = crate::db::papers::set_favorite(db.conn(), pid, new_val).await {
-                                                lib_state.with_mut(|s| {
-                                                    if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(pid)) {
-                                                        p.is_favorite = new_val;
-                                                    }
-                                                });
-                                            }
-                                        });
+                                    on_click: {
+                                        let pid = pid.clone();
+                                        move |_| {
+                                            let db = db_fav.clone();
+                                            let new_val = !is_fav;
+                                            let pid = pid.clone();
+                                            spawn(async move {
+                                                if let Ok(()) = crate::db::papers::set_favorite(db.conn(), &pid, new_val).await {
+                                                    let pid2 = pid.clone();
+                                                    lib_state.with_mut(|s| {
+                                                        if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
+                                                            p.is_favorite = new_val;
+                                                        }
+                                                    });
+                                                }
+                                            });
+                                        }
                                     },
                                 }
 
                                 ContextMenuItem {
                                     label: if is_read { "Mark as unread".to_string() } else { "Mark as read".to_string() },
                                     icon: Some(if is_read { "bi-book".to_string() } else { "bi-book-fill".to_string() }),
-                                    on_click: move |_| {
-                                        let db = db_read.clone();
-                                        let new_val = !is_read;
-                                        spawn(async move {
-                                            if let Ok(()) = crate::db::papers::set_read(db.conn(), pid, new_val).await {
-                                                lib_state.with_mut(|s| {
-                                                    if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(pid)) {
-                                                        p.is_read = new_val;
-                                                    }
-                                                });
-                                            }
-                                        });
+                                    on_click: {
+                                        let pid = pid.clone();
+                                        move |_| {
+                                            let db = db_read.clone();
+                                            let new_val = !is_read;
+                                            let pid = pid.clone();
+                                            spawn(async move {
+                                                if let Ok(()) = crate::db::papers::set_read(db.conn(), &pid, new_val).await {
+                                                    let pid2 = pid.clone();
+                                                    lib_state.with_mut(|s| {
+                                                        if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
+                                                            p.is_read = new_val;
+                                                        }
+                                                    });
+                                                }
+                                            });
+                                        }
                                     },
                                 }
 
                                 ContextMenuItem {
                                     label: "Add Tag".to_string(),
                                     icon: Some("bi-tag".to_string()),
-                                    on_click: move |_| {
-                                        lib_state.with_mut(|s| {
-                                            s.selected_paper_id = Some(pid);
-                                        });
-                                        // Focus the tag editor input after the detail panel renders
-                                        document::eval("setTimeout(() => { let el = document.getElementById('tag-editor-input'); if (el) el.focus(); }, 100)");
+                                    on_click: {
+                                        let pid = pid.clone();
+                                        move |_| {
+                                            lib_state.with_mut(|s| {
+                                                s.selected_paper_id = Some(pid.clone());
+                                            });
+                                            // Focus the tag editor input after the detail panel renders
+                                            document::eval("setTimeout(() => { let el = document.getElementById('tag-editor-input'); if (el) el.focus(); }, 100)");
+                                        }
                                     },
                                 }
 
@@ -720,18 +749,22 @@ pub fn LibraryPanel() -> Element {
                                 }
 
                                 // Remove from collection (only when viewing a collection)
-                                if let LibraryView::Collection(coll_id) = lib_state.read().view {
+                                if let LibraryView::Collection(ref coll_id) = lib_state.read().view.clone() {
                                     {
                                         let db_remove = db.clone();
+                                        let pid = pid.clone();
+                                        let cid = coll_id.clone();
                                         rsx! {
                                             ContextMenuItem {
                                                 label: "Remove from Collection".to_string(),
                                                 icon: Some("bi-folder-minus".to_string()),
                                                 on_click: move |_| {
                                                     let db = db_remove.clone();
+                                                    let pid = pid.clone();
+                                                    let cid = cid.clone();
                                                     spawn(async move {
-                                                        if let Ok(()) = crate::db::collections::remove_paper_from_collection(db.conn(), pid, coll_id).await
-                                                            && let Ok(ids) = crate::db::collections::list_paper_ids_in_collection(db.conn(), coll_id).await {
+                                                        if let Ok(()) = crate::db::collections::remove_paper_from_collection(db.conn(), &pid, &cid).await
+                                                            && let Ok(ids) = crate::db::collections::list_paper_ids_in_collection(db.conn(), &cid).await {
                                                                 lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
                                                             }
                                                     });
@@ -747,18 +780,23 @@ pub fn LibraryPanel() -> Element {
                                     label: "Delete".to_string(),
                                     icon: Some("bi-trash".to_string()),
                                     danger: Some(true),
-                                    on_click: move |_| {
-                                        let db = db_del.clone();
-                                        spawn(async move {
-                                            if let Ok(()) = crate::db::papers::delete_paper(db.conn(), pid).await {
-                                                lib_state.with_mut(|s| {
-                                                    s.papers.retain(|p| p.id != Some(pid));
-                                                    if s.selected_paper_id == Some(pid) {
-                                                        s.selected_paper_id = None;
-                                                    }
-                                                });
-                                            }
-                                        });
+                                    on_click: {
+                                        let pid = pid.clone();
+                                        move |_| {
+                                            let db = db_del.clone();
+                                            let pid = pid.clone();
+                                            spawn(async move {
+                                                if let Ok(()) = crate::db::papers::delete_paper(db.conn(), &pid).await {
+                                                    let pid2 = pid.clone();
+                                                    lib_state.with_mut(|s| {
+                                                        s.papers.retain(|p| p.id.as_deref() != Some(pid2.as_str()));
+                                                        if s.selected_paper_id.as_deref() == Some(pid.as_str()) {
+                                                            s.selected_paper_id = None;
+                                                        }
+                                                    });
+                                                }
+                                            });
+                                        }
                                     },
                                 }
                             }
@@ -811,13 +849,13 @@ fn AddPaperButtons() -> Element {
 
                                     match crate::db::papers::insert_paper(db.conn(), &paper).await {
                                         Ok(id) => {
-                                            paper.id = Some(id);
+                                            paper.id = Some(id.clone());
                                             lib_state.with_mut(|s| s.papers.insert(0, paper));
                                             error_msg.set(None);
                                             // Extract metadata in background
                                             spawn(async move {
                                                 crate::state::commands::extract_and_fetch_metadata(
-                                                    &meta_render_tx, meta_db.conn(), id, &full_path, auto_fetch, &mut lib_state,
+                                                    &meta_render_tx, meta_db.conn(), &id, &full_path, auto_fetch, &mut lib_state,
                                                 ).await;
                                             });
                                         }

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedSearch {
-    pub id: Option<i64>,
+    pub id: Option<String>,
     pub name: String,
     pub query: String,
     pub created_at: DateTime<Utc>,

@@ -1,0 +1,26 @@
+[package]
+name = "rotero-mcp"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "rotero-mcp"
+path = "src/main.rs"
+
+[dependencies]
+rotero-models.workspace = true
+rotero-pdf.workspace = true
+
+rmcp = { version = "1", features = ["server", "transport-io"] }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+turso = "0.6.0-pre.15"
+clap = { version = "4", features = ["derive"] }
+directories = "6"
+schemars = "1"
+anyhow = "1"
+uuid = { version = "1", features = ["v7"] }

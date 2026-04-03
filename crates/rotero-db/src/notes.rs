@@ -2,14 +2,15 @@ use chrono::Utc;
 use rotero_models::Note;
 use turso::{Connection, Value};
 
-use super::queries;
+use crate::queries;
 
 pub async fn insert_note(conn: &Connection, note: &Note) -> Result<String, turso::Error> {
-    let paper_id_int: i64 = note.paper_id.parse().unwrap_or(0);
+    let uuid = uuid::Uuid::now_v7().to_string();
     conn.execute(
         queries::NOTE_INSERT,
         turso::params::Params::Positional(vec![
-            Value::Integer(paper_id_int),
+            Value::Text(uuid.clone()),
+            Value::Text(note.paper_id.clone()),
             Value::Text(note.title.clone()),
             Value::Text(note.body.clone()),
             Value::Text(note.created_at.to_rfc3339()),
@@ -18,22 +19,15 @@ pub async fn insert_note(conn: &Connection, note: &Note) -> Result<String, turso
     )
     .await?;
 
-    let mut rows = conn.query(queries::LAST_INSERT_ROWID, ()).await?;
-    let row = rows
-        .next()
-        .await?
-        .ok_or(turso::Error::QueryReturnedNoRows)?;
-    let id = row.get_value(0)?.as_integer().copied().unwrap_or(0);
-    Ok(id.to_string())
+    Ok(uuid)
 }
 
 pub async fn list_notes_for_paper(
     conn: &Connection,
     paper_id: &str,
 ) -> Result<Vec<Note>, turso::Error> {
-    let pid: i64 = paper_id.parse().unwrap_or(0);
     let mut rows = conn
-        .query(queries::NOTE_LIST_FOR_PAPER, [Value::Integer(pid)])
+        .query(queries::NOTE_LIST_FOR_PAPER, [Value::Text(paper_id.to_string())])
         .await?;
     let mut notes = Vec::new();
     while let Some(row) = rows.next().await? {
@@ -49,14 +43,13 @@ pub async fn update_note(
     title: &str,
     body: &str,
 ) -> Result<(), turso::Error> {
-    let id_int: i64 = id.parse().unwrap_or(0);
     conn.execute(
         queries::NOTE_UPDATE,
         turso::params::Params::Positional(vec![
             Value::Text(title.to_string()),
             Value::Text(body.to_string()),
             Value::Text(Utc::now().to_rfc3339()),
-            Value::Integer(id_int),
+            Value::Text(id.to_string()),
         ]),
     )
     .await?;
@@ -64,19 +57,17 @@ pub async fn update_note(
 }
 
 pub async fn delete_note(conn: &Connection, id: &str) -> Result<(), turso::Error> {
-    let id_int: i64 = id.parse().unwrap_or(0);
-    conn.execute(queries::NOTE_DELETE, [id_int]).await?;
+    conn.execute(queries::NOTE_DELETE, [Value::Text(id.to_string())]).await?;
     Ok(())
 }
 
 fn row_to_note(row: &turso::Row) -> Note {
-    let id = row.get_value(0).ok().and_then(|v| v.as_integer().copied()).map(|i| i.to_string());
+    let id = row.get_value(0).ok().and_then(|v| v.as_text().cloned());
     let paper_id = row
         .get_value(1)
         .ok()
-        .and_then(|v| v.as_integer().copied())
-        .unwrap_or(0)
-        .to_string();
+        .and_then(|v| v.as_text().cloned())
+        .unwrap_or_default();
     let title = row
         .get_value(2)
         .ok()
