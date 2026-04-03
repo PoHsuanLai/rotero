@@ -141,7 +141,7 @@ setup-pdfium-ios:
 run-ios device="iPhone 17 Pro": setup-pdfium-ios
     xcrun simctl boot "{{device}}" 2>/dev/null || true
     PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib/ios-sim" \
-    dx serve --platform ios --features mobile --no-default-features --device "{{device}}"
+    dx serve --platform ios --features mobile --no-default-features
 
 # Bundle iOS app for device (static PDFium linking — required for real devices)
 build-ios: setup-pdfium-ios
