@@ -14,6 +14,7 @@ pub fn LibraryPanel() -> Element {
     let db = use_context::<Database>();
     let render_ch = use_context::<crate::app::RenderChannel>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+    let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
     // Load collection/tag paper IDs when switching views
     {
         let db_coll = db.clone();
@@ -227,6 +228,10 @@ pub fn LibraryPanel() -> Element {
         );
     });
 
+    // Shared signals for AddPaperButtons / AddPaperDOIInput
+    let _doi_show: Signal<bool> = use_context_provider(|| Signal::new(false));
+    let _doi_err: Signal<Option<String>> = use_context_provider(|| Signal::new(None));
+
     // Drag and drop state
     let mut drag_over = use_signal(|| false);
     let drop_class = if drag_over() {
@@ -281,7 +286,7 @@ pub fn LibraryPanel() -> Element {
                                         let render_tx = render_ch.sender();
                                         let cfg = config.read();
                                         let data_dir = cfg.effective_library_path();
-                                        let zoom = cfg.default_zoom;
+                                        let zoom = cfg.default_zoom * dpr_sig.read().0;
                                         let quality = cfg.render_quality;
                                         drop(cfg);
                                         let db_for_cache = db.clone();
@@ -327,9 +332,10 @@ pub fn LibraryPanel() -> Element {
                 }
                 div { class: "library-header-right",
                     ImportExportButtons {}
-                    AddPaperButton {}
+                    AddPaperButtons {}
                 }
             }
+            AddPaperDOIInput {}
 
             // Search bar
             SearchBar {}
@@ -596,7 +602,7 @@ pub fn LibraryPanel() -> Element {
                                                             } else {
                                                                 let cfg = config.read();
                                                                 let id = m.next_id();
-                                                                let mut tab = PdfTab::new(id, path_str.clone(), title.clone(), cfg.default_zoom, cfg.page_batch_size);
+                                                                let mut tab = PdfTab::new(id, path_str.clone(), title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0);
                                                                 tab.paper_id = Some(paper_id);
                                                                 m.open_tab(tab);
                                                             }
@@ -656,7 +662,7 @@ pub fn LibraryPanel() -> Element {
                                                     } else {
                                                         let cfg = config.read();
                                                         let id = m.next_id();
-                                                        let mut tab = PdfTab::new(id, path_str.clone(), paper.title.clone(), cfg.default_zoom, cfg.page_batch_size);
+                                                        let mut tab = PdfTab::new(id, path_str.clone(), paper.title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0);
                                                         tab.paper_id = Some(pid);
                                                         m.open_tab(tab);
                                                     }
@@ -787,17 +793,15 @@ pub fn LibraryPanel() -> Element {
 }
 
 #[component]
-fn AddPaperButton() -> Element {
+fn AddPaperButtons() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<crate::db::Database>();
     let render_ch = use_context::<crate::app::RenderChannel>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
-    let mut error_msg = use_signal(|| None::<String>);
-    let mut show_doi_input = use_signal(|| false);
-    let mut doi_value = use_signal(String::new);
+    let mut error_msg = use_context::<Signal<Option<String>>>();
+    let mut show_doi_input = use_context::<Signal<bool>>();
 
     let db_for_pdf = db.clone();
-    let db_for_doi = db.clone();
 
     rsx! {
         div { class: "add-paper-row",
@@ -856,7 +860,20 @@ fn AddPaperButton() -> Element {
                 "+ DOI"
             }
         }
+    }
+}
 
+#[component]
+fn AddPaperDOIInput() -> Element {
+    let mut lib_state = use_context::<Signal<LibraryState>>();
+    let db = use_context::<crate::db::Database>();
+    let mut error_msg = use_context::<Signal<Option<String>>>();
+    let mut show_doi_input = use_context::<Signal<bool>>();
+    let mut doi_value = use_signal(String::new);
+
+    let db_for_doi = db.clone();
+
+    rsx! {
         if show_doi_input() {
             div { class: "doi-input-row",
                 input {
