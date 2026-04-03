@@ -6,7 +6,7 @@ use rotero_models::Collection;
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 
 #[component]
-pub fn Sidebar() -> Element {
+pub fn Sidebar(on_collapse: EventHandler<()>) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
     let mut tabs = use_context::<Signal<PdfTabManager>>();
@@ -54,13 +54,20 @@ pub fn Sidebar() -> Element {
 
     rsx! {
         div { class: "sidebar",
-            // Brand
-            h2 {
-                class: "sidebar-brand",
-                onclick: move |_| {
-                    lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
-                },
-                "Rotero"
+            // Brand + collapse
+            div { class: "sidebar-header",
+                h2 {
+                    class: "sidebar-brand",
+                    onclick: move |_| {
+                        lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
+                    },
+                    "Rotero"
+                }
+                button {
+                    class: "sidebar-collapse-btn",
+                    onclick: move |_| on_collapse.call(()),
+                    i { class: "bi bi-sidebar-collapse" }
+                }
             }
 
             // Quick actions
@@ -206,9 +213,7 @@ pub fn Sidebar() -> Element {
             }
 
             // Tags
-            CollapsibleSection { title: "Tags", initially_open: true,
-                TagList { tags: state.tags.clone(), ctx_menu: tag_ctx }
-            }
+            TagSection { tags: state.tags.clone(), ctx_menu: tag_ctx }
 
             // Spacer + Settings
             div { class: "sidebar-spacer" }
@@ -786,79 +791,97 @@ fn NewCollectionRow(parent_id: Option<i64>, depth: u32) -> Element {
     }
 }
 
-/// Renders the tag list with drag-drop support as its own component
-/// so signal reads (drag_paper, drop_hover) are properly tracked.
+/// Self-contained tag section with collapsibility and drag-drop support.
+/// Needs to be its own component so signal reads are properly tracked
+/// (CollapsibleSection children don't re-render when context signals change).
 #[component]
-fn TagList(tags: Vec<rotero_models::Tag>, ctx_menu: Signal<Option<(i64, String, Option<String>, f64, f64)>>) -> Element {
+fn TagSection(tags: Vec<rotero_models::Tag>, ctx_menu: Signal<Option<(i64, String, Option<String>, f64, f64)>>) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
     let mut drag_paper = use_context::<Signal<DragPaper>>();
     let mut drop_hover = use_context::<Signal<Option<String>>>();
     let mut tag_ctx = ctx_menu;
+    let mut open = use_signal(|| true);
 
-    if tags.is_empty() {
-        return rsx! { p { class: "sidebar-empty", "No tags" } };
-    }
+    let arrow_class = if open() { "bi bi-chevron-down" } else { "bi bi-chevron-right" };
 
     rsx! {
-        div { class: "sidebar-tags-wrap",
-            for tag in tags.iter() {
-                {
-                    let tag_id = tag.id.unwrap_or(0);
-                    let tag_name = tag.name.clone();
-                    let tag_color = tag.color.clone();
-                    let bg = tag_color.clone().unwrap_or_else(|| "#6b7085".to_string());
-                    let is_paper_drop = drag_paper.read().0.is_some();
-                    let is_hover = drop_hover().as_deref() == Some(&format!("tag-{tag_id}"));
-                    let tag_class = if is_paper_drop && is_hover {
-                        "sidebar-tag sidebar-tag--drophover"
-                    } else if is_paper_drop {
-                        "sidebar-tag sidebar-tag--droptarget"
+        div { class: "sidebar-section",
+            div { class: "sidebar-section-header",
+                div {
+                    class: "sidebar-section-toggle",
+                    onclick: move |_| open.set(!open()),
+                    i { class: "sidebar-section-arrow {arrow_class}" }
+                    h3 { class: "sidebar-section-title", "Tags" }
+                }
+            }
+            if open() {
+                div { class: "sidebar-section-content",
+                    if tags.is_empty() {
+                        p { class: "sidebar-empty", "No tags" }
                     } else {
-                        "sidebar-tag"
-                    };
-                    let db_for_tag_drop = db.clone();
-                    rsx! {
-                        span {
-                            class: "{tag_class}",
-                            style: "background: {bg};",
-                            onclick: move |_| {
-                                lib_state.with_mut(|s| s.view = LibraryView::Tag(tag_id));
-                            },
-                            oncontextmenu: move |evt: Event<MouseData>| {
-                                evt.prevent_default();
-                                tag_ctx.set(Some((tag_id, tag_name.clone(), tag_color.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
-                            },
-                            ondragenter: move |_| {
-                                drop_hover.set(Some(format!("tag-{tag_id}")));
-                            },
-                            ondragleave: move |_| {
-                                if drop_hover().as_deref() == Some(&format!("tag-{tag_id}")) {
-                                    drop_hover.set(None);
-                                }
-                            },
-                            ondragover: move |evt| {
-                                evt.prevent_default();
-                            },
-                            ondrop: move |evt| {
-                                evt.prevent_default();
-                                drop_hover.set(None);
-                                if let Some(paper_id) = drag_paper().0 {
-                                    let db = db_for_tag_drop.clone();
-                                    spawn(async move {
-                                        let _ = crate::db::tags::add_tag_to_paper(db.conn(), paper_id, tag_id).await;
-                                        let current_view = lib_state.read().view.clone();
-                                        if current_view == LibraryView::Tag(tag_id) {
-                                            if let Ok(ids) = crate::db::tags::list_paper_ids_by_tag(db.conn(), tag_id).await {
-                                                lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
-                                            }
+                        div { class: "sidebar-tags-wrap",
+                            for tag in tags.iter() {
+                                {
+                                    let tag_id = tag.id.unwrap_or(0);
+                                    let tag_name = tag.name.clone();
+                                    let tag_color = tag.color.clone();
+                                    let bg = tag_color.clone().unwrap_or_else(|| "#6b7085".to_string());
+                                    let is_paper_drop = drag_paper.read().0.is_some();
+                                    let is_hover = drop_hover().as_deref() == Some(&format!("tag-{tag_id}"));
+                                    let tag_class = if is_paper_drop && is_hover {
+                                        "sidebar-tag sidebar-tag--drophover"
+                                    } else if is_paper_drop {
+                                        "sidebar-tag sidebar-tag--droptarget"
+                                    } else {
+                                        "sidebar-tag"
+                                    };
+                                    let db_for_tag_drop = db.clone();
+                                    rsx! {
+                                        span {
+                                            class: "{tag_class}",
+                                            style: "background: {bg};",
+                                            onclick: move |_| {
+                                                lib_state.with_mut(|s| s.view = LibraryView::Tag(tag_id));
+                                            },
+                                            oncontextmenu: move |evt: Event<MouseData>| {
+                                                evt.prevent_default();
+                                                tag_ctx.set(Some((tag_id, tag_name.clone(), tag_color.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
+                                            },
+                                            ondragenter: move |_| {
+                                                drop_hover.set(Some(format!("tag-{tag_id}")));
+                                            },
+                                            ondragleave: move |_| {
+                                                if drop_hover().as_deref() == Some(&format!("tag-{tag_id}")) {
+                                                    drop_hover.set(None);
+                                                }
+                                            },
+                                            ondragover: move |evt| {
+                                                evt.prevent_default();
+                                            },
+                                            ondrop: move |evt| {
+                                                evt.prevent_default();
+                                                drop_hover.set(None);
+                                                if let Some(paper_id) = drag_paper().0 {
+                                                    let db = db_for_tag_drop.clone();
+                                                    spawn(async move {
+                                                        let _ = crate::db::tags::add_tag_to_paper(db.conn(), paper_id, tag_id).await;
+                                                        let current_view = lib_state.read().view.clone();
+                                                        if current_view == LibraryView::Tag(tag_id) {
+                                                            if let Ok(ids) = crate::db::tags::list_paper_ids_by_tag(db.conn(), tag_id).await {
+                                                                lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
+                                                            }
+                                                        }
+                                                    });
+                                                    drag_paper.set(DragPaper(None));
+                                                }
+                                            },
+                                            i { class: "sidebar-tag-icon bi bi-tag" }
+                                            "{tag.name}"
                                         }
-                                    });
-                                    drag_paper.set(DragPaper(None));
+                                    }
                                 }
-                            },
-                            i { class: "sidebar-tag-icon bi bi-tag" }
-                            "{tag.name}"
+                            }
                         }
                     }
                 }

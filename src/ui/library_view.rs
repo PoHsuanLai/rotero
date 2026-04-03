@@ -496,6 +496,18 @@ pub fn LibraryPanel() -> Element {
                                     },
                                 }
 
+                                ContextMenuItem {
+                                    label: "Add Tag".to_string(),
+                                    icon: Some("bi-tag".to_string()),
+                                    on_click: move |_| {
+                                        lib_state.with_mut(|s| {
+                                            s.selected_paper_id = Some(pid);
+                                        });
+                                        // Focus the tag editor input after the detail panel renders
+                                        document::eval("setTimeout(() => { let el = document.getElementById('tag-editor-input'); if (el) el.focus(); }, 100)");
+                                    },
+                                }
+
                                 ContextMenuSeparator {}
 
                                 if let Some(ref doi_val) = doi {

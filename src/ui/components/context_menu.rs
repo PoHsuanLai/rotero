@@ -50,8 +50,7 @@ pub fn ContextMenuItem(
     rsx! {
         div {
             class: "{class}",
-            onclick: move |evt| {
-                evt.stop_propagation();
+            onclick: move |_| {
                 if !is_disabled {
                     on_click.call(());
                 }

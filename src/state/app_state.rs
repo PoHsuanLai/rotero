@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use rotero_models::{Annotation, Collection, Paper, Tag};
 use rotero_pdf::{BookmarkEntry, PageTextData, RenderedPage, SearchMatch};
@@ -238,10 +239,13 @@ pub enum AnnotationMode {
 }
 
 /// Lightweight version of RenderedPage for storage in signals.
+/// Uses `Arc<String>` for the base64 data so that cloning page lists
+/// (which happens every Dioxus render cycle) is near-free instead of
+/// copying hundreds of KB of base64 per page.
 #[derive(Debug, Clone)]
 pub struct RenderedPageData {
     pub page_index: u32,
-    pub base64_data: String,
+    pub base64_data: Arc<String>,
     pub mime: &'static str,
     pub width: u32,
     pub height: u32,
@@ -251,7 +255,7 @@ impl From<RenderedPage> for RenderedPageData {
     fn from(rp: RenderedPage) -> Self {
         Self {
             page_index: rp.page_index,
-            base64_data: rp.base64_data,
+            base64_data: Arc::new(rp.base64_data),
             mime: rp.mime,
             width: rp.width,
             height: rp.height,

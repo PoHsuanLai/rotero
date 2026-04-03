@@ -254,6 +254,7 @@ fn TagEditor(paper_id: i64) -> Element {
     rsx! {
         div { class: "tag-editor",
             input {
+                id: "tag-editor-input",
                 class: "input input--sm",
                 r#type: "text",
                 placeholder: "Add tag...",
