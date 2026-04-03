@@ -92,7 +92,6 @@ pub struct RenderedPage {
     pub mime: &'static str,
     pub width: u32,
     pub height: u32,
-    pub quality: u8,
 }
 
 impl PdfEngine {
@@ -220,7 +219,6 @@ impl PdfEngine {
             mime: format.mime(),
             width: img_width,
             height: img_height,
-            quality,
         })
     }
 
@@ -279,7 +277,6 @@ impl PdfEngine {
                 mime: format.mime(),
                 width: img_width,
                 height: img_height,
-                quality,
             });
         }
 
@@ -335,7 +332,6 @@ impl PdfEngine {
                 mime: "image/jpeg",
                 width: img_width,
                 height: img_height,
-                quality,
             });
         }
 

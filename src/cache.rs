@@ -101,7 +101,6 @@ pub fn load_cached(
             mime,
             width: w,
             height: h,
-            quality: 85,
         });
     }
 
@@ -222,7 +221,6 @@ pub fn load_single_page(
         mime,
         width: w,
         height: h,
-        quality: 85,
     })
 }
 

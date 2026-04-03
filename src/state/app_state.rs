@@ -17,20 +17,6 @@ pub struct PageRenderData {
     pub _page_dimensions: Vec<(f32, f32)>,
 }
 
-impl PageRenderData {
-    /// Insert a page only if it improves quality (prevents downgrading a hi-res page).
-    pub fn insert_if_better(&mut self, page: RenderedPageData) {
-        if let Some(existing) = self
-            .rendered_pages
-            .iter_mut()
-            .find(|p| p.page_index == page.page_index)
-        {
-            if existing.quality < page.quality {
-                *existing = page;
-            }
-        }
-    }
-}
 
 /// Zoom and scroll state for a document.
 #[derive(Debug, Clone)]
@@ -295,7 +281,6 @@ pub struct RenderedPageData {
     pub mime: &'static str,
     pub width: u32,
     pub height: u32,
-    pub quality: u8,
 }
 
 impl From<RenderedPage> for RenderedPageData {
@@ -306,7 +291,6 @@ impl From<RenderedPage> for RenderedPageData {
             mime: rp.mime,
             width: rp.width,
             height: rp.height,
-            quality: rp.quality,
         }
     }
 }
