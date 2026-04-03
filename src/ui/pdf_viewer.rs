@@ -491,20 +491,25 @@ pub fn PdfViewer() -> Element {
                         };
                         if !has_more_now { return; }
 
-                        // Only load more pages when scrolled within 1.5 viewports of the bottom,
+                        // Only load more pages when scrolled near the bottom,
                         // avoiding unnecessary render work for distant pages.
+                        is_loading.set(true);
                         spawn(async move {
                             let mut eval = document::eval(
-                                "let el = document.getElementById('pdf-pages-container'); \
-                                 el ? (el.scrollTop + el.clientHeight * 2.5 >= el.scrollHeight ? 1 : 0) : 0"
+                                "(function() { let el = document.getElementById('pdf-pages-container'); \
+                                 if (!el) return 0.0; \
+                                 return (el.scrollHeight - el.scrollTop - el.clientHeight) / el.clientHeight; })()"
                             );
-                            let near_bottom = eval.recv::<f64>().await.unwrap_or(0.0) > 0.5;
-                            if !near_bottom { return; }
+                            let remaining_viewports = eval.recv::<f64>().await.unwrap_or(0.0);
+                            // Load when within 2 viewports of the bottom
+                            if remaining_viewports > 2.0 {
+                                is_loading.set(false);
+                                return;
+                            }
 
                             let render_tx = render_ch.sender();
                             let count = batch_size;
                             let quality = config.read().render_quality;
-                            is_loading.set(true);
                             let _ = crate::state::commands::render_more_pages(
                                 &render_tx, &mut tabs, tid, start, count, quality,
                             ).await;
