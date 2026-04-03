@@ -29,6 +29,17 @@ pub struct CacheMeta {
     /// Text extraction version for cache invalidation.
     #[serde(default)]
     pub text_version: u32,
+    /// MIME type of cached images (e.g. "image/jpeg" or "image/png").
+    #[serde(default = "default_mime")]
+    pub mime: String,
+}
+
+fn default_mime() -> String {
+    "image/jpeg".to_string()
+}
+
+fn ext_for_mime(mime: &str) -> &str {
+    if mime == "image/png" { "png" } else { "jpg" }
 }
 
 /// Get the cache directory for a PDF.
@@ -72,10 +83,12 @@ pub fn load_cached(
     }
 
     let pages_dir = dir.join("pages");
+    let ext = ext_for_mime(&meta.mime);
+    let mime: &'static str = if meta.mime == "image/png" { "image/png" } else { "image/jpeg" };
     let mut pages = Vec::with_capacity(meta.page_count as usize);
     for i in 0..meta.page_count {
-        let jpg_path = pages_dir.join(format!("{i}.jpg"));
-        let bytes = match fs::read(&jpg_path) {
+        let img_path = pages_dir.join(format!("{i}.{ext}"));
+        let bytes = match fs::read(&img_path) {
             Ok(b) => b,
             Err(_) => break, // Stop at first missing page — remaining pages will be lazy-loaded
         };
@@ -85,7 +98,7 @@ pub fn load_cached(
         pages.push(RenderedPageData {
             page_index: i,
             base64_data: std::sync::Arc::new(base64_data),
-            mime: "image/jpeg",
+            mime,
             width: w,
             height: h,
             quality: 85,
@@ -131,13 +144,17 @@ pub fn save_pages(
     let pages_dir = dir.join("pages");
     let _ = fs::create_dir_all(&pages_dir);
 
+    // Determine format from first page's mime
+    let mime = pages.first().map(|p| p.mime).unwrap_or("image/jpeg");
+    let ext = ext_for_mime(mime);
+
     // Write page images
     for page in pages {
         if let Ok(bytes) = base64::Engine::decode(
             &base64::engine::general_purpose::STANDARD,
             page.base64_data.as_str(),
         ) {
-            let _ = fs::write(pages_dir.join(format!("{}.jpg", page.page_index)), &bytes);
+            let _ = fs::write(pages_dir.join(format!("{}.{ext}", page.page_index)), &bytes);
         }
     }
 
@@ -165,6 +182,7 @@ pub fn save_pages(
         pdf_mtime: mtime,
         page_dims,
         text_version: TEXT_VERSION,
+        mime: mime.to_string(),
     };
     if let Ok(json) = serde_json::to_string(&meta) {
         let _ = fs::write(dir.join("meta.json"), json);
@@ -188,8 +206,10 @@ pub fn load_single_page(
         return None;
     }
 
-    let jpg_path = dir.join("pages").join(format!("{page_index}.jpg"));
-    let bytes = fs::read(&jpg_path).ok()?;
+    let ext = ext_for_mime(&meta.mime);
+    let mime: &'static str = if meta.mime == "image/png" { "image/png" } else { "image/jpeg" };
+    let img_path = dir.join("pages").join(format!("{page_index}.{ext}"));
+    let bytes = fs::read(&img_path).ok()?;
     let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
     let (w, h) = meta
         .page_dims
@@ -199,7 +219,7 @@ pub fn load_single_page(
     Some(RenderedPageData {
         page_index,
         base64_data: std::sync::Arc::new(base64_data),
-        mime: "image/jpeg",
+        mime,
         width: w,
         height: h,
         quality: 85,

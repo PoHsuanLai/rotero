@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::mpsc;
 
 use dioxus::prelude::*;
-use rotero_pdf::PageTextData;
+use rotero_pdf::{PageTextData, RenderFormat};
 
 use super::app_state::{PdfTabManager, RenderedPageData, TabId};
 
@@ -19,6 +19,7 @@ pub enum RenderRequest {
         zoom: f32,
         batch_size: u32,
         quality: u8,
+        format: RenderFormat,
         reply: mpsc::Sender<Result<(u32, Vec<RenderedPageData>), String>>,
     },
     RenderMorePages {
@@ -27,6 +28,7 @@ pub enum RenderRequest {
         count: u32,
         zoom: f32,
         quality: u8,
+        format: RenderFormat,
         reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
     SetZoom {
@@ -34,6 +36,7 @@ pub enum RenderRequest {
         page_count: u32,
         new_zoom: f32,
         quality: u8,
+        format: RenderFormat,
         reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
     ExtractText {
@@ -74,6 +77,7 @@ pub enum RenderRequest {
         page_indices: Vec<u32>,
         zoom: f32,
         quality: u8,
+        format: RenderFormat,
         reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
 }
@@ -102,13 +106,14 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     zoom,
                     batch_size,
                     quality,
+                    format,
                     reply,
                 } => {
                     let result = (|| {
                         let info = engine.load_document(&pdf_path).map_err(|e| e.to_string())?;
                         let render_count = info.page_count.min(batch_size);
                         let rendered = engine
-                            .render_pages(&pdf_path, 0, render_count, zoom, quality)
+                            .render_pages(&pdf_path, 0, render_count, zoom, quality, format)
                             .map_err(|e| e.to_string())?;
                         let pages: Vec<RenderedPageData> =
                             rendered.into_iter().map(|r| r.into()).collect();
@@ -122,11 +127,12 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     count,
                     zoom,
                     quality,
+                    format,
                     reply,
                 } => {
                     let result = (|| {
                         let rendered = engine
-                            .render_pages(&pdf_path, start, count, zoom, quality)
+                            .render_pages(&pdf_path, start, count, zoom, quality, format)
                             .map_err(|e| e.to_string())?;
                         Ok(rendered
                             .into_iter()
@@ -140,11 +146,12 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     page_count,
                     new_zoom,
                     quality,
+                    format,
                     reply,
                 } => {
                     let result = (|| {
                         let rendered = engine
-                            .render_pages(&pdf_path, 0, page_count, new_zoom, quality)
+                            .render_pages(&pdf_path, 0, page_count, new_zoom, quality, format)
                             .map_err(|e| e.to_string())?;
                         Ok(rendered
                             .into_iter()
@@ -233,12 +240,13 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     page_indices,
                     zoom,
                     quality,
+                    format,
                     reply,
                 } => {
                     let result = (|| {
                         let mut pages = Vec::with_capacity(page_indices.len());
                         for &idx in &page_indices {
-                            match engine.render_page(&pdf_path, idx, zoom, quality) {
+                            match engine.render_page(&pdf_path, idx, zoom, quality, format) {
                                 Ok(rp) => pages.push(rp.into()),
                                 Err(e) => {
                                     tracing::warn!(page = idx, "upgrade render failed: {e}");
@@ -276,6 +284,7 @@ pub async fn upgrade_quality(
     tab_id: TabId,
     page_indices: Vec<u32>,
     quality: u8,
+    format: RenderFormat,
     data_dir: &std::path::Path,
 ) -> Result<(), String> {
     let (pdf_path, zoom, dpr, render_zoom) = {
@@ -324,6 +333,7 @@ pub async fn upgrade_quality(
             page_indices: indices_to_upgrade,
             zoom: render_scale,
             quality,
+            format,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
@@ -376,6 +386,7 @@ pub async fn open_pdf(
     tab_id: TabId,
     data_dir: &std::path::Path,
     quality: u8,
+    format: RenderFormat,
 ) -> Result<(), String> {
     let (path, zoom, dpr, batch_size) = {
         let mgr = tabs.read();
@@ -423,6 +434,7 @@ pub async fn open_pdf(
             zoom: render_scale,
             batch_size,
             quality: PREVIEW_QUALITY,
+            format,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
@@ -451,6 +463,7 @@ pub async fn open_pdf(
             tab_id,
             upgrade_indices,
             quality,
+            format,
             &data_dir_up,
         )
         .await;
@@ -509,6 +522,7 @@ pub async fn render_more_pages(
     start: u32,
     count: u32,
     quality: u8,
+    format: RenderFormat,
     data_dir: &std::path::Path,
 ) -> Result<(), String> {
     let (pdf_path, zoom, dpr) = {
@@ -531,6 +545,7 @@ pub async fn render_more_pages(
             count,
             zoom: render_scale,
             quality: PREVIEW_QUALITY,
+            format,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
@@ -571,6 +586,7 @@ pub async fn render_more_pages(
             tab_id,
             upgrade_indices,
             quality,
+            format,
             &data_dir_up,
         )
         .await;
@@ -606,6 +622,7 @@ pub async fn set_zoom(
     tab_id: TabId,
     new_zoom: f32,
     quality: u8,
+    format: RenderFormat,
     data_dir: &std::path::Path,
 ) -> Result<(), String> {
     let (pdf_path, page_count, dpr) = {
@@ -634,6 +651,7 @@ pub async fn set_zoom(
             page_count,
             new_zoom: render_scale,
             quality: PREVIEW_QUALITY,
+            format,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
@@ -661,6 +679,7 @@ pub async fn set_zoom(
             tab_id,
             upgrade_indices,
             quality,
+            format,
             &data_dir_up,
         )
         .await;
@@ -768,6 +787,7 @@ pub async fn precache_pdf(
     data_dir: &std::path::Path,
     zoom: f32,
     quality: u8,
+    format: RenderFormat,
     paper_id: Option<i64>,
     db: Option<&turso::Connection>,
 ) {
@@ -786,6 +806,7 @@ pub async fn precache_pdf(
             zoom,
             batch_size: 5,
             quality,
+            format,
             reply: reply_tx,
         })
         .is_err()

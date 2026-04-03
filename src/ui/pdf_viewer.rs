@@ -4,6 +4,7 @@ use dioxus::prelude::*;
 
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use crate::app::RenderChannel;
+use rotero_pdf::RenderFormat;
 use crate::db::Database;
 use crate::state::app_state::{
     AnnotationMode, LibraryState, LibraryView, PdfTabManager, TabId, ViewerToolState,
@@ -98,8 +99,9 @@ pub fn PdfTabBar() -> Element {
                                         let render_tx = render_ch.sender();
                                         let cfg_dir = config.read().effective_library_path();
                                         let cfg_q = config.read().render_quality;
+                                        let cfg_fmt = RenderFormat::from_str(&config.read().render_format);
                                         tabs.with_mut(|m| m.tab_mut().is_loading = true);
-                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &cfg_dir, cfg_q).await;
+                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &cfg_dir, cfg_q, cfg_fmt).await;
                                     }
                                     // Restore scroll
                                     let scroll_top = tabs.read().active_tab().map(|t| t.view.scroll_top).unwrap_or(0.0);
@@ -126,9 +128,10 @@ pub fn PdfTabBar() -> Element {
                                             let render_tx = render_ch.sender();
                                             let cfg_dir = config.read().effective_library_path();
                                             let cfg_q = config.read().render_quality;
+                                            let cfg_fmt = RenderFormat::from_str(&config.read().render_format);
                                             tabs.with_mut(|m| m.tab_mut().is_loading = true);
                                             spawn(async move {
-                                                let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &cfg_dir, cfg_q).await;
+                                                let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &cfg_dir, cfg_q, cfg_fmt).await;
                                             });
                                         }
                                     }
@@ -255,6 +258,7 @@ pub fn PdfViewer() -> Element {
                 tid,
                 &data_dir,
                 config.read().render_quality,
+                RenderFormat::from_str(&config.read().render_format),
             )
             .await
             .is_ok()
@@ -401,18 +405,20 @@ pub fn PdfViewer() -> Element {
                         let new_zoom = (zoom + 0.3_f32).min(5.0);
                         let render_tx = render_ch.sender();
                         let quality = config.read().render_quality;
+                        let fmt = RenderFormat::from_str(&config.read().render_format);
                         let data_dir = config.read().effective_library_path();
                         spawn(async move {
-                            let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, &data_dir).await;
+                            let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, fmt, &data_dir).await;
                         });
                     }
                     Key::Character(ref c) if c == "-" => {
                         let new_zoom = (zoom - 0.3_f32).max(0.5);
                         let render_tx = render_ch.sender();
                         let quality = config.read().render_quality;
+                        let fmt = RenderFormat::from_str(&config.read().render_format);
                         let data_dir = config.read().effective_library_path();
                         spawn(async move {
-                            let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, &data_dir).await;
+                            let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, fmt, &data_dir).await;
                         });
                     }
                     Key::PageDown => {
@@ -511,9 +517,10 @@ pub fn PdfViewer() -> Element {
                             let render_tx = render_ch.sender();
                             let count = batch_size;
                             let quality = config.read().render_quality;
+                            let fmt = RenderFormat::from_str(&config.read().render_format);
                             let data_dir = config.read().effective_library_path();
                             let _ = crate::state::commands::render_more_pages(
-                                &render_tx, &mut tabs, tid, start, count, quality, &data_dir,
+                                &render_tx, &mut tabs, tid, start, count, quality, fmt, &data_dir,
                             ).await;
                             is_loading.set(false);
                         });
@@ -1332,9 +1339,10 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                     let new_zoom = (zoom - 0.3_f32).max(0.5);
                     let render_tx = render_ch.sender();
                     let quality = config.read().render_quality;
+                    let fmt = RenderFormat::from_str(&config.read().render_format);
                     let data_dir = config.read().effective_library_path();
                     spawn(async move {
-                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, &data_dir).await;
+                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, fmt, &data_dir).await;
                     });
                 },
                 span { class: "bi bi-zoom-out" }
@@ -1346,9 +1354,10 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                     let new_zoom = (zoom + 0.3_f32).min(5.0);
                     let render_tx = render_ch.sender();
                     let quality = config.read().render_quality;
+                    let fmt = RenderFormat::from_str(&config.read().render_format);
                     let data_dir = config.read().effective_library_path();
                     spawn(async move {
-                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, &data_dir).await;
+                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, fmt, &data_dir).await;
                     });
                 },
                 span { class: "bi bi-zoom-in" }
