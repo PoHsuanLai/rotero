@@ -253,7 +253,7 @@ pub async fn open_pdf(
     });
     tracing::info!(elapsed = ?t_start.elapsed(), "pages displayed");
 
-    // Extract text in background using actual rendered image dimensions
+    // Extract text in background — don't block the render thread
     let page_dims: Vec<(u32, u32, u32)> = {
         let mgr = tabs.read();
         mgr.tabs.iter().find(|t| t.id == tab_id)
@@ -262,27 +262,32 @@ pub async fn open_pdf(
                 .collect())
             .unwrap_or_default()
     };
-    let (text_tx, text_rx) = mpsc::channel();
-    let _ = render_tx.send(RenderRequest::ExtractText {
-        pdf_path: path.clone(),
-        page_dims,
-        reply: text_tx,
-    });
-    if let Ok(text_data) = recv_reply(text_rx).await {
-        // Save text cache
-        let cache_dir = data_dir.to_path_buf();
-        let cache_path = path.clone();
-        let text_clone = text_data.clone();
-        std::thread::spawn(move || {
-            crate::cache::save_text(&cache_dir, &cache_path, &text_clone);
+    let render_tx2 = render_tx.clone();
+    let data_dir2 = data_dir.to_path_buf();
+    let path2 = path.clone();
+    let mut tabs2 = *tabs;
+    spawn(async move {
+        let (text_tx, text_rx) = mpsc::channel();
+        let _ = render_tx2.send(RenderRequest::ExtractText {
+            pdf_path: path2.clone(),
+            page_dims,
+            reply: text_tx,
         });
+        if let Ok(text_data) = recv_reply(text_rx).await {
+            let cache_dir = data_dir2.clone();
+            let cache_path = path2.clone();
+            let text_clone = text_data.clone();
+            std::thread::spawn(move || {
+                crate::cache::save_text(&cache_dir, &cache_path, &text_clone);
+            });
 
-        tabs.with_mut(|mgr| {
-            if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
-                tab.render.text_data = text_data;
-            }
-        });
-    }
+            tabs2.with_mut(|mgr| {
+                if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+                    tab.render.text_data = text_data;
+                }
+            });
+        }
+    });
 
     Ok(())
 }
@@ -322,7 +327,7 @@ pub async fn render_more_pages(
         }
     });
 
-    // Extract text for new pages using actual rendered dims
+    // Extract text for new pages in background — don't block render thread
     let page_dims: Vec<(u32, u32, u32)> = {
         let mgr = tabs.read();
         mgr.tabs.iter().find(|t| t.id == tab_id)
@@ -332,19 +337,23 @@ pub async fn render_more_pages(
                 .collect())
             .unwrap_or_default()
     };
-    let (text_tx, text_rx) = mpsc::channel();
-    let _ = render_tx.send(RenderRequest::ExtractText {
-        pdf_path,
-        page_dims,
-        reply: text_tx,
-    });
-    if let Ok(text_data) = recv_reply(text_rx).await {
-        tabs.with_mut(|mgr| {
-            if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
-                tab.render.text_data.extend(text_data);
-            }
+    let render_tx2 = render_tx.clone();
+    let mut tabs2 = *tabs;
+    spawn(async move {
+        let (text_tx, text_rx) = mpsc::channel();
+        let _ = render_tx2.send(RenderRequest::ExtractText {
+            pdf_path,
+            page_dims,
+            reply: text_tx,
         });
-    }
+        if let Ok(text_data) = recv_reply(text_rx).await {
+            tabs2.with_mut(|mgr| {
+                if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+                    tab.render.text_data.extend(text_data);
+                }
+            });
+        }
+    });
 
     Ok(())
 }

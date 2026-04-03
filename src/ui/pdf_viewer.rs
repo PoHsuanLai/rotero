@@ -344,6 +344,7 @@ pub fn PdfViewer() -> Element {
                     class: "pdf-pages",
                     id: "pdf-pages-container",
                     onscroll: move |_| {
+                        tracing::info!(is_loading = is_loading(), "onscroll fired");
                         if is_loading() {
                             return;
                         }
