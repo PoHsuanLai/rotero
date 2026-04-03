@@ -14,11 +14,11 @@ pub fn LibraryPanel() -> Element {
     let db = use_context::<Database>();
     let render_ch = use_context::<crate::app::RenderChannel>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
-    // Load collection paper IDs when switching to a collection view
+    // Load collection/tag paper IDs when switching views
     {
-        let view = lib_state.read().view.clone();
         let db_coll = db.clone();
         use_effect(move || {
+            let view = lib_state.read().view.clone();
             match view {
                 LibraryView::Collection(coll_id) => {
                     let db = db_coll.clone();
@@ -118,6 +118,32 @@ pub fn LibraryPanel() -> Element {
 
     // Paper drag state (shared with sidebar for drop onto collections/tags)
     let mut drag_paper = use_context::<Signal<DragPaper>>();
+
+    // Install compact drag ghost for library cards and sidebar items
+    use_effect(|| {
+        document::eval(r#"
+            if (!window.__rotero_drag_ghost) {
+                window.__rotero_drag_ghost = true;
+                document.addEventListener('dragstart', function(e) {
+                    let card = e.target.closest('.library-card, .sidebar-collection-item');
+                    if (!card) return;
+                    // Find the title text
+                    let titleEl = card.querySelector('.library-card-title, .sidebar-collection-name');
+                    let text = titleEl ? titleEl.textContent.trim() : 'Paper';
+                    if (text.length > 40) text = text.substring(0, 37) + '...';
+                    // Create compact ghost
+                    let ghost = document.createElement('div');
+                    ghost.textContent = text;
+                    ghost.className = 'drag-ghost';
+                    document.body.appendChild(ghost);
+                    e.dataTransfer.setDragImage(ghost, 0, 0);
+                    requestAnimationFrame(function() {
+                        requestAnimationFrame(function() { ghost.remove(); });
+                    });
+                }, true);
+            }
+        "#);
+    });
 
     // Drag and drop state
     let mut drag_over = use_signal(|| false);
@@ -221,9 +247,15 @@ pub fn LibraryPanel() -> Element {
                         if is_searching {
                             p { class: "library-empty-heading", "No results found" }
                             p { class: "library-empty-sub", "Try a different search term." }
+                        } else if matches!(state.view, LibraryView::Collection(_)) {
+                            p { class: "library-empty-heading", "No papers in this collection" }
+                            p { class: "library-empty-sub", "Drag papers from the library to add them." }
+                        } else if matches!(state.view, LibraryView::Tag(_)) {
+                            p { class: "library-empty-heading", "No papers with this tag" }
+                            p { class: "library-empty-sub", "Drag papers onto a tag in the sidebar to assign them." }
                         } else {
                             p { class: "library-empty-heading", "No papers yet" }
-                            p { class: "library-empty-sub", "Click \"Add Paper\" or use the browser connector to import papers." }
+                            p { class: "library-empty-sub", "Use \"+ Add PDF\" or the browser connector to import papers." }
                         }
                     }
                 } else {
@@ -261,13 +293,23 @@ pub fn LibraryPanel() -> Element {
                                     ondragstart: move |_| {
                                         drag_paper.set(DragPaper(Some(paper_id)));
                                     },
-                                    ondragend: move |_| {
-                                        drag_paper.set(DragPaper(None));
-                                    },
-                                    onclick: move |_| {
-                                        lib_state.with_mut(|s| {
-                                            s.selected_paper_id = Some(paper_id);
+                                    ondragend: move |evt: Event<DragData>| {
+                                        // Delay clearing so ondrop on the target fires first
+                                        // drop_effect is "none" when dropped outside any valid target
+                                        let _ = evt;
+                                        spawn(async move {
+                                            drag_paper.set(DragPaper(None));
                                         });
+                                    },
+                                    onmouseup: move |evt: Event<MouseData>| {
+                                        // Only select if this wasn't a drag operation
+                                        if drag_paper().0.is_none() {
+                                            if evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
+                                                lib_state.with_mut(|s| {
+                                                    s.selected_paper_id = Some(paper_id);
+                                                });
+                                            }
+                                        }
                                     },
                                     oncontextmenu: move |evt| {
                                         evt.prevent_default();
@@ -511,10 +553,7 @@ fn AddPaperButton() -> Element {
             button {
                 class: "btn btn--primary",
                 onclick: move |_| {
-                    let file = rfd::FileDialog::new()
-                        .add_filter("PDF", &["pdf"])
-                        .set_title("Add Paper PDF")
-                        .pick_file();
+                    let file = super::pick_file(&["pdf"], "Add Paper PDF");
 
                     if let Some(path) = file {
                         let path_str = path.to_string_lossy().to_string();

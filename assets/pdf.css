@@ -221,11 +221,22 @@
   left: 0;
   overflow: hidden;
   z-index: 1;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.text-layer::selection {
+  background: transparent;
+}
+
+.text-layer::-moz-selection {
+  background: transparent;
 }
 
 .text-layer span {
   position: absolute;
   color: transparent;
+  -webkit-text-fill-color: transparent;
   white-space: pre;
   line-height: 1;
   pointer-events: auto;
@@ -233,6 +244,13 @@
   -webkit-user-select: text;
   transform-origin: left top;
   font-family: sans-serif;
+}
+
+.text-layer br {
+  user-select: none;
+  -webkit-user-select: none;
+  line-height: 0;
+  font-size: 0;
 }
 
 .text-layer span::selection {

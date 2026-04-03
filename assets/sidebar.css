@@ -168,8 +168,13 @@
 }
 
 .sidebar-collection-item--droptarget {
-  background: rgba(13, 148, 136, 0.08);
   outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+
+.sidebar-collection-item--drophover {
+  background: rgba(13, 148, 136, 0.18);
+  outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
 
@@ -241,8 +246,14 @@
 }
 
 .sidebar-tag--droptarget {
-  outline: 2px dashed rgba(255, 255, 255, 0.6);
+  outline: 1px dashed rgba(255, 255, 255, 0.4);
   outline-offset: -1px;
+}
+
+.sidebar-tag--drophover {
+  outline: 2px solid rgba(255, 255, 255, 0.8);
+  outline-offset: -1px;
+  filter: brightness(1.3);
 }
 
 

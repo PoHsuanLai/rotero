@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::state::app_state::RenderedPageData;
 
+/// Current text extraction version. Bump to invalidate cached text data.
+const TEXT_VERSION: u32 = 1;
+
 /// Metadata stored alongside cached pages.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CacheMeta {
@@ -23,6 +26,9 @@ pub struct CacheMeta {
     pub pdf_mtime: u64,
     /// Dimensions (width, height) per page at the cached zoom level.
     pub page_dims: Vec<(u32, u32)>,
+    /// Text extraction version for cache invalidation.
+    #[serde(default)]
+    pub text_version: u32,
 }
 
 /// Get the cache directory for a PDF.
@@ -93,7 +99,7 @@ pub fn load_cached_text(
     // Verify meta still valid
     let meta_str = fs::read_to_string(dir.join("meta.json")).ok()?;
     let meta: CacheMeta = serde_json::from_str(&meta_str).ok()?;
-    if meta.pdf_mtime != pdf_mtime(pdf_path) {
+    if meta.pdf_mtime != pdf_mtime(pdf_path) || meta.text_version != TEXT_VERSION {
         return None;
     }
 
@@ -127,6 +133,7 @@ pub fn save_pages(
         zoom,
         pdf_mtime: pdf_mtime(pdf_path),
         page_dims: pages.iter().map(|p| (p.width, p.height)).collect(),
+        text_version: TEXT_VERSION,
     };
     if let Ok(json) = serde_json::to_string(&meta) {
         let _ = fs::write(dir.join("meta.json"), json);

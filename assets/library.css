@@ -195,6 +195,25 @@
   opacity: 1;
 }
 
+/* --- Drag Ghost --- */
+.drag-ghost {
+  position: fixed;
+  top: -1000px;
+  left: -1000px;
+  padding: 6px 12px;
+  background: var(--bg-sidebar, #1e1e2e);
+  color: var(--text-primary, #cdd6f4);
+  border: 1px solid var(--accent, #0d9488);
+  border-radius: 6px;
+  font-size: var(--text-sm);
+  font-family: var(--font-sans, sans-serif);
+  max-width: 240px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  z-index: 99999;
+}
 
 /* --- Empty State --- */
 .library-empty {

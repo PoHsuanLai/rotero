@@ -47,6 +47,9 @@ pub fn Sidebar() -> Element {
     // Drag paper from library
     let mut drag_paper = use_context::<Signal<DragPaper>>();
 
+    // Track which drop target is being hovered during drag (e.g. "coll-5", "tag-3")
+    let mut drop_hover: Signal<Option<String>> = use_context_provider(|| Signal::new(None::<String>));
+
     let db_for_ctx = db.clone();
 
     rsx! {
@@ -113,23 +116,36 @@ pub fn Sidebar() -> Element {
                             rsx! {
                                 div {
                                     class: "sidebar-collection-item",
-                                    onclick: move |_| {
-                                        if let Some(ref rel_path) = pdf_rel {
-                                            let full_path = db_recent.resolve_pdf_path(rel_path);
-                                            let path_str = full_path.to_string_lossy().to_string();
-                                            tabs.with_mut(|m| {
-                                                if let Some(idx) = m.find_by_paper_id(paper_id) {
-                                                    let tid = m.tabs[idx].id;
-                                                    m.switch_to(tid);
-                                                } else {
-                                                    let cfg = config.read();
-                                                    let id = m.next_id();
-                                                    let mut tab = PdfTab::new(id, path_str.clone(), title.clone(), cfg.default_zoom, cfg.page_batch_size);
-                                                    tab.paper_id = Some(paper_id);
-                                                    m.open_tab(tab);
+                                    draggable: "true",
+                                    ondragstart: move |_| {
+                                        drag_paper.set(DragPaper(Some(paper_id)));
+                                    },
+                                    ondragend: move |_| {
+                                        spawn(async move {
+                                            drag_paper.set(DragPaper(None));
+                                        });
+                                    },
+                                    onmouseup: move |evt: Event<MouseData>| {
+                                        if drag_paper().0.is_none() {
+                                            if evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
+                                                if let Some(ref rel_path) = pdf_rel {
+                                                    let full_path = db_recent.resolve_pdf_path(rel_path);
+                                                    let path_str = full_path.to_string_lossy().to_string();
+                                                    tabs.with_mut(|m| {
+                                                        if let Some(idx) = m.find_by_paper_id(paper_id) {
+                                                            let tid = m.tabs[idx].id;
+                                                            m.switch_to(tid);
+                                                        } else {
+                                                            let cfg = config.read();
+                                                            let id = m.next_id();
+                                                            let mut tab = PdfTab::new(id, path_str.clone(), title.clone(), cfg.default_zoom, cfg.page_batch_size);
+                                                            tab.paper_id = Some(paper_id);
+                                                            m.open_tab(tab);
+                                                        }
+                                                    });
+                                                    lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                                 }
-                                            });
-                                            lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                            }
                                         }
                                     },
                                     oncontextmenu: move |evt: Event<MouseData>| {
@@ -202,7 +218,14 @@ pub fn Sidebar() -> Element {
                                 let tag_color = tag.color.clone();
                                 let bg = tag_color.clone().unwrap_or_else(|| "#6b7085".to_string());
                                 let is_paper_drop = drag_paper.read().0.is_some();
-                                let tag_class = if is_paper_drop { "sidebar-tag sidebar-tag--droptarget" } else { "sidebar-tag" };
+                                let is_hover = drop_hover().as_deref() == Some(&format!("tag-{tag_id}"));
+                                let tag_class = if is_paper_drop && is_hover {
+                                    "sidebar-tag sidebar-tag--drophover"
+                                } else if is_paper_drop {
+                                    "sidebar-tag sidebar-tag--droptarget"
+                                } else {
+                                    "sidebar-tag"
+                                };
                                 let db_for_tag_drop = db.clone();
                                 rsx! {
                                     span {
@@ -215,11 +238,20 @@ pub fn Sidebar() -> Element {
                                             evt.prevent_default();
                                             tag_ctx.set(Some((tag_id, tag_name.clone(), tag_color.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
                                         },
+                                        ondragenter: move |_| {
+                                            drop_hover.set(Some(format!("tag-{tag_id}")));
+                                        },
+                                        ondragleave: move |_| {
+                                            if drop_hover().as_deref() == Some(&format!("tag-{tag_id}")) {
+                                                drop_hover.set(None);
+                                            }
+                                        },
                                         ondragover: move |evt| {
                                             evt.prevent_default();
                                         },
                                         ondrop: move |evt| {
                                             evt.prevent_default();
+                                            drop_hover.set(None);
                                             if let Some(paper_id) = drag_paper().0 {
                                                 let db = db_for_tag_drop.clone();
                                                 spawn(async move {
@@ -585,6 +617,7 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
     let new_coll_editing = use_context::<Signal<Option<Option<i64>>>>();
     let mut drag_coll = use_context::<Signal<Option<i64>>>();
     let mut drag_paper = use_context::<Signal<DragPaper>>();
+    let mut drop_hover = use_context::<Signal<Option<String>>>();
     let mut coll_ctx = ctx_menu;
     let lib = lib_state.read();
     let view = lib.view.clone();
@@ -625,9 +658,11 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
                     "bi bi-folder"
                 };
 
-                let is_coll_drag_target = drag_coll().is_some() && drag_coll() != Some(coll_id);
-                let is_paper_drag_target = drag_paper().0.is_some();
-                let item_class = if is_coll_drag_target || is_paper_drag_target {
+                let is_drag_active = (drag_coll().is_some() && drag_coll() != Some(coll_id)) || drag_paper().0.is_some();
+                let is_hover = drop_hover().as_deref() == Some(&format!("coll-{coll_id}"));
+                let item_class = if is_drag_active && is_hover {
+                    format!("{class} sidebar-collection-item--drophover")
+                } else if is_drag_active {
                     format!("{class} sidebar-collection-item--droptarget")
                 } else {
                     class.to_string()
@@ -641,8 +676,13 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
                         class: "{item_class}",
                         style: "padding-left: {indent + 8}px;",
                         draggable: "true",
-                        onclick: move |_| {
-                            lib_state.with_mut(|s| s.view = LibraryView::Collection(coll_id));
+                        onmouseup: move |evt: Event<MouseData>| {
+                            // Only navigate if this wasn't a drag operation
+                            if drag_coll().is_none() {
+                                if evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
+                                    lib_state.with_mut(|s| s.view = LibraryView::Collection(coll_id));
+                                }
+                            }
                         },
                         oncontextmenu: {
                             let name = coll_name.clone();
@@ -655,11 +695,20 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
                         ondragstart: move |_| {
                             drag_coll.set(Some(coll_id));
                         },
+                        ondragenter: move |_| {
+                            drop_hover.set(Some(format!("coll-{coll_id}")));
+                        },
+                        ondragleave: move |_| {
+                            if drop_hover().as_deref() == Some(&format!("coll-{coll_id}")) {
+                                drop_hover.set(None);
+                            }
+                        },
                         ondragover: move |evt| {
                             evt.prevent_default();
                         },
                         ondrop: move |evt| {
                             evt.prevent_default();
+                            drop_hover.set(None);
                             if let Some(dragged_id) = drag_coll() {
                                 if dragged_id != coll_id {
                                     // Reparent dragged collection under this one
@@ -680,7 +729,7 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
                                 let db = db_for_paper_drop.clone();
                                 spawn(async move {
                                     if let Ok(()) = crate::db::collections::add_paper_to_collection(db.conn(), paper_id, coll_id).await {
-                                        // Refresh collection view if currently viewing this collection
+                                        // Refresh only if currently viewing this collection
                                         let current_view = lib_state.read().view.clone();
                                         if current_view == LibraryView::Collection(coll_id) {
                                             if let Ok(ids) = crate::db::collections::list_paper_ids_in_collection(db.conn(), coll_id).await {
