@@ -161,11 +161,12 @@ pub fn LibraryPanel() -> Element {
             },
             ondrop: move |evt| {
                 drag_over.set(false);
-                if let Some(file_engine) = evt.files() {
+                let dropped_files = evt.files();
+                if !dropped_files.is_empty() {
                     let db = db.clone();
                     spawn(async move {
-                        let files = file_engine.files();
-                        for file_name in files {
+                        for file_data in &dropped_files {
+                            let file_name = file_data.name();
                             if file_name.ends_with(".pdf") {
                                 let title = std::path::Path::new(&file_name)
                                     .file_stem()
@@ -498,6 +499,29 @@ pub fn LibraryPanel() -> Element {
                                                 on_click: move |_| {
                                                     let js = format!("navigator.clipboard.writeText(`{}`)", doi_copy);
                                                     document::eval(&js);
+                                                },
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Remove from collection (only when viewing a collection)
+                                if let LibraryView::Collection(coll_id) = lib_state.read().view {
+                                    {
+                                        let db_remove = db.clone();
+                                        rsx! {
+                                            ContextMenuItem {
+                                                label: "Remove from Collection".to_string(),
+                                                icon: Some("bi-folder-minus".to_string()),
+                                                on_click: move |_| {
+                                                    let db = db_remove.clone();
+                                                    spawn(async move {
+                                                        if let Ok(()) = crate::db::collections::remove_paper_from_collection(db.conn(), pid, coll_id).await {
+                                                            if let Ok(ids) = crate::db::collections::list_paper_ids_in_collection(db.conn(), coll_id).await {
+                                                                lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
+                                                            }
+                                                        }
+                                                    });
                                                 },
                                             }
                                         }

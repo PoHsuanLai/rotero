@@ -90,3 +90,12 @@ pub async fn add_paper_to_collection(conn: &Connection, paper_id: i64, collectio
     .await?;
     Ok(())
 }
+
+pub async fn remove_paper_from_collection(conn: &Connection, paper_id: i64, collection_id: i64) -> Result<(), turso::Error> {
+    conn.execute(
+        "DELETE FROM paper_collections WHERE paper_id = ?1 AND collection_id = ?2",
+        [paper_id, collection_id],
+    )
+    .await?;
+    Ok(())
+}
