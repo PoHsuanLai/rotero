@@ -6,7 +6,7 @@ use rotero_models::Collection;
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 
 #[component]
-pub fn Sidebar(on_collapse: EventHandler<()>) -> Element {
+pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
     let mut tabs = use_context::<Signal<PdfTabManager>>();
@@ -52,8 +52,60 @@ pub fn Sidebar(on_collapse: EventHandler<()>) -> Element {
 
     let db_for_ctx = db.clone();
 
+    let sidebar_class = if collapsed { "sidebar sidebar--collapsed" } else { "sidebar" };
+
+    if collapsed {
+        return rsx! {
+            div { class: "{sidebar_class}",
+                // Expand button
+                button {
+                    class: "sidebar-collapsed-btn",
+                    title: "Expand sidebar",
+                    onclick: move |_| on_toggle.call(()),
+                    i { class: "bi bi-layout-sidebar-inset" }
+                }
+                // Icon-only nav
+                button {
+                    class: "sidebar-collapsed-btn",
+                    title: "All Papers",
+                    onclick: move |_| {
+                        lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
+                    },
+                    i { class: "bi bi-journal-text" }
+                }
+                button {
+                    class: "sidebar-collapsed-btn",
+                    title: "Recently Added",
+                    onclick: move |_| {
+                        lib_state.with_mut(|s| s.view = LibraryView::RecentlyAdded);
+                    },
+                    i { class: "bi bi-clock" }
+                }
+                button {
+                    class: "sidebar-collapsed-btn",
+                    title: "Favorites",
+                    onclick: move |_| {
+                        lib_state.with_mut(|s| s.view = LibraryView::Favorites);
+                    },
+                    i { class: "bi bi-star" }
+                }
+                button {
+                    class: "sidebar-collapsed-btn",
+                    title: "Unread",
+                    onclick: move |_| {
+                        lib_state.with_mut(|s| s.view = LibraryView::Unread);
+                    },
+                    i { class: "bi bi-circle" }
+                }
+                // Settings at bottom
+                div { class: "sidebar-spacer" }
+                super::settings::SettingsButton {}
+            }
+        };
+    }
+
     rsx! {
-        div { class: "sidebar",
+        div { class: "{sidebar_class}",
             // Brand + collapse
             div { class: "sidebar-header",
                 h2 {
@@ -65,8 +117,9 @@ pub fn Sidebar(on_collapse: EventHandler<()>) -> Element {
                 }
                 button {
                     class: "sidebar-collapse-btn",
-                    onclick: move |_| on_collapse.call(()),
-                    i { class: "bi bi-sidebar-collapse" }
+                    title: "Collapse sidebar",
+                    onclick: move |_| on_toggle.call(()),
+                    i { class: "bi bi-layout-sidebar-inset" }
                 }
             }
 
@@ -826,7 +879,15 @@ fn TagSection(tags: Vec<rotero_models::Tag>, ctx_menu: Signal<Option<(i64, Strin
                                     let tag_id = tag.id.unwrap_or(0);
                                     let tag_name = tag.name.clone();
                                     let tag_color = tag.color.clone();
-                                    let bg = tag_color.clone().unwrap_or_else(|| "#6b7085".to_string());
+                                    let bg = tag_color.clone().unwrap_or_else(|| {
+                                        // Auto-assign a muted color based on tag id
+                                        const PALETTE: &[&str] = &[
+                                            "#6b7085", "#7c6b85", "#6b8580", "#857a6b",
+                                            "#6b7a85", "#856b7a", "#6b856e", "#85706b",
+                                            "#6e6b85", "#7a856b", "#856b6b", "#6b8585",
+                                        ];
+                                        PALETTE[tag_id as usize % PALETTE.len()].to_string()
+                                    });
                                     let is_paper_drop = drag_paper.read().0.is_some();
                                     let is_hover = drop_hover().as_deref() == Some(&format!("tag-{tag_id}"));
                                     let tag_class = if is_paper_drop && is_hover {
@@ -901,7 +962,8 @@ fn OpenPdfButton() -> Element {
         button {
             class: "sidebar-open-btn",
             onclick: move |_| {
-                let file = super::pick_file(&["pdf"], "Open PDF");
+                spawn(async move {
+                let file = super::pick_file_async(&["pdf"], "Open PDF").await;
 
                 if let Some(path) = file {
                     let path_str = path.to_string_lossy().to_string();
@@ -922,6 +984,7 @@ fn OpenPdfButton() -> Element {
                     });
                     lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                 }
+                });
             },
             "Open PDF"
         }

@@ -23,15 +23,15 @@ fn ImportBibtexButton() -> Element {
         button {
             class: "btn btn--ghost",
             onclick: move |_| {
-                let file = super::pick_file(&["bib", "bibtex"], "Import BibTeX");
-                if let Some(path) = file {
-                    match std::fs::read_to_string(&path) {
-                        Ok(content) => {
-                            match rotero_bib::import_bibtex(&content) {
-                                Ok(papers) => {
-                                    let count = papers.len();
-                                    let db = db.clone();
-                                    spawn(async move {
+                let db = db.clone();
+                spawn(async move {
+                    let file = super::pick_file_async(&["bib", "bibtex"], "Import BibTeX").await;
+                    if let Some(path) = file {
+                        match std::fs::read_to_string(&path) {
+                            Ok(content) => {
+                                match rotero_bib::import_bibtex(&content) {
+                                    Ok(papers) => {
+                                        let count = papers.len();
                                         let mut imported = 0;
                                         for paper in papers {
                                             if let Ok(id) = crate::db::papers::insert_paper(db.conn(), &paper).await {
@@ -42,14 +42,14 @@ fn ImportBibtexButton() -> Element {
                                             }
                                         }
                                         status.set(Some(format!("Imported {imported}/{count} papers")));
-                                    });
+                                    }
+                                    Err(e) => status.set(Some(format!("Parse error: {e}"))),
                                 }
-                                Err(e) => status.set(Some(format!("Parse error: {e}"))),
                             }
+                            Err(e) => status.set(Some(format!("Read error: {e}"))),
                         }
-                        Err(e) => status.set(Some(format!("Read error: {e}"))),
                     }
-                }
+                });
             },
             "Import .bib"
         }

@@ -11,7 +11,40 @@ pub mod import_export;
 pub mod citation_dialog;
 pub mod settings;
 
-/// Platform file dialog helpers. No-ops on mobile.
+/// Async file picker — uses rfd on desktop, apple-utils on iOS.
+pub async fn pick_file_async(extensions: &[&str], _title: &str) -> Option<std::path::PathBuf> {
+    #[cfg(feature = "desktop")]
+    {
+        rfd::FileDialog::new()
+            .add_filter("File", extensions)
+            .set_title(_title)
+            .pick_file()
+    }
+
+    #[cfg(target_os = "ios")]
+    {
+        use apple_utils::file_type::FileType;
+        use apple_utils::ios::FilePicker;
+
+        let filters = extensions
+            .iter()
+            .map(|ext| FileType::Extension((*ext).to_string()))
+            .collect();
+        let picker = FilePicker {
+            filters,
+            ..Default::default()
+        };
+        let paths: Vec<std::path::PathBuf> = picker.open().await;
+        paths.into_iter().next()
+    }
+
+    #[cfg(not(any(feature = "desktop", target_os = "ios")))]
+    {
+        None
+    }
+}
+
+/// Sync file picker — desktop only, no-op elsewhere.
 #[cfg(feature = "desktop")]
 pub fn pick_file(extensions: &[&str], title: &str) -> Option<std::path::PathBuf> {
     rfd::FileDialog::new()

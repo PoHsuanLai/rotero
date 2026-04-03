@@ -598,26 +598,27 @@ fn AddPaperButton() -> Element {
             button {
                 class: "btn btn--primary",
                 onclick: move |_| {
-                    let file = super::pick_file(&["pdf"], "Add Paper PDF");
+                    let db_for_pdf = db_for_pdf.clone();
+                    spawn(async move {
+                        let file = super::pick_file_async(&["pdf"], "Add Paper PDF").await;
 
-                    if let Some(path) = file {
-                        let path_str = path.to_string_lossy().to_string();
-                        let db = db_for_pdf.clone();
+                        if let Some(path) = file {
+                            let path_str = path.to_string_lossy().to_string();
+                            let db = db_for_pdf;
 
-                        let filename = path.file_stem()
-                            .map(|s| s.to_string_lossy().to_string())
-                            .unwrap_or_else(|| "Untitled".to_string());
+                            let filename = path.file_stem()
+                                .map(|s| s.to_string_lossy().to_string())
+                                .unwrap_or_else(|| "Untitled".to_string());
 
-                        match db.import_pdf(&path_str, Some(&filename), None, None) {
-                            Ok(rel_path) => {
-                                let mut paper = rotero_models::Paper::new(filename);
-                                paper.pdf_path = Some(rel_path.clone());
-                                let full_path = db.resolve_pdf_path(&rel_path).to_string_lossy().to_string();
-                                let auto_fetch = config.read().auto_fetch_metadata;
-                                let meta_render_tx = render_ch.sender();
-                                let meta_db = db.clone();
+                            match db.import_pdf(&path_str, Some(&filename), None, None) {
+                                Ok(rel_path) => {
+                                    let mut paper = rotero_models::Paper::new(filename);
+                                    paper.pdf_path = Some(rel_path.clone());
+                                    let full_path = db.resolve_pdf_path(&rel_path).to_string_lossy().to_string();
+                                    let auto_fetch = config.read().auto_fetch_metadata;
+                                    let meta_render_tx = render_ch.sender();
+                                    let meta_db = db.clone();
 
-                                spawn(async move {
                                     match crate::db::papers::insert_paper(db.conn(), &paper).await {
                                         Ok(id) => {
                                             paper.id = Some(id);
@@ -632,11 +633,11 @@ fn AddPaperButton() -> Element {
                                         }
                                         Err(e) => error_msg.set(Some(format!("{e}"))),
                                     }
-                                });
+                                }
+                                Err(e) => error_msg.set(Some(e)),
                             }
-                            Err(e) => error_msg.set(Some(e)),
                         }
-                    }
+                    });
                 },
                 "+ Add PDF"
             }
