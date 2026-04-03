@@ -1,11 +1,11 @@
 use dioxus::prelude::*;
 use dioxus_elements::HasFileData;
 
+use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
+use super::import_export::ImportExportButtons;
+use super::search_bar::SearchBar;
 use crate::db::Database;
 use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTab, PdfTabManager};
-use super::search_bar::SearchBar;
-use super::import_export::ImportExportButtons;
-use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 
 #[component]
 pub fn LibraryPanel() -> Element {
@@ -23,7 +23,12 @@ pub fn LibraryPanel() -> Element {
                 LibraryView::Collection(coll_id) => {
                     let db = db_coll.clone();
                     spawn(async move {
-                        match crate::db::collections::list_paper_ids_in_collection(db.conn(), coll_id).await {
+                        match crate::db::collections::list_paper_ids_in_collection(
+                            db.conn(),
+                            coll_id,
+                        )
+                        .await
+                        {
                             Ok(ids) => {
                                 lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
                             }
@@ -67,18 +72,38 @@ pub fn LibraryPanel() -> Element {
                 p.truncate(20);
                 p
             }
-            LibraryView::Favorites => state.papers.iter().filter(|p| p.is_favorite).cloned().collect(),
-            LibraryView::Unread => state.papers.iter().filter(|p| !p.is_read).cloned().collect(),
+            LibraryView::Favorites => state
+                .papers
+                .iter()
+                .filter(|p| p.is_favorite)
+                .cloned()
+                .collect(),
+            LibraryView::Unread => state
+                .papers
+                .iter()
+                .filter(|p| !p.is_read)
+                .cloned()
+                .collect(),
             LibraryView::Collection(_) => {
                 if let Some(ref ids) = state.collection_paper_ids {
-                    state.papers.iter().filter(|p| p.id.map_or(false, |pid| ids.contains(&pid))).cloned().collect()
+                    state
+                        .papers
+                        .iter()
+                        .filter(|p| p.id.map_or(false, |pid| ids.contains(&pid)))
+                        .cloned()
+                        .collect()
                 } else {
                     Vec::new()
                 }
             }
             LibraryView::Tag(_) => {
                 if let Some(ref ids) = state.tag_paper_ids {
-                    state.papers.iter().filter(|p| p.id.map_or(false, |pid| ids.contains(&pid))).cloned().collect()
+                    state
+                        .papers
+                        .iter()
+                        .filter(|p| p.id.map_or(false, |pid| ids.contains(&pid)))
+                        .cloned()
+                        .collect()
                 } else {
                     Vec::new()
                 }
@@ -95,18 +120,18 @@ pub fn LibraryPanel() -> Element {
             LibraryView::RecentlyAdded => "Recently Added".to_string(),
             LibraryView::Favorites => "Favorites".to_string(),
             LibraryView::Unread => "Unread".to_string(),
-            LibraryView::Collection(id) => {
-                state.collections.iter()
-                    .find(|c| c.id == Some(*id))
-                    .map(|c| c.name.clone())
-                    .unwrap_or_else(|| "Collection".to_string())
-            }
-            LibraryView::Tag(id) => {
-                state.tags.iter()
-                    .find(|t| t.id == Some(*id))
-                    .map(|t| format!("Tag: {}", t.name))
-                    .unwrap_or_else(|| "Tag".to_string())
-            }
+            LibraryView::Collection(id) => state
+                .collections
+                .iter()
+                .find(|c| c.id == Some(*id))
+                .map(|c| c.name.clone())
+                .unwrap_or_else(|| "Collection".to_string()),
+            LibraryView::Tag(id) => state
+                .tags
+                .iter()
+                .find(|t| t.id == Some(*id))
+                .map(|t| format!("Tag: {}", t.name))
+                .unwrap_or_else(|| "Tag".to_string()),
             _ => "Papers".to_string(),
         }
     };
@@ -121,7 +146,8 @@ pub fn LibraryPanel() -> Element {
 
     // Install compact drag ghost for library cards and sidebar items
     use_effect(|| {
-        document::eval(r#"
+        document::eval(
+            r#"
             if (!window.__rotero_drag_ghost) {
                 window.__rotero_drag_ghost = true;
                 document.addEventListener('dragstart', function(e) {
@@ -142,12 +168,17 @@ pub fn LibraryPanel() -> Element {
                     });
                 }, true);
             }
-        "#);
+        "#,
+        );
     });
 
     // Drag and drop state
     let mut drag_over = use_signal(|| false);
-    let drop_class = if drag_over() { "library-view library-view--dragover" } else { "library-view" };
+    let drop_class = if drag_over() {
+        "library-view library-view--dragover"
+    } else {
+        "library-view"
+    };
 
     rsx! {
         div {

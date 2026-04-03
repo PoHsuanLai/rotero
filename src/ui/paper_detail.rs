@@ -1,9 +1,9 @@
 use dioxus::prelude::*;
 
+use super::components::context_menu::{ContextMenu, ContextMenuItem};
 use crate::db::Database;
 use crate::state::app_state::{LibraryState, LibraryView, PdfTab, PdfTabManager};
 use crate::sync::engine::SyncConfig;
-use super::components::context_menu::{ContextMenu, ContextMenuItem};
 
 #[component]
 pub fn PaperDetail() -> Element {

@@ -100,32 +100,46 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
 
     // Migration from v1 to v2: add is_favorite and is_read columns
     if current_version < 2 {
-        let _ = conn.execute("ALTER TABLE papers ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0", ()).await;
-        let _ = conn.execute("ALTER TABLE papers ADD COLUMN is_read INTEGER NOT NULL DEFAULT 0", ()).await;
+        let _ = conn
+            .execute(
+                "ALTER TABLE papers ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "ALTER TABLE papers ADD COLUMN is_read INTEGER NOT NULL DEFAULT 0",
+                (),
+            )
+            .await;
     }
 
     // Migration to v3: add fulltext column for PDF content search
     if current_version < 3 {
-        let _ = conn.execute("ALTER TABLE papers ADD COLUMN fulltext TEXT", ()).await;
+        let _ = conn
+            .execute("ALTER TABLE papers ADD COLUMN fulltext TEXT", ())
+            .await;
     }
 
     if current_version < SCHEMA_VERSION {
-        conn.execute(
-            "UPDATE schema_version SET version = ?1",
-            [SCHEMA_VERSION],
-        )
-        .await?;
+        conn.execute("UPDATE schema_version SET version = ?1", [SCHEMA_VERSION])
+            .await?;
     }
 
     Ok(())
 }
 
 async fn get_schema_version(conn: &Connection) -> i64 {
-    let result = conn.query("SELECT version FROM schema_version LIMIT 1", ()).await;
+    let result = conn
+        .query("SELECT version FROM schema_version LIMIT 1", ())
+        .await;
     match result {
         Ok(mut rows) => {
             if let Ok(Some(row)) = rows.next().await {
-                row.get_value(0).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0)
+                row.get_value(0)
+                    .ok()
+                    .and_then(|v| v.as_integer().copied())
+                    .unwrap_or(0)
             } else {
                 0
             }

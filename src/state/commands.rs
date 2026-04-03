@@ -81,7 +81,13 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
 
         while let Ok(req) = rx.recv() {
             match req {
-                RenderRequest::OpenPdf { pdf_path, zoom, batch_size, quality, reply } => {
+                RenderRequest::OpenPdf {
+                    pdf_path,
+                    zoom,
+                    batch_size,
+                    quality,
+                    reply,
+                } => {
                     let result = (|| {
                         let info = engine.load_document(&pdf_path).map_err(|e| e.to_string())?;
                         let render_count = info.page_count.min(batch_size);
@@ -94,46 +100,80 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     })();
                     let _ = reply.send(result);
                 }
-                RenderRequest::RenderMorePages { pdf_path, start, count, zoom, quality, reply } => {
+                RenderRequest::RenderMorePages {
+                    pdf_path,
+                    start,
+                    count,
+                    zoom,
+                    quality,
+                    reply,
+                } => {
                     let result = (|| {
                         let rendered = engine
                             .render_pages(&pdf_path, start, count, zoom, quality)
                             .map_err(|e| e.to_string())?;
-                        Ok(rendered.into_iter().map(|r| r.into()).collect::<Vec<RenderedPageData>>())
+                        Ok(rendered
+                            .into_iter()
+                            .map(|r| r.into())
+                            .collect::<Vec<RenderedPageData>>())
                     })();
                     let _ = reply.send(result);
                 }
-                RenderRequest::SetZoom { pdf_path, page_count, new_zoom, quality, reply } => {
+                RenderRequest::SetZoom {
+                    pdf_path,
+                    page_count,
+                    new_zoom,
+                    quality,
+                    reply,
+                } => {
                     let result = (|| {
                         let rendered = engine
                             .render_pages(&pdf_path, 0, page_count, new_zoom, quality)
                             .map_err(|e| e.to_string())?;
-                        Ok(rendered.into_iter().map(|r| r.into()).collect::<Vec<RenderedPageData>>())
+                        Ok(rendered
+                            .into_iter()
+                            .map(|r| r.into())
+                            .collect::<Vec<RenderedPageData>>())
                     })();
                     let _ = reply.send(result);
                 }
-                RenderRequest::ExtractText { pdf_path, page_dims, reply } => {
+                RenderRequest::ExtractText {
+                    pdf_path,
+                    page_dims,
+                    reply,
+                } => {
                     let result = (|| {
                         let text_pages = rotero_pdf::text_extract::extract_pages_text(
-                            engine.pdfium(), &pdf_path, &page_dims,
-                        ).map_err(|e| e.to_string())?;
-                        Ok(text_pages.into_iter().map(|t| (t.page_index, t)).collect::<HashMap<u32, PageTextData>>())
+                            engine.pdfium(),
+                            &pdf_path,
+                            &page_dims,
+                        )
+                        .map_err(|e| e.to_string())?;
+                        Ok(text_pages
+                            .into_iter()
+                            .map(|t| (t.page_index, t))
+                            .collect::<HashMap<u32, PageTextData>>())
                     })();
                     let _ = reply.send(result);
                 }
-                RenderRequest::RenderThumbnails { pdf_path, quality, reply } => {
+                RenderRequest::RenderThumbnails {
+                    pdf_path,
+                    quality,
+                    reply,
+                } => {
                     let result = (|| {
                         let rendered = engine
                             .render_all_thumbnails(&pdf_path, 120, quality)
                             .map_err(|e| e.to_string())?;
-                        Ok(rendered.into_iter().map(|r| r.into()).collect::<Vec<RenderedPageData>>())
+                        Ok(rendered
+                            .into_iter()
+                            .map(|r| r.into())
+                            .collect::<Vec<RenderedPageData>>())
                     })();
                     let _ = reply.send(result);
                 }
                 RenderRequest::ExtractOutline { pdf_path, reply } => {
-                    let result = engine
-                        .extract_outline(&pdf_path)
-                        .map_err(|e| e.to_string());
+                    let result = engine.extract_outline(&pdf_path).map_err(|e| e.to_string());
                     let _ = reply.send(result);
                 }
                 RenderRequest::GetPageDimensions { pdf_path, reply } => {
@@ -142,15 +182,24 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                         .map_err(|e| e.to_string());
                     let _ = reply.send(result);
                 }
-                RenderRequest::ExtractMetadataText { pdf_path, page_count, reply } => {
+                RenderRequest::ExtractMetadataText {
+                    pdf_path,
+                    page_count,
+                    reply,
+                } => {
                     let result = (|| {
                         let indices: Vec<u32> = (0..page_count).collect();
                         let raw_text = rotero_pdf::text_extract::extract_raw_text(
-                            engine.pdfium(), &pdf_path, &indices,
-                        ).map_err(|e| e.to_string())?;
+                            engine.pdfium(),
+                            &pdf_path,
+                            &indices,
+                        )
+                        .map_err(|e| e.to_string())?;
                         let doc_meta = rotero_pdf::text_extract::extract_doc_metadata(
-                            engine.pdfium(), &pdf_path,
-                        ).map_err(|e| e.to_string())?;
+                            engine.pdfium(),
+                            &pdf_path,
+                        )
+                        .map_err(|e| e.to_string())?;
                         Ok((raw_text, doc_meta))
                     })();
                     let _ = reply.send(result);
@@ -190,8 +239,16 @@ pub async fn open_pdf(
 ) -> Result<(), String> {
     let (path, zoom, batch_size) = {
         let mgr = tabs.read();
-        let tab = mgr.tabs.iter().find(|t| t.id == tab_id).ok_or("Tab not found")?;
-        (tab.pdf_path.clone(), tab.view.zoom, tab.view.page_batch_size)
+        let tab = mgr
+            .tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .ok_or("Tab not found")?;
+        (
+            tab.pdf_path.clone(),
+            tab.view.zoom,
+            tab.view.page_batch_size,
+        )
     };
 
     // Try loading from disk cache first
@@ -251,10 +308,16 @@ pub async fn open_pdf(
     // Extract text in background — don't block the render thread
     let page_dims: Vec<(u32, u32, u32)> = {
         let mgr = tabs.read();
-        mgr.tabs.iter().find(|t| t.id == tab_id)
-            .map(|t| t.render.rendered_pages.iter()
-                .map(|p| (p.page_index, p.width, p.height))
-                .collect())
+        mgr.tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .map(|t| {
+                t.render
+                    .rendered_pages
+                    .iter()
+                    .map(|p| (p.page_index, p.width, p.height))
+                    .collect()
+            })
             .unwrap_or_default()
     };
     let render_tx2 = render_tx.clone();
@@ -298,7 +361,11 @@ pub async fn render_more_pages(
 ) -> Result<(), String> {
     let (pdf_path, zoom) = {
         let mgr = tabs.read();
-        let tab = mgr.tabs.iter().find(|t| t.id == tab_id).ok_or("Tab not found")?;
+        let tab = mgr
+            .tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .ok_or("Tab not found")?;
         (tab.pdf_path.clone(), tab.view.zoom)
     };
 
@@ -325,11 +392,17 @@ pub async fn render_more_pages(
     // Extract text for new pages in background — don't block render thread
     let page_dims: Vec<(u32, u32, u32)> = {
         let mgr = tabs.read();
-        mgr.tabs.iter().find(|t| t.id == tab_id)
-            .map(|t| t.render.rendered_pages.iter()
-                .filter(|p| p.page_index >= start && p.page_index < start + count)
-                .map(|p| (p.page_index, p.width, p.height))
-                .collect())
+        mgr.tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .map(|t| {
+                t.render
+                    .rendered_pages
+                    .iter()
+                    .filter(|p| p.page_index >= start && p.page_index < start + count)
+                    .map(|p| (p.page_index, p.width, p.height))
+                    .collect()
+            })
             .unwrap_or_default()
     };
     let render_tx2 = render_tx.clone();
@@ -363,7 +436,11 @@ pub async fn set_zoom(
 ) -> Result<(), String> {
     let (pdf_path, page_count) = {
         let mgr = tabs.read();
-        let tab = mgr.tabs.iter().find(|t| t.id == tab_id).ok_or("Tab not found")?;
+        let tab = mgr
+            .tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .ok_or("Tab not found")?;
         (tab.pdf_path.clone(), tab.render.rendered_pages.len() as u32)
     };
 
@@ -407,12 +484,21 @@ pub async fn load_thumbnails(
 ) -> Result<(), String> {
     let pdf_path = {
         let mgr = tabs.read();
-        mgr.tabs.iter().find(|t| t.id == tab_id).ok_or("Tab not found")?.pdf_path.clone()
+        mgr.tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .ok_or("Tab not found")?
+            .pdf_path
+            .clone()
     };
 
     let (reply_tx, reply_rx) = mpsc::channel();
     render_tx
-        .send(RenderRequest::RenderThumbnails { pdf_path, quality, reply: reply_tx })
+        .send(RenderRequest::RenderThumbnails {
+            pdf_path,
+            quality,
+            reply: reply_tx,
+        })
         .map_err(|e| e.to_string())?;
 
     let thumbnails = recv_reply(reply_rx).await?;
@@ -434,12 +520,20 @@ pub async fn load_outline(
 ) -> Result<(), String> {
     let pdf_path = {
         let mgr = tabs.read();
-        mgr.tabs.iter().find(|t| t.id == tab_id).ok_or("Tab not found")?.pdf_path.clone()
+        mgr.tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .ok_or("Tab not found")?
+            .pdf_path
+            .clone()
     };
 
     let (reply_tx, reply_rx) = mpsc::channel();
     render_tx
-        .send(RenderRequest::ExtractOutline { pdf_path, reply: reply_tx })
+        .send(RenderRequest::ExtractOutline {
+            pdf_path,
+            reply: reply_tx,
+        })
         .map_err(|e| e.to_string())?;
 
     let outline = recv_reply(reply_rx).await?;
@@ -473,17 +567,22 @@ pub async fn precache_pdf(
 
     // Render first batch of pages
     let (reply_tx, reply_rx) = mpsc::channel();
-    if render_tx.send(RenderRequest::OpenPdf {
-        pdf_path: path.clone(),
-        zoom,
-        batch_size: 5,
-        quality,
-        reply: reply_tx,
-    }).is_err() {
+    if render_tx
+        .send(RenderRequest::OpenPdf {
+            pdf_path: path.clone(),
+            zoom,
+            batch_size: 5,
+            quality,
+            reply: reply_tx,
+        })
+        .is_err()
+    {
         return;
     }
 
-    let Ok((page_count, pages)) = recv_reply(reply_rx).await else { return };
+    let Ok((page_count, pages)) = recv_reply(reply_rx).await else {
+        return;
+    };
 
     // Save pages to cache
     let dir = data_dir.to_path_buf();
@@ -494,22 +593,27 @@ pub async fn precache_pdf(
     });
 
     // Extract and cache text using actual rendered dims
-    let page_dims: Vec<(u32, u32, u32)> = pages.iter()
+    let page_dims: Vec<(u32, u32, u32)> = pages
+        .iter()
         .map(|p| (p.page_index, p.width, p.height))
         .collect();
     let (text_tx, text_rx) = mpsc::channel();
-    if render_tx.send(RenderRequest::ExtractText {
-        pdf_path: path.clone(),
-        page_dims,
-        reply: text_tx,
-    }).is_err() {
+    if render_tx
+        .send(RenderRequest::ExtractText {
+            pdf_path: path.clone(),
+            page_dims,
+            reply: text_tx,
+        })
+        .is_err()
+    {
         return;
     }
 
     if let Ok(text_data) = recv_reply(text_rx).await {
         // Concatenate all text segments for full-text search
         if let (Some(pid), Some(conn)) = (paper_id, db) {
-            let fulltext: String = text_data.values()
+            let fulltext: String = text_data
+                .values()
                 .flat_map(|td| td.segments.iter().map(|s| s.text.as_str()))
                 .collect::<Vec<_>>()
                 .join(" ");
@@ -541,15 +645,23 @@ pub async fn extract_and_fetch_metadata(
     auto_fetch: bool,
     lib_state: &mut Signal<super::app_state::LibraryState>,
 ) {
-    tracing::info!(paper_id, pdf_path, auto_fetch, "extract_and_fetch_metadata: start");
+    tracing::info!(
+        paper_id,
+        pdf_path,
+        auto_fetch,
+        "extract_and_fetch_metadata: start"
+    );
 
     // 1. Extract raw text + doc properties via render thread
     let (reply_tx, reply_rx) = mpsc::channel();
-    if render_tx.send(RenderRequest::ExtractMetadataText {
-        pdf_path: pdf_path.to_string(),
-        page_count: 2,
-        reply: reply_tx,
-    }).is_err() {
+    if render_tx
+        .send(RenderRequest::ExtractMetadataText {
+            pdf_path: pdf_path.to_string(),
+            page_count: 2,
+            reply: reply_tx,
+        })
+        .is_err()
+    {
         tracing::warn!("extract_and_fetch_metadata: failed to send render request");
         return;
     }
@@ -568,7 +680,11 @@ pub async fn extract_and_fetch_metadata(
     );
 
     // 2. Try to extract DOI and arXiv ID from first 2 pages
-    let combined_text: String = raw_pages.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join("\n");
+    let combined_text: String = raw_pages
+        .iter()
+        .map(|(_, t)| t.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
     let doi = crate::metadata::doi_extract::extract_doi(&combined_text);
     let arxiv_id = crate::metadata::doi_extract::extract_arxiv_id(&combined_text);
     tracing::info!(?doi, ?arxiv_id, "extract_and_fetch_metadata: ID extraction");
@@ -610,7 +726,10 @@ pub async fn extract_and_fetch_metadata(
     }
 
     // 4. Fallback: use PDF document properties + extracted DOI/arXiv ID
-    let has_update = doc_meta.title.is_some() || doc_meta.author.is_some() || doi.is_some() || arxiv_id.is_some();
+    let has_update = doc_meta.title.is_some()
+        || doc_meta.author.is_some()
+        || doi.is_some()
+        || arxiv_id.is_some();
     if !has_update {
         tracing::info!("extract_and_fetch_metadata: no metadata found");
         return;
@@ -622,7 +741,8 @@ pub async fn extract_and_fetch_metadata(
                 p.title = title.clone();
             }
             if let Some(ref author) = doc_meta.author {
-                p.authors = author.split(';')
+                p.authors = author
+                    .split(';')
                     .flat_map(|s| s.split(','))
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
@@ -637,7 +757,10 @@ pub async fn extract_and_fetch_metadata(
     });
 
     // Persist fallback metadata to DB
-    let paper_snapshot = lib_state.read().papers.iter()
+    let paper_snapshot = lib_state
+        .read()
+        .papers
+        .iter()
         .find(|p| p.id == Some(paper_id))
         .cloned();
     if let Some(paper) = paper_snapshot {
@@ -652,7 +775,10 @@ async fn apply_fetched_metadata(
     fetched: &rotero_models::Paper,
     lib_state: &mut Signal<super::app_state::LibraryState>,
 ) -> bool {
-    if crate::db::papers::update_paper_metadata(conn, paper_id, fetched).await.is_err() {
+    if crate::db::papers::update_paper_metadata(conn, paper_id, fetched)
+        .await
+        .is_err()
+    {
         return false;
     }
     lib_state.with_mut(|s| {

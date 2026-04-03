@@ -76,7 +76,8 @@ pub fn load_cached(
     for i in 0..meta.page_count {
         let jpg_path = pages_dir.join(format!("{i}.jpg"));
         let bytes = fs::read(&jpg_path).ok()?;
-        let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+        let base64_data =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
         let (w, h) = meta.page_dims.get(i as usize).copied().unwrap_or((0, 0));
         pages.push(RenderedPageData {
             page_index: i,
@@ -91,10 +92,7 @@ pub fn load_cached(
 }
 
 /// Load cached text data if available.
-pub fn load_cached_text(
-    data_dir: &Path,
-    pdf_path: &str,
-) -> Option<HashMap<u32, PageTextData>> {
+pub fn load_cached_text(data_dir: &Path, pdf_path: &str) -> Option<HashMap<u32, PageTextData>> {
     let dir = cache_dir(data_dir, pdf_path);
     // Verify meta still valid
     let meta_str = fs::read_to_string(dir.join("meta.json")).ok()?;
@@ -122,7 +120,10 @@ pub fn save_pages(
 
     // Write page images
     for page in pages {
-        if let Ok(bytes) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, page.base64_data.as_str()) {
+        if let Ok(bytes) = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            page.base64_data.as_str(),
+        ) {
             let _ = fs::write(pages_dir.join(format!("{}.jpg", page.page_index)), &bytes);
         }
     }
@@ -141,11 +142,7 @@ pub fn save_pages(
 }
 
 /// Save extracted text to cache.
-pub fn save_text(
-    data_dir: &Path,
-    pdf_path: &str,
-    text_data: &HashMap<u32, PageTextData>,
-) {
+pub fn save_text(data_dir: &Path, pdf_path: &str, text_data: &HashMap<u32, PageTextData>) {
     let dir = cache_dir(data_dir, pdf_path);
     let _ = fs::create_dir_all(&dir);
 

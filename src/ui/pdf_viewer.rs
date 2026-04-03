@@ -2,11 +2,13 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 
+use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use crate::app::RenderChannel;
 use crate::db::Database;
-use crate::state::app_state::{AnnotationMode, LibraryState, LibraryView, PdfTabManager, ViewerToolState, TabId};
+use crate::state::app_state::{
+    AnnotationMode, LibraryState, LibraryView, PdfTabManager, TabId, ViewerToolState,
+};
 use rotero_models::{Annotation, AnnotationType};
-use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 
 /// Shared annotation context menu state: (ann_id, ann_type, page, color, content, x, y)
 type AnnCtxState = Signal<Option<(i64, AnnotationType, i32, String, String, f64, f64)>>;
@@ -34,9 +36,18 @@ pub fn PdfTabBar() -> Element {
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
 
     let mgr = tabs.read();
-    let tab_info: Vec<(TabId, String, bool, Option<i64>)> = mgr.tabs.iter().map(|t| {
-        (t.id, t.title.clone(), mgr.active_tab_id == Some(t.id), t.paper_id)
-    }).collect();
+    let tab_info: Vec<(TabId, String, bool, Option<i64>)> = mgr
+        .tabs
+        .iter()
+        .map(|t| {
+            (
+                t.id,
+                t.title.clone(),
+                mgr.active_tab_id == Some(t.id),
+                t.paper_id,
+            )
+        })
+        .collect();
     let tab_count = tab_info.len();
     drop(mgr);
 
@@ -223,55 +234,101 @@ pub fn PdfViewer() -> Element {
 
     // Trigger render for tabs that need it (newly created or resumed)
     use_effect(move || {
-        let needs = tabs.read().active_tab().map(|t| t.is_loading && t.render.rendered_pages.is_empty()).unwrap_or(false);
-        if !needs { return; }
-        let Some(tid) = tabs.read().active_tab_id else { return };
+        let needs = tabs
+            .read()
+            .active_tab()
+            .map(|t| t.is_loading && t.render.rendered_pages.is_empty())
+            .unwrap_or(false);
+        if !needs {
+            return;
+        }
+        let Some(tid) = tabs.read().active_tab_id else {
+            return;
+        };
         let render_tx = render_ch.sender();
         let data_dir = config.read().effective_library_path();
         let db = db.clone();
         spawn(async move {
-            if crate::state::commands::open_pdf(&render_tx, &mut tabs, tid, &data_dir, config.read().render_quality).await.is_ok() {
+            if crate::state::commands::open_pdf(
+                &render_tx,
+                &mut tabs,
+                tid,
+                &data_dir,
+                config.read().render_quality,
+            )
+            .await
+            .is_ok()
+            {
                 // Load annotations if paper_id is set
                 let paper_id = tabs.read().active_tab().and_then(|t| t.paper_id);
                 if let Some(pid) = paper_id {
-                    let mut anns = crate::db::annotations::list_annotations_for_paper(db.conn(), pid).await.unwrap_or_default();
+                    let mut anns =
+                        crate::db::annotations::list_annotations_for_paper(db.conn(), pid)
+                            .await
+                            .unwrap_or_default();
 
                     // Extract annotations embedded in the PDF and import any new ones
                     let pdf_path = tabs.read().tab().pdf_path.clone();
-                    let rendered_pages: Vec<(u32, u32)> = tabs.read().tab().render.rendered_pages
+                    let rendered_pages: Vec<(u32, u32)> = tabs
+                        .read()
+                        .tab()
+                        .render
+                        .rendered_pages
                         .iter()
                         .map(|p| (p.width, p.height))
                         .collect();
 
                     let (reply_tx, reply_rx) = std::sync::mpsc::channel();
-                    if render_tx.send(crate::state::commands::RenderRequest::ExtractAnnotations {
-                        pdf_path,
-                        reply: reply_tx,
-                    }).is_ok() {
-                        let extract_result: Result<Result<Result<Vec<rotero_pdf::ExtractedAnnotation>, String>, _>, _> = tokio::task::spawn_blocking(move || reply_rx.recv()).await;
+                    if render_tx
+                        .send(crate::state::commands::RenderRequest::ExtractAnnotations {
+                            pdf_path,
+                            reply: reply_tx,
+                        })
+                        .is_ok()
+                    {
+                        let extract_result: Result<
+                            Result<Result<Vec<rotero_pdf::ExtractedAnnotation>, String>, _>,
+                            _,
+                        > = tokio::task::spawn_blocking(move || reply_rx.recv()).await;
                         if let Ok(Ok(Ok(extracted))) = extract_result {
                             let now = chrono::Utc::now();
                             for ext in extracted {
                                 // Deduplicate: skip if a DB annotation exists on same page with same type and similar position
                                 let dominated = anns.iter().any(|a| {
-                                    a.page == ext.page as i32
-                                        && a.ann_type == ext.ann_type
-                                        && {
-                                            let ax = a.geometry.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                                            let ay = a.geometry.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                                            // Get rendered dims for this page to convert extracted coords
-                                            let (rw, rh) = rendered_pages.get(ext.page as usize).copied().unwrap_or((1, 1));
-                                            let sx = rw as f64 / ext.page_width_pts as f64;
-                                            let sy = rh as f64 / ext.page_height_pts as f64;
-                                            let ex = ext.rect_pts[0] as f64 * sx;
-                                            let ey = (ext.page_height_pts as f64 - ext.rect_pts[3] as f64) * sy;
-                                            (ax - ex).abs() < 10.0 && (ay - ey).abs() < 10.0
-                                        }
+                                    a.page == ext.page as i32 && a.ann_type == ext.ann_type && {
+                                        let ax = a
+                                            .geometry
+                                            .get("x")
+                                            .and_then(|v| v.as_f64())
+                                            .unwrap_or(0.0);
+                                        let ay = a
+                                            .geometry
+                                            .get("y")
+                                            .and_then(|v| v.as_f64())
+                                            .unwrap_or(0.0);
+                                        // Get rendered dims for this page to convert extracted coords
+                                        let (rw, rh) = rendered_pages
+                                            .get(ext.page as usize)
+                                            .copied()
+                                            .unwrap_or((1, 1));
+                                        let sx = rw as f64 / ext.page_width_pts as f64;
+                                        let sy = rh as f64 / ext.page_height_pts as f64;
+                                        let ex = ext.rect_pts[0] as f64 * sx;
+                                        let ey = (ext.page_height_pts as f64
+                                            - ext.rect_pts[3] as f64)
+                                            * sy;
+                                        (ax - ex).abs() < 10.0 && (ay - ey).abs() < 10.0
+                                    }
                                 });
-                                if dominated { continue; }
+                                if dominated {
+                                    continue;
+                                }
 
                                 // Convert PDF points to pixel coords
-                                let (rw, rh) = rendered_pages.get(ext.page as usize).copied().unwrap_or((1, 1));
+                                let (rw, rh) = rendered_pages
+                                    .get(ext.page as usize)
+                                    .copied()
+                                    .unwrap_or((1, 1));
                                 let sx = rw as f32 / ext.page_width_pts;
                                 let sy = rh as f32 / ext.page_height_pts;
                                 let x = ext.rect_pts[0] * sx;
@@ -295,7 +352,9 @@ pub fn PdfViewer() -> Element {
                                     created_at: now,
                                     modified_at: now,
                                 };
-                                if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), &ann).await {
+                                if let Ok(id) =
+                                    crate::db::annotations::insert_annotation(db.conn(), &ann).await
+                                {
                                     let mut ann = ann;
                                     ann.id = Some(id);
                                     anns.push(ann);
@@ -516,13 +575,25 @@ fn PdfPageWithOverlay(
     let mgr = tabs.read();
     let tab = mgr.tab();
     let paper_id = tab.paper_id.unwrap_or(0);
-    let page_annotations: Vec<Annotation> = tab.annotations
-        .iter().filter(|a| a.page == page_index as i32).cloned().collect();
-    let text_segments: Vec<rotero_pdf::TextSegment> = tab.render.text_data
-        .get(&page_index).map(|td| td.segments.clone()).unwrap_or_default();
-    let search_bounds: Vec<(f64, f64, f64, f64)> = tab.search.matches
-        .iter().filter(|m| m.page_index == page_index)
-        .flat_map(|m| m.bounds.iter().copied()).collect();
+    let page_annotations: Vec<Annotation> = tab
+        .annotations
+        .iter()
+        .filter(|a| a.page == page_index as i32)
+        .cloned()
+        .collect();
+    let text_segments: Vec<rotero_pdf::TextSegment> = tab
+        .render
+        .text_data
+        .get(&page_index)
+        .map(|td| td.segments.clone())
+        .unwrap_or_default();
+    let search_bounds: Vec<(f64, f64, f64, f64)> = tab
+        .search
+        .matches
+        .iter()
+        .filter(|m| m.page_index == page_index)
+        .flat_map(|m| m.bounds.iter().copied())
+        .collect();
     drop(mgr);
 
     let selection_color = {
@@ -543,7 +614,11 @@ fn PdfPageWithOverlay(
         AnnotationMode::None => "default",
     };
 
-    let scale_factor = if render_zoom > 0.0 { zoom / render_zoom } else { 1.0 };
+    let scale_factor = if render_zoom > 0.0 {
+        zoom / render_zoom
+    } else {
+        1.0
+    };
     let needs_scaling = (scale_factor - 1.0).abs() > 0.01;
     let wrapper_style = if needs_scaling {
         format!("cursor: {cursor}; transform: scale({scale_factor}); transform-origin: top center;")
@@ -812,10 +887,26 @@ fn PdfPageWithOverlay(
 // ── Annotation rendering ──────────────────────────────────────────
 
 fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> Element {
-    let x = ann.geometry.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let y = ann.geometry.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let w = ann.geometry.get("width").and_then(|v| v.as_f64()).unwrap_or(24.0);
-    let h = ann.geometry.get("height").and_then(|v| v.as_f64()).unwrap_or(24.0);
+    let x = ann
+        .geometry
+        .get("x")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let y = ann
+        .geometry
+        .get("y")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let w = ann
+        .geometry
+        .get("width")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(24.0);
+    let h = ann
+        .geometry
+        .get("height")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(24.0);
     let color = ann.color.clone();
     let ann_id = ann.id.unwrap_or(0);
     let ann_type = ann.ann_type;
@@ -825,7 +916,15 @@ fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> Element {
 
     let on_context = move |evt: Event<MouseData>| {
         evt.prevent_default();
-        ann_ctx.set(Some((ann_id, ann_type, page, color_for_ctx.clone(), content.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
+        ann_ctx.set(Some((
+            ann_id,
+            ann_type,
+            page,
+            color_for_ctx.clone(),
+            content.clone(),
+            evt.client_coordinates().x,
+            evt.client_coordinates().y,
+        )));
     };
 
     match ann.ann_type {
@@ -847,7 +946,9 @@ fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> Element {
         },
         AnnotationType::Ink => {
             // Build SVG path from stored points
-            let points = ann.geometry.get("points")
+            let points = ann
+                .geometry
+                .get("points")
                 .and_then(|v| v.as_array())
                 .and_then(|strokes| strokes.first())
                 .and_then(|s| s.as_array());
@@ -859,8 +960,12 @@ fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> Element {
                         d.push_str(&format!(" L{},{}", coords[i] - x, coords[i + 1] - y));
                     }
                     d
-                } else { String::new() }
-            } else { String::new() };
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
             rsx! {
                 svg {
                     key: "ann-{ann_id}",
@@ -902,14 +1007,20 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
     let ann_count = tabs.read().tab().annotations.len();
 
     let btn = |m: AnnotationMode| -> &str {
-        if mode == m { "btn btn--ghost btn--ghost-active" } else { "btn btn--ghost" }
+        if mode == m {
+            "btn btn--ghost btn--ghost-active"
+        } else {
+            "btn btn--ghost"
+        }
     };
     let highlight_class = btn(AnnotationMode::Highlight);
     let underline_class = btn(AnnotationMode::Underline);
     let note_class = btn(AnnotationMode::Note);
     let ink_class = btn(AnnotationMode::Ink);
     let text_class = btn(AnnotationMode::Text);
-    let colors = vec!["#ffff00", "#ff6b6b", "#51cf66", "#339af0", "#cc5de8", "#ff922b"];
+    let colors = vec![
+        "#ffff00", "#ff6b6b", "#51cf66", "#339af0", "#cc5de8", "#ff922b",
+    ];
 
     rsx! {
         div { class: "pdf-toolbar",
@@ -1273,7 +1384,8 @@ fn AnnotationContextMenu() -> Element {
     let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
     let mut ann_ctx = use_context::<AnnCtxState>();
 
-    let Some((ctx_ann_id, ctx_type, ctx_page, ctx_old_color, ctx_content, mx, my)) = ann_ctx() else {
+    let Some((ctx_ann_id, ctx_type, ctx_page, ctx_old_color, ctx_content, mx, my)) = ann_ctx()
+    else {
         return rsx! {};
     };
 

@@ -57,15 +57,20 @@ pub fn extract_from_html(html: &str) -> ScrapedMetadata {
     let mut meta = ScrapedMetadata::default();
 
     // --- DOI ---
-    meta.doi = get_meta(&doc, &[
-        ("name", "citation_doi"),
-        ("property", "citation_doi"),
-        ("name", "prism.doi"),
-    ]);
+    meta.doi = get_meta(
+        &doc,
+        &[
+            ("name", "citation_doi"),
+            ("property", "citation_doi"),
+            ("name", "prism.doi"),
+        ],
+    );
     if meta.doi.is_none() {
         // DC.identifier might contain a DOI
-        if let Some(dc) = get_meta(&doc, &[("name", "DC.identifier"), ("name", "dc.identifier")])
-            && dc.starts_with("10.")
+        if let Some(dc) = get_meta(
+            &doc,
+            &[("name", "DC.identifier"), ("name", "dc.identifier")],
+        ) && dc.starts_with("10.")
         {
             meta.doi = Some(dc);
         }
@@ -80,41 +85,53 @@ pub fn extract_from_html(html: &str) -> ScrapedMetadata {
     }
 
     // --- Title ---
-    meta.title = get_meta(&doc, &[
-        ("name", "citation_title"),
-        ("name", "DC.title"),
-        ("name", "dc.title"),
-        ("name", "eprints.title"),
-        ("property", "og:title"),
-    ]);
+    meta.title = get_meta(
+        &doc,
+        &[
+            ("name", "citation_title"),
+            ("name", "DC.title"),
+            ("name", "dc.title"),
+            ("name", "eprints.title"),
+            ("property", "og:title"),
+        ],
+    );
 
     // --- Authors ---
-    meta.authors = get_all_meta(&doc, &[
-        ("name", "citation_author"),
-        ("name", "DC.creator"),
-        ("name", "dc.creator"),
-        ("name", "eprints.creators_name"),
-    ]);
+    meta.authors = get_all_meta(
+        &doc,
+        &[
+            ("name", "citation_author"),
+            ("name", "DC.creator"),
+            ("name", "dc.creator"),
+            ("name", "eprints.creators_name"),
+        ],
+    );
 
     // --- PDF URL ---
     meta.pdf_url = get_meta(&doc, &[("name", "citation_pdf_url")]);
 
     // --- Journal ---
-    meta.journal = get_meta(&doc, &[
-        ("name", "citation_journal_title"),
-        ("name", "prism.publicationName"),
-        ("name", "DC.source"),
-        ("name", "dc.source"),
-    ]);
+    meta.journal = get_meta(
+        &doc,
+        &[
+            ("name", "citation_journal_title"),
+            ("name", "prism.publicationName"),
+            ("name", "DC.source"),
+            ("name", "dc.source"),
+        ],
+    );
 
     // --- Year ---
-    let date_str = get_meta(&doc, &[
-        ("name", "citation_publication_date"),
-        ("name", "citation_date"),
-        ("name", "DC.date"),
-        ("name", "dc.date"),
-        ("property", "article:published_time"),
-    ]);
+    let date_str = get_meta(
+        &doc,
+        &[
+            ("name", "citation_publication_date"),
+            ("name", "citation_date"),
+            ("name", "DC.date"),
+            ("name", "dc.date"),
+            ("property", "article:published_time"),
+        ],
+    );
     if let Some(ref d) = date_str
         && let Some(year) = extract_year(d)
     {
@@ -134,20 +151,26 @@ pub fn extract_from_html(html: &str) -> ScrapedMetadata {
     }
 
     // --- Publisher ---
-    meta.publisher = get_meta(&doc, &[
-        ("name", "citation_publisher"),
-        ("name", "DC.publisher"),
-        ("name", "dc.publisher"),
-    ]);
+    meta.publisher = get_meta(
+        &doc,
+        &[
+            ("name", "citation_publisher"),
+            ("name", "DC.publisher"),
+            ("name", "dc.publisher"),
+        ],
+    );
 
     // --- Abstract ---
-    meta.abstract_text = get_meta(&doc, &[
-        ("name", "citation_abstract"),
-        ("name", "DC.description"),
-        ("name", "dc.description"),
-        ("name", "description"),
-        ("property", "og:description"),
-    ]);
+    meta.abstract_text = get_meta(
+        &doc,
+        &[
+            ("name", "citation_abstract"),
+            ("name", "DC.description"),
+            ("name", "dc.description"),
+            ("name", "description"),
+            ("property", "og:description"),
+        ],
+    );
 
     // --- JSON-LD structured data ---
     extract_jsonld(&doc, &mut meta);
@@ -351,13 +374,11 @@ fn parse_jsonld_authors(value: serde_json::Value) -> Vec<String> {
         .into_iter()
         .filter_map(|v| {
             if let Ok(a) = serde_json::from_value::<JsonLdAuthor>(v) {
-                let name = a.name.or_else(|| {
-                    match (a.given_name, a.family_name) {
-                        (Some(g), Some(f)) => Some(format!("{g} {f}")),
-                        (None, Some(f)) => Some(f),
-                        (Some(g), None) => Some(g),
-                        (None, None) => None,
-                    }
+                let name = a.name.or_else(|| match (a.given_name, a.family_name) {
+                    (Some(g), Some(f)) => Some(format!("{g} {f}")),
+                    (None, Some(f)) => Some(f),
+                    (Some(g), None) => Some(g),
+                    (None, None) => None,
                 });
                 name.filter(|s| !s.is_empty())
             } else {

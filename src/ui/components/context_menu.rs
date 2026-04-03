@@ -2,12 +2,7 @@ use dioxus::prelude::*;
 
 /// A positioned context menu that appears on right-click.
 #[component]
-pub fn ContextMenu(
-    x: f64,
-    y: f64,
-    on_close: EventHandler<()>,
-    children: Element,
-) -> Element {
+pub fn ContextMenu(x: f64, y: f64, on_close: EventHandler<()>, children: Element) -> Element {
     rsx! {
         // Invisible backdrop to catch clicks outside
         div {

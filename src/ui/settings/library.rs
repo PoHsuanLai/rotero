@@ -9,7 +9,11 @@ pub fn LibrarySection() -> Element {
     let mut db_generation = use_context::<DbGeneration>();
     let mut status_msg = use_signal(|| None::<String>);
 
-    let current_path = config.read().effective_library_path().to_string_lossy().to_string();
+    let current_path = config
+        .read()
+        .effective_library_path()
+        .to_string_lossy()
+        .to_string();
     let is_custom = config.read().library_path.is_some();
 
     rsx! {

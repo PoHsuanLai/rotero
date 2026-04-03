@@ -1,15 +1,15 @@
+pub mod citation_dialog;
 pub mod components;
+pub mod import_export;
 #[cfg(feature = "desktop")]
 pub mod keybindings;
 pub mod layout;
-pub mod sidebar;
 pub mod library_view;
 pub mod paper_detail;
 pub mod pdf_viewer;
 pub mod search_bar;
-pub mod import_export;
-pub mod citation_dialog;
 pub mod settings;
+pub mod sidebar;
 
 /// Async file picker — uses rfd on desktop, apple-utils on iOS.
 pub async fn pick_file_async(extensions: &[&str], _title: &str) -> Option<std::path::PathBuf> {
@@ -60,9 +60,7 @@ pub fn pick_file(_extensions: &[&str], _title: &str) -> Option<std::path::PathBu
 
 #[cfg(feature = "desktop")]
 pub fn pick_folder(title: &str) -> Option<std::path::PathBuf> {
-    rfd::FileDialog::new()
-        .set_title(title)
-        .pick_folder()
+    rfd::FileDialog::new().set_title(title).pick_folder()
 }
 
 #[cfg(not(feature = "desktop"))]
@@ -71,7 +69,11 @@ pub fn pick_folder(_title: &str) -> Option<std::path::PathBuf> {
 }
 
 #[cfg(feature = "desktop")]
-pub fn save_file(extensions: &[&str], title: &str, default_name: &str) -> Option<std::path::PathBuf> {
+pub fn save_file(
+    extensions: &[&str],
+    title: &str,
+    default_name: &str,
+) -> Option<std::path::PathBuf> {
     rfd::FileDialog::new()
         .add_filter("File", extensions)
         .set_title(title)
@@ -80,6 +82,10 @@ pub fn save_file(extensions: &[&str], title: &str, default_name: &str) -> Option
 }
 
 #[cfg(not(feature = "desktop"))]
-pub fn save_file(_extensions: &[&str], _title: &str, _default_name: &str) -> Option<std::path::PathBuf> {
+pub fn save_file(
+    _extensions: &[&str],
+    _title: &str,
+    _default_name: &str,
+) -> Option<std::path::PathBuf> {
     None
 }

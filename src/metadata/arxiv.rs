@@ -17,7 +17,10 @@ pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<FetchedMetadata, String
         return Err(format!("arXiv API returned status {}", resp.status()));
     }
 
-    let body = resp.text().await.map_err(|e| format!("Failed to read arXiv response: {e}"))?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read arXiv response: {e}"))?;
     parse_arxiv_atom(&body, arxiv_id)
 }
 
@@ -35,8 +38,8 @@ fn parse_arxiv_atom(xml: &str, arxiv_id: &str) -> Result<FetchedMetadata, String
         return Err(format!("arXiv paper not found: {arxiv_id}"));
     }
 
-    let abstract_text = extract_tag(entry, "summary")
-        .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "));
+    let abstract_text =
+        extract_tag(entry, "summary").map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "));
 
     // Extract authors: <author><name>...</name></author>
     let authors: Vec<String> = entry
@@ -48,8 +51,7 @@ fn parse_arxiv_atom(xml: &str, arxiv_id: &str) -> Result<FetchedMetadata, String
         .collect();
 
     // Extract year from <published>2018-02-16T...</published>
-    let year = extract_tag(entry, "published")
-        .and_then(|s| s.get(..4)?.parse::<i32>().ok());
+    let year = extract_tag(entry, "published").and_then(|s| s.get(..4)?.parse::<i32>().ok());
 
     Ok(FetchedMetadata {
         title,

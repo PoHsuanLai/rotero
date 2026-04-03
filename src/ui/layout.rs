@@ -2,10 +2,10 @@ use dioxus::prelude::*;
 
 #[cfg(feature = "desktop")]
 use super::keybindings::GlobalKeyHandler;
-use super::sidebar::Sidebar;
 use super::library_view::LibraryPanel;
-use super::pdf_viewer::{PdfTabBar, PdfViewer};
 use super::paper_detail::PaperDetail;
+use super::pdf_viewer::{PdfTabBar, PdfViewer};
+use super::sidebar::Sidebar;
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
 use crate::sync::engine::SyncConfig;
 
@@ -21,7 +21,11 @@ pub fn Layout() -> Element {
     let scale = config.read().ui_scale.clone();
     let has_tabs = tab_mgr.read().active_tab_id.is_some();
 
-    let container_class = if dark { "app-container dark" } else { "app-container" };
+    let container_class = if dark {
+        "app-container dark"
+    } else {
+        "app-container"
+    };
 
     #[cfg(feature = "desktop")]
     let key_handler = rsx! { GlobalKeyHandler {} };

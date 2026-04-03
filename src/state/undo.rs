@@ -9,8 +9,16 @@ use crate::state::app_state::PdfTabManager;
 pub enum UndoAction {
     Create(Annotation),
     Delete(Annotation),
-    UpdateContent { id: i64, old: Option<String>, new: Option<String> },
-    UpdateColor { id: i64, old: String, new: String },
+    UpdateContent {
+        id: i64,
+        old: Option<String>,
+        new: Option<String>,
+    },
+    UpdateColor {
+        id: i64,
+        old: String,
+        new: String,
+    },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -105,7 +113,9 @@ pub async fn reverse_action(
         }
         UndoAction::UpdateContent { id, ref old, .. } => {
             let opt = old.as_deref();
-            if let Ok(()) = crate::db::annotations::update_annotation_content(db.conn(), id, opt).await {
+            if let Ok(()) =
+                crate::db::annotations::update_annotation_content(db.conn(), id, opt).await
+            {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {
                         if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
@@ -116,7 +126,9 @@ pub async fn reverse_action(
             }
         }
         UndoAction::UpdateColor { id, ref old, .. } => {
-            if let Ok(()) = crate::db::annotations::update_annotation_color(db.conn(), id, old).await {
+            if let Ok(()) =
+                crate::db::annotations::update_annotation_color(db.conn(), id, old).await
+            {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {
                         if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
@@ -162,7 +174,9 @@ pub async fn forward_action(
         }
         UndoAction::UpdateContent { id, ref new, .. } => {
             let opt = new.as_deref();
-            if let Ok(()) = crate::db::annotations::update_annotation_content(db.conn(), id, opt).await {
+            if let Ok(()) =
+                crate::db::annotations::update_annotation_content(db.conn(), id, opt).await
+            {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {
                         if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
@@ -173,7 +187,9 @@ pub async fn forward_action(
             }
         }
         UndoAction::UpdateColor { id, ref new, .. } => {
-            if let Ok(()) = crate::db::annotations::update_annotation_color(db.conn(), id, new).await {
+            if let Ok(()) =
+                crate::db::annotations::update_annotation_color(db.conn(), id, new).await
+            {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {
                         if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {

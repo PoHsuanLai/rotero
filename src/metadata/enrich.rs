@@ -107,9 +107,15 @@ fn extract_arxiv_id(paper: &Paper) -> Option<String> {
     // Check URL for arXiv ID
     if let Some(ref url) = paper.url {
         // Match patterns like arxiv.org/abs/1234.5678 or arxiv.org/pdf/1234.5678
-        if let Some(pos) = url.find("arxiv.org/abs/").or_else(|| url.find("arxiv.org/pdf/")) {
+        if let Some(pos) = url
+            .find("arxiv.org/abs/")
+            .or_else(|| url.find("arxiv.org/pdf/"))
+        {
             let after = &url[pos + 14..]; // len of "arxiv.org/abs/" or "arxiv.org/pdf/"
-            let id: String = after.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+            let id: String = after
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect();
             if id.contains('.') && !id.is_empty() {
                 return Some(id);
             }

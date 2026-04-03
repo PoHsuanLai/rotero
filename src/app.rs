@@ -182,12 +182,19 @@ fn LoadLibraryData() -> Element {
                         let view = lib_state.read().view.clone();
                         match view {
                             LibraryView::Collection(coll_id) => {
-                                if let Ok(ids) = crate::db::collections::list_paper_ids_in_collection(conn, coll_id).await {
+                                if let Ok(ids) =
+                                    crate::db::collections::list_paper_ids_in_collection(
+                                        conn, coll_id,
+                                    )
+                                    .await
+                                {
                                     lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
                                 }
                             }
                             LibraryView::Tag(tag_id) => {
-                                if let Ok(ids) = crate::db::tags::list_paper_ids_by_tag(conn, tag_id).await {
+                                if let Ok(ids) =
+                                    crate::db::tags::list_paper_ids_by_tag(conn, tag_id).await
+                                {
                                     lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
                                 }
                             }

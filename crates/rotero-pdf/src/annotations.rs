@@ -166,10 +166,14 @@ fn build_annotation_dict(ann: &Annotation, rect: &[f32; 4]) -> Object {
             dict.set("Subtype", Object::Name(b"Highlight".to_vec()));
             let [x1, y1, x2, y2] = rect;
             let quad = Object::Array(vec![
-                Object::Real(*x1), Object::Real(*y2), // top-left
-                Object::Real(*x2), Object::Real(*y2), // top-right
-                Object::Real(*x1), Object::Real(*y1), // bottom-left
-                Object::Real(*x2), Object::Real(*y1), // bottom-right
+                Object::Real(*x1),
+                Object::Real(*y2), // top-left
+                Object::Real(*x2),
+                Object::Real(*y2), // top-right
+                Object::Real(*x1),
+                Object::Real(*y1), // bottom-left
+                Object::Real(*x2),
+                Object::Real(*y1), // bottom-right
             ]);
             dict.set("QuadPoints", quad);
             if let Some(ref content) = ann.content {
@@ -205,10 +209,14 @@ fn build_annotation_dict(ann: &Annotation, rect: &[f32; 4]) -> Object {
             dict.set("Subtype", Object::Name(b"Underline".to_vec()));
             let [x1, y1, x2, y2] = rect;
             let quad = Object::Array(vec![
-                Object::Real(*x1), Object::Real(*y2),
-                Object::Real(*x2), Object::Real(*y2),
-                Object::Real(*x1), Object::Real(*y1),
-                Object::Real(*x2), Object::Real(*y1),
+                Object::Real(*x1),
+                Object::Real(*y2),
+                Object::Real(*x2),
+                Object::Real(*y2),
+                Object::Real(*x1),
+                Object::Real(*y1),
+                Object::Real(*x2),
+                Object::Real(*y1),
             ]);
             dict.set("QuadPoints", quad);
             if let Some(ref content) = ann.content {
@@ -224,9 +232,10 @@ fn build_annotation_dict(ann: &Annotation, rect: &[f32; 4]) -> Object {
                 let mut ink_list = Vec::new();
                 for stroke in points {
                     if let Some(pairs) = stroke.as_array() {
-                        let stroke_pts: Vec<Object> = pairs.iter().filter_map(|p| {
-                            p.as_f64().map(|v| Object::Real(v as f32))
-                        }).collect();
+                        let stroke_pts: Vec<Object> = pairs
+                            .iter()
+                            .filter_map(|p| p.as_f64().map(|v| Object::Real(v as f32)))
+                            .collect();
                         ink_list.push(Object::Array(stroke_pts));
                     }
                 }

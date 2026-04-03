@@ -190,10 +190,7 @@ fn main() {
     #[cfg(feature = "desktop")]
     {
         dioxus::LaunchBuilder::new()
-            .with_cfg(
-                dioxus::desktop::Config::default()
-                    .with_disable_context_menu(true)
-            )
+            .with_cfg(dioxus::desktop::Config::default().with_disable_context_menu(true))
             .launch(app::App);
     }
 
@@ -226,10 +223,7 @@ async fn download_and_import_pdf(
 
     let resp = client
         .get(pdf_url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (compatible; Rotero/0.1)",
-        )
+        .header("User-Agent", "Mozilla/5.0 (compatible; Rotero/0.1)")
         .send()
         .await
         .map_err(|e| format!("PDF download failed: {e}"))?;
@@ -241,8 +235,7 @@ async fn download_and_import_pdf(
     // Save to a temp file first
     let papers_dir = lib_path.join("papers");
     let tmp_dir = papers_dir.join(".tmp");
-    std::fs::create_dir_all(&tmp_dir)
-        .map_err(|e| format!("Failed to create temp dir: {e}"))?;
+    std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("Failed to create temp dir: {e}"))?;
 
     let tmp_file = tmp_dir.join(format!("download_{paper_id}.pdf"));
     let bytes = resp
@@ -255,8 +248,7 @@ async fn download_and_import_pdf(
         return Err("Downloaded file is not a valid PDF".to_string());
     }
 
-    std::fs::write(&tmp_file, &bytes)
-        .map_err(|e| format!("Failed to write temp PDF: {e}"))?;
+    std::fs::write(&tmp_file, &bytes).map_err(|e| format!("Failed to write temp PDF: {e}"))?;
 
     // Build clean filename and import
     let first_author = paper.authors.first().map(|s| s.as_str());
@@ -265,22 +257,26 @@ async fn download_and_import_pdf(
         None => "unsorted".to_string(),
     };
     let abs_dir = papers_dir.join(&subfolder);
-    std::fs::create_dir_all(&abs_dir)
-        .map_err(|e| format!("Failed to create folder: {e}"))?;
+    std::fs::create_dir_all(&abs_dir).map_err(|e| format!("Failed to create folder: {e}"))?;
 
     // Build filename: "Title - Author.pdf"
-    let clean_title = paper.title.chars()
+    let clean_title = paper
+        .title
+        .chars()
         .filter(|c| !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
         .take(80)
         .collect::<String>()
-        .trim().to_string();
+        .trim()
+        .to_string();
     let dest_name = match first_author {
         Some(a) => {
-            let clean_author: String = a.chars()
+            let clean_author: String = a
+                .chars()
                 .filter(|c| !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
                 .take(40)
                 .collect::<String>()
-                .trim().to_string();
+                .trim()
+                .to_string();
             format!("{clean_title} - {clean_author}.pdf")
         }
         None => format!("{clean_title}.pdf"),
@@ -300,8 +296,7 @@ async fn download_and_import_pdf(
         counter += 1;
     }
 
-    std::fs::copy(&tmp_file, &dest)
-        .map_err(|e| format!("Failed to copy PDF: {e}"))?;
+    std::fs::copy(&tmp_file, &dest).map_err(|e| format!("Failed to copy PDF: {e}"))?;
     let _ = std::fs::remove_file(&tmp_file);
 
     let rel_path = format!("{subfolder}/{final_name}");

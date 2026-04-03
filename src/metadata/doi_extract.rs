@@ -2,9 +2,8 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-static DOI_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(10\.\d{4,}/[^\s]+)").unwrap()
-});
+static DOI_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\b(10\.\d{4,}/[^\s]+)").unwrap());
 
 static ARXIV_RE: LazyLock<Regex> = LazyLock::new(|| {
     // Matches both old format (hep-ph/0601234) and new format (1802.06070)

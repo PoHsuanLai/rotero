@@ -1,8 +1,8 @@
-pub mod schema;
-pub mod papers;
-pub mod collections;
-pub mod tags;
 pub mod annotations;
+pub mod collections;
+pub mod papers;
+pub mod schema;
+pub mod tags;
 
 use std::path::{Path, PathBuf};
 
@@ -44,7 +44,9 @@ impl Database {
             .await
             .map_err(|e| format!("Failed to open database: {e}"))?;
 
-        let conn = db.connect().map_err(|e| format!("Failed to connect: {e}"))?;
+        let conn = db
+            .connect()
+            .map_err(|e| format!("Failed to connect: {e}"))?;
 
         schema::initialize_db(&conn)
             .await
@@ -86,11 +88,7 @@ impl Database {
         let source = Path::new(source_path);
 
         // Build clean filename
-        let clean_name = build_clean_filename(
-            source,
-            title,
-            first_author,
-        );
+        let clean_name = build_clean_filename(source, title, first_author);
 
         // Build subfolder: year or "unsorted"
         let subfolder = match year {
@@ -100,8 +98,7 @@ impl Database {
 
         let rel_dir = Path::new(&subfolder);
         let abs_dir = self.papers_dir().join(rel_dir);
-        std::fs::create_dir_all(&abs_dir)
-            .map_err(|e| format!("Failed to create folder: {e}"))?;
+        std::fs::create_dir_all(&abs_dir).map_err(|e| format!("Failed to create folder: {e}"))?;
 
         // Handle filename collisions
         let mut dest_name = clean_name.clone();
@@ -117,8 +114,7 @@ impl Database {
             counter += 1;
         }
 
-        std::fs::copy(source, &dest)
-            .map_err(|e| format!("Failed to copy PDF: {e}"))?;
+        std::fs::copy(source, &dest).map_err(|e| format!("Failed to copy PDF: {e}"))?;
 
         // Return path relative to papers_dir
         let rel_path = format!("{subfolder}/{dest_name}");
@@ -128,11 +124,7 @@ impl Database {
 
 /// Build a clean, human-readable filename from metadata.
 /// Format: "Title - Author.pdf" or falls back to original filename.
-fn build_clean_filename(
-    source: &Path,
-    title: Option<&str>,
-    first_author: Option<&str>,
-) -> String {
+fn build_clean_filename(source: &Path, title: Option<&str>, first_author: Option<&str>) -> String {
     let original = source
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())

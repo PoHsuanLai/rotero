@@ -1,8 +1,8 @@
-pub mod import;
-pub mod export;
 pub mod citation;
+pub mod export;
+pub mod import;
 
-pub use import::import_bibtex;
+pub use citation::{AVAILABLE_STYLES, format_bibliography, format_citation};
 pub use export::export_bibtex;
-pub use citation::{format_bibliography, format_citation, AVAILABLE_STYLES};
 pub use hayagriva::archive::ArchivedStyle;
+pub use import::import_bibtex;

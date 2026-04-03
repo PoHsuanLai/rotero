@@ -1,9 +1,9 @@
 use dioxus::prelude::*;
 
+use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use crate::db::Database;
 use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTab, PdfTabManager};
 use rotero_models::Collection;
-use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 
 #[component]
 pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
@@ -22,9 +22,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
     let recent_count = total.min(20);
 
     // Recently opened (last 5 papers viewed — tracked by date_modified)
-    let mut recent_papers: Vec<_> = papers.iter()
-        .filter(|p| p.pdf_path.is_some())
-        .collect();
+    let mut recent_papers: Vec<_> = papers.iter().filter(|p| p.pdf_path.is_some()).collect();
     recent_papers.sort_by(|a, b| b.date_modified.cmp(&a.date_modified));
     let recent_opened: Vec<_> = recent_papers.into_iter().take(5).collect();
 
@@ -52,7 +50,11 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
 
     let db_for_ctx = db.clone();
 
-    let sidebar_class = if collapsed { "sidebar sidebar--collapsed" } else { "sidebar" };
+    let sidebar_class = if collapsed {
+        "sidebar sidebar--collapsed"
+    } else {
+        "sidebar"
+    };
 
     if collapsed {
         return rsx! {
@@ -540,7 +542,13 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
 
 /// A single sidebar navigation item with icon, label, and optional count.
 #[component]
-fn SidebarItem(label: String, count: Option<usize>, icon: String, active: bool, view: LibraryView) -> Element {
+fn SidebarItem(
+    label: String,
+    count: Option<usize>,
+    icon: String,
+    active: bool,
+    view: LibraryView,
+) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let class = if active {
         "sidebar-nav-item sidebar-nav-item--active"
@@ -573,10 +581,19 @@ fn SidebarItem(label: String, count: Option<usize>, icon: String, active: bool, 
 
 /// A collapsible section with a header and children.
 #[component]
-fn CollapsibleSection(title: String, initially_open: Option<bool>, action: Option<Element>, children: Element) -> Element {
+fn CollapsibleSection(
+    title: String,
+    initially_open: Option<bool>,
+    action: Option<Element>,
+    children: Element,
+) -> Element {
     let mut open = use_signal(|| initially_open.unwrap_or(true));
 
-    let arrow_class = if open() { "bi bi-chevron-down" } else { "bi bi-chevron-right" };
+    let arrow_class = if open() {
+        "bi bi-chevron-down"
+    } else {
+        "bi bi-chevron-right"
+    };
 
     rsx! {
         div { class: "sidebar-section",
@@ -602,7 +619,12 @@ fn CollapsibleSection(title: String, initially_open: Option<bool>, action: Optio
 
 /// Renders a nested collection tree recursively.
 #[component]
-fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u32, ctx_menu: Signal<Option<(i64, String, f64, f64)>>) -> Element {
+fn CollectionTree(
+    collections: Vec<Collection>,
+    parent_id: Option<i64>,
+    depth: u32,
+    ctx_menu: Signal<Option<(i64, String, f64, f64)>>,
+) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
     let new_coll_editing = use_context::<Signal<Option<Option<i64>>>>();
@@ -613,7 +635,8 @@ fn CollectionTree(collections: Vec<Collection>, parent_id: Option<i64>, depth: u
     let lib = lib_state.read();
     let view = lib.view.clone();
 
-    let children: Vec<_> = collections.iter()
+    let children: Vec<_> = collections
+        .iter()
         .filter(|c| c.parent_id == parent_id)
         .cloned()
         .collect();
@@ -848,7 +871,10 @@ fn NewCollectionRow(parent_id: Option<i64>, depth: u32) -> Element {
 /// Needs to be its own component so signal reads are properly tracked
 /// (CollapsibleSection children don't re-render when context signals change).
 #[component]
-fn TagSection(tags: Vec<rotero_models::Tag>, ctx_menu: Signal<Option<(i64, String, Option<String>, f64, f64)>>) -> Element {
+fn TagSection(
+    tags: Vec<rotero_models::Tag>,
+    ctx_menu: Signal<Option<(i64, String, Option<String>, f64, f64)>>,
+) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
     let mut drag_paper = use_context::<Signal<DragPaper>>();
@@ -856,7 +882,11 @@ fn TagSection(tags: Vec<rotero_models::Tag>, ctx_menu: Signal<Option<(i64, Strin
     let mut tag_ctx = ctx_menu;
     let mut open = use_signal(|| true);
 
-    let arrow_class = if open() { "bi bi-chevron-down" } else { "bi bi-chevron-right" };
+    let arrow_class = if open() {
+        "bi bi-chevron-down"
+    } else {
+        "bi bi-chevron-right"
+    };
 
     rsx! {
         div { class: "sidebar-section",

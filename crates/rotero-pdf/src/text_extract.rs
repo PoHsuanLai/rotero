@@ -70,8 +70,12 @@ fn pdf_font_to_css(name: &str, is_serif: bool) -> String {
     if lower.contains("symbol") || lower.contains("zapf") {
         return format!("\"{name}\", symbol");
     }
-    if lower.contains("cmbx") || lower.contains("cmr") || lower.contains("cmmi")
-        || lower.contains("cmsy") || lower.contains("cmex") || lower.contains("cmti")
+    if lower.contains("cmbx")
+        || lower.contains("cmr")
+        || lower.contains("cmmi")
+        || lower.contains("cmsy")
+        || lower.contains("cmex")
+        || lower.contains("cmti")
     {
         // Computer Modern (LaTeX) — serif
         return format!("\"{name}\", serif");
@@ -119,7 +123,9 @@ pub fn extract_page_text(
     let scale_x = img_width as f64 / page_width_pts as f64;
     let scale_y = img_height as f64 / page_height_pts as f64;
 
-    let text = page.text().map_err(|e| PdfError::RenderError(e.to_string()))?;
+    let text = page
+        .text()
+        .map_err(|e| PdfError::RenderError(e.to_string()))?;
 
     // Character-level extraction: group consecutive chars by font into runs
     let all_chars = text.chars();
@@ -144,19 +150,29 @@ pub fn extract_page_text(
                 text: String::new(),
                 font_name: String::new(),
                 is_italic: false,
-                left: f64::MAX, top: f64::MIN,
-                right: f64::MIN, bottom: f64::MAX,
+                left: f64::MAX,
+                top: f64::MIN,
+                right: f64::MIN,
+                bottom: f64::MAX,
                 font_size_pts: 0.0,
             }
         }
 
         fn reset_bounds(&mut self) {
-            self.left = f64::MAX; self.top = f64::MIN;
-            self.right = f64::MIN; self.bottom = f64::MAX;
+            self.left = f64::MAX;
+            self.top = f64::MIN;
+            self.right = f64::MIN;
+            self.bottom = f64::MAX;
             self.font_size_pts = 0.0;
         }
 
-        fn flush(&mut self, segments: &mut Vec<TextSegment>, scale_x: f64, scale_y: f64, page_height_pts: f32) {
+        fn flush(
+            &mut self,
+            segments: &mut Vec<TextSegment>,
+            scale_x: f64,
+            scale_y: f64,
+            page_height_pts: f32,
+        ) {
             if self.text.trim().is_empty() {
                 self.text.clear();
                 return;
@@ -181,7 +197,14 @@ pub fn extract_page_text(
             if width > 0.0 && height > 0.0 {
                 segments.push(TextSegment {
                     text: std::mem::take(&mut self.text),
-                    x, y, width, height, font_size, font_family, font_weight, font_style,
+                    x,
+                    y,
+                    width,
+                    height,
+                    font_size,
+                    font_family,
+                    font_weight,
+                    font_style,
                 });
             } else {
                 self.text.clear();
@@ -267,7 +290,10 @@ pub fn extract_pages_text(
     for &(page_index, img_width, img_height) in page_dims {
         match extract_page_text_from_doc(&document, page_index, img_width, img_height) {
             Ok(data) => results.push(data),
-            Err(_) => results.push(PageTextData { page_index, segments: Vec::new() }),
+            Err(_) => results.push(PageTextData {
+                page_index,
+                segments: Vec::new(),
+            }),
         }
     }
     Ok(results)
@@ -291,7 +317,9 @@ fn extract_page_text_from_doc(
     let scale_x = img_width as f64 / page_width_pts as f64;
     let scale_y = img_height as f64 / page_height_pts as f64;
 
-    let text = page.text().map_err(|e| PdfError::RenderError(e.to_string()))?;
+    let text = page
+        .text()
+        .map_err(|e| PdfError::RenderError(e.to_string()))?;
     let all_chars = text.chars();
 
     let mut segments = Vec::new();
@@ -313,19 +341,29 @@ fn extract_page_text_from_doc(
                 text: String::new(),
                 font_name: String::new(),
                 is_italic: false,
-                left: f64::MAX, top: f64::MIN,
-                right: f64::MIN, bottom: f64::MAX,
+                left: f64::MAX,
+                top: f64::MIN,
+                right: f64::MIN,
+                bottom: f64::MAX,
                 font_size_pts: 0.0,
             }
         }
 
         fn reset_bounds(&mut self) {
-            self.left = f64::MAX; self.top = f64::MIN;
-            self.right = f64::MIN; self.bottom = f64::MAX;
+            self.left = f64::MAX;
+            self.top = f64::MIN;
+            self.right = f64::MIN;
+            self.bottom = f64::MAX;
             self.font_size_pts = 0.0;
         }
 
-        fn flush(&mut self, segments: &mut Vec<TextSegment>, scale_x: f64, scale_y: f64, page_height_pts: f32) {
+        fn flush(
+            &mut self,
+            segments: &mut Vec<TextSegment>,
+            scale_x: f64,
+            scale_y: f64,
+            page_height_pts: f32,
+        ) {
             if self.text.trim().is_empty() {
                 self.text.clear();
                 return;
@@ -350,7 +388,14 @@ fn extract_page_text_from_doc(
             if width > 0.0 && height > 0.0 {
                 segments.push(TextSegment {
                     text: std::mem::take(&mut self.text),
-                    x, y, width, height, font_size, font_family, font_weight, font_style,
+                    x,
+                    y,
+                    width,
+                    height,
+                    font_size,
+                    font_family,
+                    font_weight,
+                    font_style,
                 });
             } else {
                 self.text.clear();
@@ -451,17 +496,17 @@ pub fn extract_raw_text(
 }
 
 /// Extract document-level metadata (title, author, subject) from PDF properties.
-pub fn extract_doc_metadata(
-    pdfium: &Pdfium,
-    pdf_path: &str,
-) -> Result<PdfDocMetadata, PdfError> {
+pub fn extract_doc_metadata(pdfium: &Pdfium, pdf_path: &str) -> Result<PdfDocMetadata, PdfError> {
     use pdfium_render::prelude::PdfDocumentMetadataTagType;
 
     let document = pdfium.load_pdf_from_file(pdf_path, None)?;
     let metadata = document.metadata();
 
     let get = |tag: PdfDocumentMetadataTagType| -> Option<String> {
-        metadata.get(tag).map(|t| t.value().to_string()).filter(|s| !s.trim().is_empty())
+        metadata
+            .get(tag)
+            .map(|t| t.value().to_string())
+            .filter(|s| !s.trim().is_empty())
     };
 
     Ok(PdfDocMetadata {
@@ -488,7 +533,12 @@ pub fn group_into_lines(segments: &[TextSegment]) -> Vec<Vec<usize>> {
     }
 
     let mut indexed: Vec<usize> = (0..segments.len()).collect();
-    indexed.sort_by(|&a, &b| segments[a].y.partial_cmp(&segments[b].y).unwrap_or(std::cmp::Ordering::Equal));
+    indexed.sort_by(|&a, &b| {
+        segments[a]
+            .y
+            .partial_cmp(&segments[b].y)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut lines: Vec<Vec<usize>> = Vec::new();
     let mut current_line: Vec<usize> = vec![indexed[0]];
@@ -500,13 +550,23 @@ pub fn group_into_lines(segments: &[TextSegment]) -> Vec<Vec<usize>> {
         if (seg.y - line_y).abs() < tolerance {
             current_line.push(idx);
         } else {
-            current_line.sort_by(|&a, &b| segments[a].x.partial_cmp(&segments[b].x).unwrap_or(std::cmp::Ordering::Equal));
+            current_line.sort_by(|&a, &b| {
+                segments[a]
+                    .x
+                    .partial_cmp(&segments[b].x)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             lines.push(current_line);
             current_line = vec![idx];
             line_y = seg.y;
         }
     }
-    current_line.sort_by(|&a, &b| segments[a].x.partial_cmp(&segments[b].x).unwrap_or(std::cmp::Ordering::Equal));
+    current_line.sort_by(|&a, &b| {
+        segments[a]
+            .x
+            .partial_cmp(&segments[b].x)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     lines.push(current_line);
     lines
 }
@@ -542,10 +602,7 @@ fn group_into_lines_ref(segments: &[TextSegment]) -> Vec<Vec<&TextSegment>> {
 
 /// Search for text across all pages using already-extracted text data.
 /// Concatenates same-line segments so multi-word queries match across word boundaries.
-pub fn search_in_text_data(
-    text_data: &[PageTextData],
-    query: &str,
-) -> Vec<SearchMatch> {
+pub fn search_in_text_data(text_data: &[PageTextData], query: &str) -> Vec<SearchMatch> {
     if query.is_empty() {
         return Vec::new();
     }

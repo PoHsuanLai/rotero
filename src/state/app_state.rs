@@ -130,11 +130,13 @@ impl PdfTabManager {
     }
 
     pub fn active_tab(&self) -> Option<&PdfTab> {
-        self.active_tab_id.and_then(|id| self.tabs.iter().find(|t| t.id == id))
+        self.active_tab_id
+            .and_then(|id| self.tabs.iter().find(|t| t.id == id))
     }
 
     pub fn active_tab_mut(&mut self) -> Option<&mut PdfTab> {
-        self.active_tab_id.and_then(|id| self.tabs.iter_mut().find(|t| t.id == id))
+        self.active_tab_id
+            .and_then(|id| self.tabs.iter_mut().find(|t| t.id == id))
     }
 
     /// Convenience: get active tab, panics if none. Use only in components
@@ -294,9 +296,8 @@ pub enum LibraryView {
 
 impl LibraryState {
     pub fn selected_paper(&self) -> Option<&Paper> {
-        self.selected_paper_id.and_then(|id| {
-            self.papers.iter().find(|p| p.id == Some(id))
-        })
+        self.selected_paper_id
+            .and_then(|id| self.papers.iter().find(|p| p.id == Some(id)))
     }
 }
 

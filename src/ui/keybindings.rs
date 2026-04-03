@@ -1,10 +1,12 @@
-use dioxus::prelude::*;
 use dioxus::desktop::use_global_shortcut;
+use dioxus::prelude::*;
 
 use crate::app::{RenderChannel, ShowSettings};
 use crate::db::Database;
-use crate::state::app_state::{AnnotationMode, LibraryState, LibraryView, PdfTab, PdfTabManager, ViewerToolState};
-use crate::state::undo::{UndoStack, reverse_action, forward_action};
+use crate::state::app_state::{
+    AnnotationMode, LibraryState, LibraryView, PdfTab, PdfTabManager, ViewerToolState,
+};
+use crate::state::undo::{UndoStack, forward_action, reverse_action};
 use crate::sync::engine::SyncConfig;
 
 /// Registers global keyboard shortcuts using Dioxus desktop's native shortcut API.
@@ -44,7 +46,13 @@ pub fn GlobalKeyHandler() -> Element {
                         .file_stem()
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_else(|| "Untitled".to_string());
-                    let tab = PdfTab::new(id, path_str.clone(), title, cfg.default_zoom, cfg.page_batch_size);
+                    let tab = PdfTab::new(
+                        id,
+                        path_str.clone(),
+                        title,
+                        cfg.default_zoom,
+                        cfg.page_batch_size,
+                    );
                     m.open_tab(tab);
                 }
             });
@@ -64,7 +72,8 @@ pub fn GlobalKeyHandler() -> Element {
                     let db = db_import.clone();
                     spawn(async move {
                         for paper in papers {
-                            if let Ok(id) = crate::db::papers::insert_paper(db.conn(), &paper).await {
+                            if let Ok(id) = crate::db::papers::insert_paper(db.conn(), &paper).await
+                            {
                                 let mut paper = paper;
                                 paper.id = Some(id);
                                 lib_state.with_mut(|s| s.papers.insert(0, paper));
@@ -109,9 +118,7 @@ pub fn GlobalKeyHandler() -> Element {
         } else {
             // Focus library search bar
             spawn(async move {
-                let _ = document::eval(
-                    "document.getElementById('library-search-input')?.focus()"
-                );
+                let _ = document::eval("document.getElementById('library-search-input')?.focus()");
             });
         }
     });
@@ -125,7 +132,7 @@ pub fn GlobalKeyHandler() -> Element {
         }
         spawn(async move {
             let _ = document::eval(
-                "setTimeout(() => { document.getElementById('library-search-input')?.focus(); }, 50)"
+                "setTimeout(() => { document.getElementById('library-search-input')?.focus(); }, 50)",
             );
         });
     });
@@ -136,11 +143,17 @@ pub fn GlobalKeyHandler() -> Element {
         let has_active = tabs.read().active_tab_id.is_some();
         if has_active {
             let tab_id = tabs.read().active_tab_id.unwrap();
-            tabs.with_mut(|m| { m.close_tab(tab_id); });
+            tabs.with_mut(|m| {
+                m.close_tab(tab_id);
+            });
             if tabs.read().tabs.is_empty() {
                 lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
             } else {
-                let needs = tabs.read().active_tab().map(|t| t.needs_render()).unwrap_or(false);
+                let needs = tabs
+                    .read()
+                    .active_tab()
+                    .map(|t| t.needs_render())
+                    .unwrap_or(false);
                 if needs {
                     let new_id = tabs.read().active_tab_id.unwrap();
                     let render_tx = render_ch.sender();
@@ -148,7 +161,10 @@ pub fn GlobalKeyHandler() -> Element {
                     let cfg_q = config.read().render_quality;
                     tabs.with_mut(|m| m.tab_mut().is_loading = true);
                     spawn(async move {
-                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &cfg_dir, cfg_q).await;
+                        let _ = crate::state::commands::open_pdf(
+                            &render_tx, &mut tabs, new_id, &cfg_dir, cfg_q,
+                        )
+                        .await;
                     });
                 }
             }

@@ -1,6 +1,6 @@
 use chrono::Utc;
-use turso::{Connection, Value};
 use rotero_models::Paper;
+use turso::{Connection, Value};
 
 const SELECT_COLS: &str = "id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta";
 
@@ -37,7 +37,10 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<i64, turso
     .await?;
 
     let mut rows = conn.query("SELECT last_insert_rowid()", ()).await?;
-    let row = rows.next().await?.ok_or(turso::Error::QueryReturnedNoRows)?;
+    let row = rows
+        .next()
+        .await?
+        .ok_or(turso::Error::QueryReturnedNoRows)?;
     let id = row.get_value(0)?.as_integer().copied().unwrap_or(0);
     Ok(id)
 }
@@ -69,7 +72,8 @@ pub async fn set_favorite(conn: &Connection, id: i64, favorite: bool) -> Result<
     conn.execute(
         "UPDATE papers SET is_favorite = ?1 WHERE id = ?2",
         [Value::Integer(favorite as i64), Value::Integer(id)],
-    ).await?;
+    )
+    .await?;
     Ok(())
 }
 
@@ -77,21 +81,31 @@ pub async fn set_read(conn: &Connection, id: i64, read: bool) -> Result<(), turs
     conn.execute(
         "UPDATE papers SET is_read = ?1 WHERE id = ?2",
         [Value::Integer(read as i64), Value::Integer(id)],
-    ).await?;
+    )
+    .await?;
     Ok(())
 }
 
 /// Store extracted PDF body text for full-text search.
-pub async fn update_paper_fulltext(conn: &Connection, id: i64, text: &str) -> Result<(), turso::Error> {
+pub async fn update_paper_fulltext(
+    conn: &Connection,
+    id: i64,
+    text: &str,
+) -> Result<(), turso::Error> {
     conn.execute(
         "UPDATE papers SET fulltext = ?1 WHERE id = ?2",
         turso::params::Params::Positional(vec![Value::Text(text.to_string()), Value::Integer(id)]),
-    ).await?;
+    )
+    .await?;
     Ok(())
 }
 
 /// Update all metadata fields for an existing paper.
-pub async fn update_paper_metadata(conn: &Connection, id: i64, paper: &Paper) -> Result<(), turso::Error> {
+pub async fn update_paper_metadata(
+    conn: &Connection,
+    id: i64,
+    paper: &Paper,
+) -> Result<(), turso::Error> {
     let authors_json = serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
     conn.execute(
         "UPDATE papers SET title = ?1, authors = ?2, year = ?3, doi = ?4, abstract_text = ?5,
@@ -100,23 +114,63 @@ pub async fn update_paper_metadata(conn: &Connection, id: i64, paper: &Paper) ->
         turso::params::Params::Positional(vec![
             Value::Text(paper.title.clone()),
             Value::Text(authors_json),
-            paper.year.map(|y| Value::Integer(y as i64)).unwrap_or(Value::Null),
-            paper.doi.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
-            paper.abstract_text.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
-            paper.journal.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
-            paper.volume.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
-            paper.issue.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
-            paper.pages.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
-            paper.publisher.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
-            paper.url.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper
+                .year
+                .map(|y| Value::Integer(y as i64))
+                .unwrap_or(Value::Null),
+            paper
+                .doi
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
+            paper
+                .abstract_text
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
+            paper
+                .journal
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
+            paper
+                .volume
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
+            paper
+                .issue
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
+            paper
+                .pages
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
+            paper
+                .publisher
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
+            paper
+                .url
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
             Value::Text(Utc::now().to_rfc3339()),
             Value::Integer(id),
         ]),
-    ).await?;
+    )
+    .await?;
     Ok(())
 }
 
-pub async fn update_pdf_path(conn: &Connection, id: i64, pdf_path: &str) -> Result<(), turso::Error> {
+pub async fn update_pdf_path(
+    conn: &Connection,
+    id: i64,
+    pdf_path: &str,
+) -> Result<(), turso::Error> {
     conn.execute(
         "UPDATE papers SET pdf_path = ?1, date_modified = ?2 WHERE id = ?3",
         turso::params::Params::Positional(vec![
@@ -124,18 +178,22 @@ pub async fn update_pdf_path(conn: &Connection, id: i64, pdf_path: &str) -> Resu
             Value::Text(chrono::Utc::now().to_rfc3339()),
             Value::Integer(id),
         ]),
-    ).await?;
+    )
+    .await?;
     Ok(())
 }
 
 pub async fn delete_paper(conn: &Connection, id: i64) -> Result<(), turso::Error> {
-    conn.execute("DELETE FROM papers WHERE id = ?1", [id]).await?;
+    conn.execute("DELETE FROM papers WHERE id = ?1", [id])
+        .await?;
     Ok(())
 }
 
-
 fn get_text(row: &turso::Row, idx: usize) -> String {
-    row.get_value(idx).ok().and_then(|v| v.as_text().cloned()).unwrap_or_default()
+    row.get_value(idx)
+        .ok()
+        .and_then(|v| v.as_text().cloned())
+        .unwrap_or_default()
 }
 
 fn get_opt_text(row: &turso::Row, idx: usize) -> Option<String> {
@@ -143,11 +201,17 @@ fn get_opt_text(row: &turso::Row, idx: usize) -> Option<String> {
 }
 
 fn get_opt_i64(row: &turso::Row, idx: usize) -> Option<i64> {
-    row.get_value(idx).ok().and_then(|v| v.as_integer().copied())
+    row.get_value(idx)
+        .ok()
+        .and_then(|v| v.as_integer().copied())
 }
 
 fn get_bool(row: &turso::Row, idx: usize) -> bool {
-    row.get_value(idx).ok().and_then(|v| v.as_integer().copied()).unwrap_or(0) != 0
+    row.get_value(idx)
+        .ok()
+        .and_then(|v| v.as_integer().copied())
+        .unwrap_or(0)
+        != 0
 }
 
 fn row_to_paper(row: &turso::Row) -> Paper {

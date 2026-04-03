@@ -52,15 +52,33 @@ pub struct SyncConfig {
     pub thumbnail_quality: u8,
 }
 
-fn default_zoom() -> f32 { 1.5 }
-fn default_annotation_color() -> String { "#ffff00".to_string() }
-fn default_page_batch_size() -> u32 { 5 }
-fn default_selection_color() -> String { "#339af0".to_string() }
-fn default_render_quality() -> u8 { 85 }
-fn default_thumbnail_quality() -> u8 { 70 }
-fn default_ui_scale() -> String { "default".to_string() }
-fn default_true() -> bool { true }
-fn default_connector_port() -> u16 { 21984 }
+fn default_zoom() -> f32 {
+    1.5
+}
+fn default_annotation_color() -> String {
+    "#ffff00".to_string()
+}
+fn default_page_batch_size() -> u32 {
+    5
+}
+fn default_selection_color() -> String {
+    "#339af0".to_string()
+}
+fn default_render_quality() -> u8 {
+    85
+}
+fn default_thumbnail_quality() -> u8 {
+    70
+}
+fn default_ui_scale() -> String {
+    "default".to_string()
+}
+fn default_true() -> bool {
+    true
+}
+fn default_connector_port() -> u16 {
+    21984
+}
 
 impl Default for SyncConfig {
     fn default() -> Self {
@@ -99,7 +117,8 @@ impl SyncConfig {
     pub fn save(&self) -> Result<(), String> {
         let path = config_path();
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create config dir: {e}"))?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create config dir: {e}"))?;
         }
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(&path, json).map_err(|e| format!("Failed to save config: {e}"))?;
@@ -142,7 +161,10 @@ fn app_support_dir() -> PathBuf {
 }
 
 /// Check if the database file was modified since our last known timestamp.
-pub fn check_external_modification(db_path: &Path, last_known_modified: Option<std::time::SystemTime>) -> bool {
+pub fn check_external_modification(
+    db_path: &Path,
+    last_known_modified: Option<std::time::SystemTime>,
+) -> bool {
     if let Some(last) = last_known_modified {
         if let Ok(metadata) = std::fs::metadata(db_path) {
             if let Ok(modified) = metadata.modified() {

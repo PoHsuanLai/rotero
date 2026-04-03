@@ -80,15 +80,13 @@ impl PdfEngine {
     #[cfg(not(feature = "static"))]
     pub fn new(lib_path: Option<&str>) -> Result<Self, PdfError> {
         let bindings = if let Some(path) = lib_path {
-            Pdfium::bind_to_library(path)
-                .map_err(|e| PdfError::BindError(e.to_string()))?
+            Pdfium::bind_to_library(path).map_err(|e| PdfError::BindError(e.to_string()))?
         } else if let Ok(dir) = std::env::var("PDFIUM_DYNAMIC_LIB_PATH") {
             let lib_name = Pdfium::pdfium_platform_library_name_at_path(&dir);
             Pdfium::bind_to_library(lib_name)
                 .map_err(|e| PdfError::BindError(format!("PDFIUM_DYNAMIC_LIB_PATH={dir}: {e}")))?
         } else {
-            Pdfium::bind_to_system_library()
-                .map_err(|e| PdfError::BindError(e.to_string()))?
+            Pdfium::bind_to_system_library().map_err(|e| PdfError::BindError(e.to_string()))?
         };
 
         Ok(Self {
@@ -113,7 +111,10 @@ impl PdfEngine {
     }
 
     /// Open a PDF document from the byte cache (avoids repeated disk reads).
-    fn open_document(&mut self, pdf_path: &str) -> Result<pdfium_render::prelude::PdfDocument<'_>, PdfError> {
+    fn open_document(
+        &mut self,
+        pdf_path: &str,
+    ) -> Result<pdfium_render::prelude::PdfDocument<'_>, PdfError> {
         let bytes = self.get_pdf_bytes(pdf_path)?;
         Ok(self.pdfium.load_pdf_from_byte_vec(bytes, None)?)
     }
@@ -222,7 +223,9 @@ impl PdfEngine {
             let base64_data = BASE64.encode(&img_bytes);
 
             tracing::debug!(
-                page = i, width, height,
+                page = i,
+                width,
+                height,
                 jpeg_kb = img_bytes.len() / 1024,
                 "rendered page"
             );
@@ -292,10 +295,7 @@ impl PdfEngine {
     }
 
     /// Extract the document outline/bookmarks.
-    pub fn extract_outline(
-        &mut self,
-        pdf_path: &str,
-    ) -> Result<Vec<BookmarkEntry>, PdfError> {
+    pub fn extract_outline(&mut self, pdf_path: &str) -> Result<Vec<BookmarkEntry>, PdfError> {
         let document = self.open_document(pdf_path)?;
         let bookmarks = document.bookmarks();
         let mut entries = Vec::new();
@@ -307,7 +307,8 @@ impl PdfEngine {
         ) {
             for bookmark in iter.iter() {
                 let title = bookmark.title().unwrap_or_default();
-                let page_index = bookmark.destination()
+                let page_index = bookmark
+                    .destination()
                     .and_then(|d| d.page_index().ok())
                     .map(|i| i as u32);
 
@@ -324,10 +325,7 @@ impl PdfEngine {
     }
 
     /// Get page dimensions (in points) for all pages without rendering.
-    pub fn get_page_dimensions(
-        &mut self,
-        pdf_path: &str,
-    ) -> Result<Vec<(f32, f32)>, PdfError> {
+    pub fn get_page_dimensions(&mut self, pdf_path: &str) -> Result<Vec<(f32, f32)>, PdfError> {
         let document = self.open_document(pdf_path)?;
         let page_count = document.pages().len() as u32;
         let mut dims = Vec::with_capacity(page_count as usize);
@@ -345,7 +343,10 @@ impl PdfEngine {
 
     /// Extract annotations from the PDF that Rotero can display.
     /// Returns annotations in PDF-point coordinates.
-    pub fn extract_annotations(&mut self, pdf_path: &str) -> Result<Vec<ExtractedAnnotation>, PdfError> {
+    pub fn extract_annotations(
+        &mut self,
+        pdf_path: &str,
+    ) -> Result<Vec<ExtractedAnnotation>, PdfError> {
         let document = self.open_document(pdf_path)?;
         let page_count = document.pages().len() as u32;
         let mut result = Vec::new();
@@ -377,7 +378,8 @@ impl PdfEngine {
                     Err(_) => continue,
                 };
 
-                let color = ann.stroke_color()
+                let color = ann
+                    .stroke_color()
                     .or_else(|_| ann.fill_color())
                     .map(|c| format!("#{:02x}{:02x}{:02x}", c.red(), c.green(), c.blue()))
                     .unwrap_or_else(|_| "#ffff00".to_string());
@@ -389,7 +391,12 @@ impl PdfEngine {
                     ann_type,
                     color,
                     content,
-                    rect_pts: [bounds.left().value, bounds.bottom().value, bounds.right().value, bounds.top().value],
+                    rect_pts: [
+                        bounds.left().value,
+                        bounds.bottom().value,
+                        bounds.right().value,
+                        bounds.top().value,
+                    ],
                     page_width_pts: pw,
                     page_height_pts: ph,
                 });

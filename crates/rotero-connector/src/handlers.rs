@@ -67,9 +67,7 @@ pub async fn status() -> Json<StatusResponse> {
     })
 }
 
-pub async fn collections(
-    State(state): State<Arc<ConnectorState>>,
-) -> Json<CollectionsResponse> {
+pub async fn collections(State(state): State<Arc<ConnectorState>>) -> Json<CollectionsResponse> {
     let collections = if let Some(ref callback) = state.on_get_collections {
         callback()
     } else {
@@ -78,9 +76,7 @@ pub async fn collections(
     Json(CollectionsResponse { collections })
 }
 
-pub async fn tags(
-    State(state): State<Arc<ConnectorState>>,
-) -> Json<TagsResponse> {
+pub async fn tags(State(state): State<Arc<ConnectorState>>) -> Json<TagsResponse> {
     let tags = if let Some(ref callback) = state.on_get_tags {
         callback()
     } else {

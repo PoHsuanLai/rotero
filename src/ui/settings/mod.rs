@@ -1,11 +1,11 @@
-mod library;
-mod pdf_viewer;
 mod appearance;
 mod connector;
 mod import;
+mod library;
+mod pdf_viewer;
 
-use dioxus::prelude::*;
 use crate::app::ShowSettings;
+use dioxus::prelude::*;
 
 #[component]
 pub fn SettingsButton() -> Element {

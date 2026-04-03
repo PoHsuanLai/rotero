@@ -61,7 +61,10 @@ pub async fn fetch_by_doi(doi: &str) -> Result<FetchedMetadata, String> {
     let client = reqwest::Client::new();
     let resp = client
         .get(&url)
-        .header("User-Agent", "Rotero/0.1.0 (https://github.com/rotero; mailto:rotero@example.com)")
+        .header(
+            "User-Agent",
+            "Rotero/0.1.0 (https://github.com/rotero; mailto:rotero@example.com)",
+        )
         .send()
         .await
         .map_err(|e| format!("HTTP request failed: {e}"))?;
@@ -86,13 +89,11 @@ pub async fn fetch_by_doi(doi: &str) -> Result<FetchedMetadata, String> {
         .author
         .unwrap_or_default()
         .into_iter()
-        .map(|a| {
-            match (a.given, a.family) {
-                (Some(g), Some(f)) => format!("{g} {f}"),
-                (None, Some(f)) => f,
-                (Some(g), None) => g,
-                (None, None) => String::new(),
-            }
+        .map(|a| match (a.given, a.family) {
+            (Some(g), Some(f)) => format!("{g} {f}"),
+            (None, Some(f)) => f,
+            (Some(g), None) => g,
+            (None, None) => String::new(),
         })
         .filter(|s| !s.is_empty())
         .collect();

@@ -77,7 +77,13 @@ pub async fn search_by_title(title: &str) -> Result<FetchedMetadata, String> {
 
     let work = data
         .results
-        .and_then(|mut r| if r.is_empty() { None } else { Some(r.remove(0)) })
+        .and_then(|mut r| {
+            if r.is_empty() {
+                None
+            } else {
+                Some(r.remove(0))
+            }
+        })
         .ok_or_else(|| "No results found on OpenAlex".to_string())?;
 
     let doi = work
@@ -175,5 +181,11 @@ fn reconstruct_abstract(index: &serde_json::Value) -> Option<String> {
     }
 
     words.sort_by_key(|(i, _)| *i);
-    Some(words.into_iter().map(|(_, w)| w).collect::<Vec<_>>().join(" "))
+    Some(
+        words
+            .into_iter()
+            .map(|(_, w)| w)
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
 }
