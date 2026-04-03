@@ -188,9 +188,9 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                         });
                                     },
                                     onmouseup: move |evt: Event<MouseData>| {
-                                        if drag_paper().0.is_none() {
-                                            if evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
-                                                if let Some(ref rel_path) = pdf_rel {
+                                        if drag_paper().0.is_none()
+                                            && evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary)
+                                                && let Some(ref rel_path) = pdf_rel {
                                                     let full_path = db_recent.resolve_pdf_path(rel_path);
                                                     let path_str = full_path.to_string_lossy().to_string();
                                                     tabs.with_mut(|m| {
@@ -207,8 +207,6 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                                     });
                                                     lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                                 }
-                                            }
-                                        }
                                     },
                                     oncontextmenu: move |evt: Event<MouseData>| {
                                         evt.prevent_default();
@@ -381,14 +379,12 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                     let mut renaming = use_signal(|| false);
                     let mut rename_value = use_signal(|| tag_name.clone());
 
-                    let colors = vec![
-                        ("#ffff00", "Yellow"),
+                    let colors = [("#ffff00", "Yellow"),
                         ("#ff6b6b", "Red"),
                         ("#51cf66", "Green"),
                         ("#339af0", "Blue"),
                         ("#cc5de8", "Purple"),
-                        ("#ff922b", "Orange"),
-                    ];
+                        ("#ff922b", "Orange")];
 
                     rsx! {
                         if renaming() {
@@ -692,11 +688,10 @@ fn CollectionTree(
                         draggable: "true",
                         onmouseup: move |evt: Event<MouseData>| {
                             // Only navigate if this wasn't a drag operation
-                            if drag_coll().is_none() {
-                                if evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
+                            if drag_coll().is_none()
+                                && evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
                                     lib_state.with_mut(|s| s.view = LibraryView::Collection(coll_id));
                                 }
-                            }
                         },
                         oncontextmenu: {
                             let name = coll_name.clone();
@@ -745,11 +740,10 @@ fn CollectionTree(
                                     if let Ok(()) = crate::db::collections::add_paper_to_collection(db.conn(), paper_id, coll_id).await {
                                         // Refresh only if currently viewing this collection
                                         let current_view = lib_state.read().view.clone();
-                                        if current_view == LibraryView::Collection(coll_id) {
-                                            if let Ok(ids) = crate::db::collections::list_paper_ids_in_collection(db.conn(), coll_id).await {
+                                        if current_view == LibraryView::Collection(coll_id)
+                                            && let Ok(ids) = crate::db::collections::list_paper_ids_in_collection(db.conn(), coll_id).await {
                                                 lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
                                             }
-                                        }
                                     }
                                 });
                                 drag_paper.set(DragPaper(None));
@@ -809,7 +803,7 @@ fn NewCollectionRow(parent_id: Option<i64>, depth: u32) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
     let mut editing = use_context::<Signal<Option<Option<i64>>>>();
-    let mut name_value = use_signal(|| String::new());
+    let mut name_value = use_signal(String::new);
     let mut submitted = use_signal(|| false);
 
     let indent = depth * 16;
@@ -958,11 +952,10 @@ fn TagSection(
                                                     spawn(async move {
                                                         let _ = crate::db::tags::add_tag_to_paper(db.conn(), paper_id, tag_id).await;
                                                         let current_view = lib_state.read().view.clone();
-                                                        if current_view == LibraryView::Tag(tag_id) {
-                                                            if let Ok(ids) = crate::db::tags::list_paper_ids_by_tag(db.conn(), tag_id).await {
+                                                        if current_view == LibraryView::Tag(tag_id)
+                                                            && let Ok(ids) = crate::db::tags::list_paper_ids_by_tag(db.conn(), tag_id).await {
                                                                 lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
                                                             }
-                                                        }
                                                     });
                                                     drag_paper.set(DragPaper(None));
                                                 }

@@ -249,7 +249,7 @@ fn AddToCollectionSelect(paper_id: i64) -> Element {
 fn TagEditor(paper_id: i64) -> Element {
     let mut lib_state = use_context::<Signal<crate::state::app_state::LibraryState>>();
     let db = use_context::<Database>();
-    let mut new_tag = use_signal(|| String::new());
+    let mut new_tag = use_signal(String::new);
 
     rsx! {
         div { class: "tag-editor",

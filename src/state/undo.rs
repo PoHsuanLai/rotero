@@ -117,11 +117,10 @@ pub async fn reverse_action(
                 crate::db::annotations::update_annotation_content(db.conn(), id, opt).await
             {
                 tabs.with_mut(|m| {
-                    if let Some(t) = m.active_tab_mut() {
-                        if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
+                    if let Some(t) = m.active_tab_mut()
+                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
                             a.content = old.clone();
                         }
-                    }
                 });
             }
         }
@@ -130,11 +129,10 @@ pub async fn reverse_action(
                 crate::db::annotations::update_annotation_color(db.conn(), id, old).await
             {
                 tabs.with_mut(|m| {
-                    if let Some(t) = m.active_tab_mut() {
-                        if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
+                    if let Some(t) = m.active_tab_mut()
+                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
                             a.color = old.clone();
                         }
-                    }
                 });
             }
         }
@@ -178,11 +176,10 @@ pub async fn forward_action(
                 crate::db::annotations::update_annotation_content(db.conn(), id, opt).await
             {
                 tabs.with_mut(|m| {
-                    if let Some(t) = m.active_tab_mut() {
-                        if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
+                    if let Some(t) = m.active_tab_mut()
+                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
                             a.content = new.clone();
                         }
-                    }
                 });
             }
         }
@@ -191,11 +188,10 @@ pub async fn forward_action(
                 crate::db::annotations::update_annotation_color(db.conn(), id, new).await
             {
                 tabs.with_mut(|m| {
-                    if let Some(t) = m.active_tab_mut() {
-                        if let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
+                    if let Some(t) = m.active_tab_mut()
+                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id)) {
                             a.color = new.clone();
                         }
-                    }
                 });
             }
         }

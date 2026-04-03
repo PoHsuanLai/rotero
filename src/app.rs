@@ -172,8 +172,8 @@ fn LoadLibraryData() -> Element {
             use crate::state::app_state::LibraryView;
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                if let Some(flag) = crate::CONNECTOR_DIRTY.get() {
-                    if flag.swap(false, std::sync::atomic::Ordering::AcqRel) {
+                if let Some(flag) = crate::CONNECTOR_DIRTY.get()
+                    && flag.swap(false, std::sync::atomic::Ordering::AcqRel) {
                         let conn = db.conn();
                         if let Ok(papers) = crate::db::papers::list_papers(conn).await {
                             lib_state.with_mut(|s| s.papers = papers);
@@ -201,7 +201,6 @@ fn LoadLibraryData() -> Element {
                             _ => {}
                         }
                     }
-                }
             }
         }
     });

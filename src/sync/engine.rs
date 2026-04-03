@@ -103,13 +103,11 @@ impl SyncConfig {
     /// Load config from the default config file location.
     pub fn load() -> Self {
         let path = config_path();
-        if path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(config) = serde_json::from_str(&content) {
+        if path.exists()
+            && let Ok(content) = std::fs::read_to_string(&path)
+                && let Ok(config) = serde_json::from_str(&content) {
                     return config;
                 }
-            }
-        }
         Self::default()
     }
 
@@ -165,13 +163,11 @@ pub fn check_external_modification(
     db_path: &Path,
     last_known_modified: Option<std::time::SystemTime>,
 ) -> bool {
-    if let Some(last) = last_known_modified {
-        if let Ok(metadata) = std::fs::metadata(db_path) {
-            if let Ok(modified) = metadata.modified() {
+    if let Some(last) = last_known_modified
+        && let Ok(metadata) = std::fs::metadata(db_path)
+            && let Ok(modified) = metadata.modified() {
                 return modified > last;
             }
-        }
-    }
     false
 }
 

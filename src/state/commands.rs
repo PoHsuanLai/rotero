@@ -690,8 +690,8 @@ pub async fn extract_and_fetch_metadata(
     tracing::info!(?doi, ?arxiv_id, "extract_and_fetch_metadata: ID extraction");
 
     // 3. If DOI found and auto_fetch enabled, call CrossRef
-    if let Some(ref doi_str) = doi {
-        if auto_fetch {
+    if let Some(ref doi_str) = doi
+        && auto_fetch {
             match crate::metadata::crossref::fetch_by_doi(doi_str).await {
                 Ok(meta) => {
                     tracing::info!(title = %meta.title, authors = ?meta.authors, "extract_and_fetch_metadata: CrossRef success");
@@ -705,11 +705,10 @@ pub async fn extract_and_fetch_metadata(
                 }
             }
         }
-    }
 
     // 3b. If arXiv ID found and auto_fetch enabled, call arXiv API
-    if let Some(ref arxiv) = arxiv_id {
-        if auto_fetch {
+    if let Some(ref arxiv) = arxiv_id
+        && auto_fetch {
             match crate::metadata::arxiv::fetch_by_arxiv_id(arxiv).await {
                 Ok(meta) => {
                     tracing::info!(title = %meta.title, authors = ?meta.authors, "extract_and_fetch_metadata: arXiv success");
@@ -723,7 +722,6 @@ pub async fn extract_and_fetch_metadata(
                 }
             }
         }
-    }
 
     // 4. Fallback: use PDF document properties + extracted DOI/arXiv ID
     let has_update = doc_meta.title.is_some()

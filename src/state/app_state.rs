@@ -151,13 +151,11 @@ impl PdfTabManager {
 
     /// Switch to a tab, suspending the previous one.
     pub fn switch_to(&mut self, tab_id: TabId) {
-        if let Some(old_id) = self.active_tab_id {
-            if old_id != tab_id {
-                if let Some(old_tab) = self.tabs.iter_mut().find(|t| t.id == old_id) {
+        if let Some(old_id) = self.active_tab_id
+            && old_id != tab_id
+                && let Some(old_tab) = self.tabs.iter_mut().find(|t| t.id == old_id) {
                     old_tab.suspend();
                 }
-            }
-        }
         self.active_tab_id = Some(tab_id);
         if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
             tab.is_suspended = false;
@@ -192,11 +190,10 @@ impl PdfTabManager {
         if let Some(idx) = self.tabs.iter().position(|t| t.id == tab_id) {
             self.tabs.truncate(idx + 1);
             // If active tab was removed, switch to the kept tab
-            if let Some(active) = self.active_tab_id {
-                if !self.tabs.iter().any(|t| t.id == active) {
+            if let Some(active) = self.active_tab_id
+                && !self.tabs.iter().any(|t| t.id == active) {
                     self.active_tab_id = Some(tab_id);
                 }
-            }
         }
     }
 

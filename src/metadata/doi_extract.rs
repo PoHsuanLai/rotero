@@ -14,7 +14,7 @@ static ARXIV_RE: LazyLock<Regex> = LazyLock::new(|| {
 pub fn extract_doi(text: &str) -> Option<String> {
     DOI_RE.find(text).map(|m| {
         m.as_str()
-            .trim_end_matches(|c: char| matches!(c, '.' | ',' | ';' | ')' | ']' | '}'))
+            .trim_end_matches(['.', ',', ';', ')', ']', '}'])
             .to_string()
     })
 }
@@ -24,11 +24,10 @@ pub fn extract_arxiv_id(text: &str) -> Option<String> {
     ARXIV_RE.captures(text).map(|c| {
         let id = c.get(1).unwrap().as_str();
         // Strip version suffix for API lookup
-        if let Some(pos) = id.rfind('v') {
-            if id[pos + 1..].chars().all(|c| c.is_ascii_digit()) {
+        if let Some(pos) = id.rfind('v')
+            && id[pos + 1..].chars().all(|c| c.is_ascii_digit()) {
                 return id[..pos].to_string();
             }
-        }
         id.to_string()
     })
 }

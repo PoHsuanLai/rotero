@@ -89,7 +89,7 @@ pub fn LibraryPanel() -> Element {
                     state
                         .papers
                         .iter()
-                        .filter(|p| p.id.map_or(false, |pid| ids.contains(&pid)))
+                        .filter(|p| p.id.is_some_and(|pid| ids.contains(&pid)))
                         .cloned()
                         .collect()
                 } else {
@@ -101,7 +101,7 @@ pub fn LibraryPanel() -> Element {
                     state
                         .papers
                         .iter()
-                        .filter(|p| p.id.map_or(false, |pid| ids.contains(&pid)))
+                        .filter(|p| p.id.is_some_and(|pid| ids.contains(&pid)))
                         .cloned()
                         .collect()
                 } else {
@@ -344,13 +344,12 @@ pub fn LibraryPanel() -> Element {
                                     },
                                     onmouseup: move |evt: Event<MouseData>| {
                                         // Only select if this wasn't a drag operation
-                                        if drag_paper().0.is_none() {
-                                            if evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
+                                        if drag_paper().0.is_none()
+                                            && evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
                                                 lib_state.with_mut(|s| {
                                                     s.selected_paper_id = Some(paper_id);
                                                 });
                                             }
-                                        }
                                     },
                                     oncontextmenu: move |evt| {
                                         evt.prevent_default();
@@ -568,11 +567,10 @@ pub fn LibraryPanel() -> Element {
                                                 on_click: move |_| {
                                                     let db = db_remove.clone();
                                                     spawn(async move {
-                                                        if let Ok(()) = crate::db::collections::remove_paper_from_collection(db.conn(), pid, coll_id).await {
-                                                            if let Ok(ids) = crate::db::collections::list_paper_ids_in_collection(db.conn(), coll_id).await {
+                                                        if let Ok(()) = crate::db::collections::remove_paper_from_collection(db.conn(), pid, coll_id).await
+                                                            && let Ok(ids) = crate::db::collections::list_paper_ids_in_collection(db.conn(), coll_id).await {
                                                                 lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
                                                             }
-                                                        }
                                                     });
                                                 },
                                             }
@@ -619,7 +617,7 @@ fn AddPaperButton() -> Element {
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let mut error_msg = use_signal(|| None::<String>);
     let mut show_doi_input = use_signal(|| false);
-    let mut doi_value = use_signal(|| String::new());
+    let mut doi_value = use_signal(String::new);
 
     let db_for_pdf = db.clone();
     let db_for_doi = db.clone();

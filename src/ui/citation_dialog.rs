@@ -7,7 +7,7 @@ pub fn CitationDialog() -> Element {
     let lib_state = use_context::<Signal<LibraryState>>();
     let mut show = use_signal(|| false);
     let mut selected_style_idx = use_signal(|| 0usize);
-    let mut formatted = use_signal(|| String::new());
+    let mut formatted = use_signal(String::new);
     let mut error_msg = use_signal(|| None::<String>);
 
     let state = lib_state.read();

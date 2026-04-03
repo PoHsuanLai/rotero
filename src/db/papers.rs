@@ -31,7 +31,7 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<i64, turso
             Value::Text(paper.date_modified.to_rfc3339()),
             Value::Integer(paper.is_favorite as i64),
             Value::Integer(paper.is_read as i64),
-            extra_meta.map(|s| Value::Text(s)).unwrap_or(Value::Null),
+            extra_meta.map(Value::Text).unwrap_or(Value::Null),
         ]),
     )
     .await?;

@@ -66,9 +66,9 @@ pub fn GlobalKeyHandler() -> Element {
         tracing::info!("Shortcut: Cmd+I (import BibTeX)");
         let file = crate::ui::pick_file(&["bib", "bibtex"], "Import BibTeX");
 
-        if let Some(path) = file {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(papers) = rotero_bib::import_bibtex(&content) {
+        if let Some(path) = file
+            && let Ok(content) = std::fs::read_to_string(&path)
+                && let Ok(papers) = rotero_bib::import_bibtex(&content) {
                     let db = db_import.clone();
                     spawn(async move {
                         for paper in papers {
@@ -81,8 +81,6 @@ pub fn GlobalKeyHandler() -> Element {
                         }
                     });
                 }
-            }
-        }
     });
 
     // Cmd+E → Export BibTeX
@@ -191,14 +189,12 @@ pub fn GlobalKeyHandler() -> Element {
     let _ = use_global_shortcut("CmdOrCtrl+[", move |_| {
         tracing::info!("Shortcut: Cmd+[ (prev tab)");
         tabs.with_mut(|m| {
-            if let Some(active_id) = m.active_tab_id {
-                if let Some(idx) = m.tabs.iter().position(|t| t.id == active_id) {
-                    if idx > 0 {
+            if let Some(active_id) = m.active_tab_id
+                && let Some(idx) = m.tabs.iter().position(|t| t.id == active_id)
+                    && idx > 0 {
                         let prev_id = m.tabs[idx - 1].id;
                         m.switch_to(prev_id);
                     }
-                }
-            }
         });
         if lib_state.read().view != LibraryView::PdfViewer {
             lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
@@ -209,14 +205,12 @@ pub fn GlobalKeyHandler() -> Element {
     let _ = use_global_shortcut("CmdOrCtrl+]", move |_| {
         tracing::info!("Shortcut: Cmd+] (next tab)");
         tabs.with_mut(|m| {
-            if let Some(active_id) = m.active_tab_id {
-                if let Some(idx) = m.tabs.iter().position(|t| t.id == active_id) {
-                    if idx + 1 < m.tabs.len() {
+            if let Some(active_id) = m.active_tab_id
+                && let Some(idx) = m.tabs.iter().position(|t| t.id == active_id)
+                    && idx + 1 < m.tabs.len() {
                         let next_id = m.tabs[idx + 1].id;
                         m.switch_to(next_id);
                     }
-                }
-            }
         });
         if lib_state.read().view != LibraryView::PdfViewer {
             lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
@@ -257,14 +251,13 @@ pub fn GlobalKeyHandler() -> Element {
         } else {
             // Close PDF search bar if open
             tabs.with_mut(|m| {
-                if let Some(t) = m.active_tab_mut() {
-                    if t.search.visible {
+                if let Some(t) = m.active_tab_mut()
+                    && t.search.visible {
                         t.search.visible = false;
                         t.search.query.clear();
                         t.search.matches.clear();
                         t.search.current_index = 0;
                     }
-                }
             });
         }
     });
