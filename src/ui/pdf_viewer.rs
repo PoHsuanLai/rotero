@@ -762,7 +762,7 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                             if let Some(action) = action {
                                 let db = db_undo.clone();
                                 spawn(async move {
-                                    crate::state::undo::reverse_action(db, &mut tabs, action).await;
+                                    crate::state::undo::reverse_action(db, &mut tabs, &mut undo_stack, action).await;
                                 });
                             }
                         },
@@ -776,7 +776,7 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                             if let Some(action) = action {
                                 let db = db_redo.clone();
                                 spawn(async move {
-                                    crate::state::undo::forward_action(db, &mut tabs, action).await;
+                                    crate::state::undo::forward_action(db, &mut tabs, &mut undo_stack, action).await;
                                 });
                             }
                         },

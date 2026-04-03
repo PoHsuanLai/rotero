@@ -47,12 +47,36 @@ impl UndoStack {
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }
+
+    /// After a re-insert gives us a new DB id, patch the annotation id
+    /// in the last entry of the given stack so future undo/redo uses the correct id.
+    fn patch_last_ann_id(stack: &mut Vec<UndoAction>, new_id: i64) {
+        if let Some(action) = stack.last_mut() {
+            match action {
+                UndoAction::Create(ann) | UndoAction::Delete(ann) => {
+                    ann.id = Some(new_id);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// After undo re-inserts (reverse of Delete), patch the redo stack entry.
+    pub fn patch_last_redo_id(&mut self, new_id: i64) {
+        Self::patch_last_ann_id(&mut self.redo, new_id);
+    }
+
+    /// After redo re-inserts (forward of Create), patch the undo stack entry.
+    pub fn patch_last_undo_id(&mut self, new_id: i64) {
+        Self::patch_last_ann_id(&mut self.undo, new_id);
+    }
 }
 
 /// Reverse an action (for undo).
 pub async fn reverse_action(
     db: Database,
     tabs: &mut Signal<PdfTabManager>,
+    undo_stack: &mut Signal<UndoStack>,
     action: UndoAction,
 ) {
     match action {
@@ -70,6 +94,8 @@ pub async fn reverse_action(
             if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), ann).await {
                 let mut ann = ann.clone();
                 ann.id = Some(id);
+                // Patch the redo stack so future redo uses the new id
+                undo_stack.with_mut(|s| s.patch_last_redo_id(id));
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {
                         t.annotations.push(ann);
@@ -107,6 +133,7 @@ pub async fn reverse_action(
 pub async fn forward_action(
     db: Database,
     tabs: &mut Signal<PdfTabManager>,
+    undo_stack: &mut Signal<UndoStack>,
     action: UndoAction,
 ) {
     match action {
@@ -114,6 +141,8 @@ pub async fn forward_action(
             if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), ann).await {
                 let mut ann = ann.clone();
                 ann.id = Some(id);
+                // Patch the undo stack so future undo uses the new id
+                undo_stack.with_mut(|s| s.patch_last_undo_id(id));
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {
                         t.annotations.push(ann);

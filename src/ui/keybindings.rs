@@ -214,7 +214,7 @@ pub fn GlobalKeyHandler() -> Element {
         if let Some(action) = action {
             let db = db_undo.clone();
             spawn(async move {
-                reverse_action(db, &mut tabs, action).await;
+                reverse_action(db, &mut tabs, &mut undo_stack, action).await;
             });
         }
     });
@@ -226,7 +226,7 @@ pub fn GlobalKeyHandler() -> Element {
         if let Some(action) = action {
             let db = db_redo.clone();
             spawn(async move {
-                forward_action(db, &mut tabs, action).await;
+                forward_action(db, &mut tabs, &mut undo_stack, action).await;
             });
         }
     });
