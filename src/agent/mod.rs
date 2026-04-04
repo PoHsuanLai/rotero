@@ -46,22 +46,6 @@ fn build_agent_command(provider: &AgentProvider) -> acpx::CommandSpec {
     for arg in provider.args {
         spec = spec.arg(*arg);
     }
-    // Pass extra env vars (e.g. NO_BROWSER=1 for Codex)
-    for (k, v) in provider.extra_env {
-        spec = spec.env(*k, *v);
-    }
-    // Pass user-configured API keys from SyncConfig
-    let config = crate::sync::engine::SyncConfig::load();
-    for key in provider.env_keys {
-        // Check SyncConfig first, then system env
-        if let Some(val) = config.agent_env_vars.get(*key) {
-            if !val.is_empty() {
-                spec = spec.env(*key, val.as_str());
-            }
-        } else if let Ok(val) = std::env::var(key) {
-            spec = spec.env(*key, val);
-        }
-    }
     spec
 }
 

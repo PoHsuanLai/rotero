@@ -65,78 +65,8 @@ pub fn AgentSection() -> Element {
                 }
             }
 
-            // API key input for the selected provider
-            if let Some(provider) = AGENT_PROVIDERS.iter().find(|p| p.id == selected_provider) {
-                if !provider.env_keys.is_empty() {
-                    for env_key in provider.env_keys.iter() {
-                        {
-                            let key = *env_key;
-                            let hint = provider.env_hint;
-                            let current_val = config
-                                .read()
-                                .agent_env_vars
-                                .get(key)
-                                .cloned()
-                                .unwrap_or_default();
-                            // Mask the value for display
-                            let display_val = if current_val.is_empty() {
-                                String::new()
-                            } else if current_val.len() > 8 {
-                                format!("{}...{}", &current_val[..4], &current_val[current_val.len()-4..])
-                            } else {
-                                "*".repeat(current_val.len())
-                            };
-                            let has_val = !current_val.is_empty();
-                            rsx! {
-                                div { class: "settings-field",
-                                    span { class: "settings-field-label", "{key}" }
-                                    div { class: "settings-field-control",
-                                        if has_val {
-                                            div { class: "agent-key-display",
-                                                span { class: "agent-key-value", "{display_val}" }
-                                                button {
-                                                    class: "btn btn--secondary agent-key-clear",
-                                                    onclick: move |_| {
-                                                        config.with_mut(|c| {
-                                                            c.agent_env_vars.remove(key);
-                                                        });
-                                                        let _ = config.read().save();
-                                                    },
-                                                    "Clear"
-                                                }
-                                            }
-                                        } else {
-                                            input {
-                                                class: "input input--sm",
-                                                r#type: "password",
-                                                placeholder: "{hint}",
-                                                onchange: move |e| {
-                                                    let val = e.value();
-                                                    if !val.is_empty() {
-                                                        config.with_mut(|c| {
-                                                            c.agent_env_vars
-                                                                .insert(key.to_string(), val);
-                                                        });
-                                                        let _ = config.read().save();
-                                                        // Reconnect to pick up the new key
-                                                        let pid = config.read().agent_provider.clone();
-                                                        agent_channel.send(ChatRequest::SwitchAgent {
-                                                            provider_id: pid,
-                                                        });
-                                                    }
-                                                },
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Auth methods from ACP (for providers like Claude that use terminal-auth)
-            if !auth_methods.is_empty() && config.read().agent_provider == connected_provider {
+            // Auth methods from ACP — shown for the selected provider when connected
+            if !auth_methods.is_empty() && selected_provider == connected_provider {
                 div { class: "settings-field",
                     span { class: "settings-field-label", "Sign in" }
                     div { class: "settings-field-control settings-auth-buttons",
@@ -173,7 +103,7 @@ pub fn AgentSection() -> Element {
             }
 
             p { class: "settings-hint",
-                "Uses the Agent Client Protocol (ACP). Switch providers anytime."
+                "Uses the Agent Client Protocol (ACP). Auth is handled by each provider."
             }
         }
     }

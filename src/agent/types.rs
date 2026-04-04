@@ -51,55 +51,36 @@ pub struct AgentProvider {
     pub description: &'static str,
     pub program: &'static str,
     pub args: &'static [&'static str],
-    /// Env var keys this provider needs (e.g. ["GEMINI_API_KEY"]).
-    /// Empty for providers that use CLI-managed auth (Claude).
-    pub env_keys: &'static [&'static str],
-    /// Hint text shown in the API key input field.
-    pub env_hint: &'static str,
-    /// Extra env vars to always set when spawning this provider.
-    pub extra_env: &'static [(&'static str, &'static str)],
 }
 
 pub const AGENT_PROVIDERS: &[AgentProvider] = &[
     AgentProvider {
         id: "claude",
         name: "Claude",
-        description: "Anthropic Claude Code (requires Claude subscription)",
+        description: "Anthropic Claude Code",
         program: "npx",
         args: &["--yes", "@agentclientprotocol/claude-agent-acp"],
-        env_keys: &[],
-        env_hint: "",
-        extra_env: &[],
     },
     AgentProvider {
         id: "gemini",
         name: "Gemini",
-        description: "Google Gemini CLI (requires Google account or API key)",
+        description: "Google Gemini CLI",
         program: "npx",
         args: &["--yes", "@google/gemini-cli", "--acp"],
-        env_keys: &["GEMINI_API_KEY"],
-        env_hint: "AIza... (from ai.google.dev)",
-        extra_env: &[],
     },
     AgentProvider {
         id: "copilot",
         name: "GitHub Copilot",
-        description: "GitHub Copilot (requires Copilot subscription)",
+        description: "GitHub Copilot CLI",
         program: "npx",
         args: &["--yes", "@github/copilot", "--acp"],
-        env_keys: &["GITHUB_TOKEN"],
-        env_hint: "ghp_... or fine-grained PAT with Copilot access",
-        extra_env: &[],
     },
     AgentProvider {
         id: "codex",
         name: "Codex",
-        description: "OpenAI Codex (requires OpenAI API key)",
+        description: "OpenAI Codex CLI",
         program: "npx",
         args: &["--yes", "@zed-industries/codex-acp"],
-        env_keys: &["OPENAI_API_KEY"],
-        env_hint: "sk-... (from platform.openai.com)",
-        extra_env: &[("NO_BROWSER", "1")],
     },
 ];
 

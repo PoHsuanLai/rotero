@@ -54,10 +54,6 @@ pub struct SyncConfig {
     /// Selected AI agent provider id (e.g. "claude", "gemini", "copilot", "codex").
     #[serde(default = "default_agent_provider")]
     pub agent_provider: String,
-
-    /// API keys / env vars for AI agent providers (key -> value).
-    #[serde(default)]
-    pub agent_env_vars: std::collections::HashMap<String, String>,
 }
 
 fn default_agent_provider() -> String {
@@ -108,7 +104,6 @@ impl Default for SyncConfig {
             render_quality: default_render_quality(),
             thumbnail_quality: default_thumbnail_quality(),
             agent_provider: default_agent_provider(),
-            agent_env_vars: std::collections::HashMap::new(),
         }
     }
 }

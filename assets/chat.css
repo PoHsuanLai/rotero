@@ -579,22 +579,3 @@
     flex-wrap: wrap;
 }
 
-/* ---- API key display ---- */
-
-.agent-key-display {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-}
-
-.agent-key-value {
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-}
-
-.agent-key-clear {
-    height: 24px !important;
-    padding: 0 8px !important;
-    font-size: var(--text-xs) !important;
-}
