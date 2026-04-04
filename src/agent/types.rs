@@ -51,8 +51,6 @@ pub struct AgentProvider {
     pub description: &'static str,
     /// npm package name to install.
     pub npm_package: &'static str,
-    /// Entry point relative to package (node runs this directly).
-    pub entry_point: &'static str,
     /// Extra args to pass after the entry point.
     pub extra_args: &'static [&'static str],
 }
@@ -63,7 +61,6 @@ pub const AGENT_PROVIDERS: &[AgentProvider] = &[
         name: "Claude",
         description: "Anthropic Claude Code",
         npm_package: "@agentclientprotocol/claude-agent-acp",
-        entry_point: "dist/index.js",
         extra_args: &[],
     },
     AgentProvider {
@@ -71,7 +68,6 @@ pub const AGENT_PROVIDERS: &[AgentProvider] = &[
         name: "Gemini",
         description: "Google Gemini CLI",
         npm_package: "@google/gemini-cli",
-        entry_point: "dist/cli.js",
         extra_args: &["--acp"],
     },
     AgentProvider {
@@ -79,7 +75,6 @@ pub const AGENT_PROVIDERS: &[AgentProvider] = &[
         name: "GitHub Copilot",
         description: "GitHub Copilot CLI",
         npm_package: "@github/copilot",
-        entry_point: "dist/cli.js",
         extra_args: &["--acp"],
     },
     AgentProvider {
@@ -87,7 +82,6 @@ pub const AGENT_PROVIDERS: &[AgentProvider] = &[
         name: "Codex",
         description: "OpenAI Codex CLI",
         npm_package: "@zed-industries/codex-acp",
-        entry_point: "dist/index.js",
         extra_args: &[],
     },
 ];

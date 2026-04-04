@@ -50,17 +50,16 @@ fn agents_cache_dir() -> PathBuf {
 }
 
 /// Ensure an npm package is installed in our local cache, return the entry point path.
-/// Installs on first use, reuses on subsequent calls.
+/// Resolves the entry point from package.json `bin` field.
 fn ensure_agent_installed(provider: &AgentProvider) -> Result<PathBuf, String> {
     let cache = agents_cache_dir();
     let pkg_dir = cache.join(provider.id);
-    let entry = pkg_dir
-        .join("node_modules")
-        .join(provider.npm_package)
-        .join(provider.entry_point);
+    let pkg_root = pkg_dir.join("node_modules").join(provider.npm_package);
 
-    if entry.exists() {
-        return Ok(entry);
+    // Check if already installed by looking for package.json
+    let pkg_json_path = pkg_root.join("package.json");
+    if pkg_json_path.exists() {
+        return resolve_bin_entry(&pkg_root);
     }
 
     // Install the package
@@ -70,7 +69,12 @@ fn ensure_agent_installed(provider: &AgentProvider) -> Result<PathBuf, String> {
     tracing::info!("Installing {} (first time setup)...", provider.npm_package);
 
     let output = std::process::Command::new("npm")
-        .args(["install", "--prefix", &pkg_dir.to_string_lossy(), provider.npm_package])
+        .args([
+            "install",
+            "--prefix",
+            &pkg_dir.to_string_lossy(),
+            provider.npm_package,
+        ])
         .output()
         .map_err(|e| format!("Failed to run npm install: {e}"))?;
 
@@ -79,13 +83,36 @@ fn ensure_agent_installed(provider: &AgentProvider) -> Result<PathBuf, String> {
         return Err(format!("npm install failed: {stderr}"));
     }
 
+    resolve_bin_entry(&pkg_root)
+}
+
+/// Read package.json `bin` field to find the entry point.
+fn resolve_bin_entry(pkg_root: &PathBuf) -> Result<PathBuf, String> {
+    let pkg_json = pkg_root.join("package.json");
+    let content =
+        std::fs::read_to_string(&pkg_json).map_err(|e| format!("Can't read package.json: {e}"))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("Invalid package.json: {e}"))?;
+
+    // bin can be a string or an object
+    let bin_path = match v.get("bin") {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Object(obj)) => {
+            // Take the first bin entry
+            obj.values()
+                .next()
+                .and_then(|v| v.as_str())
+                .ok_or("No bin entries in package.json")?
+                .to_string()
+        }
+        _ => return Err("No bin field in package.json".into()),
+    };
+
+    let entry = pkg_root.join(&bin_path);
     if entry.exists() {
         Ok(entry)
     } else {
-        Err(format!(
-            "Package installed but entry point not found at {}",
-            entry.display()
-        ))
+        Err(format!("Entry point not found: {}", entry.display()))
     }
 }
 
