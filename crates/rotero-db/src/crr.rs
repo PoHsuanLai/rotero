@@ -118,6 +118,16 @@ pub async fn init_crr_tables(conn: &Connection) -> Result<(), turso::Error> {
         .await?;
     }
 
+    // Sync state table (for persisting transport-specific state like CloudKit server tokens)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS crr_sync_state (
+            key   TEXT PRIMARY KEY,
+            value BLOB
+        )",
+        (),
+    )
+    .await?;
+
     // Clock tables
     for (table, _) in CRR_TABLES {
         let sql = format!(
@@ -163,6 +173,45 @@ pub async fn site_id(conn: &Connection) -> Result<Vec<u8>, turso::Error> {
         .ok_or(turso::Error::QueryReturnedNoRows)?;
     let val = row.get_value(0)?;
     Ok(val.as_blob().cloned().unwrap_or_default())
+}
+
+/// Get a value from the sync state table.
+pub async fn get_sync_state(conn: &Connection, key: &str) -> Option<Vec<u8>> {
+    let result = conn
+        .query(
+            "SELECT value FROM crr_sync_state WHERE key = ?1",
+            turso::params::Params::Positional(vec![Value::Text(key.to_string())]),
+        )
+        .await;
+    match result {
+        Ok(mut rows) => {
+            if let Ok(Some(row)) = rows.next().await {
+                row.get_value(0)
+                    .ok()
+                    .and_then(|v| v.as_blob().cloned())
+            } else {
+                None
+            }
+        }
+        Err(_) => None,
+    }
+}
+
+/// Set a value in the sync state table.
+pub async fn set_sync_state(
+    conn: &Connection,
+    key: &str,
+    value: &[u8],
+) -> Result<(), turso::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO crr_sync_state (key, value) VALUES (?1, ?2)",
+        turso::params::Params::Positional(vec![
+            Value::Text(key.to_string()),
+            Value::Blob(value.to_vec()),
+        ]),
+    )
+    .await?;
+    Ok(())
 }
 
 /// Get and increment the global db_version counter.

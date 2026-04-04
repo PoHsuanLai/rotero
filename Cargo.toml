@@ -62,8 +62,15 @@ regex = "1"
 urlencoding = "2"
 futures-util = "0.3"
 
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc2 = { version = "0.6", optional = true }
+objc2-cloud-kit = { version = "0.3", optional = true }
+objc2-foundation = { version = "0.3", optional = true }
+block2 = { version = "0.6", optional = true }
+
 [features]
 default = ["desktop"]
 desktop = ["dioxus/desktop", "dep:rfd", "dep:rotero-connector", "dep:directories"]
 mobile = ["dioxus/mobile", "dep:apple-utils"]
+cloudkit = ["dep:objc2", "dep:objc2-cloud-kit", "dep:objc2-foundation", "dep:block2"]
 pdfium-static = ["rotero-pdf/static"]

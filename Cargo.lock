@@ -4293,6 +4293,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73ad74d880bb43877038da939b7427bba67e9dd42004a18b809ba7d87cee241c"
 dependencies = [
  "bitflags 2.11.0",
+ "block2",
+ "objc2",
+ "objc2-contacts",
+ "objc2-core-location",
+ "objc2-foundation",
+]
+
+[[package]]
+name = "objc2-contacts"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b034b578389f89a85c055eacc8d8b368be5f04a6c1b07f672bf3aec21d0ef621"
+dependencies = [
  "objc2",
  "objc2-foundation",
 ]
@@ -5684,10 +5697,14 @@ version = "0.1.0"
 dependencies = [
  "apple-utils",
  "base64",
+ "block2",
  "chrono",
  "dioxus",
  "directories",
  "futures-util",
+ "objc2",
+ "objc2-cloud-kit",
+ "objc2-foundation",
  "regex",
  "reqwest",
  "rfd 0.14.1",
