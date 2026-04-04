@@ -1,11 +1,13 @@
 use dioxus::prelude::*;
 
+use super::chat_panel::ChatPanel;
 #[cfg(feature = "desktop")]
 use super::keybindings::GlobalKeyHandler;
 use super::library_view::LibraryPanel;
 use super::paper_detail::PaperDetail;
 use super::pdf_viewer::{PdfTabBar, PdfViewer};
 use super::sidebar::Sidebar;
+use crate::agent::types::ChatState;
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
 use crate::sync::engine::SyncConfig;
 
@@ -14,8 +16,10 @@ pub fn Layout() -> Element {
     let lib_state = use_context::<Signal<LibraryState>>();
     let tab_mgr = use_context::<Signal<PdfTabManager>>();
     let config = use_context::<Signal<SyncConfig>>();
+    let chat_state = use_context::<Signal<ChatState>>();
     let mut sidebar_collapsed = use_signal(|| false);
     let view = lib_state.read().view.clone();
+    let chat_open = chat_state.read().panel_open;
 
     let dark = config.read().dark_mode;
     let scale = config.read().ui_scale.clone();
@@ -56,6 +60,9 @@ pub fn Layout() -> Element {
                         }
                     },
                 }
+            }
+            if chat_open {
+                ChatPanel {}
             }
         }
     }

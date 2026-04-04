@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 use dioxus_elements::HasFileData;
 
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
+use super::chat_panel::ChatToggleButton;
 use super::import_export::ImportExportButtons;
 use super::search_bar::SearchBar;
 use crate::db::Database;
@@ -327,6 +328,7 @@ pub fn LibraryPanel() -> Element {
                 div { class: "library-header-right",
                     ImportExportButtons {}
                     AddPaperButton {}
+                    ChatToggleButton {}
                 }
             }
 

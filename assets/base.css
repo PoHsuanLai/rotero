@@ -109,3 +109,7 @@ body {
 .bi-funnel::before { content: "\f381"; }
 .bi-palette::before { content: "\f4c2"; }
 .bi-gear::before { content: "\f3e5"; }
+.bi-chat-dots::before { content: "\f249"; }
+.bi-stop-fill::before { content: "\f585"; }
+.bi-exclamation-triangle::before { content: "\f33a"; }
+.bi-arrow-up::before { content: "\f148"; }

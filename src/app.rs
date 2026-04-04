@@ -1,9 +1,11 @@
 use dioxus::prelude::*;
 
+use crate::agent::types::{AgentStatus, ChatEvent, ChatMessage, ChatRole, ChatState, MessageContent};
 use crate::db::Database;
 use crate::state::app_state::{DragPaper, LibraryState, PdfTabManager, ViewerToolState};
 use crate::state::commands;
 use crate::sync::engine::SyncConfig;
+use crate::ui::chat_panel::AgentChannel;
 use crate::ui::layout::Layout;
 
 /// Global signal wrapper for settings dialog visibility.
@@ -23,6 +25,7 @@ const PDF_CSS: &str = include_str!("../assets/pdf.css");
 const COMPONENTS_CSS: &str = include_str!("../assets/components.css");
 const DIALOGS_CSS: &str = include_str!("../assets/dialogs.css");
 const THEME_CSS: &str = include_str!("../assets/theme.css");
+const CHAT_CSS: &str = include_str!("../assets/chat.css");
 #[cfg(feature = "mobile")]
 const LONGPRESS_JS: &str = include_str!("../assets/longpress.js");
 
@@ -72,6 +75,24 @@ pub fn App() -> Element {
         inner: Signal::new(commands::spawn_render_thread()),
     });
 
+    // Chat state and ACP agent
+    let chat_state: Signal<ChatState> =
+        use_context_provider(|| Signal::new(ChatState::default()));
+    let agent_channel: AgentChannel = use_context_provider(|| {
+        let (req_tx, evt_rx) = crate::agent::spawn_agent_thread();
+        // Store the event receiver in a signal so use_future can consume it
+        // We use a OnceCell pattern to move the receiver into the future
+        let rx_cell: Signal<Option<tokio::sync::mpsc::UnboundedReceiver<ChatEvent>>> =
+            Signal::new(Some(evt_rx));
+        // Spawn event polling future
+        spawn_chat_event_poller(chat_state, rx_cell);
+        AgentChannel {
+            inner: Signal::new(Some(req_tx)),
+        }
+    });
+    // Ensure agent_channel is provided as context (use_context_provider returns the value)
+    let _ = agent_channel;
+
     // Initialize database asynchronously, re-runs when generation changes
     let db_gen = *db_generation.read();
     let db_resource = use_resource(move || async move {
@@ -100,6 +121,7 @@ pub fn App() -> Element {
                 document::Style { {COMPONENTS_CSS} }
                 document::Style { {DIALOGS_CSS} }
                 document::Style { {THEME_CSS} }
+                document::Style { {CHAT_CSS} }
                 {longpress_script()}
                 LoadLibraryData {}
                 Layout {}
@@ -132,6 +154,137 @@ pub fn App() -> Element {
             }
         }
     }
+}
+
+/// Spawns a Dioxus async future that polls the ACP event channel and updates ChatState.
+fn spawn_chat_event_poller(
+    mut chat_state: Signal<ChatState>,
+    mut rx_cell: Signal<Option<tokio::sync::mpsc::UnboundedReceiver<ChatEvent>>>,
+) {
+    spawn(async move {
+        // Take the receiver out of the signal (consumed once)
+        let Some(mut rx) = rx_cell.write().take() else {
+            return;
+        };
+
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+            // Drain all pending events this tick
+            loop {
+                let event = match rx.try_recv() {
+                    Ok(event) => event,
+                    Err(_) => break,
+                };
+                match event {
+                ChatEvent::Connected { auth_methods, provider_id } => {
+                    chat_state.with_mut(|s| {
+                        s.messages.clear();
+                        s.commands.clear();
+                        s.session_active = false;
+                        s.status = AgentStatus::Connecting;
+                        s.auth_methods = auth_methods;
+                        s.active_provider_id = provider_id;
+                    });
+                }
+                ChatEvent::SessionCreated => {
+                    chat_state.with_mut(|s| {
+                        s.status = AgentStatus::Idle;
+                        s.session_active = true;
+                    });
+                }
+                ChatEvent::TextDelta(text) => {
+                    chat_state.with_mut(|s| {
+                        s.status = AgentStatus::Streaming;
+                        // Append to last assistant message, or create one
+                        if let Some(last) = s.messages.last_mut() {
+                            if last.role == ChatRole::Assistant {
+                                // Append to existing text content
+                                if let Some(MessageContent::Text(t)) =
+                                    last.content.last_mut()
+                                {
+                                    t.push_str(&text);
+                                } else {
+                                    last.content
+                                        .push(MessageContent::Text(text));
+                                }
+                                return;
+                            }
+                        }
+                        // Create new assistant message
+                        s.messages.push(ChatMessage {
+                            role: ChatRole::Assistant,
+                            content: vec![MessageContent::Text(text)],
+                            timestamp: chrono::Utc::now(),
+                        });
+                    });
+                }
+                ChatEvent::ToolCallStarted { id, title } => {
+                    chat_state.with_mut(|s| {
+                        s.status = AgentStatus::ToolCall(title.clone());
+                        // Ensure there's an assistant message to attach the tool call to
+                        if s.messages.last().map(|m| &m.role) != Some(&ChatRole::Assistant) {
+                            s.messages.push(ChatMessage {
+                                role: ChatRole::Assistant,
+                                content: vec![],
+                                timestamp: chrono::Utc::now(),
+                            });
+                        }
+                        if let Some(last) = s.messages.last_mut() {
+                            last.content.push(MessageContent::ToolUse {
+                                id,
+                                title,
+                                status: crate::agent::types::ToolStatus::InProgress,
+                            });
+                        }
+                    });
+                }
+                ChatEvent::ToolCallUpdated { id, status } => {
+                    chat_state.with_mut(|s| {
+                        // Find and update the tool call in the last assistant message
+                        if let Some(last) = s.messages.last_mut() {
+                            for content in &mut last.content {
+                                if let MessageContent::ToolUse {
+                                    id: tool_id,
+                                    status: tool_status,
+                                    ..
+                                } = content
+                                {
+                                    if *tool_id == id {
+                                        *tool_status = status.clone();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+                ChatEvent::TurnCompleted => {
+                    chat_state.with_mut(|s| s.status = AgentStatus::Idle);
+                }
+                ChatEvent::CommandsAvailable(commands) => {
+                    chat_state.with_mut(|s| s.commands = commands);
+                }
+                ChatEvent::SessionList(sessions) => {
+                    chat_state.with_mut(|s| {
+                        s.past_sessions = sessions;
+                        s.show_session_browser = true;
+                    });
+                }
+                ChatEvent::Error(err) => {
+                    chat_state.with_mut(|s| {
+                        s.status = AgentStatus::Error(err.clone());
+                        s.messages.push(ChatMessage {
+                            role: ChatRole::Assistant,
+                            content: vec![MessageContent::Error(err)],
+                            timestamp: chrono::Utc::now(),
+                        });
+                    });
+                }
+            }
+            } // inner drain loop
+        } // outer poll loop
+    });
 }
 
 #[cfg(feature = "mobile")]

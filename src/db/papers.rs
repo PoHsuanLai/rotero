@@ -271,6 +271,7 @@ fn row_to_paper(row: &turso::Row) -> Paper {
         is_read: get_bool(row, 16),
         citation_count: get_opt_i64(row, 18),
         extra_meta: extra_meta_str.and_then(|s| serde_json::from_str(&s).ok()),
+        citation_key: get_opt_text(row, 19),
     }
 }
 

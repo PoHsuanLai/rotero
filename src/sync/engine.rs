@@ -50,6 +50,14 @@ pub struct SyncConfig {
     /// JPEG quality for thumbnail images (1-100).
     #[serde(default = "default_thumbnail_quality")]
     pub thumbnail_quality: u8,
+
+    /// Selected AI agent provider id (e.g. "claude", "gemini", "copilot", "codex").
+    #[serde(default = "default_agent_provider")]
+    pub agent_provider: String,
+}
+
+fn default_agent_provider() -> String {
+    "claude".to_string()
 }
 
 fn default_zoom() -> f32 {
@@ -95,6 +103,7 @@ impl Default for SyncConfig {
             auto_fetch_metadata: default_true(),
             render_quality: default_render_quality(),
             thumbnail_quality: default_thumbnail_quality(),
+            agent_provider: default_agent_provider(),
         }
     }
 }

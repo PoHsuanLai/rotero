@@ -57,6 +57,10 @@ tracing-subscriber.workspace = true
 apple-utils = { version = "0.1", optional = true }
 regex = "1"
 urlencoding = "2"
+agent-client-protocol = "0.10.4"
+acpx = "0.1.0"
+which = "8.0.2"
+futures = "0.3.32"
 
 [features]
 default = ["desktop"]

@@ -5,13 +5,15 @@
 
 .paper-detail {
   width: 360px;
-  min-width: 360px;
+  min-width: 280px;
+  max-width: 600px;
   padding: var(--space-6);
   overflow-y: auto;
   min-height: 0;
   font-size: var(--text-base);
   background: var(--bg-surface);
   border-left: 1px solid var(--border);
+  position: relative;
 }
 
 .detail-header {

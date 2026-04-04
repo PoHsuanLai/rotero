@@ -1,4 +1,5 @@
 mod appearance;
+mod claude;
 mod connector;
 mod import;
 mod library;
@@ -54,6 +55,9 @@ fn SettingsPanel(on_close: EventHandler<()>) -> Element {
 
                 div { class: "settings-divider" }
                 connector::ConnectorSection {}
+
+                div { class: "settings-divider" }
+                claude::AgentSection {}
 
                 div { class: "settings-divider" }
                 import::ImportSection {}
