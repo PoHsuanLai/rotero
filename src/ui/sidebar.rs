@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
-use crate::db::Database;
+use rotero_db::Database;
 use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTab, PdfTabManager};
 use rotero_models::Collection;
 
@@ -252,7 +252,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                         let db = db_unnest.clone();
                                         let did = dragged_id.clone();
                                         spawn(async move {
-                                            if let Ok(()) = crate::db::collections::reparent_collection(db.conn(), &did, None).await {
+                                            if let Ok(()) = rotero_db::collections::reparent_collection(db.conn(), &did, None).await {
                                                 let did2 = did.clone();
                                                 lib_state.with_mut(|s| {
                                                     if let Some(c) = s.collections.iter_mut().find(|c| c.id.as_deref() == Some(did2.as_str())) {
@@ -310,8 +310,8 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                             let db = db_del.clone();
                                             let sid = sid_del.clone();
                                             spawn(async move {
-                                                let _ = crate::db::saved_searches::delete_saved_search(db.conn(), &sid).await;
-                                                if let Ok(searches) = crate::db::saved_searches::list_saved_searches(db.conn()).await {
+                                                let _ = rotero_db::saved_searches::delete_saved_search(db.conn(), &sid).await;
+                                                if let Ok(searches) = rotero_db::saved_searches::list_saved_searches(db.conn()).await {
                                                     lib_state.with_mut(|s| s.saved_searches = searches);
                                                 }
                                             });
@@ -363,7 +363,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                                     let db = db_rename.clone();
                                                     let cid = cid.clone();
                                                     spawn(async move {
-                                                        if let Ok(()) = crate::db::collections::rename_collection(db.conn(), &cid, &new_name).await {
+                                                        if let Ok(()) = rotero_db::collections::rename_collection(db.conn(), &cid, &new_name).await {
                                                             let cid2 = cid.clone();
                                                             lib_state.with_mut(|s| {
                                                                 if let Some(c) = s.collections.iter_mut().find(|c| c.id.as_deref() == Some(cid2.as_str())) {
@@ -420,7 +420,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                             let db = db_delete.clone();
                                             let cid = cid.clone();
                                             spawn(async move {
-                                                if let Ok(()) = crate::db::collections::delete_collection(db.conn(), &cid).await {
+                                                if let Ok(()) = rotero_db::collections::delete_collection(db.conn(), &cid).await {
                                                     let cid2 = cid.clone();
                                                     lib_state.with_mut(|s| {
                                                         s.collections.retain(|c| c.id.as_deref() != Some(cid2.as_str()));
@@ -479,7 +479,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                                     let db = db_rename.clone();
                                                     let tid = tid.clone();
                                                     spawn(async move {
-                                                        if let Ok(()) = crate::db::tags::rename_tag(db.conn(), &tid, &new_name).await {
+                                                        if let Ok(()) = rotero_db::tags::rename_tag(db.conn(), &tid, &new_name).await {
                                                             let tid2 = tid.clone();
                                                             lib_state.with_mut(|s| {
                                                                 if let Some(t) = s.tags.iter_mut().find(|t| t.id.as_deref() == Some(tid2.as_str())) {
@@ -538,7 +538,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                                             let db = db_swatch.clone();
                                                             let tid = tid.clone();
                                                             spawn(async move {
-                                                                if let Ok(()) = crate::db::tags::update_tag_color(db.conn(), &tid, &c).await {
+                                                                if let Ok(()) = rotero_db::tags::update_tag_color(db.conn(), &tid, &c).await {
                                                                     let tid2 = tid.clone();
                                                                     lib_state.with_mut(|s| {
                                                                         if let Some(t) = s.tags.iter_mut().find(|t| t.id.as_deref() == Some(tid2.as_str())) {
@@ -576,7 +576,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                             let db = db_delete.clone();
                                             let tid = tid.clone();
                                             spawn(async move {
-                                                if let Ok(()) = crate::db::tags::delete_tag(db.conn(), &tid).await {
+                                                if let Ok(()) = rotero_db::tags::delete_tag(db.conn(), &tid).await {
                                                     let tid2 = tid.clone();
                                                     lib_state.with_mut(|s| {
                                                         s.tags.retain(|t| t.id.as_deref() != Some(tid2.as_str()));
@@ -821,7 +821,7 @@ fn CollectionTree(
                                     let db = db_for_drop.clone();
                                     let target = cid_drop.clone();
                                     spawn(async move {
-                                        if let Ok(()) = crate::db::collections::reparent_collection(db.conn(), &dragged_id, Some(&target)).await {
+                                        if let Ok(()) = rotero_db::collections::reparent_collection(db.conn(), &dragged_id, Some(&target)).await {
                                             let did = dragged_id.clone();
                                             let target2 = target.clone();
                                             lib_state.with_mut(|s| {
@@ -838,11 +838,11 @@ fn CollectionTree(
                                 let db = db_for_paper_drop.clone();
                                 let target = cid_drop.clone();
                                 spawn(async move {
-                                    if let Ok(()) = crate::db::collections::add_paper_to_collection(db.conn(), &paper_id, &target).await {
+                                    if let Ok(()) = rotero_db::collections::add_paper_to_collection(db.conn(), &paper_id, &target).await {
                                         // Refresh only if currently viewing this collection
                                         let current_view = lib_state.read().view.clone();
                                         if current_view == LibraryView::Collection(target.clone())
-                                            && let Ok(ids) = crate::db::collections::list_paper_ids_in_collection(db.conn(), &target).await {
+                                            && let Ok(ids) = rotero_db::collections::list_paper_ids_in_collection(db.conn(), &target).await {
                                                 lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
                                             }
                                     }
@@ -931,7 +931,7 @@ fn NewCollectionRow(parent_id: Option<String>, depth: u32) -> Element {
                                 coll.parent_id = parent_id.clone();
                                 let db = db.clone();
                                 spawn(async move {
-                                    if let Ok(id) = crate::db::collections::insert_collection(db.conn(), &coll).await {
+                                    if let Ok(id) = rotero_db::collections::insert_collection(db.conn(), &coll).await {
                                         let mut coll = coll;
                                         coll.id = Some(id);
                                         lib_state.with_mut(|s| s.collections.push(coll));
@@ -1047,10 +1047,10 @@ fn TagSection(tags: Vec<rotero_models::Tag>, ctx_menu: Signal<Option<TagContextM
                                                     let pid = paper_id.clone();
                                                     let tid = tid_drop.clone();
                                                     spawn(async move {
-                                                        let _ = crate::db::tags::add_tag_to_paper(db.conn(), &pid, &tid).await;
+                                                        let _ = rotero_db::tags::add_tag_to_paper(db.conn(), &pid, &tid).await;
                                                         let current_view = lib_state.read().view.clone();
                                                         if current_view == LibraryView::Tag(tid.clone())
-                                                            && let Ok(ids) = crate::db::tags::list_paper_ids_by_tag(db.conn(), &tid).await {
+                                                            && let Ok(ids) = rotero_db::tags::list_paper_ids_by_tag(db.conn(), &tid).await {
                                                                 lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
                                                             }
                                                     });

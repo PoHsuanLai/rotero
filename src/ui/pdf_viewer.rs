@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use crate::app::RenderChannel;
 use rotero_pdf::RenderFormat;
-use crate::db::Database;
+use rotero_db::Database;
 use crate::state::app_state::{
     AnnotationMode, LibraryState, LibraryView, PdfTabManager, TabId, ViewerToolState,
 };
@@ -281,7 +281,7 @@ pub fn PdfViewer() -> Element {
                 let paper_id = tabs.read().active_tab().and_then(|t| t.paper_id.clone());
                 if let Some(ref pid) = paper_id {
                     let mut anns =
-                        crate::db::annotations::list_annotations_for_paper(db.conn(), pid)
+                        rotero_db::annotations::list_annotations_for_paper(db.conn(), pid)
                             .await
                             .unwrap_or_default();
 
@@ -371,7 +371,7 @@ pub fn PdfViewer() -> Element {
                                     modified_at: now,
                                 };
                                 if let Ok(id) =
-                                    crate::db::annotations::insert_annotation(db.conn(), &ann).await
+                                    rotero_db::annotations::insert_annotation(db.conn(), &ann).await
                                 {
                                     let mut ann = ann;
                                     ann.id = Some(id);
@@ -995,7 +995,7 @@ fn PdfPageWithOverlay(
                                 };
                                 let db = db.clone();
                                 spawn(async move {
-                                    if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), &ann).await {
+                                    if let Ok(id) = rotero_db::annotations::insert_annotation(db.conn(), &ann).await {
                                         let mut ann = ann;
                                         ann.id = Some(id);
                                         undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Create(ann.clone())));
@@ -1450,7 +1450,7 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                             let title = format!("Annotations from {}", paper_title);
                                             let mut note = rotero_models::Note::new(pid, title);
                                             note.body = body;
-                                            let _ = crate::db::notes::insert_note(db.conn(), &note).await;
+                                            let _ = rotero_db::notes::insert_note(db.conn(), &note).await;
                                         }
                                     });
                                 },
@@ -1511,7 +1511,7 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                                 let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id.as_deref() == Some(aid.as_str())).cloned();
                                                 let aid2 = aid.clone();
                                                 spawn(async move {
-                                                    if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), &aid).await {
+                                                    if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &aid).await {
                                                         if let Some(ann) = deleted_ann {
                                                             undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Delete(ann)));
                                                         }
@@ -1538,7 +1538,7 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                                             let aid = aid_save.clone();
                                                             spawn(async move {
                                                                 let opt = if nc.is_empty() { None } else { Some(nc.as_str()) };
-                                                                if let Ok(()) = crate::db::annotations::update_annotation_content(db.conn(), &aid, opt).await {
+                                                                if let Ok(()) = rotero_db::annotations::update_annotation_content(db.conn(), &aid, opt).await {
                                                                     let old = if old_content.is_empty() { None } else { Some(old_content) };
                                                                     let new = if new_content.is_empty() { None } else { Some(new_content.clone()) };
                                                                     let aid2 = aid.clone();
@@ -1676,7 +1676,7 @@ fn AnnotationContextMenu() -> Element {
                                         let db = db_swatch.clone();
                                         let aid = aid_swatch.clone();
                                         spawn(async move {
-                                            if let Ok(()) = crate::db::annotations::update_annotation_color(db.conn(), &aid, &c).await {
+                                            if let Ok(()) = rotero_db::annotations::update_annotation_color(db.conn(), &aid, &c).await {
                                                 let aid2 = aid.clone();
                                                 undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::UpdateColor { id: aid2, old: old_c, new: c.clone() }));
                                                 let aid3 = aid.clone();
@@ -1710,7 +1710,7 @@ fn AnnotationContextMenu() -> Element {
                         let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id.as_deref() == Some(aid.as_str())).cloned();
                         let aid2 = aid.clone();
                         spawn(async move {
-                            if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), &aid).await {
+                            if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &aid).await {
                                 if let Some(ann) = deleted_ann {
                                     undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Delete(ann)));
                                 }

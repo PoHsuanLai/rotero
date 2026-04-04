@@ -373,7 +373,7 @@ pub async fn precache_pdf(
     quality: u8,
     format: RenderFormat,
     paper_id: Option<String>,
-    db: Option<&turso::Connection>,
+    db: Option<&rotero_db::turso::Connection>,
 ) {
     if crate::cache::load_cached(data_dir, pdf_path, zoom).is_some() {
         return;
@@ -401,7 +401,7 @@ pub async fn precache_pdf(
                 .collect::<Vec<_>>()
                 .join(" ");
             if !fulltext.is_empty() {
-                let _ = crate::db::papers::update_paper_fulltext(conn, pid, &fulltext).await;
+                let _ = rotero_db::papers::update_paper_fulltext(conn, pid, &fulltext).await;
             }
         }
         let dir = data_dir.to_path_buf();
@@ -411,7 +411,7 @@ pub async fn precache_pdf(
 
 pub async fn extract_and_fetch_metadata(
     render_tx: &mpsc::Sender<RenderRequest>,
-    conn: &turso::Connection,
+    conn: &rotero_db::turso::Connection,
     paper_id: &str,
     pdf_path: &str,
     auto_fetch: bool,
@@ -473,17 +473,17 @@ pub async fn extract_and_fetch_metadata(
     });
     let paper_snapshot = lib_state.read().papers.iter().find(|p| p.id.as_ref().map(|id| id.to_string()) == Some(paper_id.to_string())).cloned();
     if let Some(paper) = paper_snapshot {
-        let _ = crate::db::papers::update_paper_metadata(conn, paper_id, &paper).await;
+        let _ = rotero_db::papers::update_paper_metadata(conn, paper_id, &paper).await;
     }
 }
 
 async fn apply_fetched_metadata(
-    conn: &turso::Connection,
+    conn: &rotero_db::turso::Connection,
     paper_id: &str,
     fetched: &rotero_models::Paper,
     lib_state: &mut Signal<super::app_state::LibraryState>,
 ) -> bool {
-    if crate::db::papers::update_paper_metadata(conn, paper_id, fetched).await.is_err() {
+    if rotero_db::papers::update_paper_metadata(conn, paper_id, fetched).await.is_err() {
         return false;
     }
     lib_state.with_mut(|s| {
@@ -503,7 +503,7 @@ async fn apply_fetched_metadata(
         }
     });
     if let Some(count) = fetched.citation_count {
-        let _ = crate::db::papers::update_citation_count(conn, paper_id, count).await;
+        let _ = rotero_db::papers::update_citation_count(conn, paper_id, count).await;
     }
     true
 }

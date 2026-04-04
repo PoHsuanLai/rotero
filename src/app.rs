@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::db::Database;
+use rotero_db::Database;
 use crate::state::app_state::{DragPaper, LibraryState, PdfTabManager, ViewerToolState};
 use crate::state::commands;
 use crate::sync::engine::SyncConfig;
@@ -92,7 +92,8 @@ pub fn App() -> Element {
     let db_gen = *db_generation.read();
     let db_resource = use_resource(move || async move {
         let _ = db_gen; // capture to re-run when generation bumps
-        Database::init().await
+        let config = SyncConfig::load();
+        Database::open(config.effective_library_path()).await
     });
 
     match &*db_resource.read() {
@@ -179,16 +180,16 @@ fn LoadLibraryData() -> Element {
             }
 
             let conn = db.conn();
-            if let Ok(papers) = crate::db::papers::list_papers(conn).await {
+            if let Ok(papers) = rotero_db::papers::list_papers(conn).await {
                 lib_state.with_mut(|s| s.papers = papers);
             }
-            if let Ok(collections) = crate::db::collections::list_collections(conn).await {
+            if let Ok(collections) = rotero_db::collections::list_collections(conn).await {
                 lib_state.with_mut(|s| s.collections = collections);
             }
-            if let Ok(tags) = crate::db::tags::list_tags(conn).await {
+            if let Ok(tags) = rotero_db::tags::list_tags(conn).await {
                 lib_state.with_mut(|s| s.tags = tags);
             }
-            if let Ok(searches) = crate::db::saved_searches::list_saved_searches(conn).await {
+            if let Ok(searches) = rotero_db::saved_searches::list_saved_searches(conn).await {
                 lib_state.with_mut(|s| s.saved_searches = searches);
             }
 
@@ -210,7 +211,7 @@ fn LoadLibraryData() -> Element {
                 loop {
                     // Find papers with DOI but no citation count — query DB directly
                     // to avoid cloning the entire papers Vec.
-                    let needs_update = crate::db::papers::list_papers_needing_citations(db.conn())
+                    let needs_update = rotero_db::papers::list_papers_needing_citations(db.conn())
                         .await
                         .unwrap_or_default();
 
@@ -225,7 +226,7 @@ fn LoadLibraryData() -> Element {
                         match result {
                             Ok(meta) => {
                                 if let Some(count) = meta.citation_count {
-                                    let _ = crate::db::papers::update_citation_count(
+                                    let _ = rotero_db::papers::update_citation_count(
                                         db.conn(),
                                         &paper_id,
                                         count,
@@ -274,14 +275,14 @@ fn LoadLibraryData() -> Element {
 
                 loop {
                     // Generate citation keys for papers that don't have one
-                    let existing_keys = crate::db::papers::list_citation_keys(db.conn())
+                    let existing_keys = rotero_db::papers::list_citation_keys(db.conn())
                         .await
                         .unwrap_or_default();
 
                     // Query DB directly for papers needing keys — avoids cloning
                     // the entire papers Vec every 30 seconds.
                     let needs_keys =
-                        crate::db::papers::list_papers_needing_citation_keys(db.conn())
+                        rotero_db::papers::list_papers_needing_citation_keys(db.conn())
                             .await
                             .unwrap_or_default();
                     let mut keys_updated = false;
@@ -295,7 +296,7 @@ fn LoadLibraryData() -> Element {
                         stub.year = *year;
 
                         let key = rotero_bib::generate_unique_cite_key(&stub, &all_keys);
-                        if crate::db::papers::update_citation_key(db.conn(), paper_id, &key)
+                        if rotero_db::papers::update_citation_key(db.conn(), paper_id, &key)
                             .await
                             .is_ok()
                         {
@@ -341,7 +342,7 @@ fn LoadLibraryData() -> Element {
                     && flag.swap(false, std::sync::atomic::Ordering::AcqRel)
                 {
                     let conn = db.conn();
-                    if let Ok(papers) = crate::db::papers::list_papers(conn).await {
+                    if let Ok(papers) = rotero_db::papers::list_papers(conn).await {
                         lib_state.with_mut(|s| s.papers = papers);
                     }
                     // Refresh collection/tag paper IDs if viewing one
@@ -349,7 +350,7 @@ fn LoadLibraryData() -> Element {
                     match view {
                         LibraryView::Collection(coll_id) => {
                             if let Ok(ids) =
-                                crate::db::collections::list_paper_ids_in_collection(conn, &coll_id)
+                                rotero_db::collections::list_paper_ids_in_collection(conn, &coll_id)
                                     .await
                             {
                                 lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
@@ -357,7 +358,7 @@ fn LoadLibraryData() -> Element {
                         }
                         LibraryView::Tag(tag_id) => {
                             if let Ok(ids) =
-                                crate::db::tags::list_paper_ids_by_tag(conn, &tag_id).await
+                                rotero_db::tags::list_paper_ids_by_tag(conn, &tag_id).await
                             {
                                 lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
                             }

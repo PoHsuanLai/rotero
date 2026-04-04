@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 use rotero_models::Annotation;
 
-use crate::db::Database;
+use rotero_db::Database;
 use crate::state::app_state::PdfTabManager;
 
 /// A forward annotation action (what was done).
@@ -85,7 +85,7 @@ pub async fn reverse_action(
     match action {
         UndoAction::Create(ref ann) => {
             let ann_id = ann.id.clone().unwrap_or_default();
-            if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), &ann_id).await {
+            if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &ann_id).await {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {
                         t.annotations.retain(|a| a.id.as_deref() != Some(ann_id.as_str()));
@@ -94,7 +94,7 @@ pub async fn reverse_action(
             }
         }
         UndoAction::Delete(ref ann) => {
-            if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), ann).await {
+            if let Ok(id) = rotero_db::annotations::insert_annotation(db.conn(), ann).await {
                 let mut ann = ann.clone();
                 ann.id = Some(id.clone());
                 // Patch the redo stack so future redo uses the new id
@@ -109,7 +109,7 @@ pub async fn reverse_action(
         UndoAction::UpdateContent { ref id, ref old, .. } => {
             let opt = old.as_deref();
             if let Ok(()) =
-                crate::db::annotations::update_annotation_content(db.conn(), id, opt).await
+                rotero_db::annotations::update_annotation_content(db.conn(), id, opt).await
             {
                 let id = id.clone();
                 tabs.with_mut(|m| {
@@ -123,7 +123,7 @@ pub async fn reverse_action(
         }
         UndoAction::UpdateColor { ref id, ref old, .. } => {
             if let Ok(()) =
-                crate::db::annotations::update_annotation_color(db.conn(), id, old).await
+                rotero_db::annotations::update_annotation_color(db.conn(), id, old).await
             {
                 let id = id.clone();
                 tabs.with_mut(|m| {
@@ -147,7 +147,7 @@ pub async fn forward_action(
 ) {
     match action {
         UndoAction::Create(ref ann) => {
-            if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), ann).await {
+            if let Ok(id) = rotero_db::annotations::insert_annotation(db.conn(), ann).await {
                 let mut ann = ann.clone();
                 ann.id = Some(id.clone());
                 // Patch the undo stack so future undo uses the new id
@@ -161,7 +161,7 @@ pub async fn forward_action(
         }
         UndoAction::Delete(ref ann) => {
             let ann_id = ann.id.clone().unwrap_or_default();
-            if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), &ann_id).await {
+            if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &ann_id).await {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {
                         t.annotations.retain(|a| a.id.as_deref() != Some(ann_id.as_str()));
@@ -172,7 +172,7 @@ pub async fn forward_action(
         UndoAction::UpdateContent { ref id, ref new, .. } => {
             let opt = new.as_deref();
             if let Ok(()) =
-                crate::db::annotations::update_annotation_content(db.conn(), id, opt).await
+                rotero_db::annotations::update_annotation_content(db.conn(), id, opt).await
             {
                 let id = id.clone();
                 tabs.with_mut(|m| {
@@ -186,7 +186,7 @@ pub async fn forward_action(
         }
         UndoAction::UpdateColor { ref id, ref new, .. } => {
             if let Ok(()) =
-                crate::db::annotations::update_annotation_color(db.conn(), id, new).await
+                rotero_db::annotations::update_annotation_color(db.conn(), id, new).await
             {
                 let id = id.clone();
                 tabs.with_mut(|m| {

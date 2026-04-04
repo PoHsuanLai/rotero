@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use super::components::context_menu::{ContextMenu, ContextMenuItem};
-use crate::db::Database;
+use rotero_db::Database;
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
 use crate::sync::engine::SyncConfig;
 
@@ -108,7 +108,7 @@ pub fn PaperDetail() -> Element {
                                                         let db = db.clone();
                                                         let pid = paper_id.clone();
                                                         spawn(async move {
-                                                            let _ = crate::db::papers::update_citation_key(db.conn(), &pid, &new_key).await;
+                                                            let _ = rotero_db::papers::update_citation_key(db.conn(), &pid, &new_key).await;
                                                             let pid2 = pid.clone();
                                                             lib_state.with_mut(|s| {
                                                                 if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
@@ -131,7 +131,7 @@ pub fn PaperDetail() -> Element {
                                                 let db = db_key2.clone();
                                                 let pid = paper_id.clone();
                                                 spawn(async move {
-                                                    let _ = crate::db::papers::update_citation_key(db.conn(), &pid, &new_key).await;
+                                                    let _ = rotero_db::papers::update_citation_key(db.conn(), &pid, &new_key).await;
                                                     let pid2 = pid.clone();
                                                     lib_state.with_mut(|s| {
                                                         if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
@@ -298,7 +298,7 @@ pub fn PaperDetail() -> Element {
                                                                     match db.import_pdf_bytes(&bytes, &title, first_author, year) {
                                                                         Ok(rel_path) => {
                                                                             let pid = paper_id.clone();
-                                                                            let _ = crate::db::papers::update_pdf_path(db.conn(), &pid, &rel_path).await;
+                                                                            let _ = rotero_db::papers::update_pdf_path(db.conn(), &pid, &rel_path).await;
                                                                             let pid2 = pid.clone();
                                                                             lib_state.with_mut(|s| {
                                                                                 if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
@@ -340,7 +340,7 @@ pub fn PaperDetail() -> Element {
                                 let db = db_del.clone();
                                 let pid = pid.clone();
                                 spawn(async move {
-                                    if let Ok(()) = crate::db::papers::delete_paper(db.conn(), &pid).await {
+                                    if let Ok(()) = rotero_db::papers::delete_paper(db.conn(), &pid).await {
                                         let pid2 = pid.clone();
                                         lib_state.with_mut(|s| {
                                             s.papers.retain(|p| p.id.as_deref() != Some(pid2.as_str()));
@@ -413,7 +413,7 @@ fn AddToCollectionSelect(paper_id: String) -> Element {
                     let db = db.clone();
                     let pid = paper_id.clone();
                     spawn(async move {
-                        let _ = crate::db::collections::add_paper_to_collection(db.conn(), &pid, &coll_id).await;
+                        let _ = rotero_db::collections::add_paper_to_collection(db.conn(), &pid, &coll_id).await;
                     });
                 }
             },
@@ -453,10 +453,10 @@ fn TagEditor(paper_id: String) -> Element {
                         let db = db.clone();
                         let pid = paper_id.clone();
                         spawn(async move {
-                            if let Ok(tag_id) = crate::db::tags::get_or_create_tag(db.conn(), &tag_name, None).await {
-                                let _ = crate::db::tags::add_tag_to_paper(db.conn(), &pid, &tag_id).await;
+                            if let Ok(tag_id) = rotero_db::tags::get_or_create_tag(db.conn(), &tag_name, None).await {
+                                let _ = rotero_db::tags::add_tag_to_paper(db.conn(), &pid, &tag_id).await;
                                 // Reload tags
-                                if let Ok(tags) = crate::db::tags::list_tags(db.conn()).await {
+                                if let Ok(tags) = rotero_db::tags::list_tags(db.conn()).await {
                                     lib_state.with_mut(|s| s.tags = tags);
                                 }
                             }
@@ -483,7 +483,7 @@ fn NotesSection(paper_id: String) -> Element {
             let pid = pid.clone();
             spawn(async move {
                 if let Ok(paper_notes) =
-                    crate::db::notes::list_notes_for_paper(db.conn(), &pid).await
+                    rotero_db::notes::list_notes_for_paper(db.conn(), &pid).await
                 {
                     notes.set(paper_notes);
                 }
@@ -521,8 +521,8 @@ fn NotesSection(paper_id: String) -> Element {
                                     let nid = note_id.clone();
                                     let pid = pid.clone();
                                     spawn(async move {
-                                        let _ = crate::db::notes::delete_note(db.conn(), &nid).await;
-                                        if let Ok(paper_notes) = crate::db::notes::list_notes_for_paper(db.conn(), &pid).await {
+                                        let _ = rotero_db::notes::delete_note(db.conn(), &nid).await;
+                                        if let Ok(paper_notes) = rotero_db::notes::list_notes_for_paper(db.conn(), &pid).await {
                                             notes.set(paper_notes);
                                         }
                                     });

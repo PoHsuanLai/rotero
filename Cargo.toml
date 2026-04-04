@@ -5,6 +5,8 @@ members = [
     "crates/rotero-search",
     "crates/rotero-bib",
     "crates/rotero-connector",
+    "crates/rotero-db",
+    "crates/rotero-mcp",
 ]
 resolver = "3"
 
@@ -28,6 +30,7 @@ rotero-pdf = { path = "crates/rotero-pdf" }
 rotero-bib = { path = "crates/rotero-bib" }
 rotero-search = { path = "crates/rotero-search" }
 rotero-connector = { path = "crates/rotero-connector" }
+rotero-db = { path = "crates/rotero-db" }
 
 [package]
 name = "rotero"
@@ -40,10 +43,10 @@ rotero-pdf.workspace = true
 rotero-bib.workspace = true
 rotero-search.workspace = true
 rotero-connector = { workspace = true, optional = true }
+rotero-db.workspace = true
 
 dioxus = "0.7"
 rfd = { version = "0.14", optional = true }
-turso = "0.6.0-pre.15"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 directories = { version = "6", optional = true }
 base64 = "0.22"

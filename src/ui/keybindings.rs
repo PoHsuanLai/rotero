@@ -2,7 +2,7 @@ use dioxus::desktop::{use_global_shortcut, use_muda_event_handler};
 use dioxus::prelude::*;
 
 use crate::app::{DevicePixelRatio, RenderChannel, ShowSettings};
-use crate::db::Database;
+use rotero_db::Database;
 use crate::state::app_state::{
     AnnotationMode, LibraryState, LibraryView, PdfTab, PdfTabManager, ViewerToolState,
 };
@@ -60,7 +60,7 @@ fn action_import_bibtex(db: Database, mut lib_state: Signal<LibraryState>) {
     {
         spawn(async move {
             for paper in papers {
-                if let Ok(id) = crate::db::papers::insert_paper(db.conn(), &paper).await {
+                if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
                     let mut paper = paper;
                     paper.id = Some(id);
                     lib_state.with_mut(|s| s.papers.insert(0, paper));

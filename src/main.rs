@@ -1,6 +1,5 @@
 mod app;
 mod cache;
-mod db;
 mod metadata;
 mod state;
 mod sync;
@@ -48,7 +47,7 @@ fn main() {
                 // Open a dedicated DB connection for the connector thread
                 let db_path = lib_path.join("rotero.db");
                 let db_path_str = db_path.to_string_lossy().to_string();
-                let db = match turso::Builder::new_local(&db_path_str)
+                let db = match rotero_db::turso::Builder::new_local(&db_path_str)
                     .build()
                     .await
                 {
@@ -81,13 +80,13 @@ fn main() {
                             let lib_path = lib_path.clone();
                             tokio::task::block_in_place(|| {
                                 tokio::runtime::Handle::current().block_on(async {
-                                    match db::papers::insert_paper(&conn, &paper).await {
+                                    match rotero_db::papers::insert_paper(&conn, &paper).await {
                                         Ok(paper_id) => {
                                             if let Some(ref coll_id) = collection_id {
-                                                let _ = db::collections::add_paper_to_collection(&conn, &paper_id, coll_id).await;
+                                                let _ = rotero_db::collections::add_paper_to_collection(&conn, &paper_id, coll_id).await;
                                             }
                                             for tag_id in &tag_ids {
-                                                let _ = db::tags::add_tag_to_paper(&conn, &paper_id, tag_id).await;
+                                                let _ = rotero_db::tags::add_tag_to_paper(&conn, &paper_id, tag_id).await;
                                             }
                                             dirty.store(true, Ordering::Release);
                                             tracing::info!("Connector saved paper id={}: {}", paper_id, paper.title);
@@ -121,7 +120,7 @@ fn main() {
                                             let dirty_enrich = dirty.clone();
                                             tokio::spawn(async move {
                                                 if let Some(enriched) = metadata::enrich::enrich_paper(&paper).await
-                                                    && db::papers::update_paper_metadata(&conn_enrich, &paper_id_enrich, &enriched).await.is_ok()
+                                                    && rotero_db::papers::update_paper_metadata(&conn_enrich, &paper_id_enrich, &enriched).await.is_ok()
                                                 {
                                                     dirty_enrich.store(true, Ordering::Release);
                                                     tracing::info!("Connector enriched metadata for paper id={}", paper_id_enrich);
@@ -141,7 +140,7 @@ fn main() {
                         // Block on async in sync callback context
                         tokio::task::block_in_place(|| {
                             tokio::runtime::Handle::current().block_on(async {
-                                match db::collections::list_collections(&conn).await {
+                                match rotero_db::collections::list_collections(&conn).await {
                                     Ok(colls) => colls
                                         .into_iter()
                                         .filter_map(|c| {
@@ -160,7 +159,7 @@ fn main() {
                         let conn = conn_tags.clone();
                         tokio::task::block_in_place(|| {
                             tokio::runtime::Handle::current().block_on(async {
-                                match db::tags::list_tags(&conn).await {
+                                match rotero_db::tags::list_tags(&conn).await {
                                     Ok(tags) => tags
                                         .into_iter()
                                         .filter_map(|t| {
@@ -358,7 +357,7 @@ fn build_menu_bar() -> dioxus::desktop::muda::Menu {
 /// Download a PDF from a URL and import it into the library.
 #[cfg(feature = "desktop")]
 async fn download_and_import_pdf(
-    conn: &turso::Connection,
+    conn: &rotero_db::turso::Connection,
     lib_path: &std::path::Path,
     paper_id: &str,
     paper: &rotero_models::Paper,
@@ -452,7 +451,7 @@ async fn download_and_import_pdf(
     let rel_path = format!("{subfolder}/{final_name}");
 
     // Update the paper's pdf_path in the DB
-    db::papers::update_pdf_path(conn, paper_id, &rel_path)
+    rotero_db::papers::update_pdf_path(conn, paper_id, &rel_path)
         .await
         .map_err(|e| format!("Failed to update pdf_path: {e}"))?;
 
