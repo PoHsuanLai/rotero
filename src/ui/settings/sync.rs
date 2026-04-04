@@ -3,6 +3,38 @@ use dioxus::prelude::*;
 use crate::app::DbGeneration;
 use crate::sync::engine::{SyncConfig, SyncTransport};
 
+/// Reusable path picker row for settings.
+/// Shows the current path with Change/Reset buttons.
+#[component]
+fn PathField(
+    label: &'static str,
+    path: String,
+    show_reset: bool,
+    on_pick: EventHandler<()>,
+    on_clear: EventHandler<()>,
+) -> Element {
+    rsx! {
+        div { class: "settings-field",
+            span { class: "settings-field-label", "{label}" }
+            div { class: "settings-field-control settings-path-control",
+                code { class: "settings-bib-path", "{path}" }
+                button {
+                    class: "btn btn--sm btn--secondary",
+                    onclick: move |_| on_pick.call(()),
+                    "Change..."
+                }
+                if show_reset {
+                    button {
+                        class: "btn btn--sm btn--ghost",
+                        onclick: move |_| on_clear.call(()),
+                        "Reset"
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 pub fn SyncSection() -> Element {
     let mut config = use_context::<Signal<SyncConfig>>();
@@ -30,47 +62,34 @@ pub fn SyncSection() -> Element {
             h4 { class: "settings-section-title", "Library & Sync" }
 
             // Library location
-            div { class: "settings-field",
-                span { class: "settings-field-label", "Library location" }
-                div { class: "settings-field-control",
-                    if is_custom {
-                        code { class: "settings-bib-path", "{current_path}" }
-                        button {
-                            class: "btn btn--sm btn--ghost",
-                            onclick: move |_| {
-                                config.with_mut(|c| c.library_path = None);
-                                match config.read().save() {
-                                    Ok(()) => {
-                                        db_generation.with_mut(|g| *g += 1);
-                                        status_msg.set(Some("Reset to default location.".to_string()));
-                                    }
-                                    Err(e) => status_msg.set(Some(format!("Failed to save: {e}"))),
-                                }
-                            },
-                            "Reset"
-                        }
-                    } else {
-                        code { class: "settings-bib-path", "{current_path}" }
-                    }
-                    button {
-                        class: "btn btn--sm btn--secondary",
-                        onclick: move |_| {
-                            let picked = crate::ui::pick_folder("Choose Library Folder");
-                            if let Some(path) = picked {
-                                let path_str = path.to_string_lossy().to_string();
-                                config.with_mut(|c| c.library_path = Some(path_str));
-                                match config.read().save() {
-                                    Ok(()) => {
-                                        db_generation.with_mut(|g| *g += 1);
-                                        status_msg.set(Some("Library path updated.".to_string()));
-                                    }
-                                    Err(e) => status_msg.set(Some(format!("Failed to save: {e}"))),
-                                }
+            PathField {
+                label: "Library location",
+                path: current_path,
+                show_reset: is_custom,
+                on_pick: move |_| {
+                    let picked = crate::ui::pick_folder("Choose Library Folder");
+                    if let Some(path) = picked {
+                        let path_str = path.to_string_lossy().to_string();
+                        config.with_mut(|c| c.library_path = Some(path_str));
+                        match config.read().save() {
+                            Ok(()) => {
+                                db_generation.with_mut(|g| *g += 1);
+                                status_msg.set(Some("Library path updated.".to_string()));
                             }
-                        },
-                        "Change..."
+                            Err(e) => status_msg.set(Some(format!("Failed to save: {e}"))),
+                        }
                     }
-                }
+                },
+                on_clear: move |_| {
+                    config.with_mut(|c| c.library_path = None);
+                    match config.read().save() {
+                        Ok(()) => {
+                            db_generation.with_mut(|g| *g += 1);
+                            status_msg.set(Some("Reset to default location.".to_string()));
+                        }
+                        Err(e) => status_msg.set(Some(format!("Failed to save: {e}"))),
+                    }
+                },
             }
             p { class: "settings-hint", "Where your papers and database are stored." }
 
@@ -124,35 +143,23 @@ pub fn SyncSection() -> Element {
                         "Syncs via your iCloud account. No setup needed."
                     }
                 } else {
-                    // File-based — show folder picker
-                    div { class: "settings-field",
-                        span { class: "settings-field-label", "Sync folder" }
-                        div { class: "settings-field-control",
-                            if has_folder {
-                                code { class: "settings-bib-path", "{folder}" }
-                                button {
-                                    class: "btn btn--sm btn--ghost",
-                                    onclick: move |_| {
-                                        config.with_mut(|c| c.sync_folder_path = None);
-                                        let _ = config.read().save();
-                                    },
-                                    "Clear"
-                                }
-                            } else {
-                                button {
-                                    class: "btn btn--sm btn--secondary",
-                                    onclick: move |_| {
-                                        let picked = crate::ui::pick_folder("Choose Sync Folder");
-                                        if let Some(path) = picked {
-                                            let path_str = path.to_string_lossy().to_string();
-                                            config.with_mut(|c| c.sync_folder_path = Some(path_str));
-                                            let _ = config.read().save();
-                                        }
-                                    },
-                                    "Choose folder..."
-                                }
+                    // File-based — sync folder picker (same style as library path)
+                    PathField {
+                        label: "Sync folder",
+                        path: if has_folder { folder } else { "Not set".to_string() },
+                        show_reset: has_folder,
+                        on_pick: move |_| {
+                            let picked = crate::ui::pick_folder("Choose Sync Folder");
+                            if let Some(path) = picked {
+                                let path_str = path.to_string_lossy().to_string();
+                                config.with_mut(|c| c.sync_folder_path = Some(path_str));
+                                let _ = config.read().save();
                             }
-                        }
+                        },
+                        on_clear: move |_| {
+                            config.with_mut(|c| c.sync_folder_path = None);
+                            let _ = config.read().save();
+                        },
                     }
                     p { class: "settings-hint",
                         "Point to a cloud-synced folder (iCloud Drive, Dropbox, etc.)."

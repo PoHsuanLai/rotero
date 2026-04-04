@@ -138,6 +138,12 @@
   width: auto;
 }
 
+.settings-path-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .settings-number-input {
   width: 80px;
   text-align: center;
