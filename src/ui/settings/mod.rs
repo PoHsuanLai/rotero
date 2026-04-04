@@ -1,7 +1,6 @@
 mod appearance;
 mod connector;
 mod import;
-mod library;
 mod pdf_viewer;
 mod sync;
 
@@ -45,7 +44,7 @@ fn SettingsPanel(on_close: EventHandler<()>) -> Element {
                     }
                 }
 
-                library::LibrarySection {}
+                sync::SyncSection {}
 
                 div { class: "settings-divider" }
                 pdf_viewer::PdfViewerSection {}
@@ -58,9 +57,6 @@ fn SettingsPanel(on_close: EventHandler<()>) -> Element {
 
                 div { class: "settings-divider" }
                 import::ImportSection {}
-
-                div { class: "settings-divider" }
-                sync::SyncSection {}
 
                 div { class: "settings-divider" }
 

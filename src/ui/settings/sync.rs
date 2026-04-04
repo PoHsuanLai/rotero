@@ -1,12 +1,20 @@
 use dioxus::prelude::*;
 
+use crate::app::DbGeneration;
 use crate::sync::engine::{SyncConfig, SyncTransport};
 
 #[component]
 pub fn SyncSection() -> Element {
     let mut config = use_context::<Signal<SyncConfig>>();
+    let mut db_generation = use_context::<DbGeneration>();
     let mut status_msg = use_signal(|| None::<String>);
 
+    let current_path = config
+        .read()
+        .effective_library_path()
+        .to_string_lossy()
+        .to_string();
+    let is_custom = config.read().library_path.is_some();
     let enabled = config.read().sync_enabled;
     let transport = config.read().sync_transport.clone();
     let is_cloudkit = transport == SyncTransport::CloudKit;
@@ -19,10 +27,56 @@ pub fn SyncSection() -> Element {
 
     rsx! {
         div { class: "settings-section",
-            h4 { class: "settings-section-title", "Sync" }
+            h4 { class: "settings-section-title", "Library & Sync" }
 
+            // Library location
             div { class: "settings-field",
-                span { class: "settings-field-label", "Enable sync" }
+                span { class: "settings-field-label", "Library location" }
+                div { class: "settings-field-control",
+                    if is_custom {
+                        code { class: "settings-bib-path", "{current_path}" }
+                        button {
+                            class: "btn btn--sm btn--ghost",
+                            onclick: move |_| {
+                                config.with_mut(|c| c.library_path = None);
+                                match config.read().save() {
+                                    Ok(()) => {
+                                        db_generation.with_mut(|g| *g += 1);
+                                        status_msg.set(Some("Reset to default location.".to_string()));
+                                    }
+                                    Err(e) => status_msg.set(Some(format!("Failed to save: {e}"))),
+                                }
+                            },
+                            "Reset"
+                        }
+                    } else {
+                        code { class: "settings-bib-path", "{current_path}" }
+                    }
+                    button {
+                        class: "btn btn--sm btn--secondary",
+                        onclick: move |_| {
+                            let picked = crate::ui::pick_folder("Choose Library Folder");
+                            if let Some(path) = picked {
+                                let path_str = path.to_string_lossy().to_string();
+                                config.with_mut(|c| c.library_path = Some(path_str));
+                                match config.read().save() {
+                                    Ok(()) => {
+                                        db_generation.with_mut(|g| *g += 1);
+                                        status_msg.set(Some("Library path updated.".to_string()));
+                                    }
+                                    Err(e) => status_msg.set(Some(format!("Failed to save: {e}"))),
+                                }
+                            }
+                        },
+                        "Change..."
+                    }
+                }
+            }
+            p { class: "settings-hint", "Where your papers and database are stored." }
+
+            // Sync toggle
+            div { class: "settings-field",
+                span { class: "settings-field-label", "Sync across devices" }
                 div { class: "settings-field-control",
                     label { class: "settings-toggle",
                         input {
@@ -32,7 +86,6 @@ pub fn SyncSection() -> Element {
                                 let val = evt.checked();
                                 config.with_mut(|c| c.sync_enabled = val);
                                 let _ = config.read().save();
-                                status_msg.set(Some(if val { "Sync enabled." } else { "Sync disabled." }.to_string()));
                             },
                         }
                         span { class: "settings-toggle-track",
@@ -42,16 +95,13 @@ pub fn SyncSection() -> Element {
                 }
             }
 
-            p { class: "settings-hint",
-                "Sync your library across devices. Changes are merged automatically using CRDTs."
-            }
-
             if enabled {
                 // Transport selector
                 div { class: "settings-field",
                     span { class: "settings-field-label", "Method" }
                     div { class: "settings-field-control",
                         select {
+                            class: "select settings-select",
                             value: if is_cloudkit { "cloudkit" } else { "file" },
                             onchange: move |evt: Event<FormData>| {
                                 let val = evt.value();
@@ -71,7 +121,7 @@ pub fn SyncSection() -> Element {
 
                 if is_cloudkit {
                     p { class: "settings-hint",
-                        "Syncs automatically via your iCloud account. No setup needed."
+                        "Syncs via your iCloud account. No setup needed."
                     }
                 } else {
                     // File-based — show folder picker
@@ -85,7 +135,6 @@ pub fn SyncSection() -> Element {
                                     onclick: move |_| {
                                         config.with_mut(|c| c.sync_folder_path = None);
                                         let _ = config.read().save();
-                                        status_msg.set(Some("Sync folder cleared.".to_string()));
                                     },
                                     "Clear"
                                 }
@@ -98,7 +147,6 @@ pub fn SyncSection() -> Element {
                                             let path_str = path.to_string_lossy().to_string();
                                             config.with_mut(|c| c.sync_folder_path = Some(path_str));
                                             let _ = config.read().save();
-                                            status_msg.set(Some("Sync folder updated.".to_string()));
                                         }
                                     },
                                     "Choose folder..."
@@ -107,7 +155,7 @@ pub fn SyncSection() -> Element {
                         }
                     }
                     p { class: "settings-hint",
-                        "Point to a cloud-synced folder (iCloud Drive, Dropbox, etc.) to sync changesets between devices."
+                        "Point to a cloud-synced folder (iCloud Drive, Dropbox, etc.)."
                     }
                 }
             }
