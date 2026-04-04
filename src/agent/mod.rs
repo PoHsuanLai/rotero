@@ -41,9 +41,57 @@ fn find_pdfium_path() -> Option<PathBuf> {
     None
 }
 
-fn build_agent_command(provider: &AgentProvider) -> acpx::CommandSpec {
-    let mut spec = acpx::CommandSpec::new(provider.program);
-    for arg in provider.args {
+/// Directory where we cache installed agent npm packages.
+fn agents_cache_dir() -> PathBuf {
+    let base = directories::BaseDirs::new()
+        .map(|d| d.data_dir().to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    base.join("com.rotero.Rotero").join("agents")
+}
+
+/// Ensure an npm package is installed in our local cache, return the entry point path.
+/// Installs on first use, reuses on subsequent calls.
+fn ensure_agent_installed(provider: &AgentProvider) -> Result<PathBuf, String> {
+    let cache = agents_cache_dir();
+    let pkg_dir = cache.join(provider.id);
+    let entry = pkg_dir
+        .join("node_modules")
+        .join(provider.npm_package)
+        .join(provider.entry_point);
+
+    if entry.exists() {
+        return Ok(entry);
+    }
+
+    // Install the package
+    std::fs::create_dir_all(&pkg_dir)
+        .map_err(|e| format!("Failed to create agent cache dir: {e}"))?;
+
+    tracing::info!("Installing {} (first time setup)...", provider.npm_package);
+
+    let output = std::process::Command::new("npm")
+        .args(["install", "--prefix", &pkg_dir.to_string_lossy(), provider.npm_package])
+        .output()
+        .map_err(|e| format!("Failed to run npm install: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("npm install failed: {stderr}"));
+    }
+
+    if entry.exists() {
+        Ok(entry)
+    } else {
+        Err(format!(
+            "Package installed but entry point not found at {}",
+            entry.display()
+        ))
+    }
+}
+
+fn build_agent_command(provider: &AgentProvider, entry_point: &PathBuf) -> acpx::CommandSpec {
+    let mut spec = acpx::CommandSpec::new("node").arg(entry_point.to_string_lossy());
+    for arg in provider.extra_args {
         spec = spec.arg(*arg);
     }
     spec
@@ -132,7 +180,19 @@ async fn connect_and_run(
     req_rx: &mpsc::Receiver<ChatRequest>,
     evt_tx: &tokio::sync::mpsc::UnboundedSender<ChatEvent>,
 ) -> AgentLoopResult {
-    let agent_cmd = build_agent_command(provider);
+    // Install package if needed (blocking, runs on first use)
+    let entry_point = match ensure_agent_installed(provider) {
+        Ok(ep) => ep,
+        Err(e) => {
+            let _ = evt_tx.send(ChatEvent::Error(format!(
+                "Failed to install {}: {e}",
+                provider.name
+            )));
+            return wait_for_switch_or_shutdown(req_rx).await;
+        }
+    };
+
+    let agent_cmd = build_agent_command(provider, &entry_point);
 
     let server = acpx::CommandAgentServer::new(
         acpx::AgentServerMetadata::new(provider.id, provider.name, "0.1.0"),

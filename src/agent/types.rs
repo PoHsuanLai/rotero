@@ -49,8 +49,12 @@ pub struct AgentProvider {
     pub id: &'static str,
     pub name: &'static str,
     pub description: &'static str,
-    pub program: &'static str,
-    pub args: &'static [&'static str],
+    /// npm package name to install.
+    pub npm_package: &'static str,
+    /// Entry point relative to package (node runs this directly).
+    pub entry_point: &'static str,
+    /// Extra args to pass after the entry point.
+    pub extra_args: &'static [&'static str],
 }
 
 pub const AGENT_PROVIDERS: &[AgentProvider] = &[
@@ -58,29 +62,33 @@ pub const AGENT_PROVIDERS: &[AgentProvider] = &[
         id: "claude",
         name: "Claude",
         description: "Anthropic Claude Code",
-        program: "npx",
-        args: &["--yes", "@agentclientprotocol/claude-agent-acp"],
+        npm_package: "@agentclientprotocol/claude-agent-acp",
+        entry_point: "dist/index.js",
+        extra_args: &[],
     },
     AgentProvider {
         id: "gemini",
         name: "Gemini",
         description: "Google Gemini CLI",
-        program: "npx",
-        args: &["--yes", "@google/gemini-cli", "--acp"],
+        npm_package: "@google/gemini-cli",
+        entry_point: "dist/cli.js",
+        extra_args: &["--acp"],
     },
     AgentProvider {
         id: "copilot",
         name: "GitHub Copilot",
         description: "GitHub Copilot CLI",
-        program: "npx",
-        args: &["--yes", "@github/copilot", "--acp"],
+        npm_package: "@github/copilot",
+        entry_point: "dist/cli.js",
+        extra_args: &["--acp"],
     },
     AgentProvider {
         id: "codex",
         name: "Codex",
         description: "OpenAI Codex CLI",
-        program: "npx",
-        args: &["--yes", "@zed-industries/codex-acp"],
+        npm_package: "@zed-industries/codex-acp",
+        entry_point: "dist/index.js",
+        extra_args: &[],
     },
 ];
 
