@@ -22,6 +22,7 @@
 .settings-dialog,
 .citation-dialog {
   background: var(--bg-surface);
+  color: var(--text-primary);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-xl);
   border: 1px solid var(--border);
