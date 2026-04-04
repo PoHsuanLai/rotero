@@ -58,6 +58,14 @@ pub struct SyncConfig {
     /// Path for auto-exported .bib file (Better BibTeX). None = disabled.
     #[serde(default)]
     pub auto_export_bib_path: Option<String>,
+
+    /// Whether CRR sync is enabled.
+    #[serde(default)]
+    pub sync_enabled: bool,
+
+    /// Path to the shared sync folder (e.g. iCloud Drive, Dropbox).
+    #[serde(default)]
+    pub sync_folder_path: Option<String>,
 }
 
 fn default_zoom() -> f32 {
@@ -108,6 +116,8 @@ impl Default for SyncConfig {
             render_quality: default_render_quality(),
             thumbnail_quality: default_thumbnail_quality(),
             auto_export_bib_path: None,
+            sync_enabled: false,
+            sync_folder_path: None,
         }
     }
 }

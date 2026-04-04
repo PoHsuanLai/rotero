@@ -1,5 +1,6 @@
 pub mod annotations;
 pub mod collections;
+pub mod crr;
 pub mod notes;
 pub mod papers;
 pub mod saved_searches;
