@@ -30,7 +30,9 @@ CREATE TABLE IF NOT EXISTS papers (
     is_favorite   INTEGER NOT NULL DEFAULT 0,
     is_read       INTEGER NOT NULL DEFAULT 0,
     extra_meta    TEXT,
-    fulltext      TEXT
+    fulltext      TEXT,
+    citation_count INTEGER,
+    citation_key  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS collections (

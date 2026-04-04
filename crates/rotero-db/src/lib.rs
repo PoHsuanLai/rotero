@@ -5,6 +5,7 @@ pub mod notes;
 pub mod papers;
 pub mod saved_searches;
 pub mod schema;
+pub mod sync_test_helpers;
 pub mod tags;
 
 pub use rotero_models::queries;

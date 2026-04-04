@@ -10,3 +10,7 @@ serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 uuid = { version = "1", features = ["v7"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+tempfile = "3"

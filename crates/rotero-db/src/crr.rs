@@ -90,8 +90,35 @@ const CRR_TABLES: &[(&str, &[&str])] = &[
 
 // ── Initialization ──────────────────────────────────────────────
 
-/// Create clock tables for all CRR-enabled tables (idempotent).
+/// Create CRR metadata tables and clock tables for all CRR-enabled tables (idempotent).
 pub async fn init_crr_tables(conn: &Connection) -> Result<(), turso::Error> {
+    // Metadata tables
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS crr_site_id (site_id BLOB PRIMARY KEY)",
+        (),
+    )
+    .await?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS crr_db_version (version INTEGER NOT NULL)",
+        (),
+    )
+    .await?;
+    // Ensure there's a row in crr_db_version
+    let mut rows = conn.query("SELECT version FROM crr_db_version LIMIT 1", ()).await?;
+    if rows.next().await?.is_none() {
+        conn.execute("INSERT INTO crr_db_version (version) VALUES (0)", ()).await?;
+    }
+    // Ensure there's a site_id
+    let mut rows = conn.query("SELECT site_id FROM crr_site_id LIMIT 1", ()).await?;
+    if rows.next().await?.is_none() {
+        conn.execute(
+            "INSERT INTO crr_site_id (site_id) VALUES (randomblob(16))",
+            (),
+        )
+        .await?;
+    }
+
+    // Clock tables
     for (table, _) in CRR_TABLES {
         let sql = format!(
             "CREATE TABLE IF NOT EXISTS {table}__crr_clock (
@@ -402,8 +429,14 @@ pub async fn apply_changes(
 
             // Remote CL > local CL — apply
             let is_delete = change.cl % 2 == 0;
+            let is_create = !is_delete && local_cl == 0;
 
-            if is_delete {
+            if is_create {
+                // Row doesn't exist locally — create a skeleton row.
+                // Column values will be filled by subsequent column-level changes.
+                // We must supply defaults for NOT NULL columns.
+                create_skeleton_row(conn, &change.table_name, &change.pk).await;
+            } else if is_delete {
                 // Delete the row from the data table
                 let sql = format!(
                     "DELETE FROM {} WHERE id = ?1",
@@ -614,6 +647,71 @@ fn compare_json_values(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp
     let a_str = a.to_string();
     let b_str = b.to_string();
     a_str.cmp(&b_str)
+}
+
+/// Create a skeleton row in a data table with defaults for NOT NULL columns.
+/// This is needed when applying a remote INSERT — we create the row first,
+/// then column-level changes fill in the actual values.
+async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str) {
+    let now = chrono::Utc::now().to_rfc3339();
+    let sql = match table {
+        "papers" => format!(
+            "INSERT OR IGNORE INTO papers (id, title, authors, date_added, date_modified, is_favorite, is_read) \
+             VALUES (?1, '', '[]', '{now}', '{now}', 0, 0)"
+        ),
+        "collections" => format!(
+            "INSERT OR IGNORE INTO collections (id, name, position) VALUES (?1, '', 0)"
+        ),
+        "tags" => format!(
+            "INSERT OR IGNORE INTO tags (id, name) VALUES (?1, '')"
+        ),
+        "annotations" => format!(
+            "INSERT OR IGNORE INTO annotations (id, paper_id, page, ann_type, color, geometry, created_at, modified_at) \
+             VALUES (?1, '', 0, 'note', '#ffff00', '{{}}', '{now}', '{now}')"
+        ),
+        "notes" => format!(
+            "INSERT OR IGNORE INTO notes (id, paper_id, title, body, created_at, modified_at) \
+             VALUES (?1, '', '', '', '{now}', '{now}')"
+        ),
+        "saved_searches" => format!(
+            "INSERT OR IGNORE INTO saved_searches (id, name, query, created_at) \
+             VALUES (?1, '', '', '{now}')"
+        ),
+        "paper_collections" => {
+            // Junction table — pk is "paper_id:collection_id"
+            let parts: Vec<&str> = pk.splitn(2, ':').collect();
+            if parts.len() == 2 {
+                let sql = "INSERT OR IGNORE INTO paper_collections (paper_id, collection_id) VALUES (?1, ?2)";
+                let _ = conn.execute(
+                    sql,
+                    turso::params::Params::Positional(vec![
+                        Value::Text(parts[0].to_string()),
+                        Value::Text(parts[1].to_string()),
+                    ]),
+                ).await;
+            }
+            return;
+        }
+        "paper_tags" => {
+            let parts: Vec<&str> = pk.splitn(2, ':').collect();
+            if parts.len() == 2 {
+                let sql = "INSERT OR IGNORE INTO paper_tags (paper_id, tag_id) VALUES (?1, ?2)";
+                let _ = conn.execute(
+                    sql,
+                    turso::params::Params::Positional(vec![
+                        Value::Text(parts[0].to_string()),
+                        Value::Text(parts[1].to_string()),
+                    ]),
+                ).await;
+            }
+            return;
+        }
+        _ => return,
+    };
+    let _ = conn.execute(
+        &sql,
+        turso::params::Params::Positional(vec![Value::Text(pk.to_string())]),
+    ).await;
 }
 
 /// Simple base64 encoding for blob values.

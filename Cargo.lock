@@ -5744,6 +5744,8 @@ dependencies = [
  "rotero-models",
  "serde",
  "serde_json",
+ "tempfile",
+ "tokio",
  "turso",
  "uuid",
 ]
