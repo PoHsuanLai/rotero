@@ -51,9 +51,15 @@ pub struct AgentProvider {
     pub description: &'static str,
     pub program: &'static str,
     pub args: &'static [&'static str],
+    /// Env var keys this provider needs (e.g. ["GEMINI_API_KEY"]).
+    /// Empty for providers that use CLI-managed auth (Claude).
+    pub env_keys: &'static [&'static str],
+    /// Hint text shown in the API key input field.
+    pub env_hint: &'static str,
+    /// Extra env vars to always set when spawning this provider.
+    pub extra_env: &'static [(&'static str, &'static str)],
 }
 
-/// Built-in registry of known ACP agent providers.
 pub const AGENT_PROVIDERS: &[AgentProvider] = &[
     AgentProvider {
         id: "claude",
@@ -61,13 +67,19 @@ pub const AGENT_PROVIDERS: &[AgentProvider] = &[
         description: "Anthropic Claude Code (requires Claude subscription)",
         program: "npx",
         args: &["--yes", "@agentclientprotocol/claude-agent-acp"],
+        env_keys: &[],
+        env_hint: "",
+        extra_env: &[],
     },
     AgentProvider {
         id: "gemini",
         name: "Gemini",
-        description: "Google Gemini CLI (requires Google account)",
+        description: "Google Gemini CLI (requires Google account or API key)",
         program: "npx",
         args: &["--yes", "@google/gemini-cli", "--acp"],
+        env_keys: &["GEMINI_API_KEY"],
+        env_hint: "AIza... (from ai.google.dev)",
+        extra_env: &[],
     },
     AgentProvider {
         id: "copilot",
@@ -75,6 +87,9 @@ pub const AGENT_PROVIDERS: &[AgentProvider] = &[
         description: "GitHub Copilot (requires Copilot subscription)",
         program: "npx",
         args: &["--yes", "@github/copilot", "--acp"],
+        env_keys: &["GITHUB_TOKEN"],
+        env_hint: "ghp_... or fine-grained PAT with Copilot access",
+        extra_env: &[],
     },
     AgentProvider {
         id: "codex",
@@ -82,6 +97,9 @@ pub const AGENT_PROVIDERS: &[AgentProvider] = &[
         description: "OpenAI Codex (requires OpenAI API key)",
         program: "npx",
         args: &["--yes", "@zed-industries/codex-acp"],
+        env_keys: &["OPENAI_API_KEY"],
+        env_hint: "sk-... (from platform.openai.com)",
+        extra_env: &[("NO_BROWSER", "1")],
     },
 ];
 
@@ -123,7 +141,7 @@ pub struct ChatState {
     pub past_sessions: Vec<PastSession>,
     pub show_session_browser: bool,
     pub auth_methods: Vec<AgentAuthMethod>,
-    /// Currently selected agent provider id.
+    /// The provider id that is actually connected right now.
     pub active_provider_id: String,
 }
 
@@ -137,7 +155,6 @@ pub enum ChatRequest {
     Authenticate { method_id: String },
     ListSessions,
     LoadSession { session_id: String },
-    /// Switch to a different agent provider. Tears down current connection.
     SwitchAgent { provider_id: String },
     Shutdown,
 }
@@ -145,6 +162,8 @@ pub enum ChatRequest {
 /// Events sent from agent thread -> UI.
 #[derive(Debug)]
 pub enum ChatEvent {
+    /// Agent is switching — sent immediately before teardown for instant UI feedback.
+    Switching { provider_id: String },
     Connected {
         auth_methods: Vec<AgentAuthMethod>,
         provider_id: String,

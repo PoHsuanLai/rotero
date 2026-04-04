@@ -177,11 +177,18 @@ fn spawn_chat_event_poller(
                     Err(_) => break,
                 };
                 match event {
-                ChatEvent::Connected { auth_methods, provider_id } => {
+                ChatEvent::Switching { provider_id } => {
                     chat_state.with_mut(|s| {
                         s.messages.clear();
                         s.commands.clear();
                         s.session_active = false;
+                        s.auth_methods.clear();
+                        s.status = AgentStatus::Connecting;
+                        s.active_provider_id = provider_id;
+                    });
+                }
+                ChatEvent::Connected { auth_methods, provider_id } => {
+                    chat_state.with_mut(|s| {
                         s.status = AgentStatus::Connecting;
                         s.auth_methods = auth_methods;
                         s.active_provider_id = provider_id;

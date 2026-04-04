@@ -46,6 +46,22 @@ fn build_agent_command(provider: &AgentProvider) -> acpx::CommandSpec {
     for arg in provider.args {
         spec = spec.arg(*arg);
     }
+    // Pass extra env vars (e.g. NO_BROWSER=1 for Codex)
+    for (k, v) in provider.extra_env {
+        spec = spec.env(*k, *v);
+    }
+    // Pass user-configured API keys from SyncConfig
+    let config = crate::sync::engine::SyncConfig::load();
+    for key in provider.env_keys {
+        // Check SyncConfig first, then system env
+        if let Some(val) = config.agent_env_vars.get(*key) {
+            if !val.is_empty() {
+                spec = spec.env(*key, val.as_str());
+            }
+        } else if let Ok(val) = std::env::var(key) {
+            spec = spec.env(*key, val);
+        }
+    }
     spec
 }
 
@@ -106,10 +122,6 @@ async fn agent_main(
             AgentLoopResult::SwitchAgent(provider_id) => {
                 if let Some(provider) = AGENT_PROVIDERS.iter().find(|p| p.id == provider_id) {
                     current_provider = provider;
-                    let _ = evt_tx.send(ChatEvent::Connected {
-                        auth_methods: vec![],
-                        provider_id: provider_id.clone(),
-                    });
                     continue;
                 } else {
                     let _ = evt_tx.send(ChatEvent::Error(format!(
@@ -323,7 +335,10 @@ async fn connect_and_run(
                 }
             }
             Some(ChatRequest::SwitchAgent { provider_id }) => {
-                tracing::info!("ACP: switching agent to {provider_id}");
+                // Send Switching event immediately for instant UI feedback
+                let _ = evt_tx.send(ChatEvent::Switching {
+                    provider_id: provider_id.clone(),
+                });
                 break AgentLoopResult::SwitchAgent(provider_id);
             }
             Some(ChatRequest::Shutdown) | None => {
