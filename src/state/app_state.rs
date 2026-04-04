@@ -368,6 +368,7 @@ pub enum LibraryView {
     Duplicates,
     SavedSearch(i64),
     PdfViewer,
+    Graph,
 }
 
 impl LibraryState {

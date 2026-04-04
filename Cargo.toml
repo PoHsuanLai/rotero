@@ -5,6 +5,7 @@ members = [
     "crates/rotero-search",
     "crates/rotero-bib",
     "crates/rotero-connector",
+    "crates/rotero-graph",
 ]
 resolver = "3"
 
@@ -28,6 +29,7 @@ rotero-pdf = { path = "crates/rotero-pdf" }
 rotero-bib = { path = "crates/rotero-bib" }
 rotero-search = { path = "crates/rotero-search" }
 rotero-connector = { path = "crates/rotero-connector" }
+rotero-graph = { path = "crates/rotero-graph" }
 
 [package]
 name = "rotero"
@@ -40,6 +42,7 @@ rotero-pdf.workspace = true
 rotero-bib.workspace = true
 rotero-search.workspace = true
 rotero-connector = { workspace = true, optional = true }
+rotero-graph.workspace = true
 
 dioxus = "0.7"
 rfd = { version = "0.14", optional = true }

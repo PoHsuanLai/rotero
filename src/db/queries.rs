@@ -134,6 +134,13 @@ pub const SAVED_SEARCH_DELETE: &str = "DELETE FROM saved_searches WHERE id = ?1"
 pub const SAVED_SEARCH_RENAME: &str = "UPDATE saved_searches SET name = ?1 WHERE id = ?2";
 
 // ---------------------------------------------------------------------------
+// Graph
+// ---------------------------------------------------------------------------
+
+pub const GRAPH_ALL_PAPER_TAGS: &str = "SELECT paper_id, tag_id FROM paper_tags";
+pub const GRAPH_ALL_PAPER_COLLECTIONS: &str = "SELECT paper_id, collection_id FROM paper_collections";
+
+// ---------------------------------------------------------------------------
 // Common
 // ---------------------------------------------------------------------------
 

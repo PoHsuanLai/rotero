@@ -27,6 +27,8 @@ const PDF_CSS: &str = include_str!("../assets/pdf.css");
 const COMPONENTS_CSS: &str = include_str!("../assets/components.css");
 const DIALOGS_CSS: &str = include_str!("../assets/dialogs.css");
 const THEME_CSS: &str = include_str!("../assets/theme.css");
+const GRAPH_CSS: &str = include_str!("../assets/graph.css");
+const GRAPH_JS: &str = include_str!("../assets/graph.js");
 #[cfg(feature = "mobile")]
 const LONGPRESS_JS: &str = include_str!("../assets/longpress.js");
 
@@ -116,6 +118,8 @@ pub fn App() -> Element {
                 document::Style { {COMPONENTS_CSS} }
                 document::Style { {DIALOGS_CSS} }
                 document::Style { {THEME_CSS} }
+                document::Style { {GRAPH_CSS} }
+                document::Script { {GRAPH_JS} }
                 {longpress_script()}
                 LoadLibraryData {}
                 Layout {}

@@ -1,5 +1,6 @@
 pub mod annotations;
 pub mod collections;
+pub mod graph;
 pub mod notes;
 pub mod papers;
 pub mod queries;
