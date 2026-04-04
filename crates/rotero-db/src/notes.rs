@@ -2,6 +2,7 @@ use chrono::Utc;
 use rotero_models::Note;
 use turso::{Connection, Value};
 
+use crate::crr;
 use crate::queries;
 
 pub async fn insert_note(conn: &Connection, note: &Note) -> Result<String, turso::Error> {
@@ -18,6 +19,8 @@ pub async fn insert_note(conn: &Connection, note: &Note) -> Result<String, turso
         ]),
     )
     .await?;
+
+    let _ = crr::track_insert(conn, "notes", &uuid, &["paper_id", "title", "body", "created_at", "modified_at"]).await;
 
     Ok(uuid)
 }
@@ -53,11 +56,13 @@ pub async fn update_note(
         ]),
     )
     .await?;
+    let _ = crr::track_update(conn, "notes", id, &["title", "body", "modified_at"]).await;
     Ok(())
 }
 
 pub async fn delete_note(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::NOTE_DELETE, [Value::Text(id.to_string())]).await?;
+    let _ = crr::track_delete(conn, "notes", id).await;
     Ok(())
 }
 

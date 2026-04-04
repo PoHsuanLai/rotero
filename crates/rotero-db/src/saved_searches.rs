@@ -2,6 +2,7 @@ use chrono::Utc;
 use rotero_models::SavedSearch;
 use turso::{Connection, Value};
 
+use crate::crr;
 use crate::queries;
 
 pub async fn insert_saved_search(
@@ -20,6 +21,8 @@ pub async fn insert_saved_search(
     )
     .await?;
 
+    let _ = crr::track_insert(conn, "saved_searches", &uuid, &["name", "query", "created_at"]).await;
+
     Ok(uuid)
 }
 
@@ -36,6 +39,7 @@ pub async fn list_saved_searches(conn: &Connection) -> Result<Vec<SavedSearch>, 
 
 pub async fn delete_saved_search(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::SAVED_SEARCH_DELETE, [Value::Text(id.to_string())]).await?;
+    let _ = crr::track_delete(conn, "saved_searches", id).await;
     Ok(())
 }
 
@@ -50,6 +54,7 @@ pub async fn rename_saved_search(
         [Value::Text(name.to_string()), Value::Text(id.to_string())],
     )
     .await?;
+    let _ = crr::track_update(conn, "saved_searches", id, &["name"]).await;
     Ok(())
 }
 

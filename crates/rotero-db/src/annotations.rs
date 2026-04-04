@@ -2,6 +2,7 @@ use chrono::Utc;
 use rotero_models::{Annotation, AnnotationType};
 use turso::{Connection, Value};
 
+use crate::crr;
 use crate::queries;
 
 pub async fn insert_annotation(conn: &Connection, ann: &Annotation) -> Result<String, turso::Error> {
@@ -31,6 +32,8 @@ pub async fn insert_annotation(conn: &Connection, ann: &Annotation) -> Result<St
         ]),
     )
     .await?;
+
+    let _ = crr::track_insert(conn, "annotations", &uuid, &["paper_id", "page", "ann_type", "color", "content", "geometry", "created_at", "modified_at"]).await;
 
     Ok(uuid)
 }
@@ -67,6 +70,7 @@ pub async fn update_annotation_content(
         ]),
     )
     .await?;
+    let _ = crr::track_update(conn, "annotations", id, &["content", "modified_at"]).await;
     Ok(())
 }
 
@@ -85,11 +89,13 @@ pub async fn update_annotation_color(
         ]),
     )
     .await?;
+    let _ = crr::track_update(conn, "annotations", id, &["color", "modified_at"]).await;
     Ok(())
 }
 
 pub async fn delete_annotation(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::ANNOTATION_DELETE, [Value::Text(id.to_string())]).await?;
+    let _ = crr::track_delete(conn, "annotations", id).await;
     Ok(())
 }
 

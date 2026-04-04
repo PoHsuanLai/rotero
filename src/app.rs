@@ -119,6 +119,7 @@ pub fn App() -> Element {
                 document::Style { {THEME_CSS} }
                 {longpress_script()}
                 LoadLibraryData {}
+                SyncLoop {}
                 Layout {}
             }
         }
@@ -364,6 +365,81 @@ fn LoadLibraryData() -> Element {
                             }
                         }
                         _ => {}
+                    }
+                }
+            }
+        }
+    });
+
+    rsx! {}
+}
+
+/// Background sync loop: periodically exports/imports changesets if sync is enabled.
+#[component]
+fn SyncLoop() -> Element {
+    let db = use_context::<Database>();
+    let mut lib_state = use_context::<Signal<LibraryState>>();
+    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+
+    use_future(move || {
+        let db = db.clone();
+        async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+
+                let cfg = config.read().clone();
+                if !cfg.sync_enabled {
+                    continue;
+                }
+                let Some(ref folder) = cfg.sync_folder_path else {
+                    continue;
+                };
+
+                let conn = db.conn();
+                let site_id = match rotero_db::crr::site_id(conn).await {
+                    Ok(id) => id,
+                    Err(_) => continue,
+                };
+
+                let engine = crate::sync::file_sync::FileSyncEngine::new(
+                    std::path::PathBuf::from(folder),
+                    site_id,
+                );
+
+                // Export local changes
+                if let Err(e) = engine.export_changes(conn).await {
+                    tracing::warn!("Sync export failed: {e}");
+                }
+
+                // Import remote changes
+                match engine.import_changes(conn).await {
+                    Ok(applied) if applied > 0 => {
+                        tracing::info!("Sync imported {applied} changes, refreshing library");
+                        if let Ok(papers) = rotero_db::papers::list_papers(conn).await {
+                            lib_state.with_mut(|s| s.papers = papers);
+                        }
+                        if let Ok(collections) =
+                            rotero_db::collections::list_collections(conn).await
+                        {
+                            lib_state.with_mut(|s| s.collections = collections);
+                        }
+                        if let Ok(tags) = rotero_db::tags::list_tags(conn).await {
+                            lib_state.with_mut(|s| s.tags = tags);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Sync import failed: {e}");
+                    }
+                    _ => {}
+                }
+
+                // Sync PDF files
+                let papers_dir = db.papers_dir();
+                let papers = lib_state.read().papers.clone();
+                for paper in &papers {
+                    if let Some(ref path) = paper.pdf_path {
+                        let _ = engine.export_pdf(&papers_dir, path);
+                        let _ = engine.import_pdf(&papers_dir, path);
                     }
                 }
             }

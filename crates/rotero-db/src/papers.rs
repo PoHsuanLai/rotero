@@ -2,6 +2,7 @@ use chrono::Utc;
 use rotero_models::Paper;
 use turso::{Connection, Value};
 
+use crate::crr;
 use crate::queries;
 
 pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, turso::Error> {
@@ -38,6 +39,8 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, tu
         ]),
     )
     .await?;
+
+    let _ = crr::track_insert(conn, "papers", &uuid, &["title", "authors", "year", "doi", "abstract_text", "journal", "volume", "issue", "pages", "publisher", "url", "pdf_path", "date_added", "date_modified", "is_favorite", "is_read", "extra_meta", "citation_count", "citation_key"]).await;
 
     Ok(uuid)
 }
@@ -115,6 +118,7 @@ pub async fn set_favorite(conn: &Connection, id: &str, favorite: bool) -> Result
         [Value::Integer(favorite as i64), Value::Text(id.to_string())],
     )
     .await?;
+    let _ = crr::track_update(conn, "papers", id, &["is_favorite"]).await;
     Ok(())
 }
 
@@ -124,6 +128,7 @@ pub async fn set_read(conn: &Connection, id: &str, read: bool) -> Result<(), tur
         [Value::Integer(read as i64), Value::Text(id.to_string())],
     )
     .await?;
+    let _ = crr::track_update(conn, "papers", id, &["is_read"]).await;
     Ok(())
 }
 
@@ -202,6 +207,7 @@ pub async fn update_paper_metadata(
         ]),
     )
     .await?;
+    let _ = crr::track_update(conn, "papers", id, &["title", "authors", "year", "doi", "abstract_text", "journal", "volume", "issue", "pages", "publisher", "url", "date_modified"]).await;
     Ok(())
 }
 
@@ -219,11 +225,13 @@ pub async fn update_pdf_path(
         ]),
     )
     .await?;
+    let _ = crr::track_update(conn, "papers", id, &["pdf_path", "date_modified"]).await;
     Ok(())
 }
 
 pub async fn delete_paper(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::PAPER_DELETE, [Value::Text(id.to_string())]).await?;
+    let _ = crr::track_delete(conn, "papers", id).await;
     Ok(())
 }
 
@@ -402,6 +410,7 @@ pub async fn update_citation_count(
         [Value::Integer(count), Value::Text(id.to_string())],
     )
     .await?;
+    let _ = crr::track_update(conn, "papers", id, &["citation_count"]).await;
     Ok(())
 }
 
@@ -416,6 +425,7 @@ pub async fn update_citation_key(
         turso::params::Params::Positional(vec![Value::Text(key.to_string()), Value::Text(id.to_string())]),
     )
     .await?;
+    let _ = crr::track_update(conn, "papers", id, &["citation_key"]).await;
     Ok(())
 }
 

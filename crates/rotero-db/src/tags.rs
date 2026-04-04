@@ -1,6 +1,7 @@
 use rotero_models::Tag;
 use turso::{Connection, Value};
 
+use crate::crr;
 use crate::queries;
 
 pub async fn get_or_create_tag(
@@ -36,6 +37,7 @@ pub async fn get_or_create_tag(
         ]),
     )
     .await?;
+    let _ = crr::track_insert(conn, "tags", &uuid, &["name", "color"]).await;
     Ok(uuid)
 }
 
@@ -63,6 +65,8 @@ pub async fn add_tag_to_paper(
 ) -> Result<(), turso::Error> {
     conn.execute(queries::TAG_ADD_TO_PAPER, [Value::Text(paper_id.to_string()), Value::Text(tag_id.to_string())])
         .await?;
+    let pk = format!("{paper_id}:{tag_id}");
+    let _ = crr::track_insert(conn, "paper_tags", &pk, &["paper_id", "tag_id"]).await;
     Ok(())
 }
 
@@ -72,6 +76,7 @@ pub async fn rename_tag(conn: &Connection, id: &str, name: &str) -> Result<(), t
         turso::params::Params::Positional(vec![Value::Text(name.to_string()), Value::Text(id.to_string())]),
     )
     .await?;
+    let _ = crr::track_update(conn, "tags", id, &["name"]).await;
     Ok(())
 }
 
@@ -81,6 +86,7 @@ pub async fn update_tag_color(conn: &Connection, id: &str, color: &str) -> Resul
         turso::params::Params::Positional(vec![Value::Text(color.to_string()), Value::Text(id.to_string())]),
     )
     .await?;
+    let _ = crr::track_update(conn, "tags", id, &["color"]).await;
     Ok(())
 }
 
@@ -102,5 +108,6 @@ pub async fn list_paper_ids_by_tag(
 
 pub async fn delete_tag(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::TAG_DELETE, [Value::Text(id.to_string())]).await?;
+    let _ = crr::track_delete(conn, "tags", id).await;
     Ok(())
 }

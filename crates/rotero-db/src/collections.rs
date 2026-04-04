@@ -2,6 +2,7 @@
 use rotero_models::Collection;
 use turso::{Connection, Value};
 
+use crate::crr;
 use crate::queries;
 
 pub async fn insert_collection(conn: &Connection, coll: &Collection) -> Result<String, turso::Error> {
@@ -16,6 +17,8 @@ pub async fn insert_collection(conn: &Connection, coll: &Collection) -> Result<S
         ]),
     )
     .await?;
+
+    let _ = crr::track_insert(conn, "collections", &uuid, &["name", "parent_id", "position"]).await;
 
     Ok(uuid)
 }
@@ -51,6 +54,7 @@ pub async fn rename_collection(conn: &Connection, id: &str, name: &str) -> Resul
         turso::params::Params::Positional(vec![Value::Text(name.to_string()), Value::Text(id.to_string())]),
     )
     .await?;
+    let _ = crr::track_update(conn, "collections", id, &["name"]).await;
     Ok(())
 }
 
@@ -67,11 +71,13 @@ pub async fn reparent_collection(
         ]),
     )
     .await?;
+    let _ = crr::track_update(conn, "collections", id, &["parent_id"]).await;
     Ok(())
 }
 
 pub async fn delete_collection(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::COLLECTION_DELETE, [Value::Text(id.to_string())]).await?;
+    let _ = crr::track_delete(conn, "collections", id).await;
     Ok(())
 }
 
@@ -98,6 +104,8 @@ pub async fn add_paper_to_collection(
 ) -> Result<(), turso::Error> {
     conn.execute(queries::COLLECTION_ADD_PAPER, [Value::Text(paper_id.to_string()), Value::Text(collection_id.to_string())])
         .await?;
+    let pk = format!("{paper_id}:{collection_id}");
+    let _ = crr::track_insert(conn, "paper_collections", &pk, &["paper_id", "collection_id"]).await;
     Ok(())
 }
 
@@ -108,5 +116,7 @@ pub async fn remove_paper_from_collection(
 ) -> Result<(), turso::Error> {
     conn.execute(queries::COLLECTION_REMOVE_PAPER, [Value::Text(paper_id.to_string()), Value::Text(collection_id.to_string())])
         .await?;
+    let pk = format!("{paper_id}:{collection_id}");
+    let _ = crr::track_delete(conn, "paper_collections", &pk).await;
     Ok(())
 }

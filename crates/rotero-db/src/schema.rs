@@ -93,6 +93,9 @@ pub async fn initialize_db(conn: &Connection) -> Result<(), turso::Error> {
     // Run migrations for existing databases
     run_migrations(conn).await?;
 
+    // Ensure CRR clock tables exist (idempotent)
+    crate::crr::init_crr_tables(conn).await?;
+
     Ok(())
 }
 
