@@ -210,6 +210,7 @@ impl RawAcpConnection {
         &mut self,
         method: &str,
         params: serde_json::Value,
+        evt_tx: Option<&tokio::sync::mpsc::UnboundedSender<ChatEvent>>,
     ) -> Result<serde_json::Value, String> {
         let id = self.next_id;
         self.next_id += 1;
@@ -224,7 +225,6 @@ impl RawAcpConnection {
         self.write_message(&msg)?;
 
         // Read lines until we get the response with matching id.
-        // Auto-respond to requestPermission to avoid deadlocks.
         loop {
             let line = self
                 .incoming
@@ -245,7 +245,7 @@ impl RawAcpConnection {
                     .ok_or("No result in response".into());
             }
 
-            // Auto-respond to requestPermission requests from the agent
+            // Auto-respond to requestPermission
             if v.get("method").and_then(|m| m.as_str()) == Some("session/requestPermission") {
                 if let Some(req_id) = v.get("id") {
                     let response = serde_json::json!({
@@ -255,9 +255,13 @@ impl RawAcpConnection {
                     });
                     let _ = self.write_message(&response);
                 }
+                continue;
             }
 
-            // Other messages are notifications — skip
+            // Forward notifications to event handler if available
+            if let Some(tx) = evt_tx {
+                handle_notification(tx, &v);
+            }
         }
     }
 
@@ -344,7 +348,7 @@ fn connect_and_run(
         }
     });
 
-    let init_result = match conn.send_request("initialize", init_params) {
+    let init_result = match conn.send_request("initialize", init_params, None) {
         Ok(r) => r,
         Err(e) => {
             let _ = evt_tx.send(ChatEvent::Error(format!(
@@ -372,7 +376,7 @@ fn connect_and_run(
         "mcpServers": mcp_servers,
     });
 
-    let session_result = match conn.send_request("session/new", session_params) {
+    let session_result = match conn.send_request("session/new", session_params, Some(evt_tx)) {
         Ok(r) => r,
         Err(e) => {
             let _ = evt_tx.send(ChatEvent::Error(format!("Failed to create session: {e}")));
@@ -493,7 +497,7 @@ fn connect_and_run(
                 );
             }
             Ok(ChatRequest::ListSessions) => {
-                match conn.send_request("session/list", serde_json::json!({})) {
+                match conn.send_request("session/list", serde_json::json!({}), None) {
                     Ok(result) => {
                         let sessions = result
                             .get("sessions")
@@ -548,7 +552,7 @@ fn connect_and_run(
                     "cwd": load_cwd,
                     "mcpServers": build_mcp_servers_json(),
                 });
-                match conn.send_request("session/load", params) {
+                match conn.send_request("session/load", params, Some(evt_tx)) {
                     Ok(result) => {
                         // Update session_id to the loaded one
                         if let Some(sid) = result.get("sessionId").and_then(|v| v.as_str()) {
@@ -656,6 +660,15 @@ fn handle_notification(
                 .unwrap_or("");
 
             match update_type {
+                "user_message_chunk" => {
+                    if let Some(text) = update
+                        .get("content")
+                        .and_then(|c| c.get("text"))
+                        .and_then(|t| t.as_str())
+                    {
+                        let _ = evt_tx.send(ChatEvent::UserMessage(text.to_string()));
+                    }
+                }
                 "agent_message_chunk" => {
                     if let Some(text) = update
                         .get("content")

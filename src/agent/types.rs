@@ -153,6 +153,7 @@ pub enum ChatEvent {
         provider_id: String,
     },
     SessionCreated,
+    UserMessage(String),
     TextDelta(String),
     ToolCallStarted { id: String, title: String },
     ToolCallUpdated { id: String, status: ToolStatus },

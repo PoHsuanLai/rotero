@@ -190,6 +190,15 @@ fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
                 s.session_active = true;
             });
         }
+        ChatEvent::UserMessage(text) => {
+            chat_state.with_mut(|s| {
+                s.messages.push(ChatMessage {
+                    role: ChatRole::User,
+                    content: vec![MessageContent::Text(text)],
+                    timestamp: chrono::Utc::now(),
+                });
+            });
+        }
         ChatEvent::TextDelta(text) => {
             chat_state.with_mut(|s| {
                 s.status = AgentStatus::Streaming;
