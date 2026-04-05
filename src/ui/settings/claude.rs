@@ -86,13 +86,6 @@ pub fn AgentSection() -> Element {
                             },
                             "Save & Connect"
                         }
-                        button {
-                            class: "btn btn--secondary",
-                            onclick: move |_| {
-                                pending_provider.set(config.read().agent_provider.clone());
-                            },
-                            "Cancel"
-                        }
                     }
                 }
             }

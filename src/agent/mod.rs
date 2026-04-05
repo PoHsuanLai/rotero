@@ -566,6 +566,8 @@ fn connect_and_run(
 
     // Main message loop
     let mut pending_auth_id: Option<u64> = None;
+    let mut pending_auth_start: Option<std::time::Instant> = None;
+    const AUTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
     let result = loop {
         // Check for UI requests
         match req_rx.try_recv() {
@@ -756,6 +758,7 @@ fn connect_and_run(
                     });
                     // Track that we're waiting for an auth response
                     pending_auth_id = Some(auth_id);
+                    pending_auth_start = Some(std::time::Instant::now());
                 }
             }
             Ok(ChatRequest::Shutdown) => {
@@ -814,6 +817,16 @@ fn connect_and_run(
                             continue;
                         }
                         handle_notification(evt_tx, &v);
+                    }
+                }
+                // Check for auth timeout
+                if let (Some(_), Some(start)) = (pending_auth_id, pending_auth_start) {
+                    if start.elapsed() > AUTH_TIMEOUT {
+                        pending_auth_id = None;
+                        pending_auth_start = None;
+                        let _ = evt_tx.send(ChatEvent::Error(
+                            "Sign in timed out. Try again from Settings > AI Agent.".into(),
+                        ));
                     }
                 }
                 std::thread::sleep(std::time::Duration::from_millis(10));
