@@ -545,7 +545,7 @@ fn connect_and_run(
             tracing::info!("ACP: session created: {session_id}");
             let _ = evt_tx.send(ChatEvent::SessionCreated);
         }
-        Err(e) if e.contains("Authentication required") || e.contains("auth_required") => {
+        Err(e) if is_auth_error(&e) => {
             let _ = evt_tx.send(ChatEvent::AuthRequired {
                 provider_name: provider.name.to_string(),
             });
@@ -864,6 +864,19 @@ fn build_mcp_servers_json() -> serde_json::Value {
     } else {
         serde_json::json!([])
     }
+}
+
+/// Check if an RPC error indicates authentication is needed.
+fn is_auth_error(err: &str) -> bool {
+    let lower = err.to_lowercase();
+    lower.contains("authentication required")
+        || lower.contains("auth_required")
+        || lower.contains("api key")
+        || lower.contains("not configured")
+        || lower.contains("not authenticated")
+        || lower.contains("login required")
+        || lower.contains("unauthorized")
+        || lower.contains("credentials")
 }
 
 fn wait_for_switch_or_shutdown(req_rx: &mpsc::Receiver<ChatRequest>) -> LoopResult {
