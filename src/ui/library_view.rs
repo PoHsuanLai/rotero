@@ -326,9 +326,9 @@ pub fn LibraryPanel() -> Element {
                     span { class: "library-count", "{paper_count} papers" }
                 }
                 div { class: "library-header-right",
+                    ChatToggleButton {}
                     ImportExportButtons {}
                     AddPaperButton {}
-                    ChatToggleButton {}
                 }
             }
 
