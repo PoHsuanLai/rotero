@@ -5,28 +5,38 @@ use turso::{Connection, Value};
 use crate::crr;
 use crate::queries;
 
-pub async fn insert_collection(conn: &Connection, coll: &Collection) -> Result<String, turso::Error> {
+pub async fn insert_collection(
+    conn: &Connection,
+    coll: &Collection,
+) -> Result<String, turso::Error> {
     let uuid = uuid::Uuid::now_v7().to_string();
     conn.execute(
         queries::COLLECTION_INSERT,
         turso::params::Params::Positional(vec![
             Value::Text(uuid.clone()),
             Value::Text(coll.name.clone()),
-            coll.parent_id.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            coll.parent_id
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
             Value::Integer(coll.position as i64),
         ]),
     )
     .await?;
 
-    let _ = crr::track_insert(conn, "collections", &uuid, &["name", "parent_id", "position"]).await;
+    let _ = crr::track_insert(
+        conn,
+        "collections",
+        &uuid,
+        &["name", "parent_id", "position"],
+    )
+    .await;
 
     Ok(uuid)
 }
 
 pub async fn list_collections(conn: &Connection) -> Result<Vec<Collection>, turso::Error> {
-    let mut rows = conn
-        .query(queries::COLLECTION_LIST, ())
-        .await?;
+    let mut rows = conn.query(queries::COLLECTION_LIST, ()).await?;
 
     let mut colls = Vec::new();
     while let Some(row) = rows.next().await? {
@@ -48,10 +58,17 @@ pub async fn list_collections(conn: &Connection) -> Result<Vec<Collection>, turs
     Ok(colls)
 }
 
-pub async fn rename_collection(conn: &Connection, id: &str, name: &str) -> Result<(), turso::Error> {
+pub async fn rename_collection(
+    conn: &Connection,
+    id: &str,
+    name: &str,
+) -> Result<(), turso::Error> {
     conn.execute(
         queries::COLLECTION_RENAME,
-        turso::params::Params::Positional(vec![Value::Text(name.to_string()), Value::Text(id.to_string())]),
+        turso::params::Params::Positional(vec![
+            Value::Text(name.to_string()),
+            Value::Text(id.to_string()),
+        ]),
     )
     .await?;
     let _ = crr::track_update(conn, "collections", id, &["name"]).await;
@@ -66,7 +83,9 @@ pub async fn reparent_collection(
     conn.execute(
         queries::COLLECTION_REPARENT,
         turso::params::Params::Positional(vec![
-            new_parent_id.map(|s| Value::Text(s.to_string())).unwrap_or(Value::Null),
+            new_parent_id
+                .map(|s| Value::Text(s.to_string()))
+                .unwrap_or(Value::Null),
             Value::Text(id.to_string()),
         ]),
     )
@@ -76,7 +95,8 @@ pub async fn reparent_collection(
 }
 
 pub async fn delete_collection(conn: &Connection, id: &str) -> Result<(), turso::Error> {
-    conn.execute(queries::COLLECTION_DELETE, [Value::Text(id.to_string())]).await?;
+    conn.execute(queries::COLLECTION_DELETE, [Value::Text(id.to_string())])
+        .await?;
     let _ = crr::track_delete(conn, "collections", id).await;
     Ok(())
 }
@@ -86,7 +106,10 @@ pub async fn list_paper_ids_in_collection(
     collection_id: &str,
 ) -> Result<Vec<String>, turso::Error> {
     let mut rows = conn
-        .query(queries::COLLECTION_PAPER_IDS, [Value::Text(collection_id.to_string())])
+        .query(
+            queries::COLLECTION_PAPER_IDS,
+            [Value::Text(collection_id.to_string())],
+        )
         .await?;
     let mut ids = Vec::new();
     while let Some(row) = rows.next().await? {
@@ -102,10 +125,22 @@ pub async fn add_paper_to_collection(
     paper_id: &str,
     collection_id: &str,
 ) -> Result<(), turso::Error> {
-    conn.execute(queries::COLLECTION_ADD_PAPER, [Value::Text(paper_id.to_string()), Value::Text(collection_id.to_string())])
-        .await?;
+    conn.execute(
+        queries::COLLECTION_ADD_PAPER,
+        [
+            Value::Text(paper_id.to_string()),
+            Value::Text(collection_id.to_string()),
+        ],
+    )
+    .await?;
     let pk = format!("{paper_id}:{collection_id}");
-    let _ = crr::track_insert(conn, "paper_collections", &pk, &["paper_id", "collection_id"]).await;
+    let _ = crr::track_insert(
+        conn,
+        "paper_collections",
+        &pk,
+        &["paper_id", "collection_id"],
+    )
+    .await;
     Ok(())
 }
 
@@ -114,8 +149,14 @@ pub async fn remove_paper_from_collection(
     paper_id: &str,
     collection_id: &str,
 ) -> Result<(), turso::Error> {
-    conn.execute(queries::COLLECTION_REMOVE_PAPER, [Value::Text(paper_id.to_string()), Value::Text(collection_id.to_string())])
-        .await?;
+    conn.execute(
+        queries::COLLECTION_REMOVE_PAPER,
+        [
+            Value::Text(paper_id.to_string()),
+            Value::Text(collection_id.to_string()),
+        ],
+    )
+    .await?;
     let pk = format!("{paper_id}:{collection_id}");
     let _ = crr::track_delete(conn, "paper_collections", &pk).await;
     Ok(())

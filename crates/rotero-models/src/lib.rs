@@ -2,8 +2,8 @@ pub mod annotation;
 pub mod collection;
 pub mod note;
 pub mod paper;
-pub mod saved_search;
 pub mod queries;
+pub mod saved_search;
 pub mod tag;
 
 pub use annotation::{Annotation, AnnotationType};

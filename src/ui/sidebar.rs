@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
-use rotero_db::Database;
 use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTab, PdfTabManager};
+use rotero_db::Database;
 use rotero_models::Collection;
 
 /// Context menu state: (id, name, color, x, y).
@@ -44,7 +44,8 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
     let new_coll_editing: Signal<Option<Option<String>>> = use_context();
 
     // Drag-and-drop state for collection reparenting
-    let mut drag_coll: Signal<Option<String>> = use_context_provider(|| Signal::new(None::<String>));
+    let mut drag_coll: Signal<Option<String>> =
+        use_context_provider(|| Signal::new(None::<String>));
 
     // Drag paper from library
     let mut drag_paper = use_context::<Signal<DragPaper>>();

@@ -1,10 +1,10 @@
 use dioxus::prelude::*;
 
-use rotero_db::Database;
 use crate::state::app_state::{DragPaper, LibraryState, PdfTabManager, ViewerToolState};
 use crate::state::commands;
 use crate::sync::engine::SyncConfig;
 use crate::ui::layout::Layout;
+use rotero_db::Database;
 
 /// Global signal wrapper for settings dialog visibility.
 #[derive(Debug, Clone, Copy, Default)]
@@ -238,9 +238,10 @@ fn LoadLibraryData() -> Element {
                                     )
                                     .await;
                                     lib_state.with_mut(|s| {
-                                        if let Some(p) =
-                                            s.papers.iter_mut().find(|p| p.id.as_ref().map(|x| x.to_string()) == Some(paper_id.clone()))
-                                        {
+                                        if let Some(p) = s.papers.iter_mut().find(|p| {
+                                            p.id.as_ref().map(|x| x.to_string())
+                                                == Some(paper_id.clone())
+                                        }) {
                                             p.citation_count = Some(count);
                                         }
                                     });
@@ -307,7 +308,9 @@ fn LoadLibraryData() -> Element {
                         {
                             let pid = paper_id.clone();
                             lib_state.with_mut(|s| {
-                                if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_ref().map(|x| x.to_string()) == Some(pid.clone())) {
+                                if let Some(p) = s.papers.iter_mut().find(|p| {
+                                    p.id.as_ref().map(|x| x.to_string()) == Some(pid.clone())
+                                }) {
                                     p.citation_key = Some(key.clone());
                                 }
                             });
@@ -343,7 +346,9 @@ fn LoadLibraryData() -> Element {
             use crate::state::app_state::LibraryView;
             // Clone the receiver out of the mutex so we can await it without holding the lock
             let mut rx = {
-                let Some(lock) = crate::CONNECTOR_NOTIFY.get() else { return };
+                let Some(lock) = crate::CONNECTOR_NOTIFY.get() else {
+                    return;
+                };
                 let guard = lock.lock().unwrap();
                 guard.clone()
             };
@@ -367,8 +372,7 @@ fn LoadLibraryData() -> Element {
                         }
                     }
                     LibraryView::Tag(tag_id) => {
-                        if let Ok(ids) =
-                            rotero_db::tags::list_paper_ids_by_tag(conn, &tag_id).await
+                        if let Ok(ids) = rotero_db::tags::list_paper_ids_by_tag(conn, &tag_id).await
                         {
                             lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
                         }
@@ -470,9 +474,7 @@ fn SyncLoop() -> Element {
                     if let Ok(papers) = rotero_db::papers::list_papers(conn).await {
                         lib_state.with_mut(|s| s.papers = papers);
                     }
-                    if let Ok(collections) =
-                        rotero_db::collections::list_collections(conn).await
-                    {
+                    if let Ok(collections) = rotero_db::collections::list_collections(conn).await {
                         lib_state.with_mut(|s| s.collections = collections);
                     }
                     if let Ok(tags) = rotero_db::tags::list_tags(conn).await {

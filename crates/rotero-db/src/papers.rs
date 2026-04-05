@@ -19,28 +19,100 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, tu
             Value::Text(uuid.clone()),
             Value::Text(paper.title.clone()),
             Value::Text(authors_json),
-            paper.year.map(|y| Value::Integer(y as i64)).unwrap_or(Value::Null),
-            paper.doi.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
-            paper.abstract_text.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
-            paper.journal.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
-            paper.volume.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
-            paper.issue.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
-            paper.pages.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
-            paper.publisher.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
-            paper.url.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
-            paper.pdf_path.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper
+                .year
+                .map(|y| Value::Integer(y as i64))
+                .unwrap_or(Value::Null),
+            paper
+                .doi
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
+            paper
+                .abstract_text
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
+            paper
+                .journal
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
+            paper
+                .volume
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
+            paper
+                .issue
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
+            paper
+                .pages
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
+            paper
+                .publisher
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
+            paper
+                .url
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
+            paper
+                .pdf_path
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
             Value::Text(paper.date_added.to_rfc3339()),
             Value::Text(paper.date_modified.to_rfc3339()),
             Value::Integer(paper.is_favorite as i64),
             Value::Integer(paper.is_read as i64),
             extra_meta.map(Value::Text).unwrap_or(Value::Null),
-            paper.citation_count.map(Value::Integer).unwrap_or(Value::Null),
-            paper.citation_key.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            paper
+                .citation_count
+                .map(Value::Integer)
+                .unwrap_or(Value::Null),
+            paper
+                .citation_key
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
         ]),
     )
     .await?;
 
-    let _ = crr::track_insert(conn, "papers", &uuid, &["title", "authors", "year", "doi", "abstract_text", "journal", "volume", "issue", "pages", "publisher", "url", "pdf_path", "date_added", "date_modified", "is_favorite", "is_read", "extra_meta", "citation_count", "citation_key"]).await;
+    let _ = crr::track_insert(
+        conn,
+        "papers",
+        &uuid,
+        &[
+            "title",
+            "authors",
+            "year",
+            "doi",
+            "abstract_text",
+            "journal",
+            "volume",
+            "issue",
+            "pages",
+            "publisher",
+            "url",
+            "pdf_path",
+            "date_added",
+            "date_modified",
+            "is_favorite",
+            "is_read",
+            "extra_meta",
+            "citation_count",
+            "citation_key",
+        ],
+    )
+    .await;
 
     Ok(uuid)
 }
@@ -140,7 +212,10 @@ pub async fn update_paper_fulltext(
 ) -> Result<(), turso::Error> {
     conn.execute(
         queries::PAPER_UPDATE_FULLTEXT,
-        turso::params::Params::Positional(vec![Value::Text(text.to_string()), Value::Text(id.to_string())]),
+        turso::params::Params::Positional(vec![
+            Value::Text(text.to_string()),
+            Value::Text(id.to_string()),
+        ]),
     )
     .await?;
     Ok(())
@@ -207,7 +282,26 @@ pub async fn update_paper_metadata(
         ]),
     )
     .await?;
-    let _ = crr::track_update(conn, "papers", id, &["title", "authors", "year", "doi", "abstract_text", "journal", "volume", "issue", "pages", "publisher", "url", "date_modified"]).await;
+    let _ = crr::track_update(
+        conn,
+        "papers",
+        id,
+        &[
+            "title",
+            "authors",
+            "year",
+            "doi",
+            "abstract_text",
+            "journal",
+            "volume",
+            "issue",
+            "pages",
+            "publisher",
+            "url",
+            "date_modified",
+        ],
+    )
+    .await;
     Ok(())
 }
 
@@ -230,7 +324,8 @@ pub async fn update_pdf_path(
 }
 
 pub async fn delete_paper(conn: &Connection, id: &str) -> Result<(), turso::Error> {
-    conn.execute(queries::PAPER_DELETE, [Value::Text(id.to_string())]).await?;
+    conn.execute(queries::PAPER_DELETE, [Value::Text(id.to_string())])
+        .await?;
     let _ = crr::track_delete(conn, "papers", id).await;
     Ok(())
 }
@@ -324,7 +419,11 @@ pub async fn find_duplicates(conn: &Connection) -> Result<Vec<Vec<Paper>>, turso
     }
 
     // Group 2: normalized title duplicates (excluding papers already found by DOI)
-    let doi_ids: Vec<String> = groups.iter().flatten().filter_map(|p| p.id.clone()).collect();
+    let doi_ids: Vec<String> = groups
+        .iter()
+        .flatten()
+        .filter_map(|p| p.id.clone())
+        .collect();
     let all = list_papers(conn).await?;
     let mut title_map: std::collections::HashMap<String, Vec<Paper>> =
         std::collections::HashMap::new();
@@ -367,13 +466,19 @@ pub async fn merge_papers(
     // Transfer collection memberships
     conn.execute(
         queries::PAPER_MERGE_COLLECTIONS,
-        [Value::Text(keep_id.to_string()), Value::Text(delete_id.to_string())],
+        [
+            Value::Text(keep_id.to_string()),
+            Value::Text(delete_id.to_string()),
+        ],
     )
     .await?;
     // Transfer tag assignments
     conn.execute(
         queries::PAPER_MERGE_TAGS,
-        [Value::Text(keep_id.to_string()), Value::Text(delete_id.to_string())],
+        [
+            Value::Text(keep_id.to_string()),
+            Value::Text(delete_id.to_string()),
+        ],
     )
     .await?;
     // Delete the duplicate
@@ -422,7 +527,10 @@ pub async fn update_citation_key(
 ) -> Result<(), turso::Error> {
     conn.execute(
         queries::PAPER_UPDATE_CITATION_KEY,
-        turso::params::Params::Positional(vec![Value::Text(key.to_string()), Value::Text(id.to_string())]),
+        turso::params::Params::Positional(vec![
+            Value::Text(key.to_string()),
+            Value::Text(id.to_string()),
+        ]),
     )
     .await?;
     let _ = crr::track_update(conn, "papers", id, &["citation_key"]).await;
@@ -462,9 +570,7 @@ pub async fn list_papers_needing_citation_keys(
 
 /// List all existing citation keys (for deduplication).
 pub async fn list_citation_keys(conn: &Connection) -> Result<Vec<String>, turso::Error> {
-    let mut rows = conn
-        .query(queries::PAPER_LIST_CITATION_KEYS, ())
-        .await?;
+    let mut rows = conn.query(queries::PAPER_LIST_CITATION_KEYS, ()).await?;
     let mut keys = Vec::new();
     while let Some(row) = rows.next().await? {
         if let Some(key) = row.get_value(0).ok().and_then(|v| v.as_text().cloned()) {

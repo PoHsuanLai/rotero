@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 use futures_util::StreamExt;
 
-use rotero_db::Database;
 use crate::state::app_state::{LibraryState, SearchSource};
+use rotero_db::Database;
 use rotero_search::parser::metadata_to_paper;
 
 /// Minimum query length before triggering external search.

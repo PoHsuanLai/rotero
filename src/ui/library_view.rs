@@ -4,8 +4,8 @@ use dioxus_elements::HasFileData;
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use super::import_export::ImportExportButtons;
 use super::search_bar::SearchBar;
-use rotero_db::Database;
 use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTabManager};
+use rotero_db::Database;
 
 #[component]
 pub fn LibraryPanel() -> Element {

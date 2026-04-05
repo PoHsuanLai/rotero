@@ -222,8 +222,9 @@ fn main() {
 /// Watch channel receiver — the connector sends a notification when data changes.
 /// The UI awaits this instead of polling.
 #[cfg(feature = "desktop")]
-pub static CONNECTOR_NOTIFY: std::sync::OnceLock<std::sync::Mutex<tokio::sync::watch::Receiver<()>>> =
-    std::sync::OnceLock::new();
+pub static CONNECTOR_NOTIFY: std::sync::OnceLock<
+    std::sync::Mutex<tokio::sync::watch::Receiver<()>>,
+> = std::sync::OnceLock::new();
 
 /// Build the native menu bar.
 #[cfg(feature = "desktop")]
@@ -337,7 +338,12 @@ fn build_menu_bar() -> dioxus::desktop::muda::Menu {
         let help_menu = Submenu::new("Help", true);
         help_menu
             .append_items(&[
-                &MenuItem::with_id("dioxus-toggle-dev-tools", "Toggle Developer Tools", true, None),
+                &MenuItem::with_id(
+                    "dioxus-toggle-dev-tools",
+                    "Toggle Developer Tools",
+                    true,
+                    None,
+                ),
                 &MenuItem::with_id("dioxus-float-top", "Float on Top", true, None),
             ])
             .unwrap();
@@ -454,6 +460,10 @@ async fn download_and_import_pdf(
         .await
         .map_err(|e| format!("Failed to update pdf_path: {e}"))?;
 
-    tracing::info!(paper_id = paper_id, rel_path = rel_path.as_str(), "PDF downloaded and imported");
+    tracing::info!(
+        paper_id = paper_id,
+        rel_path = rel_path.as_str(),
+        "PDF downloaded and imported"
+    );
     Ok(())
 }

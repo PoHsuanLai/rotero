@@ -33,7 +33,12 @@ impl TestSyncEngine {
         }
 
         let current_ver = crr::current_db_version(conn).await.unwrap();
-        let filename = format!("{}_{:08}_{:08}.json", self.site_hex(), last_ver, current_ver);
+        let filename = format!(
+            "{}_{:08}_{:08}.json",
+            self.site_hex(),
+            last_ver,
+            current_ver
+        );
         let path = self.dir.join(&filename);
         let data = serde_json::to_vec(&changes).unwrap();
         std::fs::write(&path, data).unwrap();
@@ -54,7 +59,11 @@ impl TestSyncEngine {
             .filter(|p| {
                 p.extension().is_some_and(|ext| ext == "json")
                     && !p.file_name().unwrap().to_string_lossy().contains("_state")
-                    && !p.file_name().unwrap().to_string_lossy().starts_with(&my_hex)
+                    && !p
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .starts_with(&my_hex)
             })
             .collect();
 

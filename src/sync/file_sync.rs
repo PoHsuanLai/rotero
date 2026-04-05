@@ -116,8 +116,7 @@ impl FileSyncEngine {
         let path = dir.join(&filename);
         let data =
             serde_json::to_vec(&changeset).map_err(|e| format!("Failed to serialize: {e}"))?;
-        std::fs::write(&path, data)
-            .map_err(|e| format!("Failed to write changeset: {e}"))?;
+        std::fs::write(&path, data).map_err(|e| format!("Failed to write changeset: {e}"))?;
 
         let count = changes.len();
         state.last_exported_ver = current_ver;
@@ -142,8 +141,8 @@ impl FileSyncEngine {
         let mut total_applied = 0;
 
         // Read all .crr files
-        let entries = std::fs::read_dir(&dir)
-            .map_err(|e| format!("Failed to read changesets dir: {e}"))?;
+        let entries =
+            std::fs::read_dir(&dir).map_err(|e| format!("Failed to read changesets dir: {e}"))?;
 
         let mut files: Vec<PathBuf> = entries
             .filter_map(|e| e.ok())
@@ -153,10 +152,7 @@ impl FileSyncEngine {
         files.sort(); // deterministic order
 
         for path in files {
-            let filename = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("");
+            let filename = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
 
             // Skip our own changesets
             if filename.starts_with(&my_hex) {
@@ -237,8 +233,7 @@ impl FileSyncEngine {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create local papers dir: {e}"))?;
         }
-        std::fs::copy(&src, &dest)
-            .map_err(|e| format!("Failed to import PDF from sync: {e}"))?;
+        std::fs::copy(&src, &dest).map_err(|e| format!("Failed to import PDF from sync: {e}"))?;
         Ok(())
     }
 }

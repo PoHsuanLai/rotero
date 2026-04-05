@@ -1,7 +1,7 @@
 //! Robustness tests for CRR sync — edge cases, concurrent mutations,
 //! idempotency, out-of-order application, delete/resurrect, junction tables.
 
-use rotero_db::{crr, papers, collections, tags, annotations, notes, saved_searches, schema};
+use rotero_db::{annotations, collections, crr, notes, papers, saved_searches, schema, tags};
 use rotero_models::{Annotation, AnnotationType, Collection, Note, Paper, Tag};
 
 async fn open_test_db(dir: &std::path::Path) -> rotero_db::turso::Connection {
@@ -25,11 +25,17 @@ fn new_paper(title: &str) -> Paper {
 async fn setup_two_devices_same_paper(
     dir_a: &std::path::Path,
     dir_b: &std::path::Path,
-) -> (rotero_db::turso::Connection, rotero_db::turso::Connection, String) {
+) -> (
+    rotero_db::turso::Connection,
+    rotero_db::turso::Connection,
+    String,
+) {
     let conn_a = open_test_db(dir_a).await;
     let conn_b = open_test_db(dir_b).await;
 
-    let id = papers::insert_paper(&conn_a, &new_paper("Shared Paper")).await.unwrap();
+    let id = papers::insert_paper(&conn_a, &new_paper("Shared Paper"))
+        .await
+        .unwrap();
 
     // Replicate to B via sync
     let changes = crr::changes_since(&conn_a, 0).await.unwrap();
@@ -102,7 +108,9 @@ async fn test_apply_same_changeset_twice_is_idempotent() {
     let conn_b = open_test_db(dir_b.path()).await;
 
     // A inserts and updates
-    let id = papers::insert_paper(&conn_a, &new_paper("Idempotent Paper")).await.unwrap();
+    let id = papers::insert_paper(&conn_a, &new_paper("Idempotent Paper"))
+        .await
+        .unwrap();
     papers::set_favorite(&conn_a, &id, true).await.unwrap();
 
     let changes = crr::changes_since(&conn_a, 0).await.unwrap();
@@ -139,18 +147,26 @@ async fn test_sequential_changesets_from_same_device() {
     let conn_b = open_test_db(dir_b.path()).await;
 
     // A: insert → update title → update favorite
-    let id = papers::insert_paper(&conn_a, &new_paper("Step 1")).await.unwrap();
+    let id = papers::insert_paper(&conn_a, &new_paper("Step 1"))
+        .await
+        .unwrap();
     let v1 = crr::current_db_version(&conn_a).await.unwrap();
 
     let paper = new_paper("Step 2");
-    papers::update_paper_metadata(&conn_a, &id, &paper).await.unwrap();
+    papers::update_paper_metadata(&conn_a, &id, &paper)
+        .await
+        .unwrap();
     let v2 = crr::current_db_version(&conn_a).await.unwrap();
 
     papers::set_favorite(&conn_a, &id, true).await.unwrap();
 
     // Export as two sequential batches (as real sync would)
-    let batch1 = crr::changes_since(&conn_a, 0).await.unwrap()
-        .into_iter().filter(|c| c.db_ver <= v1).collect::<Vec<_>>();
+    let batch1 = crr::changes_since(&conn_a, 0)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|c| c.db_ver <= v1)
+        .collect::<Vec<_>>();
     let batch2 = crr::changes_since(&conn_a, v1).await.unwrap();
 
     // Apply in correct order
@@ -206,12 +222,16 @@ async fn test_bidirectional_sync_converges() {
     // A: favorite + update title
     papers::set_favorite(&conn_a, &id, true).await.unwrap();
     let mut paper_a = new_paper("Title A");
-    papers::update_paper_metadata(&conn_a, &id, &paper_a).await.unwrap();
+    papers::update_paper_metadata(&conn_a, &id, &paper_a)
+        .await
+        .unwrap();
 
     // B: read + different title
     papers::set_read(&conn_b, &id, true).await.unwrap();
     let mut paper_b = new_paper("Title B");
-    papers::update_paper_metadata(&conn_b, &id, &paper_b).await.unwrap();
+    papers::update_paper_metadata(&conn_b, &id, &paper_b)
+        .await
+        .unwrap();
 
     // Round 1: sync A→B, B→A
     let changes_a = crr::changes_since(&conn_a, 0).await.unwrap();
@@ -224,7 +244,10 @@ async fn test_bidirectional_sync_converges() {
     let pb = papers::list_papers(&conn_b).await.unwrap();
 
     assert_eq!(pa[0].title, pb[0].title, "Titles should converge");
-    assert_eq!(pa[0].is_favorite, pb[0].is_favorite, "Favorites should converge");
+    assert_eq!(
+        pa[0].is_favorite, pb[0].is_favorite,
+        "Favorites should converge"
+    );
     assert_eq!(pa[0].is_read, pb[0].is_read, "Read status should converge");
 }
 
@@ -239,17 +262,25 @@ async fn test_junction_table_sync() {
     let conn_b = open_test_db(dir_b.path()).await;
 
     // A: create paper, collection, add paper to collection
-    let paper_id = papers::insert_paper(&conn_a, &new_paper("Junction Test")).await.unwrap();
+    let paper_id = papers::insert_paper(&conn_a, &new_paper("Junction Test"))
+        .await
+        .unwrap();
     let coll = Collection::new("Test Collection".to_string());
-    let coll_id = collections::insert_collection(&conn_a, &coll).await.unwrap();
-    collections::add_paper_to_collection(&conn_a, &paper_id, &coll_id).await.unwrap();
+    let coll_id = collections::insert_collection(&conn_a, &coll)
+        .await
+        .unwrap();
+    collections::add_paper_to_collection(&conn_a, &paper_id, &coll_id)
+        .await
+        .unwrap();
 
     // Sync to B
     let changes = crr::changes_since(&conn_a, 0).await.unwrap();
     crr::apply_changes(&conn_b, &changes).await.unwrap();
 
     // Verify B has the paper in the collection
-    let ids_b = collections::list_paper_ids_in_collection(&conn_b, &coll_id).await.unwrap();
+    let ids_b = collections::list_paper_ids_in_collection(&conn_b, &coll_id)
+        .await
+        .unwrap();
     assert_eq!(ids_b.len(), 1);
     assert_eq!(ids_b[0], paper_id);
 }
@@ -263,9 +294,15 @@ async fn test_tag_junction_sync() {
     let conn_b = open_test_db(dir_b.path()).await;
 
     // A: create paper, tag, add tag to paper
-    let paper_id = papers::insert_paper(&conn_a, &new_paper("Tagged Paper")).await.unwrap();
-    let tag_id = tags::get_or_create_tag(&conn_a, "machine-learning", None).await.unwrap();
-    tags::add_tag_to_paper(&conn_a, &paper_id, &tag_id).await.unwrap();
+    let paper_id = papers::insert_paper(&conn_a, &new_paper("Tagged Paper"))
+        .await
+        .unwrap();
+    let tag_id = tags::get_or_create_tag(&conn_a, "machine-learning", None)
+        .await
+        .unwrap();
+    tags::add_tag_to_paper(&conn_a, &paper_id, &tag_id)
+        .await
+        .unwrap();
 
     // Sync to B
     let changes = crr::changes_since(&conn_a, 0).await.unwrap();
@@ -291,7 +328,9 @@ async fn test_annotation_sync() {
     let conn_b = open_test_db(dir_b.path()).await;
 
     // A: create paper + annotation
-    let paper_id = papers::insert_paper(&conn_a, &new_paper("Annotated Paper")).await.unwrap();
+    let paper_id = papers::insert_paper(&conn_a, &new_paper("Annotated Paper"))
+        .await
+        .unwrap();
     let ann = Annotation {
         id: None,
         paper_id: paper_id.clone(),
@@ -310,7 +349,9 @@ async fn test_annotation_sync() {
     crr::apply_changes(&conn_b, &changes).await.unwrap();
 
     // Verify B has the annotation
-    let anns_b = annotations::list_annotations_for_paper(&conn_b, &paper_id).await.unwrap();
+    let anns_b = annotations::list_annotations_for_paper(&conn_b, &paper_id)
+        .await
+        .unwrap();
     assert_eq!(anns_b.len(), 1);
     assert_eq!(anns_b[0].content.as_deref(), Some("Important finding"));
     assert_eq!(anns_b[0].color, "#ffff00");
@@ -326,7 +367,9 @@ async fn test_notes_sync() {
     let conn_a = open_test_db(dir_a.path()).await;
     let conn_b = open_test_db(dir_b.path()).await;
 
-    let paper_id = papers::insert_paper(&conn_a, &new_paper("Paper with Notes")).await.unwrap();
+    let paper_id = papers::insert_paper(&conn_a, &new_paper("Paper with Notes"))
+        .await
+        .unwrap();
     let note = Note::new(paper_id.clone(), "My Note".to_string());
     let note_id = notes::insert_note(&conn_a, &note).await.unwrap();
 
@@ -334,7 +377,9 @@ async fn test_notes_sync() {
     let changes = crr::changes_since(&conn_a, 0).await.unwrap();
     crr::apply_changes(&conn_b, &changes).await.unwrap();
 
-    let notes_b = notes::list_notes_for_paper(&conn_b, &paper_id).await.unwrap();
+    let notes_b = notes::list_notes_for_paper(&conn_b, &paper_id)
+        .await
+        .unwrap();
     assert_eq!(notes_b.len(), 1);
     assert_eq!(notes_b[0].title, "My Note");
 }
@@ -351,12 +396,17 @@ async fn test_bulk_sync_100_papers() {
 
     // A: insert 100 papers
     for i in 0..100 {
-        papers::insert_paper(&conn_a, &new_paper(&format!("Paper {i}"))).await.unwrap();
+        papers::insert_paper(&conn_a, &new_paper(&format!("Paper {i}")))
+            .await
+            .unwrap();
     }
 
     // Sync to B
     let changes = crr::changes_since(&conn_a, 0).await.unwrap();
-    assert!(changes.len() > 100, "Should have many changes for 100 papers");
+    assert!(
+        changes.len() > 100,
+        "Should have many changes for 100 papers"
+    );
 
     let result = crr::apply_changes(&conn_b, &changes).await.unwrap();
     assert!(result.applied > 0);
@@ -378,7 +428,9 @@ async fn test_three_device_convergence() {
     let conn_c = open_test_db(dir_c.path()).await;
 
     // A creates a paper
-    let id = papers::insert_paper(&conn_a, &new_paper("Three Way")).await.unwrap();
+    let id = papers::insert_paper(&conn_a, &new_paper("Three Way"))
+        .await
+        .unwrap();
 
     // Sync A→B and A→C
     let changes_a = crr::changes_since(&conn_a, 0).await.unwrap();
@@ -389,7 +441,9 @@ async fn test_three_device_convergence() {
     papers::set_favorite(&conn_a, &id, true).await.unwrap();
     papers::set_read(&conn_b, &id, true).await.unwrap();
     let mut paper_c = new_paper("Updated by C");
-    papers::update_paper_metadata(&conn_c, &id, &paper_c).await.unwrap();
+    papers::update_paper_metadata(&conn_c, &id, &paper_c)
+        .await
+        .unwrap();
 
     // Gather all changes
     let ca = crr::changes_since(&conn_a, 0).await.unwrap();
@@ -431,8 +485,11 @@ async fn test_saved_search_sync() {
     let conn_a = open_test_db(dir_a.path()).await;
     let conn_b = open_test_db(dir_b.path()).await;
 
-    let search = rotero_models::SavedSearch::new("ML papers".to_string(), "machine learning".to_string());
-    saved_searches::insert_saved_search(&conn_a, &search).await.unwrap();
+    let search =
+        rotero_models::SavedSearch::new("ML papers".to_string(), "machine learning".to_string());
+    saved_searches::insert_saved_search(&conn_a, &search)
+        .await
+        .unwrap();
 
     let changes = crr::changes_since(&conn_a, 0).await.unwrap();
     crr::apply_changes(&conn_b, &changes).await.unwrap();
@@ -489,7 +546,9 @@ async fn test_resurrect_after_delete() {
     ];
 
     // Apply resurrection changeset to A
-    let result = crr::apply_changes(&conn_a, &resurrect_changes).await.unwrap();
+    let result = crr::apply_changes(&conn_a, &resurrect_changes)
+        .await
+        .unwrap();
     assert!(result.applied > 0, "Resurrection should be applied");
 
     // Paper should exist again on A with the new title
@@ -550,7 +609,11 @@ async fn test_column_before_sentinel_out_of_order() {
 
     // Paper should exist with correct values despite out-of-order delivery
     let papers = papers::list_papers(&conn).await.unwrap();
-    assert_eq!(papers.len(), 1, "Paper should be created from out-of-order columns");
+    assert_eq!(
+        papers.len(),
+        1,
+        "Paper should be created from out-of-order columns"
+    );
     assert_eq!(papers[0].title, "Out of Order Paper");
     assert!(papers[0].is_favorite);
 }
@@ -560,7 +623,9 @@ async fn test_delete_resurrect_delete_cycle() {
     let dir = tempfile::tempdir().unwrap();
     let conn = open_test_db(dir.path()).await;
 
-    let id = papers::insert_paper(&conn, &new_paper("Cycle Paper")).await.unwrap();
+    let id = papers::insert_paper(&conn, &new_paper("Cycle Paper"))
+        .await
+        .unwrap();
     let site = crr::site_id(&conn).await.unwrap();
 
     // Verify alive (CL=1)
@@ -583,7 +648,11 @@ async fn test_delete_resurrect_delete_cycle() {
         cl: 3,
     }];
     crr::apply_changes(&conn, &resurrect).await.unwrap();
-    assert_eq!(papers::list_papers(&conn).await.unwrap().len(), 1, "Should be resurrected at CL=3");
+    assert_eq!(
+        papers::list_papers(&conn).await.unwrap().len(),
+        1,
+        "Should be resurrected at CL=3"
+    );
 
     // Delete again (CL=4)
     let delete_again = vec![crr::ChangeRow {
@@ -598,5 +667,9 @@ async fn test_delete_resurrect_delete_cycle() {
         cl: 4,
     }];
     crr::apply_changes(&conn, &delete_again).await.unwrap();
-    assert_eq!(papers::list_papers(&conn).await.unwrap().len(), 0, "Should be deleted again at CL=4");
+    assert_eq!(
+        papers::list_papers(&conn).await.unwrap().len(),
+        0,
+        "Should be deleted again at CL=4"
+    );
 }

@@ -8,7 +8,7 @@ use rotero_db::crr::{self, ChangeRow};
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Bool, ProtocolObject};
-use objc2::{msg_send, msg_send_id, AllocAnyThread, ClassType};
+use objc2::{AllocAnyThread, ClassType, msg_send, msg_send_id};
 use objc2_cloud_kit::*;
 use objc2_foundation::*;
 
@@ -92,7 +92,8 @@ impl CloudKitSyncEngine {
             self.database.addOperation(&op);
         }
 
-        rx.await.map_err(|_| "Zone creation channel closed".to_string())??;
+        rx.await
+            .map_err(|_| "Zone creation channel closed".to_string())??;
         self.zone_created = true;
         Ok(())
     }
@@ -120,16 +121,10 @@ impl CloudKitSyncEngine {
             .map_err(|e| format!("Failed to read db_version: {e}"))?;
 
         // Serialize changeset
-        let payload =
-            serde_json::to_vec(&changes).map_err(|e| format!("Serialize failed: {e}"))?;
+        let payload = serde_json::to_vec(&changes).map_err(|e| format!("Serialize failed: {e}"))?;
 
         // Create CKRecord
-        let record_name = format!(
-            "{}_{:08}_{:08}",
-            self.site_id_hex(),
-            last_ver,
-            current_ver,
-        );
+        let record_name = format!("{}_{:08}_{:08}", self.site_id_hex(), last_ver, current_ver,);
 
         unsafe {
             let record_id = CKRecordID::initWithRecordName_zoneID(
@@ -154,8 +149,7 @@ impl CloudKitSyncEngine {
 
             let from_num: Retained<NSNumber> =
                 msg_send_id![NSNumber::class(), numberWithLongLong: last_ver];
-            let from_val: &ProtocolObject<dyn CKRecordValue> =
-                ProtocolObject::from_ref(&*from_num);
+            let from_val: &ProtocolObject<dyn CKRecordValue> = ProtocolObject::from_ref(&*from_num);
             record.setObject_forKey(Some(from_val), &NSString::from_str("fromVersion"));
 
             let to_num: Retained<NSNumber> =
@@ -209,7 +203,9 @@ impl CloudKitSyncEngine {
 
                 // Extract payload
                 let payload_obj = record.objectForKey(&NSString::from_str("payload"));
-                let Some(payload_obj) = payload_obj else { continue };
+                let Some(payload_obj) = payload_obj else {
+                    continue;
+                };
                 let payload_data: *const NSData = msg_send![&*payload_obj, self];
                 if payload_data.is_null() {
                     continue;
@@ -272,7 +268,8 @@ impl CloudKitSyncEngine {
             self.database.addOperation(&op);
         }
 
-        rx.await.map_err(|_| "Save records channel closed".to_string())?
+        rx.await
+            .map_err(|_| "Save records channel closed".to_string())?
     }
 
     /// Fetch zone changes since a given server token.
@@ -280,7 +277,13 @@ impl CloudKitSyncEngine {
     async fn fetch_zone_changes(
         &self,
         token: Option<&CKServerChangeToken>,
-    ) -> Result<(Vec<Retained<CKRecord>>, Option<Retained<CKServerChangeToken>>), String> {
+    ) -> Result<
+        (
+            Vec<Retained<CKRecord>>,
+            Option<Retained<CKServerChangeToken>>,
+        ),
+        String,
+    > {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let tx = Cell::new(Some(tx));
         let records = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -310,11 +313,10 @@ impl CloudKitSyncEngine {
 
             // Record changed callback
             let records_for_cb = records_clone.clone();
-            let changed_block =
-                block2::RcBlock::new(move |record: NonNull<CKRecord>| {
-                    let retained = Retained::retain(record.as_ptr()).unwrap();
-                    records_for_cb.lock().unwrap().push(retained);
-                });
+            let changed_block = block2::RcBlock::new(move |record: NonNull<CKRecord>| {
+                let retained = Retained::retain(record.as_ptr()).unwrap();
+                records_for_cb.lock().unwrap().push(retained);
+            });
             #[allow(deprecated)]
             op.setRecordChangedBlock(Some(&changed_block));
 

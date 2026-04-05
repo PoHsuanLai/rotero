@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use rotero_db::{crr, papers, collections, tags, annotations, notes, schema, saved_searches};
+use rotero_db::{annotations, collections, crr, notes, papers, saved_searches, schema, tags};
 use rotero_models::Paper;
 
 async fn open_test_db(dir: &std::path::Path) -> rotero_db::turso::Connection {
@@ -31,19 +31,33 @@ async fn test_insert_tracks_changes() {
     let conn = open_test_db(dir.path()).await;
 
     // Insert a paper
-    let id = papers::insert_paper(&conn, &new_paper("Test Paper")).await.unwrap();
+    let id = papers::insert_paper(&conn, &new_paper("Test Paper"))
+        .await
+        .unwrap();
     assert!(!id.is_empty());
 
     // Check that clock entries were created
     let changes = crr::changes_since(&conn, 0).await.unwrap();
-    assert!(!changes.is_empty(), "Should have clock entries after insert");
+    assert!(
+        !changes.is_empty(),
+        "Should have clock entries after insert"
+    );
 
     // Should have a sentinel + column entries for papers
-    let paper_changes: Vec<_> = changes.iter().filter(|c| c.table_name == "papers").collect();
-    assert!(paper_changes.len() > 1, "Should have sentinel + column entries");
+    let paper_changes: Vec<_> = changes
+        .iter()
+        .filter(|c| c.table_name == "papers")
+        .collect();
+    assert!(
+        paper_changes.len() > 1,
+        "Should have sentinel + column entries"
+    );
 
     // Sentinel should have CL=1 (alive)
-    let sentinel = paper_changes.iter().find(|c| c.col_name == "__sentinel").unwrap();
+    let sentinel = paper_changes
+        .iter()
+        .find(|c| c.col_name == "__sentinel")
+        .unwrap();
     assert_eq!(sentinel.cl, 1, "Sentinel CL should be 1 (alive)");
 }
 
@@ -52,7 +66,9 @@ async fn test_update_increments_version() {
     let dir = tempfile::tempdir().unwrap();
     let conn = open_test_db(dir.path()).await;
 
-    let id = papers::insert_paper(&conn, &new_paper("Paper A")).await.unwrap();
+    let id = papers::insert_paper(&conn, &new_paper("Paper A"))
+        .await
+        .unwrap();
     let v1 = crr::current_db_version(&conn).await.unwrap();
 
     // Update favorite
@@ -62,8 +78,14 @@ async fn test_update_increments_version() {
 
     // Check the is_favorite column has a higher version
     let changes = crr::changes_since(&conn, v1).await.unwrap();
-    let fav_change = changes.iter().find(|c| c.col_name == "is_favorite").unwrap();
-    assert_eq!(fav_change.col_ver, 2, "col_ver should be 2 after one update");
+    let fav_change = changes
+        .iter()
+        .find(|c| c.col_name == "is_favorite")
+        .unwrap();
+    assert_eq!(
+        fav_change.col_ver, 2,
+        "col_ver should be 2 after one update"
+    );
 }
 
 #[tokio::test]
@@ -71,7 +93,9 @@ async fn test_delete_sets_even_cl() {
     let dir = tempfile::tempdir().unwrap();
     let conn = open_test_db(dir.path()).await;
 
-    let id = papers::insert_paper(&conn, &new_paper("To Delete")).await.unwrap();
+    let id = papers::insert_paper(&conn, &new_paper("To Delete"))
+        .await
+        .unwrap();
     papers::delete_paper(&conn, &id).await.unwrap();
 
     let changes = crr::changes_since(&conn, 0).await.unwrap();
@@ -92,28 +116,30 @@ async fn test_two_device_sync() {
     let conn_b = open_test_db(dir_b.path()).await;
 
     // Device A: insert a paper
-    let paper_id = papers::insert_paper(&conn_a, &new_paper("Shared Paper")).await.unwrap();
-    papers::set_favorite(&conn_a, &paper_id, true).await.unwrap();
+    let paper_id = papers::insert_paper(&conn_a, &new_paper("Shared Paper"))
+        .await
+        .unwrap();
+    papers::set_favorite(&conn_a, &paper_id, true)
+        .await
+        .unwrap();
 
     // Device A: insert a collection
     let mut coll = rotero_models::Collection::new("My Collection".to_string());
-    let coll_id = collections::insert_collection(&conn_a, &coll).await.unwrap();
+    let coll_id = collections::insert_collection(&conn_a, &coll)
+        .await
+        .unwrap();
 
     // Export from A
     let site_a = crr::site_id(&conn_a).await.unwrap();
-    let engine_a = rotero_db::sync_test_helpers::TestSyncEngine::new(
-        sync_dir.path().to_path_buf(),
-        site_a,
-    );
+    let engine_a =
+        rotero_db::sync_test_helpers::TestSyncEngine::new(sync_dir.path().to_path_buf(), site_a);
     let exported = engine_a.export_changes(&conn_a).await;
     assert!(exported > 0, "Should export changes from device A");
 
     // Import into B
     let site_b = crr::site_id(&conn_b).await.unwrap();
-    let engine_b = rotero_db::sync_test_helpers::TestSyncEngine::new(
-        sync_dir.path().to_path_buf(),
-        site_b,
-    );
+    let engine_b =
+        rotero_db::sync_test_helpers::TestSyncEngine::new(sync_dir.path().to_path_buf(), site_b);
     let imported = engine_b.import_changes(&conn_b).await;
     assert!(imported > 0, "Should import changes into device B");
 
@@ -151,17 +177,47 @@ async fn test_conflict_resolution_lww() {
         ]),
     ).await.unwrap();
     // Set up initial clock on B too
-    let _ = crr::track_insert(&conn_b, "papers", &id, &["title", "authors", "year", "doi", "abstract_text", "journal", "volume", "issue", "pages", "publisher", "url", "pdf_path", "date_added", "date_modified", "is_favorite", "is_read", "extra_meta", "citation_count", "citation_key"]).await;
+    let _ = crr::track_insert(
+        &conn_b,
+        "papers",
+        &id,
+        &[
+            "title",
+            "authors",
+            "year",
+            "doi",
+            "abstract_text",
+            "journal",
+            "volume",
+            "issue",
+            "pages",
+            "publisher",
+            "url",
+            "pdf_path",
+            "date_added",
+            "date_modified",
+            "is_favorite",
+            "is_read",
+            "extra_meta",
+            "citation_count",
+            "citation_key",
+        ],
+    )
+    .await;
 
     // Device A: update title (col_ver goes to 2)
     let mut paper_a = paper.clone();
     paper_a.title = "Title from A".to_string();
-    papers::update_paper_metadata(&conn_a, &id, &paper_a).await.unwrap();
+    papers::update_paper_metadata(&conn_a, &id, &paper_a)
+        .await
+        .unwrap();
 
     // Device B: update title (col_ver also goes to 2)
     let mut paper_b = paper.clone();
     paper_b.title = "Title from B".to_string();
-    papers::update_paper_metadata(&conn_b, &id, &paper_b).await.unwrap();
+    papers::update_paper_metadata(&conn_b, &id, &paper_b)
+        .await
+        .unwrap();
 
     // Export A's changes
     let changes_a = crr::changes_since(&conn_a, 0).await.unwrap();
@@ -174,5 +230,8 @@ async fn test_conflict_resolution_lww() {
     let final_title = &papers_b[0].title;
     // With equal col_ver, the higher value wins (lexicographic)
     // "Title from B" > "Title from A", so B should win
-    assert_eq!(final_title, "Title from B", "Higher value should win in LWW tie-break");
+    assert_eq!(
+        final_title, "Title from B",
+        "Higher value should win in LWW tie-break"
+    );
 }

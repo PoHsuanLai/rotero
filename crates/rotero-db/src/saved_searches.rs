@@ -21,15 +21,19 @@ pub async fn insert_saved_search(
     )
     .await?;
 
-    let _ = crr::track_insert(conn, "saved_searches", &uuid, &["name", "query", "created_at"]).await;
+    let _ = crr::track_insert(
+        conn,
+        "saved_searches",
+        &uuid,
+        &["name", "query", "created_at"],
+    )
+    .await;
 
     Ok(uuid)
 }
 
 pub async fn list_saved_searches(conn: &Connection) -> Result<Vec<SavedSearch>, turso::Error> {
-    let mut rows = conn
-        .query(queries::SAVED_SEARCH_LIST, ())
-        .await?;
+    let mut rows = conn.query(queries::SAVED_SEARCH_LIST, ()).await?;
     let mut searches = Vec::new();
     while let Some(row) = rows.next().await? {
         searches.push(row_to_saved_search(&row));
@@ -38,7 +42,8 @@ pub async fn list_saved_searches(conn: &Connection) -> Result<Vec<SavedSearch>, 
 }
 
 pub async fn delete_saved_search(conn: &Connection, id: &str) -> Result<(), turso::Error> {
-    conn.execute(queries::SAVED_SEARCH_DELETE, [Value::Text(id.to_string())]).await?;
+    conn.execute(queries::SAVED_SEARCH_DELETE, [Value::Text(id.to_string())])
+        .await?;
     let _ = crr::track_delete(conn, "saved_searches", id).await;
     Ok(())
 }

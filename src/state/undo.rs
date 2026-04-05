@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 use rotero_models::Annotation;
 
-use rotero_db::Database;
 use crate::state::app_state::PdfTabManager;
+use rotero_db::Database;
 
 /// A forward annotation action (what was done).
 #[derive(Debug, Clone)]
@@ -88,7 +88,8 @@ pub async fn reverse_action(
             if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &ann_id).await {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {
-                        t.annotations.retain(|a| a.id.as_deref() != Some(ann_id.as_str()));
+                        t.annotations
+                            .retain(|a| a.id.as_deref() != Some(ann_id.as_str()));
                     }
                 });
             }
@@ -106,7 +107,9 @@ pub async fn reverse_action(
                 });
             }
         }
-        UndoAction::UpdateContent { ref id, ref old, .. } => {
+        UndoAction::UpdateContent {
+            ref id, ref old, ..
+        } => {
             let opt = old.as_deref();
             if let Ok(()) =
                 rotero_db::annotations::update_annotation_content(db.conn(), id, opt).await
@@ -114,21 +117,29 @@ pub async fn reverse_action(
                 let id = id.clone();
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()
-                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id.as_deref() == Some(id.as_str()))
+                        && let Some(a) = t
+                            .annotations
+                            .iter_mut()
+                            .find(|a| a.id.as_deref() == Some(id.as_str()))
                     {
                         a.content = old.clone();
                     }
                 });
             }
         }
-        UndoAction::UpdateColor { ref id, ref old, .. } => {
+        UndoAction::UpdateColor {
+            ref id, ref old, ..
+        } => {
             if let Ok(()) =
                 rotero_db::annotations::update_annotation_color(db.conn(), id, old).await
             {
                 let id = id.clone();
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()
-                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id.as_deref() == Some(id.as_str()))
+                        && let Some(a) = t
+                            .annotations
+                            .iter_mut()
+                            .find(|a| a.id.as_deref() == Some(id.as_str()))
                     {
                         a.color = old.clone();
                     }
@@ -164,12 +175,15 @@ pub async fn forward_action(
             if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &ann_id).await {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {
-                        t.annotations.retain(|a| a.id.as_deref() != Some(ann_id.as_str()));
+                        t.annotations
+                            .retain(|a| a.id.as_deref() != Some(ann_id.as_str()));
                     }
                 });
             }
         }
-        UndoAction::UpdateContent { ref id, ref new, .. } => {
+        UndoAction::UpdateContent {
+            ref id, ref new, ..
+        } => {
             let opt = new.as_deref();
             if let Ok(()) =
                 rotero_db::annotations::update_annotation_content(db.conn(), id, opt).await
@@ -177,21 +191,29 @@ pub async fn forward_action(
                 let id = id.clone();
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()
-                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id.as_deref() == Some(id.as_str()))
+                        && let Some(a) = t
+                            .annotations
+                            .iter_mut()
+                            .find(|a| a.id.as_deref() == Some(id.as_str()))
                     {
                         a.content = new.clone();
                     }
                 });
             }
         }
-        UndoAction::UpdateColor { ref id, ref new, .. } => {
+        UndoAction::UpdateColor {
+            ref id, ref new, ..
+        } => {
             if let Ok(()) =
                 rotero_db::annotations::update_annotation_color(db.conn(), id, new).await
             {
                 let id = id.clone();
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()
-                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id.as_deref() == Some(id.as_str()))
+                        && let Some(a) = t
+                            .annotations
+                            .iter_mut()
+                            .find(|a| a.id.as_deref() == Some(id.as_str()))
                     {
                         a.color = new.clone();
                     }

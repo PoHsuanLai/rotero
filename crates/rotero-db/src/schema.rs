@@ -171,18 +171,17 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
     // Migration to v7: backfill NULL tag colors with palette colors
     if current_version < 7 {
         const PALETTE: &[&str] = &[
-            "#6b7085", "#7c6b85", "#6b8580", "#857a6b",
-            "#6b7a85", "#856b7a", "#6b856e", "#85706b",
+            "#6b7085", "#7c6b85", "#6b8580", "#857a6b", "#6b7a85", "#856b7a", "#6b856e", "#85706b",
             "#6e6b85", "#7a856b", "#856b6b", "#6b8585",
         ];
-        let mut rows = conn
-            .query(crate::queries::TAG_LIST_NULL_COLOR, ())
-            .await?;
+        let mut rows = conn.query(crate::queries::TAG_LIST_NULL_COLOR, ()).await?;
         let mut updates: Vec<(i64, String)> = Vec::new();
         while let Some(row) = rows.next().await? {
             let id = row.get_value(0)?.as_integer().copied().unwrap_or(0);
             let name = row.get_value(1)?.as_text().cloned().unwrap_or_default();
-            let hash = name.bytes().fold(0usize, |acc, b| acc.wrapping_add(b as usize));
+            let hash = name
+                .bytes()
+                .fold(0usize, |acc, b| acc.wrapping_add(b as usize));
             updates.push((id, PALETTE[hash % PALETTE.len()].to_string()));
         }
         for (id, color) in updates {
@@ -530,10 +529,14 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
 
     // --- Drop old tables and rename new ones ---
     // Drop FTS index first (it references old papers table)
-    let _ = conn.execute("DROP INDEX IF EXISTS idx_papers_fts", ()).await;
+    let _ = conn
+        .execute("DROP INDEX IF EXISTS idx_papers_fts", ())
+        .await;
 
     // Drop junction tables first (they reference the main tables)
-    let _ = conn.execute("DROP TABLE IF EXISTS paper_collections", ()).await;
+    let _ = conn
+        .execute("DROP TABLE IF EXISTS paper_collections", ())
+        .await;
     let _ = conn.execute("DROP TABLE IF EXISTS paper_tags", ()).await;
     // Drop tables that reference papers
     let _ = conn.execute("DROP TABLE IF EXISTS annotations", ()).await;
@@ -542,25 +545,57 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
     let _ = conn.execute("DROP TABLE IF EXISTS papers", ()).await;
     let _ = conn.execute("DROP TABLE IF EXISTS collections", ()).await;
     let _ = conn.execute("DROP TABLE IF EXISTS tags", ()).await;
-    let _ = conn.execute("DROP TABLE IF EXISTS saved_searches", ()).await;
+    let _ = conn
+        .execute("DROP TABLE IF EXISTS saved_searches", ())
+        .await;
 
     // Rename new tables
-    let _ = conn.execute("ALTER TABLE papers_new RENAME TO papers", ()).await;
-    let _ = conn.execute("ALTER TABLE collections_new RENAME TO collections", ()).await;
-    let _ = conn.execute("ALTER TABLE tags_new RENAME TO tags", ()).await;
-    let _ = conn.execute("ALTER TABLE annotations_new RENAME TO annotations", ()).await;
-    let _ = conn.execute("ALTER TABLE notes_new RENAME TO notes", ()).await;
-    let _ = conn.execute("ALTER TABLE saved_searches_new RENAME TO saved_searches", ()).await;
-    let _ = conn.execute("ALTER TABLE paper_collections_new RENAME TO paper_collections", ()).await;
-    let _ = conn.execute("ALTER TABLE paper_tags_new RENAME TO paper_tags", ()).await;
+    let _ = conn
+        .execute("ALTER TABLE papers_new RENAME TO papers", ())
+        .await;
+    let _ = conn
+        .execute("ALTER TABLE collections_new RENAME TO collections", ())
+        .await;
+    let _ = conn
+        .execute("ALTER TABLE tags_new RENAME TO tags", ())
+        .await;
+    let _ = conn
+        .execute("ALTER TABLE annotations_new RENAME TO annotations", ())
+        .await;
+    let _ = conn
+        .execute("ALTER TABLE notes_new RENAME TO notes", ())
+        .await;
+    let _ = conn
+        .execute(
+            "ALTER TABLE saved_searches_new RENAME TO saved_searches",
+            (),
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "ALTER TABLE paper_collections_new RENAME TO paper_collections",
+            (),
+        )
+        .await;
+    let _ = conn
+        .execute("ALTER TABLE paper_tags_new RENAME TO paper_tags", ())
+        .await;
 
     // Drop mapping tables
-    let _ = conn.execute("DROP TABLE IF EXISTS _id_map_papers", ()).await;
-    let _ = conn.execute("DROP TABLE IF EXISTS _id_map_collections", ()).await;
+    let _ = conn
+        .execute("DROP TABLE IF EXISTS _id_map_papers", ())
+        .await;
+    let _ = conn
+        .execute("DROP TABLE IF EXISTS _id_map_collections", ())
+        .await;
     let _ = conn.execute("DROP TABLE IF EXISTS _id_map_tags", ()).await;
-    let _ = conn.execute("DROP TABLE IF EXISTS _id_map_annotations", ()).await;
+    let _ = conn
+        .execute("DROP TABLE IF EXISTS _id_map_annotations", ())
+        .await;
     let _ = conn.execute("DROP TABLE IF EXISTS _id_map_notes", ()).await;
-    let _ = conn.execute("DROP TABLE IF EXISTS _id_map_saved_searches", ()).await;
+    let _ = conn
+        .execute("DROP TABLE IF EXISTS _id_map_saved_searches", ())
+        .await;
 
     // Rebuild FTS index on the new papers table
     let _ = conn.execute(CREATE_FTS_INDEX, ()).await;

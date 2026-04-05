@@ -280,7 +280,8 @@ pub fn extract_page_text(
             let oy = oy.value as f64;
 
             // Detect line wrap: char is far left of current run's right edge
-            if !run.text.is_empty() && run.right > f64::MIN && ox < run.left - font_size_pts as f64 {
+            if !run.text.is_empty() && run.right > f64::MIN && ox < run.left - font_size_pts as f64
+            {
                 run.flush(&mut segments, scale_x, scale_y, page_height_pts);
                 run.reset_bounds();
             }
@@ -292,10 +293,16 @@ pub fn extract_page_text(
             run.left = run.left.min(ox);
             // Track right edge: origin.x of this char + estimated char width
             // Use tight_bounds or loose_bounds width for the individual char
-            let char_w = ch.loose_bounds().ok().map(|b| {
-                #[allow(deprecated)]
-                { b.right().value as f64 - b.left().value as f64 }
-            }).unwrap_or(font_size_pts as f64 * 0.5);
+            let char_w = ch
+                .loose_bounds()
+                .ok()
+                .map(|b| {
+                    #[allow(deprecated)]
+                    {
+                        b.right().value as f64 - b.left().value as f64
+                    }
+                })
+                .unwrap_or(font_size_pts as f64 * 0.5);
             // Only use per-char bounds width if it's reasonable (not text-object-level)
             let cw = if char_w > 0.0 && char_w < font_size_pts as f64 * 2.0 {
                 char_w
@@ -510,7 +517,8 @@ fn extract_page_text_from_doc(
             let ox = ox.value as f64;
             let oy = oy.value as f64;
 
-            if !run.text.is_empty() && run.right > f64::MIN && ox < run.left - font_size_pts as f64 {
+            if !run.text.is_empty() && run.right > f64::MIN && ox < run.left - font_size_pts as f64
+            {
                 run.flush(&mut segments, scale_x, scale_y, page_height_pts);
                 run.reset_bounds();
             }
@@ -520,10 +528,16 @@ fn extract_page_text_from_doc(
                 run.has_origin_y = true;
             }
             run.left = run.left.min(ox);
-            let char_w = ch.loose_bounds().ok().map(|b| {
-                #[allow(deprecated)]
-                { b.right().value as f64 - b.left().value as f64 }
-            }).unwrap_or(font_size_pts as f64 * 0.5);
+            let char_w = ch
+                .loose_bounds()
+                .ok()
+                .map(|b| {
+                    #[allow(deprecated)]
+                    {
+                        b.right().value as f64 - b.left().value as f64
+                    }
+                })
+                .unwrap_or(font_size_pts as f64 * 0.5);
             let cw = if char_w > 0.0 && char_w < font_size_pts as f64 * 2.0 {
                 char_w
             } else {

@@ -31,7 +31,8 @@ pub const PAPER_UPDATE_METADATA: &str = "\
     journal = ?6, volume = ?7, issue = ?8, pages = ?9, publisher = ?10, url = ?11, \
     date_modified = ?12 WHERE id = ?13";
 
-pub const PAPER_UPDATE_PDF_PATH: &str = "UPDATE papers SET pdf_path = ?1, date_modified = ?2 WHERE id = ?3";
+pub const PAPER_UPDATE_PDF_PATH: &str =
+    "UPDATE papers SET pdf_path = ?1, date_modified = ?2 WHERE id = ?3";
 pub const PAPER_DELETE: &str = "DELETE FROM papers WHERE id = ?1";
 
 pub const PAPER_FIND_DOI_DUPLICATES: &str = "\
@@ -57,13 +58,15 @@ pub const PAPER_LIST_NEEDING_CITATION_KEYS: &str = "\
     SELECT id, title, authors, year FROM papers \
     WHERE citation_key IS NULL AND title != '' AND title != 'Untitled'";
 
-pub const PAPER_LIST_CITATION_KEYS: &str = "SELECT citation_key FROM papers WHERE citation_key IS NOT NULL";
+pub const PAPER_LIST_CITATION_KEYS: &str =
+    "SELECT citation_key FROM papers WHERE citation_key IS NOT NULL";
 
 // ---------------------------------------------------------------------------
 // Collections
 // ---------------------------------------------------------------------------
 
-pub const COLLECTION_INSERT: &str = "INSERT INTO collections (id, name, parent_id, position) VALUES (?1, ?2, ?3, ?4)";
+pub const COLLECTION_INSERT: &str =
+    "INSERT INTO collections (id, name, parent_id, position) VALUES (?1, ?2, ?3, ?4)";
 
 pub const COLLECTION_LIST: &str = "\
     SELECT id, name, parent_id, position FROM collections ORDER BY parent_id NULLS FIRST, position";
@@ -72,9 +75,12 @@ pub const COLLECTION_RENAME: &str = "UPDATE collections SET name = ?1 WHERE id =
 pub const COLLECTION_REPARENT: &str = "UPDATE collections SET parent_id = ?1 WHERE id = ?2";
 pub const COLLECTION_DELETE: &str = "DELETE FROM collections WHERE id = ?1";
 
-pub const COLLECTION_PAPER_IDS: &str = "SELECT paper_id FROM paper_collections WHERE collection_id = ?1";
-pub const COLLECTION_ADD_PAPER: &str = "INSERT OR IGNORE INTO paper_collections (paper_id, collection_id) VALUES (?1, ?2)";
-pub const COLLECTION_REMOVE_PAPER: &str = "DELETE FROM paper_collections WHERE paper_id = ?1 AND collection_id = ?2";
+pub const COLLECTION_PAPER_IDS: &str =
+    "SELECT paper_id FROM paper_collections WHERE collection_id = ?1";
+pub const COLLECTION_ADD_PAPER: &str =
+    "INSERT OR IGNORE INTO paper_collections (paper_id, collection_id) VALUES (?1, ?2)";
+pub const COLLECTION_REMOVE_PAPER: &str =
+    "DELETE FROM paper_collections WHERE paper_id = ?1 AND collection_id = ?2";
 
 // ---------------------------------------------------------------------------
 // Tags
@@ -83,7 +89,8 @@ pub const COLLECTION_REMOVE_PAPER: &str = "DELETE FROM paper_collections WHERE p
 pub const TAG_FIND_BY_NAME: &str = "SELECT id FROM tags WHERE name = ?1";
 pub const TAG_INSERT: &str = "INSERT INTO tags (id, name, color) VALUES (?1, ?2, ?3)";
 pub const TAG_LIST: &str = "SELECT id, name, color FROM tags ORDER BY name";
-pub const TAG_ADD_TO_PAPER: &str = "INSERT OR IGNORE INTO paper_tags (paper_id, tag_id) VALUES (?1, ?2)";
+pub const TAG_ADD_TO_PAPER: &str =
+    "INSERT OR IGNORE INTO paper_tags (paper_id, tag_id) VALUES (?1, ?2)";
 pub const TAG_RENAME: &str = "UPDATE tags SET name = ?1 WHERE id = ?2";
 pub const TAG_UPDATE_COLOR: &str = "UPDATE tags SET color = ?1 WHERE id = ?2";
 pub const TAG_LIST_NULL_COLOR: &str = "SELECT id, name FROM tags WHERE color IS NULL";
@@ -102,8 +109,10 @@ pub const ANNOTATION_LIST_FOR_PAPER: &str = "\
     SELECT id, paper_id, page, ann_type, color, content, geometry, created_at, modified_at \
     FROM annotations WHERE paper_id = ?1 ORDER BY page, created_at";
 
-pub const ANNOTATION_UPDATE_CONTENT: &str = "UPDATE annotations SET content = ?1, modified_at = ?2 WHERE id = ?3";
-pub const ANNOTATION_UPDATE_COLOR: &str = "UPDATE annotations SET color = ?1, modified_at = ?2 WHERE id = ?3";
+pub const ANNOTATION_UPDATE_CONTENT: &str =
+    "UPDATE annotations SET content = ?1, modified_at = ?2 WHERE id = ?3";
+pub const ANNOTATION_UPDATE_COLOR: &str =
+    "UPDATE annotations SET color = ?1, modified_at = ?2 WHERE id = ?3";
 pub const ANNOTATION_DELETE: &str = "DELETE FROM annotations WHERE id = ?1";
 
 // ---------------------------------------------------------------------------
@@ -118,14 +127,16 @@ pub const NOTE_LIST_FOR_PAPER: &str = "\
     SELECT id, paper_id, title, body, created_at, modified_at \
     FROM notes WHERE paper_id = ?1 ORDER BY created_at DESC";
 
-pub const NOTE_UPDATE: &str = "UPDATE notes SET title = ?1, body = ?2, modified_at = ?3 WHERE id = ?4";
+pub const NOTE_UPDATE: &str =
+    "UPDATE notes SET title = ?1, body = ?2, modified_at = ?3 WHERE id = ?4";
 pub const NOTE_DELETE: &str = "DELETE FROM notes WHERE id = ?1";
 
 // ---------------------------------------------------------------------------
 // Saved Searches
 // ---------------------------------------------------------------------------
 
-pub const SAVED_SEARCH_INSERT: &str = "INSERT INTO saved_searches (id, name, query, created_at) VALUES (?1, ?2, ?3, ?4)";
+pub const SAVED_SEARCH_INSERT: &str =
+    "INSERT INTO saved_searches (id, name, query, created_at) VALUES (?1, ?2, ?3, ?4)";
 
 pub const SAVED_SEARCH_LIST: &str = "\
     SELECT id, name, query, created_at FROM saved_searches ORDER BY created_at DESC";
@@ -138,12 +149,12 @@ pub const SAVED_SEARCH_RENAME: &str = "UPDATE saved_searches SET name = ?1 WHERE
 // ---------------------------------------------------------------------------
 
 pub const GRAPH_ALL_PAPER_TAGS: &str = "SELECT paper_id, tag_id FROM paper_tags";
-pub const GRAPH_ALL_PAPER_COLLECTIONS: &str = "SELECT paper_id, collection_id FROM paper_collections";
+pub const GRAPH_ALL_PAPER_COLLECTIONS: &str =
+    "SELECT paper_id, collection_id FROM paper_collections";
 
 // ---------------------------------------------------------------------------
 // Common
 // ---------------------------------------------------------------------------
-
 
 // ---------------------------------------------------------------------------
 // MCP / stats queries

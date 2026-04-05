@@ -84,7 +84,11 @@ pub fn load_cached(
 
     let pages_dir = dir.join("pages");
     let ext = ext_for_mime(&meta.mime);
-    let mime: &'static str = if meta.mime == "image/png" { "image/png" } else { "image/jpeg" };
+    let mime: &'static str = if meta.mime == "image/png" {
+        "image/png"
+    } else {
+        "image/jpeg"
+    };
     let mut pages = Vec::with_capacity(meta.page_count as usize);
     for i in 0..meta.page_count {
         let img_path = pages_dir.join(format!("{i}.{ext}"));
@@ -206,7 +210,11 @@ pub fn load_single_page(
     }
 
     let ext = ext_for_mime(&meta.mime);
-    let mime: &'static str = if meta.mime == "image/png" { "image/png" } else { "image/jpeg" };
+    let mime: &'static str = if meta.mime == "image/png" {
+        "image/png"
+    } else {
+        "image/jpeg"
+    };
     let img_path = dir.join("pages").join(format!("{page_index}.{ext}"));
     let bytes = fs::read(&img_path).ok()?;
     let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);

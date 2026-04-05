@@ -5,7 +5,10 @@ use turso::{Connection, Value};
 use crate::crr;
 use crate::queries;
 
-pub async fn insert_annotation(conn: &Connection, ann: &Annotation) -> Result<String, turso::Error> {
+pub async fn insert_annotation(
+    conn: &Connection,
+    ann: &Annotation,
+) -> Result<String, turso::Error> {
     let uuid = uuid::Uuid::now_v7().to_string();
     let ann_type_str = match ann.ann_type {
         AnnotationType::Highlight => "highlight",
@@ -25,7 +28,10 @@ pub async fn insert_annotation(conn: &Connection, ann: &Annotation) -> Result<St
             Value::Integer(ann.page as i64),
             Value::Text(ann_type_str.to_string()),
             Value::Text(ann.color.clone()),
-            ann.content.as_ref().map(|s| Value::Text(s.clone())).unwrap_or(Value::Null),
+            ann.content
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
             Value::Text(geometry),
             Value::Text(ann.created_at.to_rfc3339()),
             Value::Text(ann.modified_at.to_rfc3339()),
@@ -33,7 +39,22 @@ pub async fn insert_annotation(conn: &Connection, ann: &Annotation) -> Result<St
     )
     .await?;
 
-    let _ = crr::track_insert(conn, "annotations", &uuid, &["paper_id", "page", "ann_type", "color", "content", "geometry", "created_at", "modified_at"]).await;
+    let _ = crr::track_insert(
+        conn,
+        "annotations",
+        &uuid,
+        &[
+            "paper_id",
+            "page",
+            "ann_type",
+            "color",
+            "content",
+            "geometry",
+            "created_at",
+            "modified_at",
+        ],
+    )
+    .await;
 
     Ok(uuid)
 }
@@ -43,7 +64,10 @@ pub async fn list_annotations_for_paper(
     paper_id: &str,
 ) -> Result<Vec<Annotation>, turso::Error> {
     let mut rows = conn
-        .query(queries::ANNOTATION_LIST_FOR_PAPER, [Value::Text(paper_id.to_string())])
+        .query(
+            queries::ANNOTATION_LIST_FOR_PAPER,
+            [Value::Text(paper_id.to_string())],
+        )
         .await?;
 
     let mut anns = Vec::new();
@@ -94,7 +118,8 @@ pub async fn update_annotation_color(
 }
 
 pub async fn delete_annotation(conn: &Connection, id: &str) -> Result<(), turso::Error> {
-    conn.execute(queries::ANNOTATION_DELETE, [Value::Text(id.to_string())]).await?;
+    conn.execute(queries::ANNOTATION_DELETE, [Value::Text(id.to_string())])
+        .await?;
     let _ = crr::track_delete(conn, "annotations", id).await;
     Ok(())
 }

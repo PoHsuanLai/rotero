@@ -1,9 +1,9 @@
 use dioxus::prelude::*;
 
 use super::components::context_menu::{ContextMenu, ContextMenuItem};
-use rotero_db::Database;
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
 use crate::sync::engine::SyncConfig;
+use rotero_db::Database;
 
 #[component]
 pub fn PaperDetail() -> Element {

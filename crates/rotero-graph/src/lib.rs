@@ -3,7 +3,7 @@ pub mod edges;
 
 use std::collections::HashMap;
 
-use fdg::{fruchterman_reingold::FruchtermanReingold, simple::Center, Force};
+use fdg::{Force, fruchterman_reingold::FruchtermanReingold, simple::Center};
 use petgraph::stable_graph::StableGraph;
 use rotero_models::{Paper, Tag};
 
@@ -21,8 +21,13 @@ pub fn build_and_simulate(
     filter: &GraphFilter,
     iterations: usize,
 ) -> GraphData {
-    let merged_edges =
-        edges::compute_edges(papers, tags, paper_tag_pairs, paper_collection_pairs, filter);
+    let merged_edges = edges::compute_edges(
+        papers,
+        tags,
+        paper_tag_pairs,
+        paper_collection_pairs,
+        filter,
+    );
 
     // Build tag color lookup
     let tag_colors: HashMap<&str, &str> = tags
@@ -53,9 +58,10 @@ pub fn build_and_simulate(
     }
 
     for edge in &merged_edges {
-        if let (Some(&src), Some(&tgt)) =
-            (id_to_idx.get(edge.source.as_str()), id_to_idx.get(edge.target.as_str()))
-        {
+        if let (Some(&src), Some(&tgt)) = (
+            id_to_idx.get(edge.source.as_str()),
+            id_to_idx.get(edge.target.as_str()),
+        ) {
             source_graph.add_edge(src, tgt, edge.weight);
         }
     }

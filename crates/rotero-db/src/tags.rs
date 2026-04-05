@@ -19,12 +19,13 @@ pub async fn get_or_create_tag(
     // Auto-assign a color from the palette if none provided
     let actual_color = color.map(|c| c.to_string()).unwrap_or_else(|| {
         const PALETTE: &[&str] = &[
-            "#6b7085", "#7c6b85", "#6b8580", "#857a6b",
-            "#6b7a85", "#856b7a", "#6b856e", "#85706b",
+            "#6b7085", "#7c6b85", "#6b8580", "#857a6b", "#6b7a85", "#856b7a", "#6b856e", "#85706b",
             "#6e6b85", "#7a856b", "#856b6b", "#6b8585",
         ];
         // Use a hash of the name to pick a color deterministically
-        let hash = name.bytes().fold(0usize, |acc, b| acc.wrapping_add(b as usize));
+        let hash = name
+            .bytes()
+            .fold(0usize, |acc, b| acc.wrapping_add(b as usize));
         PALETTE[hash % PALETTE.len()].to_string()
     });
     let uuid = uuid::Uuid::now_v7().to_string();
@@ -63,8 +64,14 @@ pub async fn add_tag_to_paper(
     paper_id: &str,
     tag_id: &str,
 ) -> Result<(), turso::Error> {
-    conn.execute(queries::TAG_ADD_TO_PAPER, [Value::Text(paper_id.to_string()), Value::Text(tag_id.to_string())])
-        .await?;
+    conn.execute(
+        queries::TAG_ADD_TO_PAPER,
+        [
+            Value::Text(paper_id.to_string()),
+            Value::Text(tag_id.to_string()),
+        ],
+    )
+    .await?;
     let pk = format!("{paper_id}:{tag_id}");
     let _ = crr::track_insert(conn, "paper_tags", &pk, &["paper_id", "tag_id"]).await;
     Ok(())
@@ -73,17 +80,27 @@ pub async fn add_tag_to_paper(
 pub async fn rename_tag(conn: &Connection, id: &str, name: &str) -> Result<(), turso::Error> {
     conn.execute(
         queries::TAG_RENAME,
-        turso::params::Params::Positional(vec![Value::Text(name.to_string()), Value::Text(id.to_string())]),
+        turso::params::Params::Positional(vec![
+            Value::Text(name.to_string()),
+            Value::Text(id.to_string()),
+        ]),
     )
     .await?;
     let _ = crr::track_update(conn, "tags", id, &["name"]).await;
     Ok(())
 }
 
-pub async fn update_tag_color(conn: &Connection, id: &str, color: &str) -> Result<(), turso::Error> {
+pub async fn update_tag_color(
+    conn: &Connection,
+    id: &str,
+    color: &str,
+) -> Result<(), turso::Error> {
     conn.execute(
         queries::TAG_UPDATE_COLOR,
-        turso::params::Params::Positional(vec![Value::Text(color.to_string()), Value::Text(id.to_string())]),
+        turso::params::Params::Positional(vec![
+            Value::Text(color.to_string()),
+            Value::Text(id.to_string()),
+        ]),
     )
     .await?;
     let _ = crr::track_update(conn, "tags", id, &["color"]).await;
@@ -107,7 +124,8 @@ pub async fn list_paper_ids_by_tag(
 }
 
 pub async fn delete_tag(conn: &Connection, id: &str) -> Result<(), turso::Error> {
-    conn.execute(queries::TAG_DELETE, [Value::Text(id.to_string())]).await?;
+    conn.execute(queries::TAG_DELETE, [Value::Text(id.to_string())])
+        .await?;
     let _ = crr::track_delete(conn, "tags", id).await;
     Ok(())
 }

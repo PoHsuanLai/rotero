@@ -20,7 +20,13 @@ pub async fn insert_note(conn: &Connection, note: &Note) -> Result<String, turso
     )
     .await?;
 
-    let _ = crr::track_insert(conn, "notes", &uuid, &["paper_id", "title", "body", "created_at", "modified_at"]).await;
+    let _ = crr::track_insert(
+        conn,
+        "notes",
+        &uuid,
+        &["paper_id", "title", "body", "created_at", "modified_at"],
+    )
+    .await;
 
     Ok(uuid)
 }
@@ -30,7 +36,10 @@ pub async fn list_notes_for_paper(
     paper_id: &str,
 ) -> Result<Vec<Note>, turso::Error> {
     let mut rows = conn
-        .query(queries::NOTE_LIST_FOR_PAPER, [Value::Text(paper_id.to_string())])
+        .query(
+            queries::NOTE_LIST_FOR_PAPER,
+            [Value::Text(paper_id.to_string())],
+        )
         .await?;
     let mut notes = Vec::new();
     while let Some(row) = rows.next().await? {
@@ -61,7 +70,8 @@ pub async fn update_note(
 }
 
 pub async fn delete_note(conn: &Connection, id: &str) -> Result<(), turso::Error> {
-    conn.execute(queries::NOTE_DELETE, [Value::Text(id.to_string())]).await?;
+    conn.execute(queries::NOTE_DELETE, [Value::Text(id.to_string())])
+        .await?;
     let _ = crr::track_delete(conn, "notes", id).await;
     Ok(())
 }

@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 use rotero_graph::{GraphData, GraphFilter};
 
-use rotero_db::Database;
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
+use rotero_db::Database;
 
 /// Graph event sent from JS canvas via dioxus.send().
 #[derive(serde::Deserialize)]
@@ -84,19 +84,30 @@ pub fn GraphView() -> Element {
             drop(state);
 
             let conn = db.conn();
-            let tag_pairs = rotero_db::graph::list_all_paper_tags(conn).await.unwrap_or_default();
-            let coll_pairs =
-                rotero_db::graph::list_all_paper_collections(conn).await.unwrap_or_default();
+            let tag_pairs = rotero_db::graph::list_all_paper_tags(conn)
+                .await
+                .unwrap_or_default();
+            let coll_pairs = rotero_db::graph::list_all_paper_collections(conn)
+                .await
+                .unwrap_or_default();
 
             let filter = mode.to_filter();
 
             let mut data = rotero_graph::build_and_simulate(
-                &papers, &tags, &tag_pairs, &coll_pairs, &filter, 200,
+                &papers,
+                &tags,
+                &tag_pairs,
+                &coll_pairs,
+                &filter,
+                200,
             );
 
             // Attach full metadata for tooltips
             for node in &mut data.nodes {
-                if let Some(paper) = papers.iter().find(|p| p.id.as_deref() == Some(node.id.as_str())) {
+                if let Some(paper) = papers
+                    .iter()
+                    .find(|p| p.id.as_deref() == Some(node.id.as_str()))
+                {
                     node.label = truncate(&paper.title, 25);
                 }
             }
@@ -119,8 +130,7 @@ pub fn GraphView() -> Element {
                     initialized.set(true);
                 }
                 let escaped = json.replace('\\', "\\\\").replace('`', "\\`");
-                let _ =
-                    document::eval(&format!("window.__roteroGraph.setData(`{escaped}`)"));
+                let _ = document::eval(&format!("window.__roteroGraph.setData(`{escaped}`)"));
             });
         }
     });
@@ -145,8 +155,7 @@ pub fn GraphView() -> Element {
                 .collect();
             spawn(async move {
                 let ids_json = serde_json::to_string(&matching_ids).unwrap_or_default();
-                let _ =
-                    document::eval(&format!("window.__roteroGraph.highlight({ids_json})"));
+                let _ = document::eval(&format!("window.__roteroGraph.highlight({ids_json})"));
             });
         }
     });
@@ -170,8 +179,10 @@ pub fn GraphView() -> Element {
                                 }
                                 "dblclick" => {
                                     let state = lib_state.read();
-                                    if let Some(paper) =
-                                        state.papers.iter().find(|p| p.id.as_deref() == Some(event.id.as_str()))
+                                    if let Some(paper) = state
+                                        .papers
+                                        .iter()
+                                        .find(|p| p.id.as_deref() == Some(event.id.as_str()))
                                     {
                                         if let Some(ref pdf_path) = paper.pdf_path {
                                             let abs_path = db
@@ -193,9 +204,7 @@ pub fn GraphView() -> Element {
                                                     dpr_val,
                                                 )
                                             });
-                                            lib_state.with_mut(|s| {
-                                                s.view = LibraryView::PdfViewer
-                                            });
+                                            lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                         }
                                     }
                                 }
@@ -288,7 +297,9 @@ fn build_js_data(data: &GraphData, papers: &[rotero_models::Paper]) -> String {
         .nodes
         .iter()
         .map(|n| {
-            let paper = papers.iter().find(|p| p.id.as_deref() == Some(n.id.as_str()));
+            let paper = papers
+                .iter()
+                .find(|p| p.id.as_deref() == Some(n.id.as_str()));
             JsNode {
                 id: n.id.clone(),
                 label: n.label.clone(),

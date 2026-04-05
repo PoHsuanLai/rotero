@@ -2,12 +2,12 @@ use dioxus::desktop::{use_global_shortcut, use_muda_event_handler};
 use dioxus::prelude::*;
 
 use crate::app::{DevicePixelRatio, RenderChannel, ShowSettings};
-use rotero_db::Database;
 use crate::state::app_state::{
     AnnotationMode, LibraryState, LibraryView, PdfTab, PdfTabManager, ViewerToolState,
 };
 use crate::state::undo::{UndoStack, forward_action, reverse_action};
 use crate::sync::engine::SyncConfig;
+use rotero_db::Database;
 
 // ── Action functions ──────────────────────────────────────────────────
 // Each action is a plain function so both keyboard shortcuts and menu
@@ -316,17 +316,15 @@ pub fn GlobalKeyHandler() -> Element {
     // ── Native menu event handler ─────────────────────────────────────
 
     let db_menu = db.clone();
-    let _ = use_muda_event_handler(move |event| {
-        match event.id().0.as_str() {
-            "open-pdf" => action_open_pdf(tabs, lib_state, config, dpr_sig),
-            "import-bibtex" => action_import_bibtex(db_menu.clone(), lib_state),
-            "export-bibtex" => action_export_bibtex(lib_state),
-            "close-tab" => action_close_tab(tabs, lib_state, render_ch.clone(), config),
-            "find" => action_find(lib_state, tabs),
-            "show-library" => action_show_library(lib_state),
-            "new-collection" => action_new_collection(lib_state, new_coll_editing),
-            _ => {}
-        }
+    let _ = use_muda_event_handler(move |event| match event.id().0.as_str() {
+        "open-pdf" => action_open_pdf(tabs, lib_state, config, dpr_sig),
+        "import-bibtex" => action_import_bibtex(db_menu.clone(), lib_state),
+        "export-bibtex" => action_export_bibtex(lib_state),
+        "close-tab" => action_close_tab(tabs, lib_state, render_ch.clone(), config),
+        "find" => action_find(lib_state, tabs),
+        "show-library" => action_show_library(lib_state),
+        "new-collection" => action_new_collection(lib_state, new_coll_editing),
+        _ => {}
     });
 
     rsx! {}

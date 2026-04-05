@@ -17,7 +17,6 @@ pub struct PageRenderData {
     pub _page_dimensions: Vec<(f32, f32)>,
 }
 
-
 /// Zoom and scroll state for a document.
 #[derive(Debug, Clone)]
 pub struct ViewState {
@@ -77,7 +76,14 @@ pub struct PdfTab {
 }
 
 impl PdfTab {
-    pub fn new(id: TabId, pdf_path: String, title: String, zoom: f32, batch_size: u32, dpr: f32) -> Self {
+    pub fn new(
+        id: TabId,
+        pdf_path: String,
+        title: String,
+        zoom: f32,
+        batch_size: u32,
+        dpr: f32,
+    ) -> Self {
         Self {
             id,
             pdf_path,
@@ -132,7 +138,9 @@ impl PdfTabManager {
     }
 
     pub fn find_by_paper_id(&self, paper_id: &str) -> Option<usize> {
-        self.tabs.iter().position(|t| t.paper_id.as_deref() == Some(paper_id))
+        self.tabs
+            .iter()
+            .position(|t| t.paper_id.as_deref() == Some(paper_id))
     }
 
     pub fn find_by_path(&self, path: &str) -> Option<usize> {
@@ -373,7 +381,8 @@ pub enum LibraryView {
 
 impl LibraryState {
     pub fn selected_paper(&self) -> Option<&Paper> {
-        self.selected_paper_id.as_ref()
+        self.selected_paper_id
+            .as_ref()
             .and_then(|id| self.papers.iter().find(|p| p.id.as_ref() == Some(id)))
     }
 }

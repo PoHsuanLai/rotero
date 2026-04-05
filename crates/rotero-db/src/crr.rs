@@ -75,13 +75,7 @@ const CRR_TABLES: &[(&str, &[&str])] = &[
     ),
     (
         "notes",
-        &[
-            "paper_id",
-            "title",
-            "body",
-            "created_at",
-            "modified_at",
-        ],
+        &["paper_id", "title", "body", "created_at", "modified_at"],
     ),
     ("saved_searches", &["name", "query", "created_at"]),
     ("paper_collections", &["paper_id", "collection_id"]),
@@ -104,12 +98,17 @@ pub async fn init_crr_tables(conn: &Connection) -> Result<(), turso::Error> {
     )
     .await?;
     // Ensure there's a row in crr_db_version
-    let mut rows = conn.query("SELECT version FROM crr_db_version LIMIT 1", ()).await?;
+    let mut rows = conn
+        .query("SELECT version FROM crr_db_version LIMIT 1", ())
+        .await?;
     if rows.next().await?.is_none() {
-        conn.execute("INSERT INTO crr_db_version (version) VALUES (0)", ()).await?;
+        conn.execute("INSERT INTO crr_db_version (version) VALUES (0)", ())
+            .await?;
     }
     // Ensure there's a site_id
-    let mut rows = conn.query("SELECT site_id FROM crr_site_id LIMIT 1", ()).await?;
+    let mut rows = conn
+        .query("SELECT site_id FROM crr_site_id LIMIT 1", ())
+        .await?;
     if rows.next().await?.is_none() {
         conn.execute(
             "INSERT INTO crr_site_id (site_id) VALUES (randomblob(16))",
@@ -186,9 +185,7 @@ pub async fn get_sync_state(conn: &Connection, key: &str) -> Option<Vec<u8>> {
     match result {
         Ok(mut rows) => {
             if let Ok(Some(row)) = rows.next().await {
-                row.get_value(0)
-                    .ok()
-                    .and_then(|v| v.as_blob().cloned())
+                row.get_value(0).ok().and_then(|v| v.as_blob().cloned())
             } else {
                 None
             }
@@ -216,11 +213,8 @@ pub async fn set_sync_state(
 
 /// Get and increment the global db_version counter.
 pub async fn next_db_version(conn: &Connection) -> Result<i64, turso::Error> {
-    conn.execute(
-        "UPDATE crr_db_version SET version = version + 1",
-        (),
-    )
-    .await?;
+    conn.execute("UPDATE crr_db_version SET version = version + 1", ())
+        .await?;
     let mut rows = conn
         .query("SELECT version FROM crr_db_version LIMIT 1", ())
         .await?;
@@ -326,11 +320,7 @@ pub async fn track_update(
 }
 
 /// Record a DELETE — increments sentinel CL to next even number.
-pub async fn track_delete(
-    conn: &Connection,
-    table: &str,
-    pk: &str,
-) -> Result<(), turso::Error> {
+pub async fn track_delete(conn: &Connection, table: &str, pk: &str) -> Result<(), turso::Error> {
     let site = site_id(conn).await?;
     let db_ver = next_db_version(conn).await?;
     let clock_table = format!("{table}__crr_clock");
@@ -382,9 +372,7 @@ pub async fn changes_since(
              WHERE db_ver > ?1
              ORDER BY db_ver, seq"
         );
-        let mut rows = conn
-            .query(&sql, [Value::Integer(since_db_ver)])
-            .await?;
+        let mut rows = conn.query(&sql, [Value::Integer(since_db_ver)]).await?;
 
         while let Some(row) = rows.next().await? {
             let pk = row
@@ -460,8 +448,7 @@ pub async fn apply_changes(
 
         if change.col_name == "__sentinel" {
             // Handle row existence (insert/delete)
-            let local_cl =
-                get_col_ver(conn, &clock_table, &change.pk, "__sentinel").await;
+            let local_cl = get_col_ver(conn, &clock_table, &change.pk, "__sentinel").await;
 
             if change.cl < local_cl {
                 result.skipped += 1;
@@ -489,16 +476,11 @@ pub async fn apply_changes(
             } else if is_delete {
                 // Delete the row from the data table (but preserve column clocks
                 // so resurrection can zero them later).
-                let sql = format!(
-                    "DELETE FROM {} WHERE id = ?1",
-                    change.table_name
-                );
+                let sql = format!("DELETE FROM {} WHERE id = ?1", change.table_name);
                 let _ = conn
                     .execute(
                         &sql,
-                        turso::params::Params::Positional(vec![Value::Text(
-                            change.pk.clone(),
-                        )]),
+                        turso::params::Params::Positional(vec![Value::Text(change.pk.clone())]),
                     )
                     .await;
             }
@@ -524,8 +506,7 @@ pub async fn apply_changes(
             // Column-level change — LWW merge
 
             // First, ensure the row exists. It may be missing (out-of-order) or deleted.
-            let local_sentinel_cl =
-                get_col_ver(conn, &clock_table, &change.pk, "__sentinel").await;
+            let local_sentinel_cl = get_col_ver(conn, &clock_table, &change.pk, "__sentinel").await;
 
             if local_sentinel_cl == 0 {
                 // Row doesn't exist — column change arrived before sentinel (out-of-order).
@@ -582,13 +563,8 @@ pub async fn apply_changes(
             } else {
                 // Tie-break: compare values, then site_id of the clock entry
                 // (not the local device's site_id — the clock tracks who wrote last)
-                let local_val = read_column_value(
-                    conn,
-                    &change.table_name,
-                    &change.pk,
-                    &change.col_name,
-                )
-                .await;
+                let local_val =
+                    read_column_value(conn, &change.table_name, &change.pk, &change.col_name).await;
                 let val_cmp = compare_json_values(&change.col_val, &local_val);
                 if val_cmp != std::cmp::Ordering::Equal {
                     val_cmp == std::cmp::Ordering::Greater
@@ -613,10 +589,7 @@ pub async fn apply_changes(
             let _ = conn
                 .execute(
                     &sql,
-                    turso::params::Params::Positional(vec![
-                        val,
-                        Value::Text(change.pk.clone()),
-                    ]),
+                    turso::params::Params::Positional(vec![val, Value::Text(change.pk.clone())]),
                 )
                 .await;
 
@@ -655,9 +628,7 @@ async fn get_clock_entry(
     pk: &str,
     col_name: &str,
 ) -> (i64, Vec<u8>) {
-    let sql = format!(
-        "SELECT col_ver, site_id FROM {clock_table} WHERE pk = ?1 AND col_name = ?2"
-    );
+    let sql = format!("SELECT col_ver, site_id FROM {clock_table} WHERE pk = ?1 AND col_name = ?2");
     let result = conn
         .query(
             &sql,
@@ -691,9 +662,7 @@ async fn get_clock_entry(
 
 /// Get the col_ver for a specific (pk, col_name) in a clock table. Returns 0 if not found.
 async fn get_col_ver(conn: &Connection, clock_table: &str, pk: &str, col_name: &str) -> i64 {
-    let sql = format!(
-        "SELECT col_ver FROM {clock_table} WHERE pk = ?1 AND col_name = ?2"
-    );
+    let sql = format!("SELECT col_ver FROM {clock_table} WHERE pk = ?1 AND col_name = ?2");
     let result = conn
         .query(
             &sql,
@@ -727,7 +696,10 @@ async fn read_column_value(
 ) -> serde_json::Value {
     let sql = format!("SELECT {col_name} FROM {table} WHERE id = ?1");
     let result = conn
-        .query(&sql, turso::params::Params::Positional(vec![Value::Text(pk.to_string())]))
+        .query(
+            &sql,
+            turso::params::Params::Positional(vec![Value::Text(pk.to_string())]),
+        )
         .await;
     match result {
         Ok(mut rows) => {
@@ -746,15 +718,11 @@ fn turso_value_to_json(val: Option<&turso::Value>) -> serde_json::Value {
     match val {
         Some(turso::Value::Text(s)) => serde_json::Value::String(s.clone()),
         Some(turso::Value::Integer(i)) => serde_json::Value::Number((*i).into()),
-        Some(turso::Value::Real(f)) => {
-            serde_json::Number::from_f64(*f)
-                .map(serde_json::Value::Number)
-                .unwrap_or(serde_json::Value::Null)
-        }
+        Some(turso::Value::Real(f)) => serde_json::Number::from_f64(*f)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
         Some(turso::Value::Null) | None => serde_json::Value::Null,
-        Some(turso::Value::Blob(b)) => {
-            serde_json::Value::String(base64_encode(b))
-        }
+        Some(turso::Value::Blob(b)) => serde_json::Value::String(base64_encode(b)),
     }
 }
 
@@ -787,9 +755,8 @@ fn compare_json_values(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp
 /// Zero all non-sentinel column clocks for a row. Used during resurrection
 /// so that any incoming column values (col_ver >= 1) automatically win.
 async fn zero_column_clocks(conn: &Connection, clock_table: &str, pk: &str) {
-    let sql = format!(
-        "UPDATE {clock_table} SET col_ver = 0 WHERE pk = ?1 AND col_name != '__sentinel'"
-    );
+    let sql =
+        format!("UPDATE {clock_table} SET col_ver = 0 WHERE pk = ?1 AND col_name != '__sentinel'");
     let _ = conn
         .execute(
             &sql,
@@ -808,12 +775,10 @@ async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str) {
             "INSERT OR IGNORE INTO papers (id, title, authors, date_added, date_modified, is_favorite, is_read) \
              VALUES (?1, '', '[]', '{now}', '{now}', 0, 0)"
         ),
-        "collections" => format!(
-            "INSERT OR IGNORE INTO collections (id, name, position) VALUES (?1, '', 0)"
-        ),
-        "tags" => format!(
-            "INSERT OR IGNORE INTO tags (id, name) VALUES (?1, '')"
-        ),
+        "collections" => {
+            format!("INSERT OR IGNORE INTO collections (id, name, position) VALUES (?1, '', 0)")
+        }
+        "tags" => format!("INSERT OR IGNORE INTO tags (id, name) VALUES (?1, '')"),
         "annotations" => format!(
             "INSERT OR IGNORE INTO annotations (id, paper_id, page, ann_type, color, geometry, created_at, modified_at) \
              VALUES (?1, '', 0, 'note', '#ffff00', '{{}}', '{now}', '{now}')"
@@ -831,13 +796,15 @@ async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str) {
             let parts: Vec<&str> = pk.splitn(2, ':').collect();
             if parts.len() == 2 {
                 let sql = "INSERT OR IGNORE INTO paper_collections (paper_id, collection_id) VALUES (?1, ?2)";
-                let _ = conn.execute(
-                    sql,
-                    turso::params::Params::Positional(vec![
-                        Value::Text(parts[0].to_string()),
-                        Value::Text(parts[1].to_string()),
-                    ]),
-                ).await;
+                let _ = conn
+                    .execute(
+                        sql,
+                        turso::params::Params::Positional(vec![
+                            Value::Text(parts[0].to_string()),
+                            Value::Text(parts[1].to_string()),
+                        ]),
+                    )
+                    .await;
             }
             return;
         }
@@ -845,22 +812,26 @@ async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str) {
             let parts: Vec<&str> = pk.splitn(2, ':').collect();
             if parts.len() == 2 {
                 let sql = "INSERT OR IGNORE INTO paper_tags (paper_id, tag_id) VALUES (?1, ?2)";
-                let _ = conn.execute(
-                    sql,
-                    turso::params::Params::Positional(vec![
-                        Value::Text(parts[0].to_string()),
-                        Value::Text(parts[1].to_string()),
-                    ]),
-                ).await;
+                let _ = conn
+                    .execute(
+                        sql,
+                        turso::params::Params::Positional(vec![
+                            Value::Text(parts[0].to_string()),
+                            Value::Text(parts[1].to_string()),
+                        ]),
+                    )
+                    .await;
             }
             return;
         }
         _ => return,
     };
-    let _ = conn.execute(
-        &sql,
-        turso::params::Params::Positional(vec![Value::Text(pk.to_string())]),
-    ).await;
+    let _ = conn
+        .execute(
+            &sql,
+            turso::params::Params::Positional(vec![Value::Text(pk.to_string())]),
+        )
+        .await;
 }
 
 /// Simple base64 encoding for blob values.

@@ -9,7 +9,10 @@ pub fn import_csl_json(input: &str) -> Result<Vec<Paper>, String> {
     let items: Vec<CslItem> =
         serde_json::from_str(input).map_err(|e| format!("Failed to parse CSL-JSON: {e}"))?;
 
-    let papers: Vec<Paper> = items.into_iter().filter_map(|item| item.into_paper()).collect();
+    let papers: Vec<Paper> = items
+        .into_iter()
+        .filter_map(|item| item.into_paper())
+        .collect();
 
     if papers.is_empty() {
         return Err("No valid items found in CSL-JSON file".to_string());

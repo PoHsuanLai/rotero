@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 
+use super::graph_view::GraphView;
 #[cfg(feature = "desktop")]
 use super::keybindings::GlobalKeyHandler;
-use super::graph_view::GraphView;
 use super::library_view::LibraryPanel;
 use super::paper_detail::PaperDetail;
 use super::pdf_viewer::{PdfTabBar, PdfViewer};

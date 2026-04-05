@@ -13,7 +13,11 @@ pub enum RenderFormat {
 
 impl RenderFormat {
     pub fn from_str(s: &str) -> Self {
-        if s.eq_ignore_ascii_case("png") { Self::Png } else { Self::Jpeg }
+        if s.eq_ignore_ascii_case("png") {
+            Self::Png
+        } else {
+            Self::Jpeg
+        }
     }
 
     pub fn mime(self) -> &'static str {

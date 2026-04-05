@@ -36,10 +36,8 @@ pub fn compute_edges(
         .filter_map(|t| Some((t.id.as_deref()?, t.name.as_str())))
         .collect();
 
-    let paper_ids: std::collections::HashSet<&str> = papers
-        .iter()
-        .filter_map(|p| p.id.as_deref())
-        .collect();
+    let paper_ids: std::collections::HashSet<&str> =
+        papers.iter().filter_map(|p| p.id.as_deref()).collect();
 
     let mut raw_edges = Vec::new();
 
@@ -48,14 +46,14 @@ pub fn compute_edges(
         let mut tag_to_papers: HashMap<&str, Vec<&str>> = HashMap::new();
         for (paper_id, tag_id) in paper_tag_pairs {
             if paper_ids.contains(paper_id.as_str()) {
-                tag_to_papers.entry(tag_id.as_str()).or_default().push(paper_id.as_str());
+                tag_to_papers
+                    .entry(tag_id.as_str())
+                    .or_default()
+                    .push(paper_id.as_str());
             }
         }
         for (tag_id, pids) in &tag_to_papers {
-            let label = tag_name_map
-                .get(tag_id)
-                .unwrap_or(&"tag")
-                .to_string();
+            let label = tag_name_map.get(tag_id).unwrap_or(&"tag").to_string();
             add_pairwise_edges(&mut raw_edges, pids, EdgeType::Tag, &label);
         }
     }
@@ -65,7 +63,10 @@ pub fn compute_edges(
         let mut coll_to_papers: HashMap<&str, Vec<&str>> = HashMap::new();
         for (paper_id, coll_id) in paper_collection_pairs {
             if paper_ids.contains(paper_id.as_str()) {
-                coll_to_papers.entry(coll_id.as_str()).or_default().push(paper_id.as_str());
+                coll_to_papers
+                    .entry(coll_id.as_str())
+                    .or_default()
+                    .push(paper_id.as_str());
             }
         }
         for (_coll_id, pids) in &coll_to_papers {
@@ -171,7 +172,11 @@ fn merge_edges(raw: Vec<RawEdge>, max_per_node: usize) -> Vec<MergedEdge> {
     let mut edges: Vec<MergedEdge> = map.into_values().collect();
 
     // Sort by weight descending for capping
-    edges.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Equal));
+    edges.sort_by(|a, b| {
+        b.weight
+            .partial_cmp(&a.weight)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Cap edges per node
     let mut node_edge_count: HashMap<String, usize> = HashMap::new();

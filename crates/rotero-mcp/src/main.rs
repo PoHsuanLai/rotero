@@ -39,7 +39,9 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Opening database at {}", db_path.display());
 
-    let db = db::Database::open(&db_path).await.map_err(|e| anyhow::anyhow!(e))?;
+    let db = db::Database::open(&db_path)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     // Check if pdfium is available (probe only, engine created per-call on blocking thread)
     let pdf_available = match rotero_pdf::PdfEngine::new(None) {

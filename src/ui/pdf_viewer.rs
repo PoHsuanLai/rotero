@@ -4,12 +4,12 @@ use dioxus::prelude::*;
 
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use crate::app::RenderChannel;
-use rotero_pdf::RenderFormat;
-use rotero_db::Database;
 use crate::state::app_state::{
     AnnotationMode, LibraryState, LibraryView, PdfTabManager, TabId, ViewerToolState,
 };
+use rotero_db::Database;
 use rotero_models::{Annotation, AnnotationType};
+use rotero_pdf::RenderFormat;
 
 /// Shared annotation context menu state: (ann_id, ann_type, page, color, content, x, y)
 type AnnCtxState = Signal<Option<(String, AnnotationType, i32, String, String, f64, f64)>>;
@@ -267,12 +267,7 @@ pub fn PdfViewer() -> Element {
             let cfg_fmt = RenderFormat::from_str(&cfg.render_format);
             drop(cfg);
             if crate::state::commands::open_pdf(
-                &render_tx,
-                &mut tabs,
-                tid,
-                &data_dir,
-                cfg_q,
-                cfg_fmt,
+                &render_tx, &mut tabs, tid, &data_dir, cfg_q, cfg_fmt,
             )
             .await
             .is_ok()
