@@ -21,6 +21,7 @@ pub fn AgentSection() -> Element {
     let has_unsaved = *pending_provider.read() != saved_provider;
     let auth_methods_for_btn = auth_methods.clone();
     let mut selected_method = use_signal(|| 0usize);
+    let mut api_key_input = use_signal(String::new);
 
     rsx! {
         div { class: "settings-section",
@@ -174,19 +175,29 @@ pub fn AgentSection() -> Element {
                                             class: "input input--sm",
                                             r#type: "password",
                                             placeholder: "{selected_env_var}",
-                                            onchange: move |e| {
-                                                let val = e.value();
+                                            value: "{api_key_input.read()}",
+                                            oninput: move |e| {
+                                                api_key_input.set(e.value());
+                                            },
+                                        }
+                                        button {
+                                            class: "btn btn--primary",
+                                            disabled: api_key_input.read().is_empty(),
+                                            onclick: move |_| {
+                                                let val = api_key_input.read().clone();
                                                 if !val.is_empty() {
                                                     config.with_mut(|c| {
                                                         c.agent_api_keys.insert(selected_env_var.clone(), val);
                                                     });
                                                     let _ = config.read().save();
+                                                    api_key_input.set(String::new());
                                                     let pid = config.read().agent_provider.clone();
                                                     agent_channel.send(ChatRequest::SwitchAgent {
                                                         provider_id: pid,
                                                     });
                                                 }
                                             },
+                                            "Save"
                                         }
                                     }
                                 }
