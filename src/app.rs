@@ -201,7 +201,7 @@ fn LoadLibraryData() -> Element {
         });
     });
 
-    // Background citation count refresh
+    // One-shot citation count fetch on startup
     #[cfg(feature = "desktop")]
     {
         let db_cite = db.clone();
@@ -211,62 +211,53 @@ fn LoadLibraryData() -> Element {
                 // Wait for initial library load to complete
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
-                loop {
-                    // Find papers with DOI but no citation count — query DB directly
-                    // to avoid cloning the entire papers Vec.
-                    let needs_update = crate::db::papers::list_papers_needing_citations(db.conn())
-                        .await
-                        .unwrap_or_default();
+                let needs_update = crate::db::papers::list_papers_needing_citations(db.conn())
+                    .await
+                    .unwrap_or_default();
 
-                    for (paper_id, doi) in needs_update {
-                        let result = if doi.starts_with("arXiv:") {
-                            let arxiv_id = doi.strip_prefix("arXiv:").unwrap_or(&doi);
-                            crate::metadata::semantic_scholar::fetch_by_arxiv_id(arxiv_id).await
-                        } else {
-                            crate::metadata::semantic_scholar::fetch_by_doi(&doi).await
-                        };
+                for (paper_id, doi) in needs_update {
+                    let result = if doi.starts_with("arXiv:") {
+                        let arxiv_id = doi.strip_prefix("arXiv:").unwrap_or(&doi);
+                        crate::metadata::semantic_scholar::fetch_by_arxiv_id(arxiv_id).await
+                    } else {
+                        crate::metadata::semantic_scholar::fetch_by_doi(&doi).await
+                    };
 
-                        match result {
-                            Ok(meta) => {
-                                if let Some(count) = meta.citation_count {
-                                    let _ = crate::db::papers::update_citation_count(
-                                        db.conn(),
-                                        paper_id,
-                                        count,
-                                    )
-                                    .await;
-                                    lib_state.with_mut(|s| {
-                                        if let Some(p) =
-                                            s.papers.iter_mut().find(|p| p.id == Some(paper_id))
-                                        {
-                                            p.citation_count = Some(count);
-                                        }
-                                    });
-                                }
-                                // Normal rate limit: 3 seconds between requests
-                                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    match result {
+                        Ok(meta) => {
+                            if let Some(count) = meta.citation_count {
+                                let _ = crate::db::papers::update_citation_count(
+                                    db.conn(),
+                                    paper_id,
+                                    count,
+                                )
+                                .await;
+                                lib_state.with_mut(|s| {
+                                    if let Some(p) =
+                                        s.papers.iter_mut().find(|p| p.id == Some(paper_id))
+                                    {
+                                        p.citation_count = Some(count);
+                                    }
+                                });
                             }
-                            Err(e) => {
-                                if e.contains("429") {
-                                    // Rate limited — back off for 60 seconds
-                                    tracing::debug!("S2 rate limited, backing off 60s");
-                                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-                                } else {
-                                    tracing::debug!("Citation count fetch failed for {doi}: {e}");
-                                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                                }
+                            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        }
+                        Err(e) => {
+                            if e.contains("429") {
+                                tracing::debug!("S2 rate limited, backing off 60s");
+                                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                            } else {
+                                tracing::debug!("Citation count fetch failed for {doi}: {e}");
+                                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                             }
                         }
                     }
-
-                    // Re-check every hour
-                    tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
                 }
             }
         });
     }
 
-    // Background citation key generation + auto-export
+    // One-shot citation key generation + auto-export on startup
     #[cfg(feature = "desktop")]
     {
         let db_bib = db.clone();
@@ -276,98 +267,93 @@ fn LoadLibraryData() -> Element {
                 // Wait for initial load
                 tokio::time::sleep(std::time::Duration::from_secs(4)).await;
 
-                loop {
-                    // Generate citation keys for papers that don't have one
-                    let existing_keys = crate::db::papers::list_citation_keys(db.conn())
+                let existing_keys = crate::db::papers::list_citation_keys(db.conn())
+                    .await
+                    .unwrap_or_default();
+
+                let needs_keys =
+                    crate::db::papers::list_papers_needing_citation_keys(db.conn())
                         .await
                         .unwrap_or_default();
+                let mut keys_updated = false;
+                let mut all_keys = existing_keys;
 
-                    // Query DB directly for papers needing keys — avoids cloning
-                    // the entire papers Vec every 30 seconds.
-                    let needs_keys =
-                        crate::db::papers::list_papers_needing_citation_keys(db.conn())
-                            .await
-                            .unwrap_or_default();
-                    let mut keys_updated = false;
-                    let mut all_keys = existing_keys;
+                for (paper_id, title, authors, year) in &needs_keys {
+                    let mut stub = rotero_models::Paper::new(title.clone());
+                    stub.id = Some(*paper_id);
+                    stub.authors = authors.clone();
+                    stub.year = *year;
 
-                    for (paper_id, title, authors, year) in &needs_keys {
-                        // Build a minimal Paper for key generation (only needs authors + year)
-                        let mut stub = rotero_models::Paper::new(title.clone());
-                        stub.id = Some(*paper_id);
-                        stub.authors = authors.clone();
-                        stub.year = *year;
-
-                        let key = rotero_bib::generate_unique_cite_key(&stub, &all_keys);
-                        if crate::db::papers::update_citation_key(db.conn(), *paper_id, &key)
-                            .await
-                            .is_ok()
-                        {
-                            let pid = *paper_id;
-                            lib_state.with_mut(|s| {
-                                if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(pid)) {
-                                    p.citation_key = Some(key.clone());
-                                }
-                            });
-                            all_keys.push(key);
-                            keys_updated = true;
-                        }
-                    }
-
-                    // Auto-export .bib if configured and keys were updated
-                    if keys_updated {
-                        let config = config.read();
-                        if let Some(ref bib_path) = config.auto_export_bib_path {
-                            let state = lib_state.read();
-                            let bib_content = rotero_bib::export_bibtex(&state.papers);
-                            if let Err(e) = std::fs::write(bib_path, &bib_content) {
-                                tracing::warn!("Auto-export .bib failed: {e}");
+                    let key = rotero_bib::generate_unique_cite_key(&stub, &all_keys);
+                    if crate::db::papers::update_citation_key(db.conn(), *paper_id, &key)
+                        .await
+                        .is_ok()
+                    {
+                        let pid = *paper_id;
+                        lib_state.with_mut(|s| {
+                            if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(pid)) {
+                                p.citation_key = Some(key.clone());
                             }
+                        });
+                        all_keys.push(key);
+                        keys_updated = true;
+                    }
+                }
+
+                // Auto-export .bib if configured and keys were updated
+                if keys_updated {
+                    let config = config.read();
+                    if let Some(ref bib_path) = config.auto_export_bib_path {
+                        let state = lib_state.read();
+                        let bib_content = rotero_bib::export_bibtex(&state.papers);
+                        if let Err(e) = std::fs::write(bib_path, &bib_content) {
+                            tracing::warn!("Auto-export .bib failed: {e}");
                         }
                     }
-
-                    // Re-check every 30 seconds (quick for new imports)
-                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                 }
             }
         });
     }
 
-    // Poll the connector dirty flag to refresh after browser extension saves
+    // Await connector notifications to refresh after browser extension saves
     #[cfg(feature = "desktop")]
     use_future(move || {
         let db = db.clone();
         async move {
             use crate::state::app_state::LibraryView;
+            // Clone the receiver out of the mutex so we can await it without holding the lock
+            let mut rx = {
+                let Some(lock) = crate::CONNECTOR_NOTIFY.get() else { return };
+                let guard = lock.lock().unwrap();
+                guard.clone()
+            };
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                if let Some(flag) = crate::CONNECTOR_DIRTY.get()
-                    && flag.swap(false, std::sync::atomic::Ordering::AcqRel)
-                {
-                    let conn = db.conn();
-                    if let Ok(papers) = crate::db::papers::list_papers(conn).await {
-                        lib_state.with_mut(|s| s.papers = papers);
-                    }
-                    // Refresh collection/tag paper IDs if viewing one
-                    let view = lib_state.read().view.clone();
-                    match view {
-                        LibraryView::Collection(coll_id) => {
-                            if let Ok(ids) =
-                                crate::db::collections::list_paper_ids_in_collection(conn, coll_id)
-                                    .await
-                            {
-                                lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
-                            }
+                // Blocks until the connector actually sends a notification — zero CPU when idle
+                if rx.changed().await.is_err() {
+                    break; // sender dropped
+                }
+                let conn = db.conn();
+                if let Ok(papers) = crate::db::papers::list_papers(conn).await {
+                    lib_state.with_mut(|s| s.papers = papers);
+                }
+                let view = lib_state.read().view.clone();
+                match view {
+                    LibraryView::Collection(coll_id) => {
+                        if let Ok(ids) =
+                            crate::db::collections::list_paper_ids_in_collection(conn, coll_id)
+                                .await
+                        {
+                            lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
                         }
-                        LibraryView::Tag(tag_id) => {
-                            if let Ok(ids) =
-                                crate::db::tags::list_paper_ids_by_tag(conn, tag_id).await
-                            {
-                                lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
-                            }
-                        }
-                        _ => {}
                     }
+                    LibraryView::Tag(tag_id) => {
+                        if let Ok(ids) =
+                            crate::db::tags::list_paper_ids_by_tag(conn, tag_id).await
+                        {
+                            lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
+                        }
+                    }
+                    _ => {}
                 }
             }
         }

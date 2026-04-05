@@ -151,13 +151,12 @@ pub fn GraphView() -> Element {
         }
     });
 
-    // Listen for click events from JS
+    // Listen for click events from JS — uses a never-resolving promise to keep the channel open
     use_hook(move || {
         spawn(async move {
             let mut eval = document::eval(
-                r#"(async function() {
-                    while (true) { await new Promise(r => setTimeout(r, 50)); }
-                })()"#,
+                // Keep eval alive without polling — waits forever so dioxus.send() can deliver messages
+                "new Promise(() => {})",
             );
             loop {
                 match eval.recv::<String>().await {

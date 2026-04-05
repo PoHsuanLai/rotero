@@ -15,11 +15,28 @@ pub fn LibraryPanel() -> Element {
     let render_ch = use_context::<crate::app::RenderChannel>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
+    // Derive just the view — only re-runs when view actually changes, not on every lib_state mutation
+    let current_view = use_memo(move || lib_state.read().view.clone());
+    // For saved searches, also extract the query so the effect doesn't read lib_state directly
+    let saved_search_query = use_memo(move || {
+        if let LibraryView::SavedSearch(search_id) = lib_state.read().view {
+            lib_state
+                .read()
+                .saved_searches
+                .iter()
+                .find(|s| s.id == Some(search_id))
+                .map(|s| s.query.clone())
+        } else {
+            None
+        }
+    });
+
     // Load collection/tag paper IDs when switching views
     {
         let db_coll = db.clone();
         use_effect(move || {
-            let view = lib_state.read().view.clone();
+            let view = current_view.read().clone();
+            let search_query = saved_search_query.read().clone();
             match view {
                 LibraryView::Collection(coll_id) => {
                     let db = db_coll.clone();
@@ -59,15 +76,8 @@ pub fn LibraryPanel() -> Element {
                         }
                     });
                 }
-                LibraryView::SavedSearch(search_id) => {
-                    // Find the query for this saved search
-                    let query = lib_state
-                        .read()
-                        .saved_searches
-                        .iter()
-                        .find(|s| s.id == Some(search_id))
-                        .map(|s| s.query.clone());
-                    if let Some(query) = query {
+                LibraryView::SavedSearch(_) => {
+                    if let Some(query) = search_query {
                         let db = db_coll.clone();
                         spawn(async move {
                             match crate::db::papers::search_papers(db.conn(), &query).await {

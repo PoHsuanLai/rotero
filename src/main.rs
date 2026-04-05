@@ -8,8 +8,6 @@ mod ui;
 
 #[cfg(feature = "desktop")]
 use std::sync::Arc;
-#[cfg(feature = "desktop")]
-use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(feature = "desktop")]
 use rotero_connector::ConnectorState;
@@ -36,12 +34,12 @@ fn main() {
 
     // Start the browser connector server in the background (desktop only)
     #[cfg(feature = "desktop")]
-    let connector_dirty = Arc::new(AtomicBool::new(false));
+    let (connector_tx, connector_rx) = tokio::sync::watch::channel(());
     #[cfg(feature = "desktop")]
     if config.connector_enabled {
         let port = config.connector_port;
         let lib_path = config.effective_library_path();
-        let dirty_flag = connector_dirty.clone();
+        let connector_tx = connector_tx.clone();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
             rt.block_on(async {
@@ -73,11 +71,11 @@ fn main() {
 
                 let state = Arc::new(ConnectorState {
                     on_paper_saved: Some(Box::new({
-                        let dirty_flag = dirty_flag.clone();
+                        let connector_tx = connector_tx.clone();
                         let lib_path = lib_path.clone();
                         move |paper, collection_id, tag_ids, pdf_url| {
                             let conn = conn_save.clone();
-                            let dirty = dirty_flag.clone();
+                            let connector_tx = connector_tx.clone();
                             let lib_path = lib_path.clone();
                             tokio::task::block_in_place(|| {
                                 tokio::runtime::Handle::current().block_on(async {
@@ -89,13 +87,13 @@ fn main() {
                                             for tag_id in tag_ids {
                                                 let _ = db::tags::add_tag_to_paper(&conn, paper_id, tag_id).await;
                                             }
-                                            dirty.store(true, Ordering::Release);
+                                            let _ = connector_tx.send(());
                                             tracing::info!("Connector saved paper id={paper_id}: {}", paper.title);
 
                                             // Download PDF in background
                                             if let Some(pdf_url) = pdf_url {
                                                 let conn_pdf = conn.clone();
-                                                let dirty_pdf = dirty.clone();
+                                                let connector_tx_pdf = connector_tx.clone();
                                                 let paper_clone = paper.clone();
                                                 let lib_path = lib_path.clone();
                                                 tokio::spawn(async move {
@@ -110,19 +108,19 @@ fn main() {
                                                     {
                                                         tracing::error!("PDF download failed for paper id={paper_id}: {e}");
                                                     } else {
-                                                        dirty_pdf.store(true, Ordering::Release);
+                                                        let _ = connector_tx_pdf.send(());
                                                     }
                                                 });
                                             }
 
                                             // Enrich metadata in background
                                             let conn_enrich = conn.clone();
-                                            let dirty_enrich = dirty.clone();
+                                            let connector_tx_enrich = connector_tx.clone();
                                             tokio::spawn(async move {
                                                 if let Some(enriched) = metadata::enrich::enrich_paper(&paper).await
                                                     && db::papers::update_paper_metadata(&conn_enrich, paper_id, &enriched).await.is_ok()
                                                 {
-                                                    dirty_enrich.store(true, Ordering::Release);
+                                                    let _ = connector_tx_enrich.send(());
                                                     tracing::info!("Connector enriched metadata for paper id={paper_id}");
                                                 }
                                             });
@@ -183,9 +181,9 @@ fn main() {
         });
     }
 
-    // Store in a global so the Dioxus app can access it
+    // Store the watch receiver so the Dioxus app can await notifications
     #[cfg(feature = "desktop")]
-    CONNECTOR_DIRTY.get_or_init(|| connector_dirty);
+    CONNECTOR_NOTIFY.get_or_init(|| std::sync::Mutex::new(connector_rx));
 
     #[cfg(feature = "desktop")]
     {
@@ -221,10 +219,11 @@ fn main() {
     }
 }
 
-/// Global dirty flag set by the connector when a paper is saved via the extension.
-/// The UI polls this to refresh the library.
+/// Watch channel receiver — the connector sends a notification when data changes.
+/// The UI awaits this instead of polling.
 #[cfg(feature = "desktop")]
-pub static CONNECTOR_DIRTY: std::sync::OnceLock<Arc<AtomicBool>> = std::sync::OnceLock::new();
+pub static CONNECTOR_NOTIFY: std::sync::OnceLock<std::sync::Mutex<tokio::sync::watch::Receiver<()>>> =
+    std::sync::OnceLock::new();
 
 /// Build the native menu bar.
 #[cfg(feature = "desktop")]
