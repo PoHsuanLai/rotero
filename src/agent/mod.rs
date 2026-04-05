@@ -506,6 +506,11 @@ fn connect_and_run(
                                             .and_then(|v| v.as_str())
                                             .unwrap_or("")
                                             .to_string(),
+                                        cwd: s
+                                            .get("cwd")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
                                         title: s
                                             .get("title")
                                             .and_then(|v| v.as_str())
@@ -528,13 +533,19 @@ fn connect_and_run(
             }
             Ok(ChatRequest::LoadSession {
                 session_id: load_id,
+                cwd,
             }) => {
                 let _ = evt_tx.send(ChatEvent::Switching {
                     provider_id: provider.id.to_string(),
                 });
+                let load_cwd = if cwd.is_empty() {
+                    home_dir_or_cwd().to_string_lossy().to_string()
+                } else {
+                    cwd
+                };
                 let params = serde_json::json!({
                     "sessionId": load_id,
-                    "cwd": home_dir_or_cwd().to_string_lossy(),
+                    "cwd": load_cwd,
                     "mcpServers": build_mcp_servers_json(),
                 });
                 match conn.send_request("session/load", params) {

@@ -223,6 +223,7 @@ pub fn ChatPanel() -> Element {
                             for session in past_sessions.iter() {
                                 {
                                     let sid = session.session_id.clone();
+                                    let session_cwd = session.cwd.clone();
                                     let title = session.title.clone().unwrap_or_else(|| "Untitled".into());
                                     let updated = session.updated_at.clone().unwrap_or_default();
                                     rsx! {
@@ -230,8 +231,10 @@ pub fn ChatPanel() -> Element {
                                             key: "{sid}",
                                             class: "chat-session-item",
                                             onclick: move |_| {
-                                                let sid = sid.clone();
-                                                agent_channel.send(ChatRequest::LoadSession { session_id: sid });
+                                                agent_channel.send(ChatRequest::LoadSession {
+                                                    session_id: sid.clone(),
+                                                    cwd: session_cwd.clone(),
+                                                });
                                                 chat_state.with_mut(|s| {
                                                     s.messages.clear();
                                                     s.show_session_browser = false;

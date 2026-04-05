@@ -98,6 +98,7 @@ pub struct SlashCommand {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PastSession {
     pub session_id: String,
+    pub cwd: String,
     pub title: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -137,7 +138,7 @@ pub enum ChatRequest {
     Cancel,
     Authenticate { method_id: String },
     ListSessions,
-    LoadSession { session_id: String },
+    LoadSession { session_id: String, cwd: String },
     SwitchAgent { provider_id: String },
     Shutdown,
 }
