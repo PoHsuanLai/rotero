@@ -442,3 +442,161 @@ async fn test_saved_search_sync() {
     assert_eq!(searches_b[0].name, "ML papers");
     assert_eq!(searches_b[0].query, "machine learning");
 }
+
+// ── Resurrection ────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_resurrect_after_delete() {
+    let dir_a = tempfile::tempdir().unwrap();
+    let dir_b = tempfile::tempdir().unwrap();
+
+    let (conn_a, conn_b, id) = setup_two_devices_same_paper(dir_a.path(), dir_b.path()).await;
+
+    // A deletes the paper (CL=2)
+    papers::delete_paper(&conn_a, &id).await.unwrap();
+
+    // Sync A→B: B now has CL=2, paper deleted
+    let changes_a = crr::changes_since(&conn_a, 0).await.unwrap();
+    crr::apply_changes(&conn_b, &changes_a).await.unwrap();
+    let papers_b = papers::list_papers(&conn_b).await.unwrap();
+    assert_eq!(papers_b.len(), 0, "Paper should be deleted after sync");
+
+    // B resurrects: construct a changeset with CL=3 (odd = alive)
+    // This simulates B explicitly re-creating the row after seeing the delete.
+    let resurrect_changes = vec![
+        crr::ChangeRow {
+            table_name: "papers".to_string(),
+            pk: id.clone(),
+            col_name: "__sentinel".to_string(),
+            col_val: serde_json::Value::Null,
+            col_ver: 3, // CL=3 (alive, after delete CL=2)
+            db_ver: 999,
+            site_id: crr::site_id(&conn_b).await.unwrap(),
+            seq: 0,
+            cl: 3,
+        },
+        crr::ChangeRow {
+            table_name: "papers".to_string(),
+            pk: id.clone(),
+            col_name: "title".to_string(),
+            col_val: serde_json::Value::String("Resurrected Paper".to_string()),
+            col_ver: 3,
+            db_ver: 999,
+            site_id: crr::site_id(&conn_b).await.unwrap(),
+            seq: 1,
+            cl: 3,
+        },
+    ];
+
+    // Apply resurrection changeset to A
+    let result = crr::apply_changes(&conn_a, &resurrect_changes).await.unwrap();
+    assert!(result.applied > 0, "Resurrection should be applied");
+
+    // Paper should exist again on A with the new title
+    let papers_a = papers::list_papers(&conn_a).await.unwrap();
+    assert_eq!(papers_a.len(), 1, "Paper should be resurrected");
+    assert_eq!(papers_a[0].title, "Resurrected Paper");
+}
+
+#[tokio::test]
+async fn test_column_before_sentinel_out_of_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = open_test_db(dir.path()).await;
+
+    let fake_id = uuid::Uuid::now_v7().to_string();
+    let fake_site = vec![1u8; 16];
+
+    // Send column changes BEFORE the sentinel (out-of-order delivery)
+    let changes = vec![
+        // Column change arrives first — row doesn't exist yet
+        crr::ChangeRow {
+            table_name: "papers".to_string(),
+            pk: fake_id.clone(),
+            col_name: "title".to_string(),
+            col_val: serde_json::Value::String("Out of Order Paper".to_string()),
+            col_ver: 1,
+            db_ver: 10,
+            site_id: fake_site.clone(),
+            seq: 1,
+            cl: 1,
+        },
+        crr::ChangeRow {
+            table_name: "papers".to_string(),
+            pk: fake_id.clone(),
+            col_name: "is_favorite".to_string(),
+            col_val: serde_json::Value::Number(1.into()),
+            col_ver: 1,
+            db_ver: 10,
+            site_id: fake_site.clone(),
+            seq: 2,
+            cl: 1,
+        },
+        // Sentinel arrives after columns
+        crr::ChangeRow {
+            table_name: "papers".to_string(),
+            pk: fake_id.clone(),
+            col_name: "__sentinel".to_string(),
+            col_val: serde_json::Value::Null,
+            col_ver: 1,
+            db_ver: 10,
+            site_id: fake_site.clone(),
+            seq: 0,
+            cl: 1,
+        },
+    ];
+
+    let result = crr::apply_changes(&conn, &changes).await.unwrap();
+    assert!(result.applied > 0);
+
+    // Paper should exist with correct values despite out-of-order delivery
+    let papers = papers::list_papers(&conn).await.unwrap();
+    assert_eq!(papers.len(), 1, "Paper should be created from out-of-order columns");
+    assert_eq!(papers[0].title, "Out of Order Paper");
+    assert!(papers[0].is_favorite);
+}
+
+#[tokio::test]
+async fn test_delete_resurrect_delete_cycle() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = open_test_db(dir.path()).await;
+
+    let id = papers::insert_paper(&conn, &new_paper("Cycle Paper")).await.unwrap();
+    let site = crr::site_id(&conn).await.unwrap();
+
+    // Verify alive (CL=1)
+    assert_eq!(papers::list_papers(&conn).await.unwrap().len(), 1);
+
+    // Delete (CL=2)
+    papers::delete_paper(&conn, &id).await.unwrap();
+    assert_eq!(papers::list_papers(&conn).await.unwrap().len(), 0);
+
+    // Resurrect via changeset (CL=3)
+    let resurrect = vec![crr::ChangeRow {
+        table_name: "papers".to_string(),
+        pk: id.clone(),
+        col_name: "__sentinel".to_string(),
+        col_val: serde_json::Value::Null,
+        col_ver: 3,
+        db_ver: 9999,
+        site_id: site.clone(),
+        seq: 0,
+        cl: 3,
+    }];
+    crr::apply_changes(&conn, &resurrect).await.unwrap();
+    assert_eq!(papers::list_papers(&conn).await.unwrap().len(), 1, "Should be resurrected at CL=3");
+
+    // Delete again (CL=4)
+    let delete_again = vec![crr::ChangeRow {
+        table_name: "papers".to_string(),
+        pk: id.clone(),
+        col_name: "__sentinel".to_string(),
+        col_val: serde_json::Value::Null,
+        col_ver: 4,
+        db_ver: 10000,
+        site_id: site.clone(),
+        seq: 0,
+        cl: 4,
+    }];
+    crr::apply_changes(&conn, &delete_again).await.unwrap();
+    assert_eq!(papers::list_papers(&conn).await.unwrap().len(), 0, "Should be deleted again at CL=4");
+}
