@@ -94,35 +94,40 @@ pub fn AgentSection() -> Element {
             }
 
             // Auth methods from ACP — shown for the connected provider
-            if !auth_methods.is_empty() && saved_provider == connected_provider {
-                div { class: "settings-field",
-                    span { class: "settings-field-label", "Sign in" }
-                    div { class: "settings-field-control settings-auth-buttons",
-                        for method in auth_methods.iter() {
-                            {
-                                let name = method.name.clone();
-                                let desc = method.description.clone().unwrap_or_default();
-                                let cmd = method.terminal_command.clone();
-                                let args = method.terminal_args.clone();
-                                let btn_class = if agent_connected {
-                                    "btn btn--primary"
-                                } else {
-                                    "btn btn--secondary"
-                                };
-                                rsx! {
-                                    button {
-                                        key: "{name}",
-                                        class: "{btn_class}",
-                                        title: "{desc}",
-                                        onclick: move |_| {
-                                            if let Some(command) = &cmd {
+            if !auth_methods.is_empty() && config.read().agent_provider == connected_provider {
+                {
+                    let mut selected_method = use_signal(|| 0usize);
+                    rsx! {
+                        div { class: "settings-field",
+                            span { class: "settings-field-label", "Sign in" }
+                            div { class: "settings-field-control agent-auth-row",
+                                select {
+                                    class: "select",
+                                    onchange: move |e| {
+                                        if let Ok(idx) = e.value().parse::<usize>() {
+                                            selected_method.set(idx);
+                                        }
+                                    },
+                                    for (idx, method) in auth_methods.iter().enumerate() {
+                                        option {
+                                            value: "{idx}",
+                                            "{method.name}"
+                                        }
+                                    }
+                                }
+                                button {
+                                    class: "btn btn--primary",
+                                    onclick: move |_| {
+                                        let idx = *selected_method.read();
+                                        if let Some(method) = auth_methods.get(idx) {
+                                            if let Some(command) = &method.terminal_command {
                                                 let _ = std::process::Command::new(command)
-                                                    .args(&args)
+                                                    .args(&method.terminal_args)
                                                     .spawn();
                                             }
-                                        },
-                                        "{name}"
-                                    }
+                                        }
+                                    },
+                                    "Sign in"
                                 }
                             }
                         }

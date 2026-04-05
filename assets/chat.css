@@ -644,9 +644,14 @@
     color: var(--destructive);
 }
 
-.settings-auth-buttons {
+.agent-auth-row {
     display: flex;
     gap: var(--space-2);
-    flex-wrap: wrap;
+    align-items: center;
+}
+
+.agent-auth-row .select {
+    flex: 1;
+    min-width: 0;
 }
 
