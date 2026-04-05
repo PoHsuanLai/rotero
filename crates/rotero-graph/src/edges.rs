@@ -69,7 +69,7 @@ pub fn compute_edges(
                     .push(paper_id.as_str());
             }
         }
-        for (_coll_id, pids) in &coll_to_papers {
+        for pids in coll_to_papers.values() {
             add_pairwise_edges(&mut raw_edges, pids, EdgeType::Collection, "collection");
         }
     }
@@ -99,12 +99,12 @@ pub fn compute_edges(
     if filter.show_journal_edges {
         let mut journal_to_papers: HashMap<String, Vec<&str>> = HashMap::new();
         for paper in papers {
-            if let Some(ref pid) = paper.id {
-                if let Some(ref j) = paper.journal {
-                    let key = j.trim().to_lowercase();
-                    if !key.is_empty() {
-                        journal_to_papers.entry(key).or_default().push(pid.as_str());
-                    }
+            if let Some(ref pid) = paper.id
+                && let Some(ref j) = paper.journal
+            {
+                let key = j.trim().to_lowercase();
+                if !key.is_empty() {
+                    journal_to_papers.entry(key).or_default().push(pid.as_str());
                 }
             }
         }

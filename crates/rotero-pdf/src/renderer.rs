@@ -152,8 +152,9 @@ impl PdfEngine {
         }
         let bytes = std::fs::read(pdf_path)
             .map_err(|e| PdfError::RenderError(format!("Failed to read {pdf_path}: {e}")))?;
-        self.cached_bytes = Some((pdf_path.to_string(), mtime, bytes.clone()));
-        Ok(bytes)
+        self.cached_bytes = Some((pdf_path.to_string(), mtime, bytes));
+        // Return a clone from the cache — avoids the previous double-clone on store.
+        Ok(self.cached_bytes.as_ref().unwrap().2.clone())
     }
 
     /// Open a PDF document from the byte cache (avoids repeated disk reads).

@@ -61,7 +61,13 @@ impl FileSyncEngine {
     pub fn load_state(&self) -> SyncState {
         let path = self.state_path();
         if let Ok(content) = std::fs::read_to_string(&path) {
-            serde_json::from_str(&content).unwrap_or_default()
+            match serde_json::from_str(&content) {
+                Ok(state) => state,
+                Err(e) => {
+                    eprintln!("[sync] Failed to parse sync state at {}: {e}. Using defaults.", path.display());
+                    SyncState::default()
+                }
+            }
         } else {
             SyncState::default()
         }
@@ -174,7 +180,8 @@ impl FileSyncEngine {
             }
 
             // Read and deserialize
-            let data = std::fs::read(&path)
+            let data = tokio::fs::read(&path)
+                .await
                 .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
             let changeset: Changeset = serde_json::from_slice(&data)
                 .map_err(|e| format!("Failed to parse {}: {e}", path.display()))?;

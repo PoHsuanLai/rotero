@@ -119,32 +119,31 @@ fn action_close_tab(
     render_ch: RenderChannel,
     config: Signal<SyncConfig>,
 ) {
-    let has_active = tabs.read().active_tab_id.is_some();
-    if has_active {
-        let tab_id = tabs.read().active_tab_id.unwrap();
-        tabs.with_mut(|m| m.close_tab(tab_id));
-        if tabs.read().tabs.is_empty() {
-            lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
-        } else {
-            let needs = tabs
-                .read()
-                .active_tab()
-                .map(|t| t.needs_render())
-                .unwrap_or(false);
-            if needs {
-                let new_id = tabs.read().active_tab_id.unwrap();
-                let render_tx = render_ch.sender();
-                let cfg_dir = config.read().effective_library_path();
-                let cfg_q = config.read().render_quality;
-                let cfg_fmt = rotero_pdf::RenderFormat::from_str(&config.read().render_format);
-                tabs.with_mut(|m| m.tab_mut().is_loading = true);
-                spawn(async move {
-                    let _ = crate::state::commands::open_pdf(
-                        &render_tx, &mut tabs, new_id, &cfg_dir, cfg_q, cfg_fmt,
-                    )
-                    .await;
-                });
-            }
+    let Some(tab_id) = tabs.read().active_tab_id else {
+        return;
+    };
+    tabs.with_mut(|m| m.close_tab(tab_id));
+    if tabs.read().tabs.is_empty() {
+        lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
+    } else {
+        let needs = tabs
+            .read()
+            .active_tab()
+            .map(|t| t.needs_render())
+            .unwrap_or(false);
+        let new_id = tabs.read().active_tab_id;
+        if needs && let Some(new_id) = new_id {
+            let render_tx = render_ch.sender();
+            let cfg_dir = config.read().effective_library_path();
+            let cfg_q = config.read().render_quality;
+            let cfg_fmt = rotero_pdf::RenderFormat::from_str(&config.read().render_format);
+            tabs.with_mut(|m| m.tab_mut().is_loading = true);
+            spawn(async move {
+                let _ = crate::state::commands::open_pdf(
+                    &render_tx, &mut tabs, new_id, &cfg_dir, cfg_q, cfg_fmt,
+                )
+                .await;
+            });
         }
     }
 }
@@ -280,7 +279,7 @@ pub fn GlobalKeyHandler() -> Element {
     });
 
     let _ = use_global_shortcut("CmdOrCtrl+W", move |_| {
-        action_close_tab(tabs, lib_state, render_ch.clone(), config);
+        action_close_tab(tabs, lib_state, render_ch, config);
     });
 
     let _ = use_global_shortcut("CmdOrCtrl+N", move |_| {
@@ -320,7 +319,7 @@ pub fn GlobalKeyHandler() -> Element {
         "open-pdf" => action_open_pdf(tabs, lib_state, config, dpr_sig),
         "import-bibtex" => action_import_bibtex(db_menu.clone(), lib_state),
         "export-bibtex" => action_export_bibtex(lib_state),
-        "close-tab" => action_close_tab(tabs, lib_state, render_ch.clone(), config),
+        "close-tab" => action_close_tab(tabs, lib_state, render_ch, config),
         "find" => action_find(lib_state, tabs),
         "show-library" => action_show_library(lib_state),
         "new-collection" => action_new_collection(lib_state, new_coll_editing),

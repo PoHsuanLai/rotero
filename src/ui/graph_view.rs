@@ -68,7 +68,7 @@ pub fn GraphView() -> Element {
 
     let mut graph_json = use_signal(|| None::<String>);
     let mut edge_mode = use_signal(|| EdgeMode::Tags);
-    let mut search_query = use_signal(|| String::new());
+    let mut search_query = use_signal(String::new);
     let mut initialized = use_signal(|| false);
 
     // Compute graph data when papers or edge mode changes
@@ -167,52 +167,47 @@ pub fn GraphView() -> Element {
                 // Keep eval alive without polling — waits forever so dioxus.send() can deliver messages
                 "new Promise(() => {})",
             );
-            loop {
-                match eval.recv::<String>().await {
-                    Ok(msg) => {
-                        if let Ok(event) = serde_json::from_str::<GraphEvent>(&msg) {
-                            match event.event_type.as_str() {
-                                "click" => {
-                                    lib_state.with_mut(|s| {
-                                        s.selected_paper_id = Some(event.id.clone());
+            while let Ok(msg) = eval.recv::<String>().await {
+                if let Ok(event) = serde_json::from_str::<GraphEvent>(&msg) {
+                    match event.event_type.as_str() {
+                        "click" => {
+                            lib_state.with_mut(|s| {
+                                s.selected_paper_id = Some(event.id.clone());
+                            });
+                        }
+                        "dblclick" => {
+                            let state = lib_state.read();
+                            if let Some(paper) = state
+                                .papers
+                                .iter()
+                                .find(|p| p.id.as_deref() == Some(event.id.as_str()))
+                            {
+                                if let Some(ref pdf_path) = paper.pdf_path {
+                                    let abs_path = db
+                                        .resolve_pdf_path(pdf_path)
+                                        .to_string_lossy()
+                                        .to_string();
+                                    let title = paper.title.clone();
+                                    let pid = event.id.clone();
+                                    drop(state);
+                                    let cfg = config.read();
+                                    let dpr_val = dpr.read().0;
+                                    tabs.with_mut(|m| {
+                                        m.open_or_switch(
+                                            pid,
+                                            abs_path,
+                                            title,
+                                            cfg.default_zoom,
+                                            cfg.page_batch_size,
+                                            dpr_val,
+                                        )
                                     });
+                                    lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                 }
-                                "dblclick" => {
-                                    let state = lib_state.read();
-                                    if let Some(paper) = state
-                                        .papers
-                                        .iter()
-                                        .find(|p| p.id.as_deref() == Some(event.id.as_str()))
-                                    {
-                                        if let Some(ref pdf_path) = paper.pdf_path {
-                                            let abs_path = db
-                                                .resolve_pdf_path(pdf_path)
-                                                .to_string_lossy()
-                                                .to_string();
-                                            let title = paper.title.clone();
-                                            let pid = event.id.clone();
-                                            drop(state);
-                                            let cfg = config.read();
-                                            let dpr_val = dpr.read().0;
-                                            tabs.with_mut(|m| {
-                                                m.open_or_switch(
-                                                    pid,
-                                                    abs_path,
-                                                    title,
-                                                    cfg.default_zoom,
-                                                    cfg.page_batch_size,
-                                                    dpr_val,
-                                                )
-                                            });
-                                            lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
-                                        }
-                                    }
-                                }
-                                _ => {}
                             }
                         }
+                        _ => {}
                     }
-                    Err(_) => break,
                 }
             }
         });

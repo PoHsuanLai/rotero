@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use rotero_models::Collection;
 use turso::{Connection, Value};
 
@@ -24,13 +23,13 @@ pub async fn insert_collection(
     )
     .await?;
 
-    let _ = crr::track_insert(
+    crr::track_insert(
         conn,
         "collections",
         &uuid,
         &["name", "parent_id", "position"],
     )
-    .await;
+    .await?;
 
     Ok(uuid)
 }
@@ -71,7 +70,7 @@ pub async fn rename_collection(
         ]),
     )
     .await?;
-    let _ = crr::track_update(conn, "collections", id, &["name"]).await;
+    crr::track_update(conn, "collections", id, &["name"]).await?;
     Ok(())
 }
 
@@ -90,14 +89,14 @@ pub async fn reparent_collection(
         ]),
     )
     .await?;
-    let _ = crr::track_update(conn, "collections", id, &["parent_id"]).await;
+    crr::track_update(conn, "collections", id, &["parent_id"]).await?;
     Ok(())
 }
 
 pub async fn delete_collection(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::COLLECTION_DELETE, [Value::Text(id.to_string())])
         .await?;
-    let _ = crr::track_delete(conn, "collections", id).await;
+    crr::track_delete(conn, "collections", id).await?;
     Ok(())
 }
 
@@ -134,13 +133,13 @@ pub async fn add_paper_to_collection(
     )
     .await?;
     let pk = format!("{paper_id}:{collection_id}");
-    let _ = crr::track_insert(
+    crr::track_insert(
         conn,
         "paper_collections",
         &pk,
         &["paper_id", "collection_id"],
     )
-    .await;
+    .await?;
     Ok(())
 }
 
@@ -158,6 +157,6 @@ pub async fn remove_paper_from_collection(
     )
     .await?;
     let pk = format!("{paper_id}:{collection_id}");
-    let _ = crr::track_delete(conn, "paper_collections", &pk).await;
+    crr::track_delete(conn, "paper_collections", &pk).await?;
     Ok(())
 }

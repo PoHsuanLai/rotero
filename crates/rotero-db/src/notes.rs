@@ -20,13 +20,13 @@ pub async fn insert_note(conn: &Connection, note: &Note) -> Result<String, turso
     )
     .await?;
 
-    let _ = crr::track_insert(
+    crr::track_insert(
         conn,
         "notes",
         &uuid,
         &["paper_id", "title", "body", "created_at", "modified_at"],
     )
-    .await;
+    .await?;
 
     Ok(uuid)
 }
@@ -48,7 +48,6 @@ pub async fn list_notes_for_paper(
     Ok(notes)
 }
 
-#[allow(dead_code)]
 pub async fn update_note(
     conn: &Connection,
     id: &str,
@@ -65,14 +64,14 @@ pub async fn update_note(
         ]),
     )
     .await?;
-    let _ = crr::track_update(conn, "notes", id, &["title", "body", "modified_at"]).await;
+    crr::track_update(conn, "notes", id, &["title", "body", "modified_at"]).await?;
     Ok(())
 }
 
 pub async fn delete_note(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::NOTE_DELETE, [Value::Text(id.to_string())])
         .await?;
-    let _ = crr::track_delete(conn, "notes", id).await;
+    crr::track_delete(conn, "notes", id).await?;
     Ok(())
 }
 

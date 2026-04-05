@@ -192,45 +192,6 @@ pub fn save_pages(
     }
 }
 
-/// Load a single page from the disk cache (for re-loading evicted pages).
-#[allow(dead_code)]
-pub fn load_single_page(
-    data_dir: &Path,
-    pdf_path: &str,
-    page_index: u32,
-    zoom: f32,
-) -> Option<RenderedPageData> {
-    let dir = cache_dir(data_dir, pdf_path);
-    let meta_str = fs::read_to_string(dir.join("meta.json")).ok()?;
-    let meta: CacheMeta = serde_json::from_str(&meta_str).ok()?;
-
-    // Validate zoom + mtime
-    if (meta.zoom - zoom).abs() > 0.01 || meta.pdf_mtime != pdf_mtime(pdf_path) {
-        return None;
-    }
-
-    let ext = ext_for_mime(&meta.mime);
-    let mime: &'static str = if meta.mime == "image/png" {
-        "image/png"
-    } else {
-        "image/jpeg"
-    };
-    let img_path = dir.join("pages").join(format!("{page_index}.{ext}"));
-    let bytes = fs::read(&img_path).ok()?;
-    let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
-    let (w, h) = meta
-        .page_dims
-        .get(page_index as usize)
-        .copied()
-        .unwrap_or((0, 0));
-    Some(RenderedPageData {
-        page_index,
-        base64_data: std::sync::Arc::new(base64_data),
-        mime,
-        width: w,
-        height: h,
-    })
-}
 
 /// Save extracted text to cache.
 pub fn save_text(data_dir: &Path, pdf_path: &str, text_data: &HashMap<u32, PageTextData>) {

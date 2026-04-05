@@ -441,7 +441,7 @@ pub async fn apply_changes(
     changes: &[ChangeRow],
 ) -> Result<MergeResult, turso::Error> {
     let mut result = MergeResult::default();
-    let local_site = site_id(conn).await?;
+    let _local_site = site_id(conn).await?;
 
     for change in changes {
         let clock_table = format!("{}__crr_clock", change.table_name);

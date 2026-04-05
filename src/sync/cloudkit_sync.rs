@@ -30,6 +30,10 @@ pub struct CloudKitSyncEngine {
 impl CloudKitSyncEngine {
     /// Create a new CloudKit sync engine. Requires iCloud to be available.
     pub fn new(site_id: Vec<u8>) -> Result<Self, String> {
+        // SAFETY: CloudKit ObjC API calls are safe when:
+        // 1. NSString::from_str creates valid autoreleased strings
+        // 2. CKContainer/CKDatabase are thread-safe CloudKit objects
+        // 3. CKRecordZoneID alloc+init follows standard ObjC ownership
         unsafe {
             let container_id = NSString::from_str(CONTAINER_ID);
             let container = CKContainer::containerWithIdentifier(&container_id);
@@ -64,6 +68,8 @@ impl CloudKitSyncEngine {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let tx = Cell::new(Some(tx));
 
+        // SAFETY: ObjC CloudKit zone creation — CKRecordZone and CKModifyRecordZonesOperation
+        // are safe to construct; completion block captures are Send-safe via Cell<Option<Sender>>.
         unsafe {
             let zone = CKRecordZone::initWithZoneID(CKRecordZone::alloc(), &self.zone_id);
             let zones = NSArray::from_retained_slice(&[zone]);
@@ -126,6 +132,8 @@ impl CloudKitSyncEngine {
         // Create CKRecord
         let record_name = format!("{}_{:08}_{:08}", self.site_id_hex(), last_ver, current_ver,);
 
+        // SAFETY: ObjC CloudKit record creation and save operation — standard CKRecord
+        // construction with NSData/NSString values. CKModifyRecordsOperation is thread-safe.
         unsafe {
             let record_id = CKRecordID::initWithRecordName_zoneID(
                 CKRecordID::alloc(),
@@ -185,6 +193,8 @@ impl CloudKitSyncEngine {
         let mut total_applied = 0;
 
         for record in &records {
+            // SAFETY: Reading CKRecord fields via ObjC message send — objectForKey returns
+            // autoreleased NSData/NSString. Retained::retain on non-null pointers is valid.
             unsafe {
                 // Extract siteId
                 let site_obj = record.objectForKey(&NSString::from_str("siteId"));
@@ -242,6 +252,8 @@ impl CloudKitSyncEngine {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let tx = Cell::new(Some(tx));
 
+        // SAFETY: CKModifyRecordsOperation with batch save — ObjC operation is thread-safe.
+        // Completion block captures Cell<Option<Sender>> which is consumed exactly once.
         unsafe {
             let records_array = NSArray::from_retained_slice(records);
             let op = CKModifyRecordsOperation::initWithRecordsToSave_recordIDsToDelete(
@@ -289,6 +301,8 @@ impl CloudKitSyncEngine {
         let records = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let records_clone = records.clone();
 
+        // SAFETY: CKFetchRecordZoneChangesOperation — ObjC fetch operation is thread-safe.
+        // Callback blocks capture Arc<Mutex<Vec>> and Cell<Option<Sender>> safely.
         unsafe {
             // Configure zone options using NSDictionary
             let config = CKFetchRecordZoneChangesConfiguration::init(
@@ -315,7 +329,10 @@ impl CloudKitSyncEngine {
             let records_for_cb = records_clone.clone();
             let changed_block = block2::RcBlock::new(move |record: NonNull<CKRecord>| {
                 let retained = Retained::retain(record.as_ptr()).unwrap();
-                records_for_cb.lock().unwrap().push(retained);
+                records_for_cb
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(retained);
             });
             #[allow(deprecated)]
             op.setRecordChangedBlock(Some(&changed_block));
@@ -349,7 +366,11 @@ impl CloudKitSyncEngine {
         let new_token = rx
             .await
             .map_err(|_| "Fetch changes channel closed".to_string())??;
-        let fetched_records = records.lock().unwrap().drain(..).collect();
+        let fetched_records = records
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+            .collect();
         Ok((fetched_records, new_token))
     }
 }
@@ -375,6 +396,8 @@ async fn write_i64_state(conn: &rotero_db::turso::Connection, key: &str, value: 
 
 /// Serialize a CKServerChangeToken to bytes via NSKeyedArchiver.
 fn serialize_server_token(token: &CKServerChangeToken) -> Option<Vec<u8>> {
+    // SAFETY: NSKeyedArchiver serialization of NSCoding-conforming CKServerChangeToken.
+    // archivedDataWithRootObject returns autoreleased NSData or nil (handled by Option).
     unsafe {
         let data: Option<Retained<NSData>> = msg_send_id![
             NSKeyedArchiver::class(),
@@ -388,6 +411,8 @@ fn serialize_server_token(token: &CKServerChangeToken) -> Option<Vec<u8>> {
 
 /// Deserialize a CKServerChangeToken from bytes via NSKeyedUnarchiver.
 fn deserialize_server_token(bytes: &[u8]) -> Option<Retained<CKServerChangeToken>> {
+    // SAFETY: NSKeyedUnarchiver deserialization — NSData::with_bytes creates valid NSData,
+    // unarchivedObjectOfClass returns nil (Option::None) on failure.
     unsafe {
         let data = NSData::with_bytes(bytes);
         let token: Option<Retained<CKServerChangeToken>> = msg_send_id![

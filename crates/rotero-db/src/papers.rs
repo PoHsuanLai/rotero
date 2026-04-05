@@ -86,7 +86,7 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, tu
     )
     .await?;
 
-    let _ = crr::track_insert(
+    crr::track_insert(
         conn,
         "papers",
         &uuid,
@@ -112,7 +112,7 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, tu
             "citation_key",
         ],
     )
-    .await;
+    .await?;
 
     Ok(uuid)
 }
@@ -145,7 +145,6 @@ pub async fn list_papers_paginated(
 }
 
 /// Return total number of papers in the library.
-#[allow(dead_code)]
 pub async fn count_papers(conn: &Connection) -> Result<u32, turso::Error> {
     let mut rows = conn.query(queries::PAPER_COUNT, ()).await?;
     let row = rows
@@ -190,7 +189,7 @@ pub async fn set_favorite(conn: &Connection, id: &str, favorite: bool) -> Result
         [Value::Integer(favorite as i64), Value::Text(id.to_string())],
     )
     .await?;
-    let _ = crr::track_update(conn, "papers", id, &["is_favorite"]).await;
+    crr::track_update(conn, "papers", id, &["is_favorite"]).await?;
     Ok(())
 }
 
@@ -200,7 +199,7 @@ pub async fn set_read(conn: &Connection, id: &str, read: bool) -> Result<(), tur
         [Value::Integer(read as i64), Value::Text(id.to_string())],
     )
     .await?;
-    let _ = crr::track_update(conn, "papers", id, &["is_read"]).await;
+    crr::track_update(conn, "papers", id, &["is_read"]).await?;
     Ok(())
 }
 
@@ -282,7 +281,7 @@ pub async fn update_paper_metadata(
         ]),
     )
     .await?;
-    let _ = crr::track_update(
+    crr::track_update(
         conn,
         "papers",
         id,
@@ -301,7 +300,7 @@ pub async fn update_paper_metadata(
             "date_modified",
         ],
     )
-    .await;
+    .await?;
     Ok(())
 }
 
@@ -319,14 +318,14 @@ pub async fn update_pdf_path(
         ]),
     )
     .await?;
-    let _ = crr::track_update(conn, "papers", id, &["pdf_path", "date_modified"]).await;
+    crr::track_update(conn, "papers", id, &["pdf_path", "date_modified"]).await?;
     Ok(())
 }
 
 pub async fn delete_paper(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::PAPER_DELETE, [Value::Text(id.to_string())])
         .await?;
-    let _ = crr::track_delete(conn, "papers", id).await;
+    crr::track_delete(conn, "papers", id).await?;
     Ok(())
 }
 
@@ -407,11 +406,11 @@ pub async fn find_duplicates(conn: &Connection) -> Result<Vec<Vec<Paper>>, turso
     let mut current_doi = String::new();
     let mut current_group: Vec<Paper> = Vec::new();
     for paper in doi_papers {
-        let doi = paper.doi.clone().unwrap_or_default();
-        if doi != current_doi && !current_group.is_empty() {
+        let doi = paper.doi.as_deref().unwrap_or_default();
+        if doi != current_doi.as_str() && !current_group.is_empty() {
             groups.push(std::mem::take(&mut current_group));
         }
-        current_doi = doi;
+        current_doi = doi.to_string();
         current_group.push(paper);
     }
     if !current_group.is_empty() {
@@ -419,7 +418,7 @@ pub async fn find_duplicates(conn: &Connection) -> Result<Vec<Vec<Paper>>, turso
     }
 
     // Group 2: normalized title duplicates (excluding papers already found by DOI)
-    let doi_ids: Vec<String> = groups
+    let doi_ids: std::collections::HashSet<String> = groups
         .iter()
         .flatten()
         .filter_map(|p| p.id.clone())
@@ -428,7 +427,7 @@ pub async fn find_duplicates(conn: &Connection) -> Result<Vec<Vec<Paper>>, turso
     let mut title_map: std::collections::HashMap<String, Vec<Paper>> =
         std::collections::HashMap::new();
     for paper in all {
-        if doi_ids.contains(&paper.id.clone().unwrap_or_default()) {
+        if paper.id.as_ref().is_some_and(|id| doi_ids.contains(id)) {
             continue;
         }
         let normalized = normalize_title(&paper.title);
@@ -437,7 +436,7 @@ pub async fn find_duplicates(conn: &Connection) -> Result<Vec<Vec<Paper>>, turso
         }
         title_map.entry(normalized).or_default().push(paper);
     }
-    for (_title, papers) in title_map {
+    for papers in title_map.into_values() {
         if papers.len() > 1 {
             groups.push(papers);
         }
@@ -515,7 +514,7 @@ pub async fn update_citation_count(
         [Value::Integer(count), Value::Text(id.to_string())],
     )
     .await?;
-    let _ = crr::track_update(conn, "papers", id, &["citation_count"]).await;
+    crr::track_update(conn, "papers", id, &["citation_count"]).await?;
     Ok(())
 }
 
@@ -533,7 +532,7 @@ pub async fn update_citation_key(
         ]),
     )
     .await?;
-    let _ = crr::track_update(conn, "papers", id, &["citation_key"]).await;
+    crr::track_update(conn, "papers", id, &["citation_key"]).await?;
     Ok(())
 }
 

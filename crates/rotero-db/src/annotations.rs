@@ -39,7 +39,7 @@ pub async fn insert_annotation(
     )
     .await?;
 
-    let _ = crr::track_insert(
+    crr::track_insert(
         conn,
         "annotations",
         &uuid,
@@ -54,7 +54,7 @@ pub async fn insert_annotation(
             "modified_at",
         ],
     )
-    .await;
+    .await?;
 
     Ok(uuid)
 }
@@ -94,7 +94,7 @@ pub async fn update_annotation_content(
         ]),
     )
     .await?;
-    let _ = crr::track_update(conn, "annotations", id, &["content", "modified_at"]).await;
+    crr::track_update(conn, "annotations", id, &["content", "modified_at"]).await?;
     Ok(())
 }
 
@@ -113,14 +113,14 @@ pub async fn update_annotation_color(
         ]),
     )
     .await?;
-    let _ = crr::track_update(conn, "annotations", id, &["color", "modified_at"]).await;
+    crr::track_update(conn, "annotations", id, &["color", "modified_at"]).await?;
     Ok(())
 }
 
 pub async fn delete_annotation(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::ANNOTATION_DELETE, [Value::Text(id.to_string())])
         .await?;
-    let _ = crr::track_delete(conn, "annotations", id).await;
+    crr::track_delete(conn, "annotations", id).await?;
     Ok(())
 }
 

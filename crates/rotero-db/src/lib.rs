@@ -67,7 +67,6 @@ impl Database {
         &self.conn
     }
 
-    #[allow(dead_code)]
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
     }
@@ -125,7 +124,10 @@ impl Database {
         std::fs::copy(source, &dest).map_err(|e| format!("Failed to copy PDF: {e}"))?;
 
         // Return path relative to papers_dir
-        let rel_path = format!("{subfolder}/{dest_name}");
+        let rel_path = std::path::Path::new(&subfolder)
+            .join(&dest_name)
+            .to_string_lossy()
+            .into_owned();
         Ok(rel_path)
     }
 
@@ -170,7 +172,10 @@ impl Database {
 
         std::fs::write(&dest, bytes).map_err(|e| format!("Failed to write PDF: {e}"))?;
 
-        let rel_path = format!("{subfolder}/{dest_name}");
+        let rel_path = std::path::Path::new(&subfolder)
+            .join(&dest_name)
+            .to_string_lossy()
+            .into_owned();
         Ok(rel_path)
     }
 }
