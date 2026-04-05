@@ -121,9 +121,15 @@ pub fn AgentSection() -> Element {
                                         let idx = *selected_method.read();
                                         if let Some(method) = auth_methods.get(idx) {
                                             if let Some(command) = &method.terminal_command {
+                                                // Terminal-auth: spawn the command directly
                                                 let _ = std::process::Command::new(command)
                                                     .args(&method.terminal_args)
                                                     .spawn();
+                                            } else {
+                                                // Agent-handled auth: send authenticate RPC
+                                                agent_channel.send(ChatRequest::Authenticate {
+                                                    method_id: method.id.clone(),
+                                                });
                                             }
                                         }
                                     },

@@ -730,8 +730,16 @@ fn connect_and_run(
                 });
                 break LoopResult::SwitchAgent(provider_id);
             }
-            Ok(ChatRequest::Authenticate { .. }) => {
-                // Auth is handled by spawning terminal commands, not through RPC
+            Ok(ChatRequest::Authenticate { method_id }) => {
+                let params = serde_json::json!({ "methodId": method_id });
+                match conn.send_request("authenticate", params, Some(evt_tx)) {
+                    Ok(_) => {
+                        tracing::info!("ACP: authenticated with method {method_id}");
+                    }
+                    Err(e) => {
+                        let _ = evt_tx.send(ChatEvent::Error(format!("Auth failed: {e}")));
+                    }
+                }
             }
             Ok(ChatRequest::Shutdown) => {
                 break LoopResult::Shutdown;
