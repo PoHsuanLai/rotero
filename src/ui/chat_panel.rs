@@ -122,6 +122,12 @@ pub fn ChatPanel() -> Element {
     let paper_title = get_context_paper_title(&lib_state.read(), &tab_mgr.read());
     let has_context = paper_title.is_some();
     let paper_title_display = paper_title.unwrap_or_default();
+    let active_provider = chat_state.read().active_provider_id.clone();
+    let provider_name = crate::agent::types::AGENT_PROVIDERS
+        .iter()
+        .find(|p| p.id == active_provider)
+        .map(|p| p.name)
+        .unwrap_or("AI Chat");
     let show_commands = chat_state.read().show_command_picker;
     let commands = chat_state.read().commands.clone();
     let show_sessions = chat_state.read().show_session_browser;
@@ -161,7 +167,7 @@ pub fn ChatPanel() -> Element {
             // Header
             div { class: "chat-header",
                 div { class: "chat-header-left",
-                    span { class: "chat-title", "Claude" }
+                    span { class: "chat-title", "{provider_name}" }
                     span {
                         class: "chat-status",
                         class: if is_busy { "chat-status--busy" } else { "" },
