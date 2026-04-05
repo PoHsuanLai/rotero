@@ -640,6 +640,13 @@
     color: var(--success, #22c55e);
 }
 
+.agent-key-masked {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    flex: 1;
+}
+
 .agent-provider-badge--auth {
     color: var(--accent);
 }

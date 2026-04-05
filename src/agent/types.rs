@@ -115,6 +115,8 @@ pub struct AgentAuthMethod {
     pub terminal_args: Vec<String>,
     /// True if this is an API key method (needs env var, not browser).
     pub is_api_key: bool,
+    /// The env var name for API key methods (e.g. "GEMINI_API_KEY").
+    pub api_key_env_var: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]

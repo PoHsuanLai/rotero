@@ -325,6 +325,14 @@ impl RawAcpConnection {
         for arg in extra_args {
             cmd.arg(arg);
         }
+        // Pass any stored API keys as env vars
+        let config = crate::sync::engine::SyncConfig::load();
+        for (key, val) in &config.agent_api_keys {
+            if !val.is_empty() {
+                cmd.env(key, val);
+            }
+        }
+
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -1009,6 +1017,20 @@ fn handle_notification(
     }
 }
 
+/// Map known auth method IDs to env var names.
+fn api_key_env_for_method(method_id: &str) -> Option<String> {
+    match method_id {
+        "gemini-api-key" => Some("GEMINI_API_KEY".into()),
+        "codex-api-key" | "openai-api-key" => Some("OPENAI_API_KEY".into()),
+        "codex_api_key" => Some("CODEX_API_KEY".into()),
+        id if id.contains("api-key") || id.contains("api_key") => {
+            // Best-effort: uppercase the ID and replace dashes
+            Some(id.to_uppercase().replace('-', "_"))
+        }
+        _ => None,
+    }
+}
+
 fn extract_auth_methods(init_result: &serde_json::Value) -> Vec<AgentAuthMethod> {
     init_result
         .get("authMethods")
@@ -1059,6 +1081,9 @@ fn extract_auth_methods(init_result: &serde_json::Value) -> Vec<AgentAuthMethod>
                             .get("_meta")
                             .and_then(|meta| meta.get("api-key"))
                             .is_some(),
+                        api_key_env_var: api_key_env_for_method(
+                            m.get("id").and_then(|v| v.as_str()).unwrap_or(""),
+                        ),
                     }
                 })
                 .collect()

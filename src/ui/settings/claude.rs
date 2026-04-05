@@ -20,6 +20,8 @@ pub fn AgentSection() -> Element {
 
     let has_unsaved = *pending_provider.read() != saved_provider;
     let has_sign_in_methods = auth_methods.iter().any(|m| !m.is_api_key);
+    let auth_methods_for_btn = auth_methods.clone();
+    let auth_methods_for_keys = auth_methods.clone();
     let mut selected_method = use_signal(|| 0usize);
 
     rsx! {
@@ -105,7 +107,7 @@ pub fn AgentSection() -> Element {
                                     selected_method.set(idx);
                                 }
                             },
-                            for (idx, method) in auth_methods.iter().filter(|m| !m.is_api_key).enumerate() {
+                            for (idx, method) in auth_methods_for_btn.iter().filter(|m| !m.is_api_key).enumerate() {
                                 option {
                                     value: "{idx}",
                                     "{method.name}"
@@ -116,7 +118,7 @@ pub fn AgentSection() -> Element {
                             class: if agent_connected { "btn btn--secondary" } else { "btn btn--primary" },
                             onclick: move |_| {
                                 let idx = *selected_method.read();
-                                let methods: Vec<_> = auth_methods.iter()
+                                let methods: Vec<_> = auth_methods_for_btn.iter()
                                     .filter(|m| !m.is_api_key)
                                     .collect();
                                 if let Some(method) = methods.get(idx) {
@@ -132,6 +134,71 @@ pub fn AgentSection() -> Element {
                                 }
                             },
                             if agent_connected { "Switch" } else { "Sign in" }
+                        }
+                    }
+                }
+            }
+
+            // API key inputs for methods that need env vars
+            if *pending_provider.read() == connected_provider {
+                for method in auth_methods_for_keys.iter().filter(|m| m.is_api_key && m.api_key_env_var.is_some()) {
+                    {
+                        let env_var = method.api_key_env_var.clone().unwrap();
+                        let label = method.name.clone();
+                        let current_val = config
+                            .read()
+                            .agent_api_keys
+                            .get(&env_var)
+                            .cloned()
+                            .unwrap_or_default();
+                        let has_key = !current_val.is_empty();
+                        let masked = if current_val.len() > 8 {
+                            format!("{}...{}", &current_val[..4], &current_val[current_val.len()-4..])
+                        } else if has_key {
+                            "*".repeat(current_val.len())
+                        } else {
+                            String::new()
+                        };
+
+                        rsx! {
+                            div { class: "settings-field",
+                                span { class: "settings-field-label", "{label}" }
+                                div { class: "settings-field-control agent-auth-row",
+                                    if has_key {
+                                        span { class: "agent-key-masked", "{masked}" }
+                                        button {
+                                            class: "btn btn--secondary",
+                                            onclick: move |_| {
+                                                config.with_mut(|c| {
+                                                    c.agent_api_keys.remove(&env_var);
+                                                });
+                                                let _ = config.read().save();
+                                            },
+                                            "Clear"
+                                        }
+                                    } else {
+                                        input {
+                                            class: "input input--sm",
+                                            r#type: "password",
+                                            placeholder: "{env_var}",
+                                            onchange: move |e| {
+                                                let val = e.value();
+                                                if !val.is_empty() {
+                                                    config.with_mut(|c| {
+                                                        c.agent_api_keys.insert(env_var.clone(), val);
+                                                    });
+                                                    let _ = config.read().save();
+                                                    // Reconnect to pick up new key
+                                                    let pid = config.read().agent_provider.clone();
+                                                    agent_channel.send(ChatRequest::SwitchAgent {
+                                                        provider_id: pid,
+                                                    });
+                                                }
+                                            },
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
