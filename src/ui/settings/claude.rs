@@ -19,6 +19,7 @@ pub fn AgentSection() -> Element {
     let auth_methods = chat_state.read().auth_methods.clone();
 
     let has_unsaved = *pending_provider.read() != saved_provider;
+    let mut selected_method = use_signal(|| 0usize);
 
     rsx! {
         div { class: "settings-section",
@@ -92,45 +93,40 @@ pub fn AgentSection() -> Element {
 
             // Auth methods — shown when selected card is the connected provider
             if !auth_methods.is_empty() && *pending_provider.read() == connected_provider {
-                {
-                    let mut selected_method = use_signal(|| 0usize);
-                    rsx! {
-                        div { class: "settings-field",
-                            span { class: "settings-field-label", "Account" }
-                            div { class: "settings-field-control agent-auth-row",
-                                select {
-                                    class: "select",
-                                    onchange: move |e| {
-                                        if let Ok(idx) = e.value().parse::<usize>() {
-                                            selected_method.set(idx);
-                                        }
-                                    },
-                                    for (idx, method) in auth_methods.iter().enumerate() {
-                                        option {
-                                            value: "{idx}",
-                                            "{method.name}"
-                                        }
-                                    }
+                div { class: "settings-field",
+                    span { class: "settings-field-label", "Account" }
+                    div { class: "settings-field-control agent-auth-row",
+                        select {
+                            class: "select",
+                            onchange: move |e| {
+                                if let Ok(idx) = e.value().parse::<usize>() {
+                                    selected_method.set(idx);
                                 }
-                                button {
-                                    class: if agent_connected { "btn btn--secondary" } else { "btn btn--primary" },
-                                    onclick: move |_| {
-                                        let idx = *selected_method.read();
-                                        if let Some(method) = auth_methods.get(idx) {
-                                            if let Some(command) = &method.terminal_command {
-                                                let _ = std::process::Command::new(command)
-                                                    .args(&method.terminal_args)
-                                                    .spawn();
-                                            } else {
-                                                agent_channel.send(ChatRequest::Authenticate {
-                                                    method_id: method.id.clone(),
-                                                });
-                                            }
-                                        }
-                                    },
-                                    if agent_connected { "Switch" } else { "Sign in" }
+                            },
+                            for (idx, method) in auth_methods.iter().enumerate() {
+                                option {
+                                    value: "{idx}",
+                                    "{method.name}"
                                 }
                             }
+                        }
+                        button {
+                            class: if agent_connected { "btn btn--secondary" } else { "btn btn--primary" },
+                            onclick: move |_| {
+                                let idx = *selected_method.read();
+                                if let Some(method) = auth_methods.get(idx) {
+                                    if let Some(command) = &method.terminal_command {
+                                        let _ = std::process::Command::new(command)
+                                            .args(&method.terminal_args)
+                                            .spawn();
+                                    } else {
+                                        agent_channel.send(ChatRequest::Authenticate {
+                                            method_id: method.id.clone(),
+                                        });
+                                    }
+                                }
+                            },
+                            if agent_connected { "Switch" } else { "Sign in" }
                         }
                     }
                 }
