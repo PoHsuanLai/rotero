@@ -11,3 +11,4 @@ chrono.workspace = true
 thiserror.workspace = true
 biblatex = "0.11"
 hayagriva = "0.9"
+biblib = "0.4.2"

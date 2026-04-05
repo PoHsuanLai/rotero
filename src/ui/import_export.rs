@@ -7,14 +7,14 @@ use crate::state::app_state::LibraryState;
 pub fn ImportExportButtons() -> Element {
     rsx! {
         div { class: "import-export-row",
-            ImportBibtexButton {}
+            ImportButton {}
             ExportBibtexButton {}
         }
     }
 }
 
 #[component]
-fn ImportBibtexButton() -> Element {
+fn ImportButton() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
     let mut status = use_signal(|| None::<String>);
@@ -25,11 +25,25 @@ fn ImportBibtexButton() -> Element {
             onclick: move |_| {
                 let db = db.clone();
                 spawn(async move {
-                    let file = super::pick_file_async(&["bib", "bibtex"], "Import BibTeX").await;
+                    let file = super::pick_file_async(
+                        &["bib", "bibtex", "ris", "json"],
+                        "Import Library",
+                    ).await;
                     if let Some(path) = file {
                         match std::fs::read_to_string(&path) {
                             Ok(content) => {
-                                match rotero_bib::import_bibtex(&content) {
+                                let ext = path.extension()
+                                    .and_then(|e| e.to_str())
+                                    .unwrap_or("")
+                                    .to_lowercase();
+
+                                let result = match ext.as_str() {
+                                    "ris" => rotero_bib::import_ris(&content),
+                                    "json" => rotero_bib::import_csl_json(&content),
+                                    _ => rotero_bib::import_bibtex(&content),
+                                };
+
+                                match result {
                                     Ok(papers) => {
                                         let count = papers.len();
                                         let mut imported = 0;
@@ -51,7 +65,7 @@ fn ImportBibtexButton() -> Element {
                     }
                 });
             },
-            "Import .bib"
+            "Import"
         }
         if let Some(msg) = status.read().as_ref() {
             span { class: "import-status", "{msg}" }
