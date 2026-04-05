@@ -534,23 +534,29 @@ fn connect_and_run(
         "mcpServers": mcp_servers,
     });
 
-    let session_result = match conn.send_request("session/new", session_params, Some(evt_tx)) {
-        Ok(r) => r,
+    let mut session_id = String::new();
+    match conn.send_request("session/new", session_params, Some(evt_tx)) {
+        Ok(r) => {
+            session_id = r
+                .get("sessionId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            tracing::info!("ACP: session created: {session_id}");
+            let _ = evt_tx.send(ChatEvent::SessionCreated);
+        }
+        Err(e) if e.contains("Authentication required") || e.contains("auth") => {
+            // Auth needed — keep connection alive so user can sign in via settings
+            let _ = evt_tx.send(ChatEvent::Error(
+                format!("Sign in required. Use the Sign in option in Settings > AI Agent to authenticate with {}.", provider.name),
+            ));
+        }
         Err(e) => {
             let _ = evt_tx.send(ChatEvent::Error(format!("Failed to create session: {e}")));
             conn.kill();
             return wait_for_switch_or_shutdown(req_rx);
         }
     };
-
-    let mut session_id = session_result
-        .get("sessionId")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    tracing::info!("ACP: session created: {session_id}");
-    let _ = evt_tx.send(ChatEvent::SessionCreated);
 
     // Drain any notifications that arrived during init/session setup
     while let Some(line) = conn.try_read_line() {
@@ -773,8 +779,23 @@ fn connect_and_run(
                                         v["error"]
                                     )));
                                 } else {
-                                    tracing::info!("ACP: auth completed");
-                                    let _ = evt_tx.send(ChatEvent::SessionCreated);
+                                    tracing::info!("ACP: auth completed, creating session...");
+                                    // Retry session creation after auth
+                                    let session_params = serde_json::json!({
+                                        "cwd": home_dir_or_cwd().to_string_lossy(),
+                                        "mcpServers": build_mcp_servers_json(),
+                                    });
+                                    match conn.send_request("session/new", session_params, Some(evt_tx)) {
+                                        Ok(r) => {
+                                            if let Some(sid) = r.get("sessionId").and_then(|v| v.as_str()) {
+                                                session_id = sid.to_string();
+                                            }
+                                            let _ = evt_tx.send(ChatEvent::SessionCreated);
+                                        }
+                                        Err(e) => {
+                                            let _ = evt_tx.send(ChatEvent::Error(format!("Session creation failed after auth: {e}")));
+                                        }
+                                    }
                                 }
                                 continue;
                             }
