@@ -409,15 +409,9 @@ fn ChatMessageBubble(message: ChatMessage) -> Element {
     }
 }
 
-/// Renders markdown text as HTML using simple inline conversion.
+/// Renders markdown text as HTML.
 #[component]
 fn MarkdownBlock(text: String) -> Element {
-    // Convert markdown to simple HTML inline:
-    // - **bold** -> <strong>
-    // - *italic* -> <em>
-    // - `code` -> <code>
-    // - ```blocks``` -> <pre><code>
-    // - newlines -> <br>
     let html = md_to_html(&text);
 
     rsx! {
@@ -428,130 +422,18 @@ fn MarkdownBlock(text: String) -> Element {
     }
 }
 
-/// Minimal markdown to HTML converter.
 fn md_to_html(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() * 2);
-    let mut in_code_block = false;
-    let mut code_block_lang = String::new();
+    use pulldown_cmark::{Options, Parser, html};
 
-    for line in text.split('\n') {
-        if line.starts_with("```") {
-            if in_code_block {
-                out.push_str("</code></pre>");
-                in_code_block = false;
-                code_block_lang.clear();
-            } else {
-                code_block_lang = line.trim_start_matches('`').to_string();
-                if code_block_lang.is_empty() {
-                    out.push_str("<pre><code>");
-                } else {
-                    out.push_str(&format!("<pre><code class=\"lang-{code_block_lang}\">"));
-                }
-                in_code_block = true;
-            }
-            continue;
-        }
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_TASKLISTS);
 
-        if in_code_block {
-            out.push_str(&html_escape(line));
-            out.push('\n');
-            continue;
-        }
-
-        let converted = convert_inline_md(line);
-        out.push_str(&converted);
-        out.push_str("<br>");
-    }
-
-    if in_code_block {
-        out.push_str("</code></pre>");
-    }
-
-    // Remove trailing <br>
-    if out.ends_with("<br>") {
-        out.truncate(out.len() - 4);
-    }
-
-    out
-}
-
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
-fn convert_inline_md(line: &str) -> String {
-    let escaped = html_escape(line);
-
-    // Headers
-    if escaped.starts_with("### ") {
-        return format!(
-            "<strong style=\"font-size:1.05em\">{}</strong>",
-            &escaped[4..]
-        );
-    }
-    if escaped.starts_with("## ") {
-        return format!(
-            "<strong style=\"font-size:1.1em\">{}</strong>",
-            &escaped[3..]
-        );
-    }
-    if escaped.starts_with("# ") {
-        return format!(
-            "<strong style=\"font-size:1.15em\">{}</strong>",
-            &escaped[2..]
-        );
-    }
-
-    // Bullet points
-    let line_trimmed = escaped.trim_start();
-    if line_trimmed.starts_with("- ") || line_trimmed.starts_with("* ") {
-        let indent = escaped.len() - line_trimmed.len();
-        let padding = indent * 8;
-        return format!(
-            "<span style=\"padding-left:{padding}px\">&bull; {}</span>",
-            &line_trimmed[2..]
-        );
-    }
-
-    // Inline: bold, italic, code
-    let mut result = escaped;
-    // Bold **text**
-    while let Some(start) = result.find("**") {
-        if let Some(end) = result[start + 2..].find("**") {
-            let before = &result[..start];
-            let bold = &result[start + 2..start + 2 + end];
-            let after = &result[start + 2 + end + 2..];
-            result = format!("{before}<strong>{bold}</strong>{after}");
-        } else {
-            break;
-        }
-    }
-    // Inline code `text`
-    while let Some(start) = result.find('`') {
-        if let Some(end) = result[start + 1..].find('`') {
-            let before = &result[..start];
-            let code = &result[start + 1..start + 1 + end];
-            let after = &result[start + 1 + end + 1..];
-            result = format!("{before}<code>{code}</code>{after}");
-        } else {
-            break;
-        }
-    }
-    // Italic *text* (after bold to avoid conflicts)
-    while let Some(start) = result.find('*') {
-        if let Some(end) = result[start + 1..].find('*') {
-            let before = &result[..start];
-            let italic = &result[start + 1..start + 1 + end];
-            let after = &result[start + 1 + end + 1..];
-            result = format!("{before}<em>{italic}</em>{after}");
-        } else {
-            break;
-        }
-    }
-
-    result
+    let parser = Parser::new_ext(text, options);
+    let mut html_output = String::new();
+    html::push_html(&mut html_output, parser);
+    html_output
 }
 
 /// Drag-resize handle for sidebars.

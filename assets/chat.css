@@ -392,6 +392,77 @@
     font-style: italic;
 }
 
+.chat-md h1, .chat-md h2, .chat-md h3 {
+    font-weight: 600;
+    margin: var(--space-2) 0 var(--space-1) 0;
+}
+
+.chat-md h1 { font-size: 1.15em; }
+.chat-md h2 { font-size: 1.1em; }
+.chat-md h3 { font-size: 1.05em; }
+
+.chat-md p {
+    margin: var(--space-1) 0;
+}
+
+.chat-md ul, .chat-md ol {
+    margin: var(--space-1) 0;
+    padding-left: var(--space-5);
+}
+
+.chat-md li {
+    margin: 2px 0;
+}
+
+.chat-md table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: var(--space-2) 0;
+    font-size: var(--text-xs);
+}
+
+.chat-md th, .chat-md td {
+    border: 1px solid var(--border-light);
+    padding: var(--space-1) var(--space-2);
+    text-align: left;
+}
+
+.chat-md th {
+    background: var(--bg-main);
+    font-weight: 600;
+}
+
+.chat-md blockquote {
+    border-left: 3px solid var(--border);
+    margin: var(--space-2) 0;
+    padding: var(--space-1) var(--space-3);
+    color: var(--text-secondary);
+}
+
+.chat-md a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.chat-md a:hover {
+    text-decoration: underline;
+}
+
+.chat-md hr {
+    border: none;
+    border-top: 1px solid var(--border-light);
+    margin: var(--space-2) 0;
+}
+
+.chat-md del {
+    text-decoration: line-through;
+    color: var(--text-tertiary);
+}
+
+.chat-md input[type="checkbox"] {
+    margin-right: var(--space-1);
+}
+
 /* ---- Slash command picker ---- */
 
 .chat-command-picker {
