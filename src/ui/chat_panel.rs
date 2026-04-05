@@ -121,12 +121,13 @@ pub fn ChatPanel() -> Element {
     let messages = chat_state.read().messages.clone();
     let msg_count = messages.len();
 
-    // Auto-scroll to bottom when messages change
+    // Auto-scroll to bottom when messages change or status becomes idle (session loaded)
+    let scroll_trigger = (msg_count, matches!(status, AgentStatus::Idle));
     use_effect(move || {
-        let _ = msg_count; // track changes
+        let _ = scroll_trigger;
         spawn(async {
             let _ = dioxus::document::eval(
-                "setTimeout(() => { let el = document.querySelector('.chat-messages'); if (el) el.scrollTop = el.scrollHeight; }, 10)"
+                "setTimeout(() => { let el = document.querySelector('.chat-messages'); if (el) el.scrollTop = el.scrollHeight; }, 50)"
             );
         });
     });
