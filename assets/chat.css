@@ -640,6 +640,10 @@
     color: var(--success, #22c55e);
 }
 
+.agent-provider-badge--auth {
+    color: var(--accent);
+}
+
 .agent-provider-badge--error {
     color: var(--destructive);
 }

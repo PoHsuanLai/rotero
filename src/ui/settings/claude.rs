@@ -54,6 +54,10 @@ pub fn AgentSection() -> Element {
                                     div { class: "agent-provider-badge",
                                         "Connecting..."
                                     }
+                                } else if is_pending && !has_unsaved && matches!(agent_status, AgentStatus::NeedsAuth) {
+                                    div { class: "agent-provider-badge agent-provider-badge--auth",
+                                        "Sign in required"
+                                    }
                                 } else if is_pending && !has_unsaved && matches!(agent_status, AgentStatus::Error(_)) {
                                     div { class: "agent-provider-badge agent-provider-badge--error",
                                         "Error"
@@ -93,8 +97,8 @@ pub fn AgentSection() -> Element {
                 }
             }
 
-            // Auth methods from ACP — shown for the connected provider
-            if !auth_methods.is_empty() && config.read().agent_provider == connected_provider {
+            // Auth methods — only shown when the selected card matches the connected provider
+            if !auth_methods.is_empty() && *pending_provider.read() == connected_provider {
                 {
                     let mut selected_method = use_signal(|| 0usize);
                     rsx! {

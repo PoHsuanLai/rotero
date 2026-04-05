@@ -39,6 +39,8 @@ pub enum AgentStatus {
     Connecting,
     Streaming,
     ToolCall(String),
+    /// Needs sign-in before use — not an error, just informational.
+    NeedsAuth,
     Error(String),
     NotInstalled,
 }
@@ -163,5 +165,7 @@ pub enum ChatEvent {
     TurnCompleted,
     CommandsAvailable(Vec<SlashCommand>),
     SessionList(Vec<PastSession>),
+    /// Auth needed — informational, not an error.
+    AuthRequired { provider_name: String },
     Error(String),
 }

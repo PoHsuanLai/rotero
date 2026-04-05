@@ -138,6 +138,7 @@ pub fn ChatPanel() -> Element {
         AgentStatus::Connecting => "Connecting...",
         AgentStatus::Streaming => "Thinking...",
         AgentStatus::ToolCall(name) => name.as_str(),
+        AgentStatus::NeedsAuth => "Sign in required",
         AgentStatus::Error(_) => "Error",
         AgentStatus::NotInstalled => "Not installed",
     };

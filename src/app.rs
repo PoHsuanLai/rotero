@@ -270,6 +270,18 @@ fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
                 s.show_session_browser = true;
             });
         }
+        ChatEvent::AuthRequired { provider_name } => {
+            chat_state.with_mut(|s| {
+                s.status = AgentStatus::NeedsAuth;
+                s.messages.push(ChatMessage {
+                    role: ChatRole::Assistant,
+                    content: vec![MessageContent::Text(
+                        format!("Sign in to {provider_name} to get started. Go to Settings > AI Agent and use the Sign in option."),
+                    )],
+                    timestamp: chrono::Utc::now(),
+                });
+            });
+        }
         ChatEvent::Error(err) => {
             chat_state.with_mut(|s| {
                 s.status = AgentStatus::Error(err.clone());

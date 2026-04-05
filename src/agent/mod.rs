@@ -545,11 +545,10 @@ fn connect_and_run(
             tracing::info!("ACP: session created: {session_id}");
             let _ = evt_tx.send(ChatEvent::SessionCreated);
         }
-        Err(e) if e.contains("Authentication required") || e.contains("auth") => {
-            // Auth needed — keep connection alive so user can sign in via settings
-            let _ = evt_tx.send(ChatEvent::Error(
-                format!("Sign in required. Use the Sign in option in Settings > AI Agent to authenticate with {}.", provider.name),
-            ));
+        Err(e) if e.contains("Authentication required") || e.contains("auth_required") => {
+            let _ = evt_tx.send(ChatEvent::AuthRequired {
+                provider_name: provider.name.to_string(),
+            });
         }
         Err(e) => {
             let _ = evt_tx.send(ChatEvent::Error(format!("Failed to create session: {e}")));
