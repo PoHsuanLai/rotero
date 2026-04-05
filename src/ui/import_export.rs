@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::db::Database;
+use rotero_db::Database;
 use crate::state::app_state::LibraryState;
 
 #[component]
@@ -34,7 +34,7 @@ fn ImportBibtexButton() -> Element {
                                         let count = papers.len();
                                         let mut imported = 0;
                                         for paper in papers {
-                                            if let Ok(id) = crate::db::papers::insert_paper(db.conn(), &paper).await {
+                                            if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
                                                 let mut paper = paper;
                                                 paper.id = Some(id);
                                                 lib_state.with_mut(|s| s.papers.insert(0, paper));

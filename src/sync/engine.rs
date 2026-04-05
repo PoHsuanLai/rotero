@@ -1,5 +1,15 @@
 use std::path::{Path, PathBuf};
 
+/// Which sync transport to use.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum SyncTransport {
+    /// Sync via shared folder (iCloud Drive, Dropbox, etc.)
+    #[default]
+    File,
+    /// Sync via Apple CloudKit (Apple devices only)
+    CloudKit,
+}
+
 /// Application configuration, persisted to config.json.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SyncConfig {
@@ -58,6 +68,18 @@ pub struct SyncConfig {
     /// Path for auto-exported .bib file (Better BibTeX). None = disabled.
     #[serde(default)]
     pub auto_export_bib_path: Option<String>,
+
+    /// Whether CRR sync is enabled.
+    #[serde(default)]
+    pub sync_enabled: bool,
+
+    /// Path to the shared sync folder (e.g. iCloud Drive, Dropbox).
+    #[serde(default)]
+    pub sync_folder_path: Option<String>,
+
+    /// Which sync transport to use.
+    #[serde(default)]
+    pub sync_transport: SyncTransport,
 }
 
 fn default_zoom() -> f32 {
@@ -108,6 +130,9 @@ impl Default for SyncConfig {
             render_quality: default_render_quality(),
             thumbnail_quality: default_thumbnail_quality(),
             auto_export_bib_path: None,
+            sync_enabled: false,
+            sync_folder_path: None,
+            sync_transport: SyncTransport::default(),
         }
     }
 }

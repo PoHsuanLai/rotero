@@ -5,14 +5,14 @@ use dioxus::prelude::*;
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use crate::app::RenderChannel;
 use rotero_pdf::RenderFormat;
-use crate::db::Database;
+use rotero_db::Database;
 use crate::state::app_state::{
     AnnotationMode, LibraryState, LibraryView, PdfTabManager, TabId, ViewerToolState,
 };
 use rotero_models::{Annotation, AnnotationType};
 
 /// Shared annotation context menu state: (ann_id, ann_type, page, color, content, x, y)
-type AnnCtxState = Signal<Option<(i64, AnnotationType, i32, String, String, f64, f64)>>;
+type AnnCtxState = Signal<Option<(String, AnnotationType, i32, String, String, f64, f64)>>;
 
 /// Convert a hex color like "#ff0000" to "rgba(r, g, b, alpha)".
 fn hex_to_rgba(hex: &str, alpha: f32) -> String {
@@ -37,7 +37,7 @@ pub fn PdfTabBar() -> Element {
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
 
     let mgr = tabs.read();
-    let tab_info: Vec<(TabId, String, bool, Option<i64>)> = mgr
+    let tab_info: Vec<(TabId, String, bool, Option<String>)> = mgr
         .tabs
         .iter()
         .map(|t| {
@@ -45,7 +45,7 @@ pub fn PdfTabBar() -> Element {
                 t.id,
                 t.title.clone(),
                 mgr.active_tab_id == Some(t.id),
-                t.paper_id,
+                t.paper_id.clone(),
             )
         })
         .collect();
@@ -53,7 +53,7 @@ pub fn PdfTabBar() -> Element {
     drop(mgr);
 
     // Tab context menu state: (tab_id, paper_id, tab_index, x, y)
-    let mut tab_ctx = use_signal(|| None::<(TabId, Option<i64>, usize, f64, f64)>);
+    let mut tab_ctx = use_signal(|| None::<(TabId, Option<String>, usize, f64, f64)>);
 
     rsx! {
         div { class: "pdf-tab-bar",
@@ -62,7 +62,7 @@ pub fn PdfTabBar() -> Element {
                     let tab_id = *tab_id;
                     let title = title.clone();
                     let is_active = *is_active;
-                    let paper_id = *paper_id;
+                    let paper_id = paper_id.clone();
                     let tab_class = if is_active { "pdf-tab pdf-tab--active" } else { "pdf-tab" };
                     let display_title = if title.len() > 30 {
                         format!("{}...", &title[..27])
@@ -74,9 +74,12 @@ pub fn PdfTabBar() -> Element {
                         div {
                             key: "tab-{tab_id}",
                             class: "{tab_class}",
-                            oncontextmenu: move |evt: Event<MouseData>| {
-                                evt.prevent_default();
-                                tab_ctx.set(Some((tab_id, paper_id, idx, evt.client_coordinates().x, evt.client_coordinates().y)));
+                            oncontextmenu: {
+                                let pid = paper_id.clone();
+                                move |evt: Event<MouseData>| {
+                                    evt.prevent_default();
+                                    tab_ctx.set(Some((tab_id, pid.clone(), idx, evt.client_coordinates().x, evt.client_coordinates().y)));
+                                }
                             },
                             onclick: move |_| {
                                 if is_active { return; }
@@ -199,12 +202,15 @@ pub fn PdfTabBar() -> Element {
                                 ContextMenuItem {
                                     label: "Show in library".to_string(),
                                     icon: Some("bi-collection".to_string()),
-                                    on_click: move |_| {
-                                        lib_state.with_mut(|s| {
-                                            s.view = LibraryView::AllPapers;
-                                            s.selected_paper_id = ctx_paper_id;
-                                        });
-                                        tab_ctx.set(None);
+                                    on_click: {
+                                        let pid = ctx_paper_id.clone();
+                                        move |_| {
+                                            lib_state.with_mut(|s| {
+                                                s.view = LibraryView::AllPapers;
+                                                s.selected_paper_id = pid.clone();
+                                            });
+                                            tab_ctx.set(None);
+                                        }
                                     },
                                 }
                             }
@@ -272,10 +278,10 @@ pub fn PdfViewer() -> Element {
             .is_ok()
             {
                 // Load annotations if paper_id is set
-                let paper_id = tabs.read().active_tab().and_then(|t| t.paper_id);
-                if let Some(pid) = paper_id {
+                let paper_id = tabs.read().active_tab().and_then(|t| t.paper_id.clone());
+                if let Some(ref pid) = paper_id {
                     let mut anns =
-                        crate::db::annotations::list_annotations_for_paper(db.conn(), pid)
+                        rotero_db::annotations::list_annotations_for_paper(db.conn(), pid)
                             .await
                             .unwrap_or_default();
 
@@ -355,7 +361,7 @@ pub fn PdfViewer() -> Element {
 
                                 let ann = Annotation {
                                     id: None,
-                                    paper_id: pid,
+                                    paper_id: pid.clone(),
                                     page: ext.page as i32,
                                     ann_type: ext.ann_type,
                                     color: ext.color,
@@ -365,7 +371,7 @@ pub fn PdfViewer() -> Element {
                                     modified_at: now,
                                 };
                                 if let Ok(id) =
-                                    crate::db::annotations::insert_annotation(db.conn(), &ann).await
+                                    rotero_db::annotations::insert_annotation(db.conn(), &ann).await
                                 {
                                     let mut ann = ann;
                                     ann.id = Some(id);
@@ -602,7 +608,7 @@ fn PdfPageWithOverlay(
 
     let mgr = tabs.read();
     let tab = mgr.tab();
-    let paper_id = tab.paper_id.unwrap_or(0);
+    let paper_id = tab.paper_id.clone().unwrap_or_default();
     let page_annotations: Vec<Annotation> = tab
         .annotations
         .iter()
@@ -982,14 +988,14 @@ fn PdfPageWithOverlay(
                                 drag_start.set(None); drag_current.set(None);
                                 let now = chrono::Utc::now();
                                 let ann = Annotation {
-                                    id: None, paper_id, page: page_index as i32, ann_type,
+                                    id: None, paper_id: paper_id.clone(), page: page_index as i32, ann_type,
                                     color: color.clone(),
                                     content: if matches!(ann_type, AnnotationType::Note | AnnotationType::Text) { Some(String::new()) } else { None },
                                     geometry, created_at: now, modified_at: now,
                                 };
                                 let db = db.clone();
                                 spawn(async move {
-                                    if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), &ann).await {
+                                    if let Ok(id) = rotero_db::annotations::insert_annotation(db.conn(), &ann).await {
                                         let mut ann = ann;
                                         ann.id = Some(id);
                                         undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Create(ann.clone())));
@@ -1030,23 +1036,26 @@ fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> Element {
         .and_then(|v| v.as_f64())
         .unwrap_or(24.0);
     let color = ann.color.clone();
-    let ann_id = ann.id.unwrap_or(0);
+    let ann_id = ann.id.clone().unwrap_or_default();
     let ann_type = ann.ann_type;
     let page = ann.page;
     let content = ann.content.clone().unwrap_or_default();
     let color_for_ctx = color.clone();
 
-    let on_context = move |evt: Event<MouseData>| {
-        evt.prevent_default();
-        ann_ctx.set(Some((
-            ann_id,
-            ann_type,
-            page,
-            color_for_ctx.clone(),
-            content.clone(),
-            evt.client_coordinates().x,
-            evt.client_coordinates().y,
-        )));
+    let on_context = {
+        let ann_id = ann_id.clone();
+        move |evt: Event<MouseData>| {
+            evt.prevent_default();
+            ann_ctx.set(Some((
+                ann_id.clone(),
+                ann_type,
+                page,
+                color_for_ctx.clone(),
+                content.clone(),
+                evt.client_coordinates().x,
+                evt.client_coordinates().y,
+            )));
+        }
     };
 
     match ann.ann_type {
@@ -1409,7 +1418,7 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                 onclick: move |_| {
                                     let db = db_extract.clone();
                                     let anns = anns_for_extract.clone();
-                                    let paper_id = tabs.read().tab().paper_id;
+                                    let paper_id = tabs.read().tab().paper_id.clone();
                                     let paper_title = tabs.read().tab().title.clone();
                                     spawn(async move {
                                         if let Some(pid) = paper_id {
@@ -1441,7 +1450,7 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                             let title = format!("Annotations from {}", paper_title);
                                             let mut note = rotero_models::Note::new(pid, title);
                                             note.body = body;
-                                            let _ = crate::db::notes::insert_note(db.conn(), &note).await;
+                                            let _ = rotero_db::notes::insert_note(db.conn(), &note).await;
                                         }
                                     });
                                 },
@@ -1457,7 +1466,7 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                 div { class: "annotation-panel-list",
                     for ann in annotations.iter() {
                         {
-                            let ann_id = ann.id.unwrap_or(0);
+                            let ann_id = ann.id.clone().unwrap_or_default();
                             let page = ann.page;
                             let color = ann.color.clone();
                             let ann_type = ann.ann_type;
@@ -1476,6 +1485,9 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                             };
                             let ctx_color = color.clone();
                             let ctx_content = content.clone();
+                            let aid_ctx = ann_id.clone();
+                            let aid_del = ann_id.clone();
+                            let aid_save = ann_id.clone();
                             rsx! {
                                 div {
                                     key: "panel-ann-{ann_id}",
@@ -1483,7 +1495,7 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                     style: "border-left-color: {color};",
                                     oncontextmenu: move |evt: Event<MouseData>| {
                                         evt.prevent_default();
-                                        ann_ctx.set(Some((ann_id, ann_type, page, ctx_color.clone(), ctx_content.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
+                                        ann_ctx.set(Some((aid_ctx.clone(), ann_type, page, ctx_color.clone(), ctx_content.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
                                     },
                                     div { class: "annotation-item-header",
                                         div { class: "annotation-item-meta",
@@ -1495,13 +1507,16 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                             class: "btn--danger-sm",
                                             onclick: move |_| {
                                                 let db = db_for_delete.clone();
-                                                let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id == Some(ann_id)).cloned();
+                                                let aid = aid_del.clone();
+                                                let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id.as_deref() == Some(aid.as_str())).cloned();
+                                                let aid2 = aid.clone();
                                                 spawn(async move {
-                                                    if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), ann_id).await {
+                                                    if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &aid).await {
                                                         if let Some(ann) = deleted_ann {
                                                             undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Delete(ann)));
                                                         }
-                                                        tabs.with_mut(|m| m.tab_mut().annotations.retain(|a| a.id != Some(ann_id)));
+                                                        let aid3 = aid2.clone();
+                                                        tabs.with_mut(|m| m.tab_mut().annotations.retain(|a| a.id.as_deref() != Some(aid3.as_str())));
                                                     }
                                                 });
                                             },
@@ -1520,14 +1535,17 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                                             let old_content = content.clone();
                                                             let db = db_for_save.clone();
                                                             let nc = new_content.clone();
+                                                            let aid = aid_save.clone();
                                                             spawn(async move {
                                                                 let opt = if nc.is_empty() { None } else { Some(nc.as_str()) };
-                                                                if let Ok(()) = crate::db::annotations::update_annotation_content(db.conn(), ann_id, opt).await {
+                                                                if let Ok(()) = rotero_db::annotations::update_annotation_content(db.conn(), &aid, opt).await {
                                                                     let old = if old_content.is_empty() { None } else { Some(old_content) };
                                                                     let new = if new_content.is_empty() { None } else { Some(new_content.clone()) };
-                                                                    undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::UpdateContent { id: ann_id, old, new }));
+                                                                    let aid2 = aid.clone();
+                                                                    undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::UpdateContent { id: aid2, old, new }));
+                                                                    let aid3 = aid.clone();
                                                                     tabs.with_mut(|m| {
-                                                                        if let Some(a) = m.tab_mut().annotations.iter_mut().find(|a| a.id == Some(ann_id)) {
+                                                                        if let Some(a) = m.tab_mut().annotations.iter_mut().find(|a| a.id.as_deref() == Some(aid3.as_str())) {
                                                                             a.content = if new_content.is_empty() { None } else { Some(new_content.clone()) };
                                                                         }
                                                                     });
@@ -1570,11 +1588,13 @@ fn AnnotationContextMenu() -> Element {
     let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
     let mut ann_ctx = use_context::<AnnCtxState>();
 
-    let Some((ctx_ann_id, ctx_type, ctx_page, ctx_old_color, ctx_content, mx, my)) = ann_ctx()
+    let Some((ctx_ann_id_orig, ctx_type, ctx_page, ctx_old_color, ctx_content, mx, my)) = ann_ctx()
     else {
         return rsx! {};
     };
 
+    let ctx_ann_id = ctx_ann_id_orig;
+    let ctx_ann_id_del = ctx_ann_id.clone();
     let db_color = db.clone();
     let db_delete = db.clone();
     let colors = [
@@ -1644,6 +1664,7 @@ fn AnnotationContextMenu() -> Element {
                             let color_for_click = color.clone();
                             let db_swatch = db_color.clone();
                             let old_color_for_swatch = ctx_old_color.clone();
+                            let aid_swatch = ctx_ann_id.clone();
                             rsx! {
                                 span {
                                     class: "context-menu-color-swatch",
@@ -1653,11 +1674,14 @@ fn AnnotationContextMenu() -> Element {
                                         let c = color_for_click.clone();
                                         let old_c = old_color_for_swatch.clone();
                                         let db = db_swatch.clone();
+                                        let aid = aid_swatch.clone();
                                         spawn(async move {
-                                            if let Ok(()) = crate::db::annotations::update_annotation_color(db.conn(), ctx_ann_id, &c).await {
-                                                undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::UpdateColor { id: ctx_ann_id, old: old_c, new: c.clone() }));
+                                            if let Ok(()) = rotero_db::annotations::update_annotation_color(db.conn(), &aid, &c).await {
+                                                let aid2 = aid.clone();
+                                                undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::UpdateColor { id: aid2, old: old_c, new: c.clone() }));
+                                                let aid3 = aid.clone();
                                                 tabs.with_mut(|m| {
-                                                    if let Some(a) = m.tab_mut().annotations.iter_mut().find(|a| a.id == Some(ctx_ann_id)) {
+                                                    if let Some(a) = m.tab_mut().annotations.iter_mut().find(|a| a.id.as_deref() == Some(aid3.as_str())) {
                                                         a.color = c;
                                                     }
                                                 });
@@ -1678,18 +1702,24 @@ fn AnnotationContextMenu() -> Element {
                 label: "Delete".to_string(),
                 icon: Some("bi-trash".to_string()),
                 danger: Some(true),
-                on_click: move |_| {
-                    let db = db_delete.clone();
-                    let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id == Some(ctx_ann_id)).cloned();
-                    spawn(async move {
-                        if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), ctx_ann_id).await {
-                            if let Some(ann) = deleted_ann {
-                                undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Delete(ann)));
+                on_click: {
+                    let aid = ctx_ann_id_del.clone();
+                    move |_| {
+                        let db = db_delete.clone();
+                        let aid = aid.clone();
+                        let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id.as_deref() == Some(aid.as_str())).cloned();
+                        let aid2 = aid.clone();
+                        spawn(async move {
+                            if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &aid).await {
+                                if let Some(ann) = deleted_ann {
+                                    undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Delete(ann)));
+                                }
+                                let aid3 = aid2.clone();
+                                tabs.with_mut(|m| m.tab_mut().annotations.retain(|a| a.id.as_deref() != Some(aid3.as_str())));
                             }
-                            tabs.with_mut(|m| m.tab_mut().annotations.retain(|a| a.id != Some(ctx_ann_id)));
-                        }
-                    });
-                    ann_ctx.set(None);
+                        });
+                        ann_ctx.set(None);
+                    }
                 },
             }
         }

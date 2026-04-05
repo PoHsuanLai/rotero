@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 use futures_util::StreamExt;
 
-use crate::db::Database;
+use rotero_db::Database;
 use crate::state::app_state::{LibraryState, SearchSource};
 use rotero_search::parser::metadata_to_paper;
 
@@ -142,7 +142,7 @@ pub fn SearchBar() -> Element {
                         }
                         let db = db.clone();
                         spawn(async move {
-                            match crate::db::papers::search_papers(db.conn(), &q).await {
+                            match rotero_db::papers::search_papers(db.conn(), &q).await {
                                 Ok(results) => {
                                     lib_state.with_mut(|s| s.search_results = Some(results));
                                 }
@@ -169,8 +169,8 @@ pub fn SearchBar() -> Element {
                             let db = db_save.clone();
                             spawn(async move {
                                 let search = rotero_models::SavedSearch::new(q.clone(), q);
-                                let _ = crate::db::saved_searches::insert_saved_search(db.conn(), &search).await;
-                                if let Ok(searches) = crate::db::saved_searches::list_saved_searches(db.conn()).await {
+                                let _ = rotero_db::saved_searches::insert_saved_search(db.conn(), &search).await;
+                                if let Ok(searches) = rotero_db::saved_searches::list_saved_searches(db.conn()).await {
                                     lib_state.with_mut(|s| s.saved_searches = searches);
                                 }
                             });

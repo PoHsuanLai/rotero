@@ -5,8 +5,8 @@
 pub const PAPER_SELECT_COLS: &str = "id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key";
 
 pub const PAPER_INSERT: &str = "\
-    INSERT INTO papers (title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key) \
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)";
+    INSERT INTO papers (id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key) \
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)";
 
 pub const PAPER_COUNT: &str = "SELECT COUNT(*) FROM papers";
 
@@ -63,7 +63,7 @@ pub const PAPER_LIST_CITATION_KEYS: &str = "SELECT citation_key FROM papers WHER
 // Collections
 // ---------------------------------------------------------------------------
 
-pub const COLLECTION_INSERT: &str = "INSERT INTO collections (name, parent_id, position) VALUES (?1, ?2, ?3)";
+pub const COLLECTION_INSERT: &str = "INSERT INTO collections (id, name, parent_id, position) VALUES (?1, ?2, ?3, ?4)";
 
 pub const COLLECTION_LIST: &str = "\
     SELECT id, name, parent_id, position FROM collections ORDER BY parent_id NULLS FIRST, position";
@@ -81,7 +81,7 @@ pub const COLLECTION_REMOVE_PAPER: &str = "DELETE FROM paper_collections WHERE p
 // ---------------------------------------------------------------------------
 
 pub const TAG_FIND_BY_NAME: &str = "SELECT id FROM tags WHERE name = ?1";
-pub const TAG_INSERT: &str = "INSERT INTO tags (name, color) VALUES (?1, ?2)";
+pub const TAG_INSERT: &str = "INSERT INTO tags (id, name, color) VALUES (?1, ?2, ?3)";
 pub const TAG_LIST: &str = "SELECT id, name, color FROM tags ORDER BY name";
 pub const TAG_ADD_TO_PAPER: &str = "INSERT OR IGNORE INTO paper_tags (paper_id, tag_id) VALUES (?1, ?2)";
 pub const TAG_RENAME: &str = "UPDATE tags SET name = ?1 WHERE id = ?2";
@@ -95,8 +95,8 @@ pub const TAG_DELETE: &str = "DELETE FROM tags WHERE id = ?1";
 // ---------------------------------------------------------------------------
 
 pub const ANNOTATION_INSERT: &str = "\
-    INSERT INTO annotations (paper_id, page, ann_type, color, content, geometry, created_at, modified_at) \
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
+    INSERT INTO annotations (id, paper_id, page, ann_type, color, content, geometry, created_at, modified_at) \
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
 
 pub const ANNOTATION_LIST_FOR_PAPER: &str = "\
     SELECT id, paper_id, page, ann_type, color, content, geometry, created_at, modified_at \
@@ -111,8 +111,8 @@ pub const ANNOTATION_DELETE: &str = "DELETE FROM annotations WHERE id = ?1";
 // ---------------------------------------------------------------------------
 
 pub const NOTE_INSERT: &str = "\
-    INSERT INTO notes (paper_id, title, body, created_at, modified_at) \
-    VALUES (?1, ?2, ?3, ?4, ?5)";
+    INSERT INTO notes (id, paper_id, title, body, created_at, modified_at) \
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
 
 pub const NOTE_LIST_FOR_PAPER: &str = "\
     SELECT id, paper_id, title, body, created_at, modified_at \
@@ -125,7 +125,7 @@ pub const NOTE_DELETE: &str = "DELETE FROM notes WHERE id = ?1";
 // Saved Searches
 // ---------------------------------------------------------------------------
 
-pub const SAVED_SEARCH_INSERT: &str = "INSERT INTO saved_searches (name, query, created_at) VALUES (?1, ?2, ?3)";
+pub const SAVED_SEARCH_INSERT: &str = "INSERT INTO saved_searches (id, name, query, created_at) VALUES (?1, ?2, ?3, ?4)";
 
 pub const SAVED_SEARCH_LIST: &str = "\
     SELECT id, name, query, created_at FROM saved_searches ORDER BY created_at DESC";
@@ -144,4 +144,17 @@ pub const GRAPH_ALL_PAPER_COLLECTIONS: &str = "SELECT paper_id, collection_id FR
 // Common
 // ---------------------------------------------------------------------------
 
-pub const LAST_INSERT_ROWID: &str = "SELECT last_insert_rowid()";
+
+// ---------------------------------------------------------------------------
+// MCP / stats queries
+// ---------------------------------------------------------------------------
+
+pub const PAPER_GET_BY_ID: &str = "SELECT {COLS} FROM papers WHERE id = ?1";
+
+pub const PAPER_LIST_PAGINATED: &str = "\
+    SELECT {COLS} FROM papers ORDER BY date_added DESC LIMIT ?1 OFFSET ?2";
+
+pub const PAPER_COUNT_UNREAD: &str = "SELECT COUNT(*) FROM papers WHERE is_read = 0";
+pub const PAPER_COUNT_FAVORITES: &str = "SELECT COUNT(*) FROM papers WHERE is_favorite = 1";
+pub const COLLECTION_COUNT: &str = "SELECT COUNT(*) FROM collections";
+pub const TAG_COUNT: &str = "SELECT COUNT(*) FROM tags";

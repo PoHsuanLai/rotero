@@ -1,18 +1,22 @@
 pub mod annotations;
 pub mod collections;
+pub mod crr;
 pub mod graph;
 pub mod notes;
 pub mod papers;
-pub mod queries;
 pub mod saved_searches;
 pub mod schema;
+pub mod sync_test_helpers;
 pub mod tags;
+
+pub use rotero_models::queries;
+
+// Re-export turso types so the app crate doesn't need a direct turso dependency.
+pub use turso;
 
 use std::path::{Path, PathBuf};
 
 use turso::Connection;
-
-use crate::sync::engine::SyncConfig;
 
 #[derive(Clone)]
 pub struct Database {
@@ -27,10 +31,10 @@ impl PartialEq for Database {
 }
 
 impl Database {
-    pub async fn init() -> Result<Self, String> {
-        let config = SyncConfig::load();
-        let data_dir = config.effective_library_path();
-
+    /// Open (or create) the database at the given library directory.
+    /// The caller is responsible for determining the directory
+    /// (e.g. from SyncConfig::effective_library_path).
+    pub async fn open(data_dir: PathBuf) -> Result<Self, String> {
         std::fs::create_dir_all(&data_dir)
             .map_err(|e| format!("Failed to create data dir: {e}"))?;
 

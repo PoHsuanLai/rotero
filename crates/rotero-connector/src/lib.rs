@@ -10,7 +10,7 @@ use handlers::{CollectionInfo, TagInfo};
 use rotero_models::Paper;
 
 /// Callback type for when a paper is saved via the browser extension.
-type OnPaperSavedFn = dyn Fn(Paper, Option<i64>, Vec<i64>, Option<String>) + Send + Sync;
+type OnPaperSavedFn = dyn Fn(Paper, Option<String>, Vec<String>, Option<String>) + Send + Sync;
 
 /// Shared state for the connector server.
 pub struct ConnectorState {

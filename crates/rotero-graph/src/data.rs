@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// A node in the paper graph (one per paper).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphNode {
-    pub id: i64,
+    pub id: String,
     pub label: String,
     pub x: f64,
     pub y: f64,
@@ -26,8 +26,8 @@ pub enum EdgeType {
 /// An edge connecting two papers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphEdge {
-    pub source: i64,
-    pub target: i64,
+    pub source: String,
+    pub target: String,
     pub rel_type: EdgeType,
     pub label: String,
     pub weight: f32,

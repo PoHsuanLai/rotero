@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Note {
-    pub id: Option<i64>,
-    pub paper_id: i64,
+    pub id: Option<String>,
+    pub paper_id: String,
     pub title: String,
     pub body: String,
     pub created_at: DateTime<Utc>,
@@ -12,7 +12,7 @@ pub struct Note {
 }
 
 impl Note {
-    pub fn new(paper_id: i64, title: String) -> Self {
+    pub fn new(paper_id: String, title: String) -> Self {
         let now = Utc::now();
         Self {
             id: None,

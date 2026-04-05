@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use super::components::context_menu::{ContextMenu, ContextMenuItem};
-use crate::db::Database;
+use rotero_db::Database;
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
 use crate::sync::engine::SyncConfig;
 
@@ -20,7 +20,10 @@ pub fn PaperDetail() -> Element {
     };
     drop(state);
 
-    let paper_id = paper.id.unwrap_or(0);
+    let paper_id = paper.id.clone().unwrap_or_default();
+    let pid_oa = paper_id.clone();
+    let pid_del = paper_id.clone();
+    let pid_open = paper_id.clone();
     let authors_display = if paper.authors.is_empty() {
         "Unknown".to_string()
     } else {
@@ -97,15 +100,18 @@ pub fn PaperDetail() -> Element {
                                         oninput: move |evt| edit_key_value.set(evt.value()),
                                         onkeypress: {
                                             let db = db_key.clone();
+                                            let paper_id = paper_id.clone();
                                             move |evt: Event<KeyboardData>| {
                                                 if evt.key() == Key::Enter {
                                                     let new_key = edit_key_value().trim().to_string();
                                                     if !new_key.is_empty() {
                                                         let db = db.clone();
+                                                        let pid = paper_id.clone();
                                                         spawn(async move {
-                                                            let _ = crate::db::papers::update_citation_key(db.conn(), paper_id, &new_key).await;
+                                                            let _ = rotero_db::papers::update_citation_key(db.conn(), &pid, &new_key).await;
+                                                            let pid2 = pid.clone();
                                                             lib_state.with_mut(|s| {
-                                                                if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(paper_id)) {
+                                                                if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
                                                                     p.citation_key = Some(new_key);
                                                                 }
                                                             });
@@ -117,14 +123,18 @@ pub fn PaperDetail() -> Element {
                                                 }
                                             }
                                         },
-                                        onfocusout: move |_| {
+                                        onfocusout: {
+                                            let paper_id = paper_id.clone();
+                                            move |_| {
                                             let new_key = edit_key_value().trim().to_string();
                                             if !new_key.is_empty() {
                                                 let db = db_key2.clone();
+                                                let pid = paper_id.clone();
                                                 spawn(async move {
-                                                    let _ = crate::db::papers::update_citation_key(db.conn(), paper_id, &new_key).await;
+                                                    let _ = rotero_db::papers::update_citation_key(db.conn(), &pid, &new_key).await;
+                                                    let pid2 = pid.clone();
                                                     lib_state.with_mut(|s| {
-                                                        if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(paper_id)) {
+                                                        if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
                                                             p.citation_key = Some(new_key);
                                                         }
                                                     });
@@ -133,7 +143,7 @@ pub fn PaperDetail() -> Element {
                                             } else {
                                                 editing_key.set(false);
                                             }
-                                        },
+                                        }},
                                     }
                                 }
                             } else {
@@ -211,13 +221,13 @@ pub fn PaperDetail() -> Element {
             // Add to collection
             div { class: "detail-field",
                 label { class: "detail-label", "Collection" }
-                AddToCollectionSelect { paper_id }
+                AddToCollectionSelect { paper_id: paper_id.clone() }
             }
 
             // Tags
             div { class: "detail-field",
                 label { class: "detail-label", "Tags" }
-                TagEditor { paper_id }
+                TagEditor { paper_id: paper_id.clone() }
             }
 
             // Citation button
@@ -226,7 +236,7 @@ pub fn PaperDetail() -> Element {
             }
 
             // Notes section
-            NotesSection { paper_id }
+            NotesSection { paper_id: paper_id.clone() }
 
             // Open / Delete buttons
             div { class: "detail-delete-section",
@@ -244,7 +254,7 @@ pub fn PaperDetail() -> Element {
                                             let full_path = db_open.resolve_pdf_path(rel_path);
                                             let path_str = full_path.to_string_lossy().to_string();
                                             let cfg = config.read();
-                                            tabs.with_mut(|m| m.open_or_switch(paper_id, path_str, title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
+                                            tabs.with_mut(|m| m.open_or_switch(pid_open.clone(), path_str, title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
                                             lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                         }
                                     },
@@ -272,6 +282,7 @@ pub fn PaperDetail() -> Element {
                                         let title = paper_title.clone();
                                         let authors = paper_authors.clone();
                                         let year = paper_year;
+                                        let paper_id = pid_oa.clone();
                                         oa_status.set(Some("Searching...".to_string()));
                                         spawn(async move {
                                             match crate::metadata::unpaywall::fetch_oa_url(&doi).await {
@@ -286,9 +297,11 @@ pub fn PaperDetail() -> Element {
                                                                     let first_author = authors.first().map(|a| a.as_str());
                                                                     match db.import_pdf_bytes(&bytes, &title, first_author, year) {
                                                                         Ok(rel_path) => {
-                                                                            let _ = crate::db::papers::update_pdf_path(db.conn(), paper_id, &rel_path).await;
+                                                                            let pid = paper_id.clone();
+                                                                            let _ = rotero_db::papers::update_pdf_path(db.conn(), &pid, &rel_path).await;
+                                                                            let pid2 = pid.clone();
                                                                             lib_state.with_mut(|s| {
-                                                                                if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(paper_id)) {
+                                                                                if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
                                                                                     p.pdf_path = Some(rel_path);
                                                                                 }
                                                                             });
@@ -322,12 +335,15 @@ pub fn PaperDetail() -> Element {
                         class: "btn btn--danger",
                         onclick: {
                             let db_del = db.clone();
+                            let pid = pid_del.clone();
                             move |_| {
                                 let db = db_del.clone();
+                                let pid = pid.clone();
                                 spawn(async move {
-                                    if let Ok(()) = crate::db::papers::delete_paper(db.conn(), paper_id).await {
+                                    if let Ok(()) = rotero_db::papers::delete_paper(db.conn(), &pid).await {
+                                        let pid2 = pid.clone();
                                         lib_state.with_mut(|s| {
-                                            s.papers.retain(|p| p.id != Some(paper_id));
+                                            s.papers.retain(|p| p.id.as_deref() != Some(pid2.as_str()));
                                             s.selected_paper_id = None;
                                         });
                                     }
@@ -381,7 +397,7 @@ pub fn PaperDetail() -> Element {
 }
 
 #[component]
-fn AddToCollectionSelect(paper_id: i64) -> Element {
+fn AddToCollectionSelect(paper_id: String) -> Element {
     let lib_state = use_context::<Signal<crate::state::app_state::LibraryState>>();
     let db = use_context::<Database>();
     let collections = lib_state.read().collections.clone();
@@ -389,20 +405,22 @@ fn AddToCollectionSelect(paper_id: i64) -> Element {
     rsx! {
         select {
             class: "select",
-            onchange: move |evt| {
-                let val = evt.value();
-                if val.is_empty() { return; }
-                if let Ok(coll_id) = val.parse::<i64>() {
+            onchange: {
+                let paper_id = paper_id.clone();
+                move |evt| {
+                    let coll_id = evt.value();
+                    if coll_id.is_empty() { return; }
                     let db = db.clone();
+                    let pid = paper_id.clone();
                     spawn(async move {
-                        let _ = crate::db::collections::add_paper_to_collection(db.conn(), paper_id, coll_id).await;
+                        let _ = rotero_db::collections::add_paper_to_collection(db.conn(), &pid, &coll_id).await;
                     });
                 }
             },
             option { value: "", "Add to collection..." }
             for coll in collections.iter() {
                 {
-                    let cid = coll.id.unwrap_or(0);
+                    let cid = coll.id.clone().unwrap_or_default();
                     let cname = coll.name.clone();
                     rsx! { option { value: "{cid}", "{cname}" } }
                 }
@@ -412,7 +430,7 @@ fn AddToCollectionSelect(paper_id: i64) -> Element {
 }
 
 #[component]
-fn TagEditor(paper_id: i64) -> Element {
+fn TagEditor(paper_id: String) -> Element {
     let mut lib_state = use_context::<Signal<crate::state::app_state::LibraryState>>();
     let db = use_context::<Database>();
     let mut new_tag = use_signal(String::new);
@@ -426,41 +444,46 @@ fn TagEditor(paper_id: i64) -> Element {
                 placeholder: "Add tag...",
                 value: "{new_tag}",
                 oninput: move |evt| new_tag.set(evt.value()),
-                onkeypress: move |evt| {
+                onkeypress: {
+                    let paper_id = paper_id.clone();
+                    move |evt| {
                     if evt.key() == Key::Enter {
                         let tag_name = new_tag().trim().to_string();
                         if tag_name.is_empty() { return; }
                         let db = db.clone();
+                        let pid = paper_id.clone();
                         spawn(async move {
-                            if let Ok(tag_id) = crate::db::tags::get_or_create_tag(db.conn(), &tag_name, None).await {
-                                let _ = crate::db::tags::add_tag_to_paper(db.conn(), paper_id, tag_id).await;
+                            if let Ok(tag_id) = rotero_db::tags::get_or_create_tag(db.conn(), &tag_name, None).await {
+                                let _ = rotero_db::tags::add_tag_to_paper(db.conn(), &pid, &tag_id).await;
                                 // Reload tags
-                                if let Ok(tags) = crate::db::tags::list_tags(db.conn()).await {
+                                if let Ok(tags) = rotero_db::tags::list_tags(db.conn()).await {
                                     lib_state.with_mut(|s| s.tags = tags);
                                 }
                             }
                             new_tag.set(String::new());
                         });
                     }
-                },
+                }},
             }
         }
     }
 }
 
 #[component]
-fn NotesSection(paper_id: i64) -> Element {
+fn NotesSection(paper_id: String) -> Element {
     let db = use_context::<Database>();
     let mut notes = use_signal(Vec::new);
 
     // Load notes for this paper
     {
         let db = db.clone();
+        let pid = paper_id.clone();
         use_effect(move || {
             let db = db.clone();
+            let pid = pid.clone();
             spawn(async move {
                 if let Ok(paper_notes) =
-                    crate::db::notes::list_notes_for_paper(db.conn(), paper_id).await
+                    rotero_db::notes::list_notes_for_paper(db.conn(), &pid).await
                 {
                     notes.set(paper_notes);
                 }
@@ -478,7 +501,7 @@ fn NotesSection(paper_id: i64) -> Element {
             label { class: "detail-label", "Notes ({note_list.len()})" }
             for note in note_list.iter() {
                 {
-                    let note_id = note.id.unwrap_or(0);
+                    let note_id = note.id.clone().unwrap_or_default();
                     let title = note.title.clone();
                     let body_preview = if note.body.len() > 120 {
                         format!("{}...", &note.body[..117])
@@ -486,6 +509,7 @@ fn NotesSection(paper_id: i64) -> Element {
                         note.body.clone()
                     };
                     let db_del = db.clone();
+                    let pid = paper_id.clone();
                     rsx! {
                         div { key: "note-{note_id}", class: "detail-note-card",
                             div { class: "detail-note-title", "{title}" }
@@ -494,9 +518,11 @@ fn NotesSection(paper_id: i64) -> Element {
                                 class: "btn--danger-sm",
                                 onclick: move |_| {
                                     let db = db_del.clone();
+                                    let nid = note_id.clone();
+                                    let pid = pid.clone();
                                     spawn(async move {
-                                        let _ = crate::db::notes::delete_note(db.conn(), note_id).await;
-                                        if let Ok(paper_notes) = crate::db::notes::list_notes_for_paper(db.conn(), paper_id).await {
+                                        let _ = rotero_db::notes::delete_note(db.conn(), &nid).await;
+                                        if let Ok(paper_notes) = rotero_db::notes::list_notes_for_paper(db.conn(), &pid).await {
                                             notes.set(paper_notes);
                                         }
                                     });

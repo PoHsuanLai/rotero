@@ -16,8 +16,8 @@ pub use edges::MergedEdge;
 pub fn build_and_simulate(
     papers: &[Paper],
     tags: &[Tag],
-    paper_tag_pairs: &[(i64, i64)],
-    paper_collection_pairs: &[(i64, i64)],
+    paper_tag_pairs: &[(String, String)],
+    paper_collection_pairs: &[(String, String)],
     filter: &GraphFilter,
     iterations: usize,
 ) -> GraphData {
@@ -25,43 +25,43 @@ pub fn build_and_simulate(
         edges::compute_edges(papers, tags, paper_tag_pairs, paper_collection_pairs, filter);
 
     // Build tag color lookup
-    let tag_colors: HashMap<i64, &str> = tags
+    let tag_colors: HashMap<&str, &str> = tags
         .iter()
-        .filter_map(|t| Some((t.id?, t.color.as_deref()?)))
+        .filter_map(|t| Some((t.id.as_deref()?, t.color.as_deref()?)))
         .collect();
 
     // Build paper -> first tag color lookup
-    let mut paper_tag_color: HashMap<i64, String> = HashMap::new();
-    for &(paper_id, tag_id) in paper_tag_pairs {
-        if !paper_tag_color.contains_key(&paper_id) {
-            if let Some(&color) = tag_colors.get(&tag_id) {
-                paper_tag_color.insert(paper_id, color.to_string());
+    let mut paper_tag_color: HashMap<&str, String> = HashMap::new();
+    for (paper_id, tag_id) in paper_tag_pairs {
+        if !paper_tag_color.contains_key(paper_id.as_str()) {
+            if let Some(&color) = tag_colors.get(tag_id.as_str()) {
+                paper_tag_color.insert(paper_id.as_str(), color.to_string());
             }
         }
     }
 
     // Build petgraph — use directed (default) since fdg expects Into<StableGraph<N, E>>
     // Direction doesn't affect force layout.
-    let mut id_to_idx: HashMap<i64, petgraph::graph::NodeIndex> = HashMap::new();
-    let mut source_graph: StableGraph<i64, f32> = StableGraph::new();
+    let mut id_to_idx: HashMap<&str, petgraph::graph::NodeIndex> = HashMap::new();
+    let mut source_graph: StableGraph<String, f32> = StableGraph::new();
 
     for paper in papers {
-        if let Some(pid) = paper.id {
-            let idx = source_graph.add_node(pid);
-            id_to_idx.insert(pid, idx);
+        if let Some(ref pid) = paper.id {
+            let idx = source_graph.add_node(pid.clone());
+            id_to_idx.insert(pid.as_str(), idx);
         }
     }
 
     for edge in &merged_edges {
         if let (Some(&src), Some(&tgt)) =
-            (id_to_idx.get(&edge.source), id_to_idx.get(&edge.target))
+            (id_to_idx.get(edge.source.as_str()), id_to_idx.get(edge.target.as_str()))
         {
             source_graph.add_edge(src, tgt, edge.weight);
         }
     }
 
     // Run force simulation
-    let mut graph = fdg::init_force_graph_uniform::<f32, 2, i64, f32>(source_graph, 50.0);
+    let mut graph = fdg::init_force_graph_uniform::<f32, 2, String, f32>(source_graph, 50.0);
 
     if iterations > 0 {
         FruchtermanReingold::default().apply_many(&mut graph, iterations);
@@ -72,18 +72,18 @@ pub fn build_and_simulate(
     let nodes: Vec<GraphNode> = papers
         .iter()
         .filter_map(|paper| {
-            let pid = paper.id?;
-            let idx = id_to_idx.get(&pid)?;
+            let pid = paper.id.as_deref()?;
+            let idx = id_to_idx.get(pid)?;
             let (_node_data, pos) = graph.node_weight(*idx)?;
             let color = paper_tag_color
-                .get(&pid)
+                .get(pid)
                 .cloned()
                 .unwrap_or_else(|| "#6b7280".to_string());
 
             let label = truncate_title(&paper.title, 30);
 
             Some(GraphNode {
-                id: pid,
+                id: pid.to_string(),
                 label,
                 x: pos[0] as f64,
                 y: pos[1] as f64,
