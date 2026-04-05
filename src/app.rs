@@ -177,11 +177,12 @@ fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
                 s.active_provider_id = provider_id;
             });
         }
-        ChatEvent::Connected { auth_methods, provider_id } => {
+        ChatEvent::Connected { auth_methods, provider_id, supports_list_sessions } => {
             chat_state.with_mut(|s| {
                 s.status = AgentStatus::Connecting;
                 s.auth_methods = auth_methods;
                 s.active_provider_id = provider_id;
+                s.supports_list_sessions = supports_list_sessions;
             });
         }
         ChatEvent::SessionCreated => {

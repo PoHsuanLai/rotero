@@ -127,6 +127,8 @@ pub struct ChatState {
     pub auth_methods: Vec<AgentAuthMethod>,
     /// The provider id that is actually connected right now.
     pub active_provider_id: String,
+    /// Whether the connected agent supports listing past sessions.
+    pub supports_list_sessions: bool,
 }
 
 /// Messages sent from UI -> agent thread.
@@ -151,6 +153,7 @@ pub enum ChatEvent {
     Connected {
         auth_methods: Vec<AgentAuthMethod>,
         provider_id: String,
+        supports_list_sessions: bool,
     },
     SessionCreated,
     UserMessage(String),

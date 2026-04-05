@@ -517,9 +517,13 @@ fn connect_and_run(
     tracing::info!("ACP: initialized {}", provider.name);
 
     let auth_methods = extract_auth_methods(&init_result);
+    let supports_list = init_result
+        .pointer("/agentCapabilities/sessionCapabilities/list")
+        .is_some();
     let _ = evt_tx.send(ChatEvent::Connected {
         auth_methods,
         provider_id: provider.id.to_string(),
+        supports_list_sessions: supports_list,
     });
 
     // Create session with MCP

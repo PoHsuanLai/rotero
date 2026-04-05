@@ -181,14 +181,16 @@ pub fn ChatPanel() -> Element {
                         },
                         i { class: "bi bi-plus-lg" }
                     }
-                    // Past sessions button
-                    button {
-                        class: "chat-header-btn",
-                        title: "Past chats",
-                        onclick: move |_| {
-                            agent_channel.send(ChatRequest::ListSessions);
-                        },
-                        i { class: "bi bi-clock" }
+                    // Past sessions button (only if agent supports it)
+                    if chat_state.read().supports_list_sessions {
+                        button {
+                            class: "chat-header-btn",
+                            title: "Past chats",
+                            onclick: move |_| {
+                                agent_channel.send(ChatRequest::ListSessions);
+                            },
+                            i { class: "bi bi-clock" }
+                        }
                     }
                     // Close button
                     button {
