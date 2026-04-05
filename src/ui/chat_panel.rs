@@ -119,6 +119,17 @@ pub fn ChatPanel() -> Element {
 
     let status = chat_state.read().status.clone();
     let messages = chat_state.read().messages.clone();
+    let msg_count = messages.len();
+
+    // Auto-scroll to bottom when messages change
+    use_effect(move || {
+        let _ = msg_count; // track changes
+        spawn(async {
+            let _ = dioxus::document::eval(
+                "setTimeout(() => { let el = document.querySelector('.chat-messages'); if (el) el.scrollTop = el.scrollHeight; }, 10)"
+            );
+        });
+    });
     let paper_title = get_context_paper_title(&lib_state.read(), &tab_mgr.read());
     let has_context = paper_title.is_some();
     let paper_title_display = paper_title.unwrap_or_default();
