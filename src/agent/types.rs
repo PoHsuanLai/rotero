@@ -113,6 +113,8 @@ pub struct AgentAuthMethod {
     pub description: Option<String>,
     pub terminal_command: Option<String>,
     pub terminal_args: Vec<String>,
+    /// True if this is an API key method (needs env var, not browser).
+    pub is_api_key: bool,
 }
 
 #[derive(Debug, Clone, Default)]

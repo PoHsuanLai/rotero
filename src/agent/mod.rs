@@ -794,8 +794,13 @@ fn connect_and_run(
                                             }
                                             let _ = evt_tx.send(ChatEvent::SessionCreated);
                                         }
+                                        Err(e) if is_auth_error(&e) => {
+                                            let _ = evt_tx.send(ChatEvent::AuthRequired {
+                                                provider_name: provider.name.to_string(),
+                                            });
+                                        }
                                         Err(e) => {
-                                            let _ = evt_tx.send(ChatEvent::Error(format!("Session creation failed after auth: {e}")));
+                                            let _ = evt_tx.send(ChatEvent::Error(format!("Session failed: {e}")));
                                         }
                                     }
                                 }
@@ -1050,6 +1055,10 @@ fn extract_auth_methods(init_result: &serde_json::Value) -> Vec<AgentAuthMethod>
                             .map(String::from),
                         terminal_command,
                         terminal_args,
+                        is_api_key: m
+                            .get("_meta")
+                            .and_then(|meta| meta.get("api-key"))
+                            .is_some(),
                     }
                 })
                 .collect()

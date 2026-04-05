@@ -19,6 +19,7 @@ pub fn AgentSection() -> Element {
     let auth_methods = chat_state.read().auth_methods.clone();
 
     let has_unsaved = *pending_provider.read() != saved_provider;
+    let has_sign_in_methods = auth_methods.iter().any(|m| !m.is_api_key);
     let mut selected_method = use_signal(|| 0usize);
 
     rsx! {
@@ -92,7 +93,8 @@ pub fn AgentSection() -> Element {
             }
 
             // Auth methods — shown when clicking the connected provider's card
-            if !auth_methods.is_empty() && *pending_provider.read() == connected_provider {
+            // Filter out API key methods (they need env vars, not sign-in)
+            if has_sign_in_methods && *pending_provider.read() == connected_provider {
                 div { class: "settings-field",
                     span { class: "settings-field-label", "Account" }
                     div { class: "settings-field-control agent-auth-row",
@@ -103,7 +105,7 @@ pub fn AgentSection() -> Element {
                                     selected_method.set(idx);
                                 }
                             },
-                            for (idx, method) in auth_methods.iter().enumerate() {
+                            for (idx, method) in auth_methods.iter().filter(|m| !m.is_api_key).enumerate() {
                                 option {
                                     value: "{idx}",
                                     "{method.name}"
@@ -114,7 +116,10 @@ pub fn AgentSection() -> Element {
                             class: if agent_connected { "btn btn--secondary" } else { "btn btn--primary" },
                             onclick: move |_| {
                                 let idx = *selected_method.read();
-                                if let Some(method) = auth_methods.get(idx) {
+                                let methods: Vec<_> = auth_methods.iter()
+                                    .filter(|m| !m.is_api_key)
+                                    .collect();
+                                if let Some(method) = methods.get(idx) {
                                     if let Some(command) = &method.terminal_command {
                                         let _ = std::process::Command::new(command)
                                             .args(&method.terminal_args)
