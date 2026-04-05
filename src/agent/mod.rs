@@ -368,7 +368,7 @@ fn connect_and_run(
     let mcp_servers = build_mcp_servers_json();
 
     let session_params = serde_json::json!({
-        "cwd": std::env::current_dir().unwrap_or_default().to_string_lossy(),
+        "cwd": home_dir_or_cwd().to_string_lossy(),
         "mcpServers": mcp_servers,
     });
 
@@ -381,7 +381,7 @@ fn connect_and_run(
         }
     };
 
-    let session_id = session_result
+    let mut session_id = session_result
         .get("sessionId")
         .and_then(|v| v.as_str())
         .unwrap_or("")
@@ -529,13 +529,20 @@ fn connect_and_run(
             Ok(ChatRequest::LoadSession {
                 session_id: load_id,
             }) => {
+                let _ = evt_tx.send(ChatEvent::Switching {
+                    provider_id: provider.id.to_string(),
+                });
                 let params = serde_json::json!({
                     "sessionId": load_id,
-                    "cwd": std::env::current_dir().unwrap_or_default().to_string_lossy(),
+                    "cwd": home_dir_or_cwd().to_string_lossy(),
                     "mcpServers": build_mcp_servers_json(),
                 });
                 match conn.send_request("session/load", params) {
-                    Ok(_) => {
+                    Ok(result) => {
+                        // Update session_id to the loaded one
+                        if let Some(sid) = result.get("sessionId").and_then(|v| v.as_str()) {
+                            session_id = sid.to_string();
+                        }
                         let _ = evt_tx.send(ChatEvent::SessionCreated);
                     }
                     Err(e) => {
@@ -573,6 +580,13 @@ fn connect_and_run(
 
     conn.kill();
     result
+}
+
+/// Get the user's home directory, falling back to cwd.
+fn home_dir_or_cwd() -> PathBuf {
+    directories::BaseDirs::new()
+        .map(|d| d.home_dir().to_path_buf())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
 }
 
 /// Build the JSON array of MCP servers to attach to any session.

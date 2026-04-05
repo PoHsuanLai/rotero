@@ -235,6 +235,7 @@ pub fn ChatPanel() -> Element {
                                                 chat_state.with_mut(|s| {
                                                     s.messages.clear();
                                                     s.show_session_browser = false;
+                                                    s.status = AgentStatus::Connecting;
                                                 });
                                             },
                                             div { class: "chat-session-item-title", "{title}" }
