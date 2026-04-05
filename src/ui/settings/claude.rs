@@ -97,13 +97,13 @@ pub fn AgentSection() -> Element {
                 }
             }
 
-            // Auth methods — only shown when the selected card matches the connected provider
+            // Auth methods — shown when selected card is the connected provider
             if !auth_methods.is_empty() && *pending_provider.read() == connected_provider {
                 {
                     let mut selected_method = use_signal(|| 0usize);
                     rsx! {
                         div { class: "settings-field",
-                            span { class: "settings-field-label", "Sign in" }
+                            span { class: "settings-field-label", "Account" }
                             div { class: "settings-field-control agent-auth-row",
                                 select {
                                     class: "select",
@@ -120,24 +120,22 @@ pub fn AgentSection() -> Element {
                                     }
                                 }
                                 button {
-                                    class: "btn btn--primary",
+                                    class: if agent_connected { "btn btn--secondary" } else { "btn btn--primary" },
                                     onclick: move |_| {
                                         let idx = *selected_method.read();
                                         if let Some(method) = auth_methods.get(idx) {
                                             if let Some(command) = &method.terminal_command {
-                                                // Terminal-auth: spawn the command directly
                                                 let _ = std::process::Command::new(command)
                                                     .args(&method.terminal_args)
                                                     .spawn();
                                             } else {
-                                                // Agent-handled auth: send authenticate RPC
                                                 agent_channel.send(ChatRequest::Authenticate {
                                                     method_id: method.id.clone(),
                                                 });
                                             }
                                         }
                                     },
-                                    "Sign in"
+                                    if agent_connected { "Switch" } else { "Sign in" }
                                 }
                             }
                         }
