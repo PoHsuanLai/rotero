@@ -560,6 +560,7 @@ fn connect_and_run(
     }
 
     // Main message loop
+    let mut pending_auth_id: Option<u64> = None;
     let result = loop {
         // Check for UI requests
         match req_rx.try_recv() {
@@ -731,14 +732,25 @@ fn connect_and_run(
                 break LoopResult::SwitchAgent(provider_id);
             }
             Ok(ChatRequest::Authenticate { method_id }) => {
-                let params = serde_json::json!({ "methodId": method_id });
-                match conn.send_request("authenticate", params, Some(evt_tx)) {
-                    Ok(_) => {
-                        tracing::info!("ACP: authenticated with method {method_id}");
-                    }
-                    Err(e) => {
-                        let _ = evt_tx.send(ChatEvent::Error(format!("Auth failed: {e}")));
-                    }
+                // Send authenticate request non-blocking — the response
+                // may take a long time (browser OAuth flow). We send the
+                // request and handle the response in the idle loop.
+                let auth_id = conn.next_id;
+                conn.next_id += 1;
+                let msg = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": auth_id,
+                    "method": "authenticate",
+                    "params": { "methodId": method_id },
+                });
+                if let Err(e) = conn.write_message(&msg) {
+                    let _ = evt_tx.send(ChatEvent::Error(format!("Auth send failed: {e}")));
+                } else {
+                    let _ = evt_tx.send(ChatEvent::Switching {
+                        provider_id: provider.id.to_string(),
+                    });
+                    // Track that we're waiting for an auth response
+                    pending_auth_id = Some(auth_id);
                 }
             }
             Ok(ChatRequest::Shutdown) => {
@@ -748,9 +760,39 @@ fn connect_and_run(
                 break LoopResult::Shutdown;
             }
             Err(mpsc::TryRecvError::Empty) => {
-                // Drain any async notifications
+                // Drain any async notifications / pending auth responses
                 while let Some(line) = conn.try_read_line() {
                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) {
+                        // Check if this is a pending auth response
+                        if let Some(auth_id) = pending_auth_id {
+                            if v.get("id").and_then(|i| i.as_u64()) == Some(auth_id) {
+                                pending_auth_id = None;
+                                if v.get("error").is_some() {
+                                    let _ = evt_tx.send(ChatEvent::Error(format!(
+                                        "Auth failed: {}",
+                                        v["error"]
+                                    )));
+                                } else {
+                                    tracing::info!("ACP: auth completed");
+                                    let _ = evt_tx.send(ChatEvent::SessionCreated);
+                                }
+                                continue;
+                            }
+                        }
+                        // Handle requestPermission during auth
+                        if v.get("method").and_then(|m| m.as_str())
+                            == Some("session/requestPermission")
+                        {
+                            if let Some(req_id) = v.get("id") {
+                                let response = serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": req_id,
+                                    "result": { "outcome": { "type": "selected", "optionId": "allow" } }
+                                });
+                                let _ = conn.write_message(&response);
+                            }
+                            continue;
+                        }
                         handle_notification(evt_tx, &v);
                     }
                 }
