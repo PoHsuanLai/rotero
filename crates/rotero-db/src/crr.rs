@@ -531,15 +531,16 @@ pub async fn apply_changes(
             result.applied += 1;
         } else {
             // Column-level change — LWW merge
-            let local_ver =
-                get_col_ver(conn, &clock_table, &change.pk, &change.col_name).await;
+            let (local_ver, local_clock_site) =
+                get_clock_entry(conn, &clock_table, &change.pk, &change.col_name).await;
 
             let wins = if change.col_ver > local_ver {
                 true
             } else if change.col_ver < local_ver {
                 false
             } else {
-                // Tie-break: compare values, then site_id
+                // Tie-break: compare values, then site_id of the clock entry
+                // (not the local device's site_id — the clock tracks who wrote last)
                 let local_val = read_column_value(
                     conn,
                     &change.table_name,
@@ -551,7 +552,9 @@ pub async fn apply_changes(
                 if val_cmp != std::cmp::Ordering::Equal {
                     val_cmp == std::cmp::Ordering::Greater
                 } else {
-                    change.site_id > local_site
+                    // Same value, same version — compare site_ids for final tie-break
+                    // If same site_id wrote this, it's a duplicate — skip
+                    change.site_id != local_clock_site && change.site_id > local_clock_site
                 }
             };
 
@@ -602,6 +605,48 @@ pub async fn apply_changes(
 }
 
 // ── Internal helpers ────────────────────────────────────────────
+
+/// Get (col_ver, site_id) for a specific (pk, col_name) in a clock table.
+/// Returns (0, empty) if not found.
+async fn get_clock_entry(
+    conn: &Connection,
+    clock_table: &str,
+    pk: &str,
+    col_name: &str,
+) -> (i64, Vec<u8>) {
+    let sql = format!(
+        "SELECT col_ver, site_id FROM {clock_table} WHERE pk = ?1 AND col_name = ?2"
+    );
+    let result = conn
+        .query(
+            &sql,
+            turso::params::Params::Positional(vec![
+                Value::Text(pk.to_string()),
+                Value::Text(col_name.to_string()),
+            ]),
+        )
+        .await;
+    match result {
+        Ok(mut rows) => {
+            if let Ok(Some(row)) = rows.next().await {
+                let ver = row
+                    .get_value(0)
+                    .ok()
+                    .and_then(|v| v.as_integer().copied())
+                    .unwrap_or(0);
+                let site = row
+                    .get_value(1)
+                    .ok()
+                    .and_then(|v| v.as_blob().cloned())
+                    .unwrap_or_default();
+                (ver, site)
+            } else {
+                (0, Vec::new())
+            }
+        }
+        Err(_) => (0, Vec::new()),
+    }
+}
 
 /// Get the col_ver for a specific (pk, col_name) in a clock table. Returns 0 if not found.
 async fn get_col_ver(conn: &Connection, clock_table: &str, pk: &str, col_name: &str) -> i64 {
