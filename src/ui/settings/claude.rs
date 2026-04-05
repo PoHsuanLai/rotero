@@ -91,8 +91,8 @@ pub fn AgentSection() -> Element {
                 }
             }
 
-            // Auth methods — shown when selected card is the connected provider
-            if !auth_methods.is_empty() && *pending_provider.read() == connected_provider {
+            // Auth methods — shown when the saved provider is the connected one
+            if !auth_methods.is_empty() && config.read().agent_provider == connected_provider {
                 div { class: "settings-field",
                     span { class: "settings-field-label", "Account" }
                     div { class: "settings-field-control agent-auth-row",
