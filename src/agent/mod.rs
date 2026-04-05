@@ -352,26 +352,7 @@ fn connect_and_run(
     });
 
     // Create session with MCP
-    let mcp_binary = find_mcp_binary();
-    let pdfium_path = find_pdfium_path();
-
-    let mut mcp_servers = serde_json::json!([]);
-    if let Some(mcp_bin) = &mcp_binary {
-        let mut env = serde_json::Map::new();
-        if let Some(pdfium) = &pdfium_path {
-            env.insert(
-                "PDFIUM_DYNAMIC_LIB_PATH".into(),
-                serde_json::Value::String(pdfium.to_string_lossy().into()),
-            );
-        }
-        mcp_servers = serde_json::json!([{
-            "type": "stdio",
-            "name": "rotero",
-            "command": mcp_bin.to_string_lossy(),
-            "args": [],
-            "env": [{"name": "PDFIUM_DYNAMIC_LIB_PATH", "value": pdfium_path.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()}]
-        }]);
-    }
+    let mcp_servers = build_mcp_servers_json();
 
     let session_params = serde_json::json!({
         "cwd": std::env::current_dir().unwrap_or_default().to_string_lossy(),
@@ -528,6 +509,7 @@ fn connect_and_run(
                 let params = serde_json::json!({
                     "sessionId": load_id,
                     "cwd": std::env::current_dir().unwrap_or_default().to_string_lossy(),
+                    "mcpServers": build_mcp_servers_json(),
                 });
                 match conn.send_request("session/load", params) {
                     Ok(_) => {
@@ -568,6 +550,27 @@ fn connect_and_run(
 
     conn.kill();
     result
+}
+
+/// Build the JSON array of MCP servers to attach to any session.
+fn build_mcp_servers_json() -> serde_json::Value {
+    let mcp_binary = find_mcp_binary();
+    let pdfium_path = find_pdfium_path();
+
+    if let Some(mcp_bin) = &mcp_binary {
+        serde_json::json!([{
+            "type": "stdio",
+            "name": "rotero",
+            "command": mcp_bin.to_string_lossy(),
+            "args": [],
+            "env": [{
+                "name": "PDFIUM_DYNAMIC_LIB_PATH",
+                "value": pdfium_path.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
+            }]
+        }])
+    } else {
+        serde_json::json!([])
+    }
 }
 
 fn wait_for_switch_or_shutdown(req_rx: &mpsc::Receiver<ChatRequest>) -> LoopResult {
