@@ -117,17 +117,20 @@ pub fn ChatPanel() -> Element {
 
     let status = chat_state.read().status.clone();
     let messages = chat_state.read().messages.clone();
-    let msg_count = messages.len();
 
-    // Auto-scroll to bottom: track message content changes via a hash
-    let scroll_key = chat_state.read().messages.last().map(|m| m.content.len()).unwrap_or(0);
-    let scroll_trigger = (msg_count, scroll_key, matches!(status, AgentStatus::Idle | AgentStatus::Streaming));
+    // Auto-scroll: set up a MutationObserver once to scroll on any DOM change
     use_effect(move || {
-        let _ = scroll_trigger;
         spawn(async {
-            let _ = dioxus::document::eval(
-                "setTimeout(() => { let el = document.querySelector('.chat-messages'); if (el) el.scrollTop = el.scrollHeight; }, 30)"
-            );
+            let _ = dioxus::document::eval(r#"
+                (function() {
+                    let el = document.querySelector('.chat-messages');
+                    if (!el || el._autoScroll) return;
+                    el._autoScroll = true;
+                    new MutationObserver(() => {
+                        el.scrollTop = el.scrollHeight;
+                    }).observe(el, { childList: true, subtree: true, characterData: true });
+                })()
+            "#);
         });
     });
     let paper_title = get_context_paper_title(&lib_state.read(), &tab_mgr.read());
