@@ -148,6 +148,18 @@ async function loadMetadata() {
     } catch {}
   }
 
+  // If title is still empty/generic, try to derive from URL
+  if (pageMetadata && (!pageMetadata.title || pageMetadata.title === 'Untitled')) {
+    try {
+      const url = new URL(pageMetadata.url || pageMetadata.pdf_url || '');
+      const path = url.pathname.split('/').filter(Boolean).pop() || '';
+      const decoded = decodeURIComponent(path).replace(/\.pdf$/i, '').replace(/[_-]/g, ' ');
+      if (decoded && decoded.length > 2) {
+        pageMetadata.title = decoded;
+      }
+    } catch {}
+  }
+
   if (pageMetadata) {
     paperTitle.textContent = pageMetadata.title || 'Untitled';
     paperAuthors.textContent = pageMetadata.authors?.join(', ') || '';
