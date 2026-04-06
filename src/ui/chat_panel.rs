@@ -181,6 +181,11 @@ pub fn ChatPanel() -> Element {
             div { class: "chat-header",
                 div { class: "chat-header-left",
                     span { class: "chat-title", "{provider_name}" }
+                    span {
+                        class: "chat-status",
+                        class: if is_busy { "chat-status--busy" } else { "" },
+                        "{status_text}"
+                    }
                     if !available_models.is_empty() {
                         select {
                             class: "chat-model-select",
@@ -198,11 +203,6 @@ pub fn ChatPanel() -> Element {
                                 }
                             }
                         }
-                    }
-                    span {
-                        class: "chat-status",
-                        class: if is_busy { "chat-status--busy" } else { "" },
-                        "{status_text}"
                     }
                 }
                 div { class: "chat-header-right",
