@@ -11,20 +11,26 @@ use types::{
 };
 
 fn find_mcp_binary() -> Option<PathBuf> {
+    // 1. Next to the running binary (production)
     if let Ok(exe) = std::env::current_exe() {
         let sibling = exe.with_file_name("rotero-mcp");
         if sibling.exists() {
             return Some(sibling);
         }
     }
-    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/release/rotero-mcp");
-    if dev.exists() {
-        return Some(dev);
+
+    // 2. In the workspace target dir (development — handles worktrees)
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for dir in [&manifest_dir, &manifest_dir.join(".."), &manifest_dir.join("../..")]  {
+        for profile in ["release", "debug"] {
+            let candidate = dir.join("target").join(profile).join("rotero-mcp");
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
     }
-    let debug = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/debug/rotero-mcp");
-    if debug.exists() {
-        return Some(debug);
-    }
+
+    // 3. In PATH
     which::which("rotero-mcp").ok()
 }
 
