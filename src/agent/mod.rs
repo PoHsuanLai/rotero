@@ -675,15 +675,31 @@ fn connect_and_run(
                                 } else if v.get("method").and_then(|m| m.as_str())
                                     == Some("session/requestPermission")
                                 {
-                                    // Auto-allow permission requests
                                     if let Some(req_id) = v.get("id") {
+                                        tracing::info!("ACP: auto-allowing permission request {req_id}");
                                         let response = serde_json::json!({
                                             "jsonrpc": "2.0",
                                             "id": req_id,
                                             "result": { "outcome": { "type": "selected", "optionId": "allow" } }
                                         });
+                                        if let Err(e) = conn.write_message(&response) {
+                                            tracing::error!("ACP: failed to send permission response: {e}");
+                                        }
+                                    }
+                                } else if v.get("method").is_some() {
+                                    // It's a request from the agent we don't handle — respond with method_not_found
+                                    let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("unknown");
+                                    tracing::warn!("ACP: unhandled agent request: {method}");
+                                    if let Some(req_id) = v.get("id") {
+                                        let response = serde_json::json!({
+                                            "jsonrpc": "2.0",
+                                            "id": req_id,
+                                            "error": { "code": -32601, "message": "Method not found" }
+                                        });
                                         let _ = conn.write_message(&response);
                                     }
+                                    // Also forward as notification for UI
+                                    handle_notification(evt_tx, &v);
                                 } else {
                                     handle_notification(evt_tx, &v);
                                 }
