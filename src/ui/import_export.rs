@@ -65,7 +65,8 @@ fn ImportButton() -> Element {
                     }
                 });
             },
-            "Import"
+            title: "Import",
+            i { class: "bi bi-upload" }
         }
         if let Some(msg) = status.read().as_ref() {
             span { class: "import-status", "{msg}" }
@@ -98,7 +99,8 @@ fn ExportBibtexButton() -> Element {
                     }
                 }
             },
-            "Export .bib"
+            title: "Export .bib",
+            i { class: "bi bi-download" }
         }
         if let Some(msg) = status.read().as_ref() {
             span { class: "import-status", "{msg}" }
