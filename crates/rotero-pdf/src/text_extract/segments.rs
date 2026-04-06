@@ -1,104 +1,14 @@
+//! TextSegment extraction and PageTextData building from PDF documents.
+
 use std::sync::Arc;
 
 use pdfium_render::prelude::*;
-use serde::{Deserialize, Serialize};
 
 use crate::PdfError;
 
-/// Detect CSS font-weight from the PDF font name.
-fn detect_font_weight(name: &str) -> &'static str {
-    let lower = name.to_lowercase();
-    if lower.contains("bold") || lower.contains("-bd") || lower.contains("demi") {
-        "bold"
-    } else if lower.contains("light") || lower.contains("thin") {
-        "300"
-    } else if lower.contains("black") || lower.contains("heavy") {
-        "900"
-    } else if lower.contains("medium") && !lower.contains("mediumitalic") {
-        "500"
-    } else {
-        "normal"
-    }
-}
-
-/// Detect CSS font-style from the PDF font name and italic flag.
-fn detect_font_style(name: &str, is_italic_flag: bool) -> &'static str {
-    if is_italic_flag {
-        return "italic";
-    }
-    let lower = name.to_lowercase();
-    if lower.contains("italic") || lower.contains("oblique")
-        || lower.contains("-it") || lower.contains("slant")
-        // LaTeX italic fonts
-        || lower.contains("cmti") || lower.contains("cmmi")
-    {
-        "italic"
-    } else {
-        "normal"
-    }
-}
-
-/// A single text segment with its position in pixel coordinates.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TextSegment {
-    pub text: String,
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-    pub font_size: f64,
-    /// CSS font-family string derived from the PDF font.
-    pub font_family: String,
-    /// CSS font-weight (e.g. "normal", "bold", "700").
-    pub font_weight: String,
-    /// CSS font-style ("normal" or "italic").
-    pub font_style: String,
-}
-
-/// Map a PDF font name to a CSS font-family string.
-fn pdf_font_to_css(name: &str, is_serif: bool) -> String {
-    let lower = name.to_lowercase();
-
-    // Common PDF font name patterns
-    if lower.contains("times") || lower.contains("palatino") || lower.contains("garamond") {
-        return format!("\"{name}\", serif");
-    }
-    if lower.contains("helvetica") || lower.contains("arial") || lower.contains("opensans") {
-        return format!("\"{name}\", sans-serif");
-    }
-    if lower.contains("courier") || lower.contains("consolas") || lower.contains("mono") {
-        return format!("\"{name}\", monospace");
-    }
-    if lower.contains("symbol") || lower.contains("zapf") {
-        return format!("\"{name}\", symbol");
-    }
-    if lower.contains("cmbx")
-        || lower.contains("cmr")
-        || lower.contains("cmmi")
-        || lower.contains("cmsy")
-        || lower.contains("cmex")
-        || lower.contains("cmti")
-    {
-        // Computer Modern (LaTeX) — serif
-        return format!("\"{name}\", serif");
-    }
-
-    // Fall back to font descriptor flags
-    if is_serif {
-        format!("\"{name}\", serif")
-    } else {
-        format!("\"{name}\", sans-serif")
-    }
-}
-
-/// All extracted text segments for a single page.
-/// Segments are wrapped in `Arc` so that cloning `PageTextData` (which happens
-/// frequently during Dioxus render cycles) is cheap.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PageTextData {
-    pub page_index: u32,
-    pub segments: Arc<Vec<TextSegment>>,
-}
+use super::font::{detect_font_style, detect_font_weight, pdf_font_to_css};
+use super::TextSegment;
+use super::PageTextData;
 
 /// Extract text segments with bounding boxes from a single PDF page.
 ///
@@ -351,14 +261,6 @@ fn extract_page_text_from_doc(
     })
 }
 
-/// Document-level metadata extracted from PDF properties (XMP / DocInfo).
-#[derive(Debug, Clone, Default)]
-pub struct PdfDocMetadata {
-    pub title: Option<String>,
-    pub author: Option<String>,
-    pub subject: Option<String>,
-}
-
 /// Extract raw text content from specified pages (no position data).
 /// Returns a Vec of (page_index, text_string) pairs.
 pub fn extract_raw_text(
@@ -382,6 +284,14 @@ pub fn extract_raw_text(
     Ok(results)
 }
 
+/// Document-level metadata extracted from PDF properties (XMP / DocInfo).
+#[derive(Debug, Clone, Default)]
+pub struct PdfDocMetadata {
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub subject: Option<String>,
+}
+
 /// Extract document-level metadata (title, author, subject) from PDF properties.
 pub fn extract_doc_metadata(pdfium: &Pdfium, pdf_path: &str) -> Result<PdfDocMetadata, PdfError> {
     use pdfium_render::prelude::PdfDocumentMetadataTagType;
@@ -401,151 +311,4 @@ pub fn extract_doc_metadata(pdfium: &Pdfium, pdf_path: &str) -> Result<PdfDocMet
         author: get(PdfDocumentMetadataTagType::Author),
         subject: get(PdfDocumentMetadataTagType::Subject),
     })
-}
-
-/// A search match with its location.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchMatch {
-    pub page_index: u32,
-    /// Bounding rectangles for the match (x, y, width, height in pixels).
-    pub bounds: Vec<(f64, f64, f64, f64)>,
-    pub matched_text: String,
-}
-
-/// Group segments into lines by y-proximity, sorted left-to-right within each line.
-/// Returns indices into the original segments vec rather than references.
-pub fn group_into_lines(segments: &[TextSegment]) -> Vec<Vec<usize>> {
-    if segments.is_empty() {
-        return Vec::new();
-    }
-
-    let mut indexed: Vec<usize> = (0..segments.len()).collect();
-    indexed.sort_by(|&a, &b| {
-        segments[a]
-            .y
-            .partial_cmp(&segments[b].y)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    let mut lines: Vec<Vec<usize>> = Vec::new();
-    let mut current_line: Vec<usize> = vec![indexed[0]];
-    let mut line_y = segments[indexed[0]].y;
-
-    for &idx in &indexed[1..] {
-        let seg = &segments[idx];
-        let tolerance = seg.height * 0.5;
-        if (seg.y - line_y).abs() < tolerance {
-            current_line.push(idx);
-        } else {
-            current_line.sort_by(|&a, &b| {
-                segments[a]
-                    .x
-                    .partial_cmp(&segments[b].x)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            lines.push(current_line);
-            current_line = vec![idx];
-            line_y = seg.y;
-        }
-    }
-    current_line.sort_by(|&a, &b| {
-        segments[a]
-            .x
-            .partial_cmp(&segments[b].x)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    lines.push(current_line);
-    lines
-}
-
-/// Internal helper: group segments into lines returning references (used by search).
-fn group_into_lines_ref(segments: &[TextSegment]) -> Vec<Vec<&TextSegment>> {
-    if segments.is_empty() {
-        return Vec::new();
-    }
-
-    let mut indexed: Vec<&TextSegment> = segments.iter().collect();
-    indexed.sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal));
-
-    let mut lines: Vec<Vec<&TextSegment>> = Vec::new();
-    let mut current_line: Vec<&TextSegment> = vec![indexed[0]];
-    let mut line_y = indexed[0].y;
-
-    for seg in &indexed[1..] {
-        let tolerance = seg.height * 0.5;
-        if (seg.y - line_y).abs() < tolerance {
-            current_line.push(seg);
-        } else {
-            current_line.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
-            lines.push(current_line);
-            current_line = vec![seg];
-            line_y = seg.y;
-        }
-    }
-    current_line.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
-    lines.push(current_line);
-    lines
-}
-
-/// Search for text across all pages using already-extracted text data.
-/// Concatenates same-line segments so multi-word queries match across word boundaries.
-pub fn search_in_text_data(text_data: &[PageTextData], query: &str) -> Vec<SearchMatch> {
-    if query.is_empty() {
-        return Vec::new();
-    }
-
-    let query_lower = query.to_lowercase();
-    let mut matches = Vec::new();
-
-    for page_data in text_data {
-        let lines = group_into_lines_ref(&page_data.segments);
-
-        for line in &lines {
-            // Build concatenated line text with space separators
-            let mut concat = String::new();
-            let mut seg_ranges: Vec<(usize, usize)> = Vec::new();
-
-            for (i, seg) in line.iter().enumerate() {
-                if i > 0 {
-                    concat.push(' ');
-                }
-                let start = concat.len();
-                concat.push_str(&seg.text);
-                seg_ranges.push((start, concat.len()));
-            }
-
-            let concat_lower = concat.to_lowercase();
-            let mut search_start = 0;
-            while let Some(pos) = concat_lower[search_start..].find(&query_lower) {
-                let abs_pos = search_start + pos;
-                let match_end = abs_pos + query_lower.len();
-
-                // Merge overlapping segment bounds into one continuous rect
-                let mut min_x = f64::MAX;
-                let mut min_y = f64::MAX;
-                let mut max_right = f64::MIN;
-                let mut max_bottom = f64::MIN;
-                for (seg_idx, &(seg_start, seg_end)) in seg_ranges.iter().enumerate() {
-                    if seg_end > abs_pos && seg_start < match_end {
-                        let seg = &line[seg_idx];
-                        min_x = min_x.min(seg.x);
-                        min_y = min_y.min(seg.y);
-                        max_right = max_right.max(seg.x + seg.width);
-                        max_bottom = max_bottom.max(seg.y + seg.height);
-                    }
-                }
-                let bounds = vec![(min_x, min_y, max_right - min_x, max_bottom - min_y)];
-
-                matches.push(SearchMatch {
-                    page_index: page_data.page_index,
-                    bounds,
-                    matched_text: concat[abs_pos..match_end].to_string(),
-                });
-
-                search_start = abs_pos + 1;
-            }
-        }
-    }
-
-    matches
 }

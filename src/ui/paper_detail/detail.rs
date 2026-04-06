@@ -1,10 +1,13 @@
 use dioxus::prelude::*;
 
-use super::chat_panel::ResizeHandle;
-use super::components::context_menu::{ContextMenu, ContextMenuItem};
+use crate::ui::chat_panel::ResizeHandle;
+use crate::ui::components::context_menu::{ContextMenu, ContextMenuItem};
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
 use crate::sync::engine::SyncConfig;
 use rotero_db::Database;
+
+use super::fields::{AddToCollectionSelect, TagEditor};
+use super::notes::NotesSection;
 
 #[component]
 pub fn PaperDetail() -> Element {
@@ -239,7 +242,7 @@ pub fn PaperDetail() -> Element {
 
             // Citation button
             div { class: "detail-cite-section",
-                super::citation_dialog::CitationDialog {}
+                crate::ui::citation_dialog::CitationDialog {}
             }
 
             // Notes section
@@ -393,147 +396,6 @@ pub fn PaperDetail() -> Element {
                                     let _ = document::eval(&js);
                                     doi_ctx.set(None);
                                 },
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn AddToCollectionSelect(paper_id: String) -> Element {
-    let lib_state = use_context::<Signal<crate::state::app_state::LibraryState>>();
-    let db = use_context::<Database>();
-    let collections = lib_state.read().collections.clone();
-
-    rsx! {
-        select {
-            class: "select",
-            onchange: {
-                let paper_id = paper_id.clone();
-                move |evt| {
-                    let coll_id = evt.value();
-                    if coll_id.is_empty() { return; }
-                    let db = db.clone();
-                    let pid = paper_id.clone();
-                    spawn(async move {
-                        let _ = rotero_db::collections::add_paper_to_collection(db.conn(), &pid, &coll_id).await;
-                    });
-                }
-            },
-            option { value: "", "Add to collection..." }
-            for coll in collections.iter() {
-                {
-                    let cid = coll.id.clone().unwrap_or_default();
-                    let cname = coll.name.clone();
-                    rsx! { option { value: "{cid}", "{cname}" } }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn TagEditor(paper_id: String) -> Element {
-    let mut lib_state = use_context::<Signal<crate::state::app_state::LibraryState>>();
-    let db = use_context::<Database>();
-    let mut new_tag = use_signal(String::new);
-
-    rsx! {
-        div { class: "tag-editor",
-            input {
-                id: "tag-editor-input",
-                class: "input input--sm",
-                r#type: "text",
-                placeholder: "Add tag...",
-                value: "{new_tag}",
-                oninput: move |evt| new_tag.set(evt.value()),
-                onkeypress: {
-                    let paper_id = paper_id.clone();
-                    move |evt| {
-                    if evt.key() == Key::Enter {
-                        let tag_name = new_tag().trim().to_string();
-                        if tag_name.is_empty() { return; }
-                        let db = db.clone();
-                        let pid = paper_id.clone();
-                        spawn(async move {
-                            if let Ok(tag_id) = rotero_db::tags::get_or_create_tag(db.conn(), &tag_name, None).await {
-                                let _ = rotero_db::tags::add_tag_to_paper(db.conn(), &pid, &tag_id).await;
-                                // Reload tags
-                                if let Ok(tags) = rotero_db::tags::list_tags(db.conn()).await {
-                                    lib_state.with_mut(|s| s.tags = tags);
-                                }
-                            }
-                            new_tag.set(String::new());
-                        });
-                    }
-                }},
-            }
-        }
-    }
-}
-
-#[component]
-fn NotesSection(paper_id: String) -> Element {
-    let db = use_context::<Database>();
-    let mut notes = use_signal(Vec::new);
-
-    // Load notes for this paper
-    {
-        let db = db.clone();
-        let pid = paper_id.clone();
-        use_effect(move || {
-            let db = db.clone();
-            let pid = pid.clone();
-            spawn(async move {
-                if let Ok(paper_notes) =
-                    rotero_db::notes::list_notes_for_paper(db.conn(), &pid).await
-                {
-                    notes.set(paper_notes);
-                }
-            });
-        });
-    }
-
-    let note_list = notes.read();
-    if note_list.is_empty() {
-        return rsx! {};
-    }
-
-    rsx! {
-        div { class: "detail-notes-section",
-            label { class: "detail-label", "Notes ({note_list.len()})" }
-            for note in note_list.iter() {
-                {
-                    let note_id = note.id.clone().unwrap_or_default();
-                    let title = note.title.clone();
-                    let body_preview = if note.body.len() > 120 {
-                        format!("{}...", &note.body[..117])
-                    } else {
-                        note.body.clone()
-                    };
-                    let db_del = db.clone();
-                    let pid = paper_id.clone();
-                    rsx! {
-                        div { key: "note-{note_id}", class: "detail-note-card",
-                            div { class: "detail-note-title", "{title}" }
-                            div { class: "detail-note-body", "{body_preview}" }
-                            button {
-                                class: "btn--danger-sm",
-                                onclick: move |_| {
-                                    let db = db_del.clone();
-                                    let nid = note_id.clone();
-                                    let pid = pid.clone();
-                                    spawn(async move {
-                                        let _ = rotero_db::notes::delete_note(db.conn(), &nid).await;
-                                        if let Ok(paper_notes) = rotero_db::notes::list_notes_for_paper(db.conn(), &pid).await {
-                                            notes.set(paper_notes);
-                                        }
-                                    });
-                                },
-                                "Delete"
                             }
                         }
                     }

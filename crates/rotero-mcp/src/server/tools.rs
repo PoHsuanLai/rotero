@@ -1,148 +1,33 @@
+//! Tool implementation functions and ServerHandler implementation.
+
 use rmcp::{
     RoleServer, ServerHandler,
-    handler::server::tool::ToolRouter,
     handler::server::wrapper::Parameters,
     model::{
         AnnotateAble, CallToolResult, Content, GetPromptRequestParams, GetPromptResult,
-        Implementation, ListPromptsResult, ListResourcesResult, PaginatedRequestParams, Prompt,
-        PromptMessage, PromptMessageRole, ReadResourceRequestParams, ReadResourceResult,
-        ResourceContents, ServerCapabilities, ServerInfo,
+        ListPromptsResult, ListResourcesResult, PaginatedRequestParams, Prompt, PromptMessage,
+        PromptMessageRole, ReadResourceRequestParams, ReadResourceResult, ResourceContents,
     },
-    schemars,
     service::RequestContext,
-    tool, tool_handler, tool_router,
+    tool, tool_handler,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::db::Database;
+use super::RoteroMcp;
+use super::params::*;
 
-#[derive(Clone)]
-pub struct RoteroMcp {
-    db: Database,
-    /// Whether pdfium is available (checked at startup).
-    pdf_available: bool,
-    tool_router: ToolRouter<Self>,
-}
-
-// -- Tool parameter structs --------------------------------------------------
-
-#[derive(Deserialize, schemars::JsonSchema)]
-pub struct SearchPapersParams {
-    /// Search query string (searches title, authors, abstract, full text)
-    pub query: String,
-    /// Maximum number of results (default 20, max 50)
-    pub limit: Option<u32>,
-}
-
-#[derive(Deserialize, schemars::JsonSchema)]
-pub struct GetPaperParams {
-    /// Paper ID
-    pub paper_id: String,
-}
-
-#[derive(Deserialize, schemars::JsonSchema)]
-pub struct ListPapersParams {
-    /// Offset for pagination (default 0)
-    pub offset: Option<u32>,
-    /// Number of papers to return (default 20, max 100)
-    pub limit: Option<u32>,
-}
-
-#[derive(Deserialize, schemars::JsonSchema)]
-pub struct PaperIdParams {
-    /// Paper ID
-    pub paper_id: String,
-}
-
-#[derive(Deserialize, schemars::JsonSchema)]
-pub struct CollectionIdParams {
-    /// Collection ID
-    pub collection_id: String,
-}
-
-#[derive(Deserialize, schemars::JsonSchema)]
-pub struct TagIdParams {
-    /// Tag ID
-    pub tag_id: String,
-}
-
-#[derive(Deserialize, schemars::JsonSchema)]
-pub struct ExtractPdfTextParams {
-    /// Paper ID
-    pub paper_id: String,
-    /// Page numbers to extract (0-indexed). If omitted, extracts first 10 pages.
-    pub pages: Option<Vec<u32>>,
-}
-
-#[derive(Deserialize, schemars::JsonSchema)]
-pub struct AddNoteParams {
-    /// Paper ID to add note to
-    pub paper_id: String,
-    /// Note title
-    pub title: String,
-    /// Note body text
-    pub body: String,
-}
-
-#[derive(Deserialize, schemars::JsonSchema)]
-pub struct UpdateNoteParams {
-    /// Note ID to update
-    pub note_id: String,
-    /// New title
-    pub title: String,
-    /// New body text
-    pub body: String,
-}
-
-#[derive(Deserialize, schemars::JsonSchema)]
-pub struct AddTagToPaperParams {
-    /// Paper ID
-    pub paper_id: String,
-    /// Tag name (will be created if it doesn't exist)
-    pub tag_name: String,
-    /// Optional tag color (hex, e.g. "#ff0000")
-    pub color: Option<String>,
-}
-
-#[derive(Deserialize, schemars::JsonSchema)]
-pub struct SetPaperReadParams {
-    /// Paper ID
-    pub paper_id: String,
-    /// Whether the paper is read
-    pub is_read: bool,
-}
-
-#[derive(Deserialize, schemars::JsonSchema)]
-pub struct SetPaperFavoriteParams {
-    /// Paper ID
-    pub paper_id: String,
-    /// Whether the paper is a favorite
-    pub is_favorite: bool,
-}
-
-// -- Helpers -----------------------------------------------------------------
-
-#[derive(Serialize)]
-struct LibraryStats {
-    total_papers: u32,
-    total_collections: u32,
-    total_tags: u32,
-    unread_count: u32,
-    favorites_count: u32,
-}
-
-fn err(msg: impl std::fmt::Display) -> rmcp::ErrorData {
+pub(super) fn err(msg: impl std::fmt::Display) -> rmcp::ErrorData {
     rmcp::ErrorData::internal_error(msg.to_string(), None)
 }
 
-fn json_result<T: Serialize>(value: &T) -> Result<CallToolResult, rmcp::ErrorData> {
+pub(super) fn json_result<T: Serialize>(value: &T) -> Result<CallToolResult, rmcp::ErrorData> {
     let text = serde_json::to_string_pretty(value).map_err(|e| err(e))?;
     Ok(CallToolResult::success(vec![Content::text(text)]))
 }
 
 // -- Tool implementations ----------------------------------------------------
 
-#[tool_router]
+#[rmcp::tool_router]
 impl RoteroMcp {
     #[tool(description = "Search papers in the library by title, authors, abstract, or full text")]
     async fn search_papers(
@@ -416,7 +301,8 @@ impl RoteroMcp {
 
 #[tool_handler]
 impl ServerHandler for RoteroMcp {
-    fn get_info(&self) -> ServerInfo {
+    fn get_info(&self) -> rmcp::model::ServerInfo {
+        use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
         ServerInfo::new(
             ServerCapabilities::builder()
                 .enable_tools()
@@ -607,7 +493,7 @@ impl ServerHandler for RoteroMcp {
 }
 
 impl RoteroMcp {
-    pub fn new(db: Database, pdf_available: bool) -> Self {
+    pub fn new(db: crate::db::Database, pdf_available: bool) -> Self {
         Self {
             db,
             pdf_available,

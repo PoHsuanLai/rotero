@@ -1,9 +1,9 @@
 pub mod collections;
-pub mod main_sidebar;
+pub mod nav;
 pub mod open_pdf;
 pub mod tags;
 
-pub use main_sidebar::Sidebar;
+pub use nav::Sidebar;
 
 use dioxus::prelude::*;
 use crate::state::app_state::{LibraryState, LibraryView};
