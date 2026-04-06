@@ -544,7 +544,7 @@ fn connect_and_run(
     let mcp_servers = build_mcp_servers_json();
 
     let session_params = serde_json::json!({
-        "cwd": home_dir_or_cwd().to_string_lossy(),
+        "cwd": agent_working_dir().to_string_lossy(),
         "mcpServers": mcp_servers,
     });
 
@@ -723,7 +723,7 @@ fn connect_and_run(
                     provider_id: provider.id.to_string(),
                 });
                 let load_cwd = if cwd.is_empty() {
-                    home_dir_or_cwd().to_string_lossy().to_string()
+                    agent_working_dir().to_string_lossy().to_string()
                 } else {
                     cwd
                 };
@@ -798,7 +798,7 @@ fn connect_and_run(
                                     tracing::info!("ACP: auth completed, creating session...");
                                     // Retry session creation after auth
                                     let session_params = serde_json::json!({
-                                        "cwd": home_dir_or_cwd().to_string_lossy(),
+                                        "cwd": agent_working_dir().to_string_lossy(),
                                         "mcpServers": build_mcp_servers_json(),
                                     });
                                     match conn.send_request("session/new", session_params, Some(evt_tx)) {
@@ -857,10 +857,11 @@ fn connect_and_run(
     result
 }
 
-/// Get the user's home directory, falling back to cwd.
-fn home_dir_or_cwd() -> PathBuf {
+/// Get the app's data directory as the agent working directory.
+/// This is where papers and the database live.
+fn agent_working_dir() -> PathBuf {
     directories::BaseDirs::new()
-        .map(|d| d.home_dir().to_path_buf())
+        .map(|d| d.data_dir().join("com.rotero.Rotero"))
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
 }
 
