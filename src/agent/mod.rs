@@ -426,13 +426,14 @@ impl RawAcpConnection {
                     .ok_or("No result in response".into());
             }
 
-            // Auto-respond to requestPermission
-            if v.get("method").and_then(|m| m.as_str()) == Some("session/requestPermission") {
+            // Auto-respond to request_permission
+            if v.get("method").and_then(|m| m.as_str()) == Some("session/request_permission") {
                 if let Some(req_id) = v.get("id") {
+                    let option_id = first_allow_option_id(&v);
                     let response = serde_json::json!({
                         "jsonrpc": "2.0",
                         "id": req_id,
-                        "result": { "outcome": { "outcome": "selected", "optionId": "default" } }
+                        "result": { "outcome": { "outcome": "selected", "optionId": option_id } }
                     });
                     let _ = self.write_message(&response);
                 }
@@ -673,18 +674,20 @@ fn connect_and_run(
                                     }
                                     break;
                                 } else if v.get("method").and_then(|m| m.as_str())
-                                    == Some("session/requestPermission")
+                                    == Some("session/request_permission")
                                 {
                                     if let Some(req_id) = v.get("id") {
-                                        tracing::info!("ACP: auto-allowing permission request {req_id}");
-                                        let response = serde_json::json!({
-                                            "jsonrpc": "2.0",
-                                            "id": req_id,
-                                            "result": { "outcome": { "outcome": "selected", "optionId": "default" } }
+                                        // Send to UI for user decision
+                                        let tool_title = v.pointer("/params/toolCall/title")
+                                            .and_then(|t| t.as_str())
+                                            .unwrap_or("Tool call")
+                                            .to_string();
+                                        let options = extract_permission_options(&v);
+                                        let _ = evt_tx.send(ChatEvent::PermissionRequest {
+                                            request_id: req_id.clone(),
+                                            tool_title,
+                                            options,
                                         });
-                                        if let Err(e) = conn.write_message(&response) {
-                                            tracing::error!("ACP: failed to send permission response: {e}");
-                                        }
                                     }
                                 } else if v.get("method").is_some() {
                                     // It's a request from the agent we don't handle — respond with method_not_found
@@ -712,12 +715,23 @@ fn connect_and_run(
                         }
                     }
 
-                    // Check for cancel requests while streaming
-                    if let Ok(ChatRequest::Cancel) = req_rx.try_recv() {
-                        let _ = conn.send_notification(
-                            "session/cancel",
-                            serde_json::json!({ "sessionId": session_id }),
-                        );
+                    // Check for UI requests while streaming
+                    match req_rx.try_recv() {
+                        Ok(ChatRequest::Cancel) => {
+                            let _ = conn.send_notification(
+                                "session/cancel",
+                                serde_json::json!({ "sessionId": session_id }),
+                            );
+                        }
+                        Ok(ChatRequest::PermissionResponse { request_id, option_id }) => {
+                            let response = serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": request_id,
+                                "result": { "outcome": { "outcome": "selected", "optionId": option_id } }
+                            });
+                            let _ = conn.write_message(&response);
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -726,6 +740,14 @@ fn connect_and_run(
                     "session/cancel",
                     serde_json::json!({ "sessionId": session_id }),
                 );
+            }
+            Ok(ChatRequest::PermissionResponse { request_id, option_id }) => {
+                let response = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "result": { "outcome": { "outcome": "selected", "optionId": option_id } }
+                });
+                let _ = conn.write_message(&response);
             }
             Ok(ChatRequest::ListSessions) => {
                 match conn.send_request("session/list", serde_json::json!({
@@ -890,13 +912,14 @@ fn connect_and_run(
                         }
                         // Handle requestPermission during auth
                         if v.get("method").and_then(|m| m.as_str())
-                            == Some("session/requestPermission")
+                            == Some("session/request_permission")
                         {
                             if let Some(req_id) = v.get("id") {
+                                let option_id = first_allow_option_id(&v);
                                 let response = serde_json::json!({
                                     "jsonrpc": "2.0",
                                     "id": req_id,
-                                    "result": { "outcome": { "outcome": "selected", "optionId": "default" } }
+                                    "result": { "outcome": { "outcome": "selected", "optionId": option_id } }
                                 });
                                 let _ = conn.write_message(&response);
                             }
@@ -1147,6 +1170,44 @@ fn api_key_env_for_method(method_id: &str) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// Extract permission options from a request.
+fn extract_permission_options(v: &serde_json::Value) -> Vec<(String, String)> {
+    v.get("params")
+        .and_then(|p| p.get("options"))
+        .and_then(|o| o.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|opt| {
+                    let id = opt.get("optionId").and_then(|v| v.as_str()).unwrap_or("default").to_string();
+                    let label = opt.get("label").and_then(|v| v.as_str())
+                        .or_else(|| opt.get("name").and_then(|v| v.as_str()))
+                        .unwrap_or(&id)
+                        .to_string();
+                    (id, label)
+                })
+                .collect()
+        })
+        .unwrap_or_else(|| vec![("default".into(), "Allow".into())])
+}
+
+/// Extract the first allow-type option ID from a permission request.
+fn first_allow_option_id(v: &serde_json::Value) -> String {
+    v.get("params")
+        .and_then(|p| p.get("options"))
+        .and_then(|o| o.as_array())
+        .and_then(|arr| {
+            arr.iter()
+                .find(|opt| {
+                    let kind = opt.get("kind").and_then(|k| k.as_str()).unwrap_or("");
+                    kind.contains("allow") || kind == "default"
+                })
+                .or_else(|| arr.first())
+        })
+        .and_then(|opt| opt.get("optionId").and_then(|id| id.as_str()))
+        .unwrap_or("default")
+        .to_string()
 }
 
 /// Strip internal protocol XML tags from agent messages.

@@ -382,6 +382,37 @@
     border-color: var(--destructive);
 }
 
+/* ---- Permission request ---- */
+
+.chat-permission {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    margin: var(--space-1) 0;
+    border-radius: var(--radius-md);
+    background: var(--bg-main);
+    border: 1px solid var(--accent);
+}
+
+.chat-permission-title {
+    font-size: var(--text-xs);
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.chat-permission-buttons {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+.chat-permission-btn {
+    height: 26px !important;
+    padding: 0 10px !important;
+    font-size: var(--text-xs) !important;
+}
+
 /* ---- Error with icon ---- */
 
 .chat-error {
