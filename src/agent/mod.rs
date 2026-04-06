@@ -689,29 +689,22 @@ fn connect_and_run(
                                             options,
                                         });
                                     }
-                                } else if v.get("method").is_some() {
-                                    // It's a request from the agent we don't handle — respond with method_not_found
-                                    let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("unknown");
-                                    tracing::warn!("ACP: unhandled agent request: {method}");
-                                    if let Some(req_id) = v.get("id") {
+                                } else {
+                                    let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+                                    let has_id = v.get("id").is_some();
+                                    if !has_id || method == "session/update" || method == "sessionUpdate" {
+                                        handle_notification(evt_tx, &v);
+                                    } else {
+                                        tracing::warn!("ACP: unhandled agent request: {method}");
                                         let response = serde_json::json!({
                                             "jsonrpc": "2.0",
-                                            "id": req_id,
+                                            "id": v.get("id"),
                                             "error": { "code": -32601, "message": "Method not found" }
                                         });
                                         let _ = conn.write_message(&response);
                                     }
-                                    // Also forward as notification for UI
-                                    handle_notification(evt_tx, &v);
-                                } else {
-                                    handle_notification(evt_tx, &v);
                                 }
                             }
-                        }
-                        Err(e) => {
-                            let _ = evt_tx
-                                .send(ChatEvent::Error(format!("Read error: {e}")));
-                            break;
                         }
                     }
 
