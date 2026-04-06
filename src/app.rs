@@ -621,7 +621,19 @@ fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
             });
         }
         ChatEvent::TurnCompleted => {
-            chat_state.with_mut(|s| s.status = AgentStatus::Idle);
+            chat_state.with_mut(|s| {
+                s.status = AgentStatus::Idle;
+                // Mark any still-running tool calls as completed
+                for msg in &mut s.messages {
+                    for content in &mut msg.content {
+                        if let MessageContent::ToolUse { status, .. } = content {
+                            if matches!(status, crate::agent::types::ToolStatus::Pending | crate::agent::types::ToolStatus::InProgress) {
+                                *status = crate::agent::types::ToolStatus::Completed;
+                            }
+                        }
+                    }
+                }
+            });
         }
         ChatEvent::ModelsAvailable { models, current } => {
             chat_state.with_mut(|s| {

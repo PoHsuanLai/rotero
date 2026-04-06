@@ -1007,7 +1007,10 @@ fn handle_notification(
                         .and_then(|c| c.get("text"))
                         .and_then(|t| t.as_str())
                     {
-                        let _ = evt_tx.send(ChatEvent::UserMessage(text.to_string()));
+                        let cleaned = strip_protocol_tags(text);
+                        if !cleaned.is_empty() {
+                            let _ = evt_tx.send(ChatEvent::UserMessage(cleaned));
+                        }
                     }
                 }
                 "agent_message_chunk" => {
@@ -1016,7 +1019,10 @@ fn handle_notification(
                         .and_then(|c| c.get("text"))
                         .and_then(|t| t.as_str())
                     {
-                        let _ = evt_tx.send(ChatEvent::TextDelta(text.to_string()));
+                        let cleaned = strip_protocol_tags(text);
+                        if !cleaned.is_empty() {
+                            let _ = evt_tx.send(ChatEvent::TextDelta(cleaned));
+                        }
                     }
                 }
                 "tool_call" => {
@@ -1125,6 +1131,37 @@ fn api_key_env_for_method(method_id: &str) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// Strip internal protocol XML tags from agent messages.
+fn strip_protocol_tags(text: &str) -> String {
+    // These tags are Claude Code internal protocol, not user-visible content
+    let tag_patterns = [
+        "command-name", "command-message", "command-args",
+        "local-command-stdout", "local-command-stderr", "local-command-caveat",
+        "system-reminder", "task-notification", "task-id", "tool-use-id",
+        "output-file", "status", "summary",
+    ];
+
+    let mut result = text.to_string();
+    for tag in &tag_patterns {
+        // Remove <tag>...</tag> and <tag ...> and </tag>
+        let open = format!("<{tag}");
+        let close = format!("</{tag}>");
+        // Remove full tags with content
+        while let Some(start) = result.find(&open) {
+            if let Some(end) = result[start..].find(&close) {
+                result = format!("{}{}", &result[..start], &result[start + end + close.len()..]);
+            } else if let Some(end) = result[start..].find('>') {
+                // Self-closing or unclosed tag — remove just the tag
+                result = format!("{}{}", &result[..start], &result[start + end + 1..]);
+            } else {
+                break;
+            }
+        }
+    }
+
+    result.trim().to_string()
 }
 
 fn extract_models_event(models: &serde_json::Value) -> ChatEvent {
