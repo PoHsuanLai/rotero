@@ -82,6 +82,11 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, tu
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
+            paper
+                .pdf_url
+                .as_ref()
+                .map(|s| Value::Text(s.clone()))
+                .unwrap_or(Value::Null),
         ]),
     )
     .await?;
@@ -110,6 +115,7 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, tu
             "extra_meta",
             "citation_count",
             "citation_key",
+            "pdf_url",
         ],
     )
     .await?;
@@ -386,6 +392,7 @@ fn row_to_paper(row: &turso::Row) -> Paper {
         is_read: get_bool(row, 16),
         citation_count: get_opt_i64(row, 18),
         citation_key: get_opt_text(row, 19),
+        pdf_url: get_opt_text(row, 20),
         extra_meta: extra_meta_str.and_then(|s| serde_json::from_str(&s).ok()),
     }
 }

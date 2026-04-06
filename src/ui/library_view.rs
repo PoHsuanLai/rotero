@@ -551,7 +551,7 @@ pub fn LibraryPanel() -> Element {
                                     },
                                     oncontextmenu: move |evt| {
                                         evt.prevent_default();
-                                        let coords = evt.page_coordinates();
+                                        let coords = evt.client_coordinates();
                                         ctx_menu.set(Some((pid_ctx.clone(), coords.x, coords.y)));
                                     },
 
@@ -648,6 +648,7 @@ pub fn LibraryPanel() -> Element {
                         let is_read = paper.is_read;
                         let doi = paper.doi.clone();
                         let pdf_rel = paper.pdf_path.clone();
+                        let paper_title_for_open = paper.title.clone();
                         let pid = menu_paper_id;
                         let db_ctx = db.clone();
                         let db_fav = db.clone();
@@ -671,11 +672,51 @@ pub fn LibraryPanel() -> Element {
                                                     let full_path = db_ctx.resolve_pdf_path(rel_path);
                                                     let path_str = full_path.to_string_lossy().to_string();
                                                     let cfg = config.read();
-                                                    tabs.with_mut(|m| m.open_or_switch(pid.clone(), path_str, paper.title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
+                                                    tabs.with_mut(|m| m.open_or_switch(pid.clone(), path_str, paper_title_for_open.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
                                                     lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                                 }
                                             }
                                         },
+                                    }
+                                }
+
+                                if !has_pdf && paper.pdf_url.is_some() {
+                                    {
+                                        let pdf_url = paper.pdf_url.clone().unwrap_or_default();
+                                        let paper_clone = paper.clone();
+                                        let pid_dl = pid.clone();
+                                        rsx! {
+                                            ContextMenuItem {
+                                                label: "Download PDF".to_string(),
+                                                icon: Some("bi-download".to_string()),
+                                                on_click: move |_| {
+                                                    let pdf_url = pdf_url.clone();
+                                                    let paper_clone = paper_clone.clone();
+                                                    let pid = pid_dl.clone();
+                                                    spawn(async move {
+                                                        if let Some((conn, lib_path)) = crate::SHARED_DB.get() {
+                                                            match crate::download_and_import_pdf(
+                                                                conn,
+                                                                lib_path,
+                                                                &pid,
+                                                                &paper_clone,
+                                                                &pdf_url,
+                                                            ).await {
+                                                                Ok(()) => {
+                                                                    // Refresh library to show PDF
+                                                                    if let Ok(papers) = rotero_db::papers::list_papers(conn).await {
+                                                                        lib_state.with_mut(|s| s.papers = papers);
+                                                                    }
+                                                                }
+                                                                Err(e) => {
+                                                                    tracing::error!("Download PDF failed: {e}");
+                                                                }
+                                                            }
+                                                        }
+                                                    });
+                                                },
+                                            }
+                                        }
                                     }
                                 }
 

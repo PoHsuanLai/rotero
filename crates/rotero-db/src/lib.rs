@@ -63,6 +63,10 @@ impl Database {
         Ok(Self { conn, data_dir })
     }
 
+    pub fn from_conn(conn: Connection, data_dir: PathBuf) -> Self {
+        Self { conn, data_dir }
+    }
+
     pub fn conn(&self) -> &Connection {
         &self.conn
     }

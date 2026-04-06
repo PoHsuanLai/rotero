@@ -1,6 +1,6 @@
 use turso::Connection;
 
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 const CREATE_FTS_INDEX: &str = "CREATE INDEX IF NOT EXISTS idx_papers_fts ON papers \
      USING fts (title, authors, abstract_text, journal, fulltext) \
@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS papers (
     extra_meta    TEXT,
     fulltext      TEXT,
     citation_count INTEGER,
-    citation_key  TEXT
+    citation_key  TEXT,
+    pdf_url       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS collections (
@@ -202,9 +203,21 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
         .execute("ALTER TABLE papers ADD COLUMN citation_count INTEGER", ())
         .await;
 
+    // Ensure pdf_url column exists
+    let _ = conn
+        .execute("ALTER TABLE papers ADD COLUMN pdf_url TEXT", ())
+        .await;
+
     // Migration to v8: convert INTEGER PRIMARY KEY to TEXT PRIMARY KEY (String UUIDs)
     if current_version < 8 {
         migrate_to_text_ids(conn).await?;
+    }
+
+    // Migration to v9: add pdf_url column
+    if current_version < 9 {
+        let _ = conn
+            .execute("ALTER TABLE papers ADD COLUMN pdf_url TEXT", ())
+            .await;
     }
 
     if current_version < SCHEMA_VERSION {

@@ -2,11 +2,11 @@
 // Papers
 // ---------------------------------------------------------------------------
 
-pub const PAPER_SELECT_COLS: &str = "id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key";
+pub const PAPER_SELECT_COLS: &str = "id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key, pdf_url";
 
 pub const PAPER_INSERT: &str = "\
-    INSERT INTO papers (id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key) \
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)";
+    INSERT INTO papers (id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key, pdf_url) \
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)";
 
 pub const PAPER_COUNT: &str = "SELECT COUNT(*) FROM papers";
 
@@ -60,6 +60,8 @@ pub const PAPER_LIST_NEEDING_CITATION_KEYS: &str = "\
 
 pub const PAPER_LIST_CITATION_KEYS: &str =
     "SELECT citation_key FROM papers WHERE citation_key IS NOT NULL";
+
+pub const PAPER_SELECT_PDF_URL: &str = "SELECT id, pdf_url FROM papers WHERE pdf_url IS NOT NULL";
 
 // ---------------------------------------------------------------------------
 // Collections

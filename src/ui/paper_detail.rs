@@ -33,6 +33,14 @@ pub fn PaperDetail() -> Element {
     // DOI context menu state: (doi_string, x, y)
     let mut doi_ctx = use_signal(|| None::<(String, f64, f64)>);
 
+    // Hooks for citation key editing (must be unconditional)
+    let mut editing_key = use_signal(|| false);
+    let mut edit_key_value = use_signal(|| paper.citation_key.clone().unwrap_or_default());
+    let mut copied_hint = use_signal(|| false);
+
+    // Hook for Open Access PDF download status (must be unconditional)
+    let mut oa_status = use_signal(|| None::<String>);
+
     rsx! {
         div { class: "paper-detail",
 
@@ -82,9 +90,6 @@ pub fn PaperDetail() -> Element {
                     let key_for_copy = cite_key.clone();
                     let key_for_copy2 = cite_key.clone();
                     let key_display = cite_key.clone();
-                    let mut editing_key = use_signal(|| false);
-                    let mut edit_key_value = use_signal(|| cite_key.clone());
-                    let mut copied_hint = use_signal(|| false);
                     let db_key = db.clone();
                     let db_key2 = db.clone();
 
@@ -271,7 +276,6 @@ pub fn PaperDetail() -> Element {
                             let paper_authors = paper.authors.clone();
                             let paper_year = paper.year;
                             let db_oa = db.clone();
-                            let mut oa_status = use_signal(|| None::<String>);
                             rsx! {
                                 button {
                                     class: "btn btn--secondary",

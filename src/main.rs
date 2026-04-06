@@ -31,6 +31,31 @@ fn main() {
     // Load config to check connector settings
     let config = sync::engine::SyncConfig::load();
 
+    // Initialize shared DB connection once (used by both connector and UI)
+    #[cfg(feature = "desktop")]
+    {
+        let lib_path = config.effective_library_path();
+        std::fs::create_dir_all(&lib_path).expect("Failed to create library directory");
+        let papers_dir = lib_path.join("papers");
+        let _ = std::fs::create_dir_all(papers_dir.join("unsorted"));
+        let db_path = lib_path.join("rotero.db");
+        let db_path_str = db_path.to_string_lossy().to_string();
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create init runtime");
+        let (conn, _lib_path) = rt.block_on(async {
+            let db = rotero_db::turso::Builder::new_local(&db_path_str)
+                .experimental_index_method(true)
+                .build()
+                .await
+                .expect("Failed to open database");
+            let conn = db.connect().expect("Failed to connect to database");
+            rotero_db::schema::initialize_db(&conn)
+                .await
+                .expect("Failed to initialize schema");
+            (conn, lib_path.clone())
+        });
+        let _ = SHARED_DB.set((conn, lib_path));
+    }
+
     // Start the browser connector server in the background (desktop only)
     #[cfg(feature = "desktop")]
     let (connector_tx, connector_rx) = tokio::sync::watch::channel(());
@@ -42,23 +67,11 @@ fn main() {
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
             rt.block_on(async {
-                // Open a dedicated DB connection for the connector thread
-                let db_path = lib_path.join("rotero.db");
-                let db_path_str = db_path.to_string_lossy().to_string();
-                let db = match rotero_db::turso::Builder::new_local(&db_path_str)
-                    .build()
-                    .await
-                {
-                    Ok(db) => db,
-                    Err(e) => {
-                        eprintln!("Connector failed to open DB: {e}");
-                        return;
-                    }
-                };
-                let conn = match db.connect() {
-                    Ok(c) => c,
-                    Err(e) => {
-                        eprintln!("Connector failed to connect to DB: {e}");
+                // Use the shared DB connection
+                let (conn, _) = match SHARED_DB.get() {
+                    Some(pair) => (pair.0.clone(), pair.1.clone()),
+                    None => {
+                        eprintln!("Connector: SHARED_DB not initialized");
                         return;
                     }
                 };
@@ -78,6 +91,10 @@ fn main() {
                             let lib_path = lib_path.clone();
                             tokio::task::block_in_place(|| {
                                 tokio::runtime::Handle::current().block_on(async {
+                                    let mut paper = paper;
+                                    if let Some(ref url) = pdf_url {
+                                        paper.pdf_url = Some(url.clone());
+                                    }
                                     match rotero_db::papers::insert_paper(&conn, &paper).await {
                                         Ok(paper_id) => {
                                             if let Some(ref coll_id) = collection_id {
@@ -218,6 +235,11 @@ fn main() {
         dioxus::LaunchBuilder::new().launch(app::App);
     }
 }
+
+/// Shared DB connection — initialized once, used by both connector and UI.
+#[cfg(feature = "desktop")]
+pub static SHARED_DB: std::sync::OnceLock<(rotero_db::turso::Connection, std::path::PathBuf)> =
+    std::sync::OnceLock::new();
 
 /// Watch channel receiver — the connector sends a notification when data changes.
 /// The UI awaits this instead of polling.
@@ -361,7 +383,7 @@ fn build_menu_bar() -> dioxus::desktop::muda::Menu {
 
 /// Download a PDF from a URL and import it into the library.
 #[cfg(feature = "desktop")]
-async fn download_and_import_pdf(
+pub async fn download_and_import_pdf(
     conn: &rotero_db::turso::Connection,
     lib_path: &std::path::Path,
     paper_id: &str,

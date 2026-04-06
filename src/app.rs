@@ -94,6 +94,10 @@ pub fn App() -> Element {
     let db_gen = *db_generation.read();
     let db_resource = use_resource(move || async move {
         let _ = db_gen; // capture to re-run when generation bumps
+        #[cfg(feature = "desktop")]
+        if let Some((conn, lib_path)) = crate::SHARED_DB.get() {
+            return Ok(Database::from_conn(conn.clone(), lib_path.clone()));
+        }
         let config = SyncConfig::load();
         Database::open(config.effective_library_path()).await
     });

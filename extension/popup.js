@@ -114,6 +114,31 @@ async function loadMetadata() {
     }
   }
 
+  // Fallback: if client-side extraction found no DOI or authors, try server-side scrape
+  if (pageMetadata && !pageMetadata.doi && (!pageMetadata.authors || pageMetadata.authors.length === 0)) {
+    try {
+      const scrapeResp = await fetch(`${API}/api/scrape`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: pageMetadata.url }),
+      });
+      if (scrapeResp.ok) {
+        const scrapeData = await scrapeResp.json();
+        if (scrapeData.doi) pageMetadata.doi = scrapeData.doi;
+        if (scrapeData.authors?.length) pageMetadata.authors = scrapeData.authors;
+        if (scrapeData.title) pageMetadata.title = scrapeData.title;
+        if (scrapeData.year) pageMetadata.year = scrapeData.year;
+        if (scrapeData.journal) pageMetadata.journal = scrapeData.journal;
+        if (scrapeData.abstract_text) pageMetadata.abstract_text = scrapeData.abstract_text;
+        if (scrapeData.pdf_url) pageMetadata.pdf_url = scrapeData.pdf_url;
+        if (scrapeData.volume) pageMetadata.volume = scrapeData.volume;
+        if (scrapeData.issue) pageMetadata.issue = scrapeData.issue;
+        if (scrapeData.pages) pageMetadata.pages = scrapeData.pages;
+        if (scrapeData.publisher) pageMetadata.publisher = scrapeData.publisher;
+      }
+    } catch {}
+  }
+
   if (pageMetadata) {
     paperTitle.textContent = pageMetadata.title || 'Untitled';
     paperAuthors.textContent = pageMetadata.authors?.join(', ') || '';
