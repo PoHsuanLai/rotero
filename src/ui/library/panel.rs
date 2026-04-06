@@ -886,7 +886,7 @@ fn GraphToggleButton() -> Element {
                     };
                 });
             },
-            i { class: "bi bi-collection" }
+            i { class: "bi bi-diagram-3" }
         }
     }
 }

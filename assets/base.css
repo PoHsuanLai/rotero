@@ -110,6 +110,7 @@ body {
 .bi-palette::before { content: "\f4c2"; }
 .bi-gear::before { content: "\f3e5"; }
 .bi-archive::before { content: "\f10d"; }
+.bi-diagram-3::before { content: "\f2ee"; }
 .bi-chat-dots::before { content: "\f249"; }
 .bi-stop-fill::before { content: "\f592"; }
 .bi-exclamation-triangle::before { content: "\f33a"; }
