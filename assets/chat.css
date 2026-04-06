@@ -311,39 +311,11 @@
     cursor: default;
 }
 
-/* ---- Chat toggle in library header ---- */
-
-.chat-toggle-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border: 1px solid var(--border);
-    background: var(--bg-main);
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    font-size: var(--text-base);
-    color: var(--text-tertiary);
-    transition: background var(--transition-fast),
-                color var(--transition-fast);
-}
-
-.chat-toggle-btn:hover {
-    background: var(--bg-muted);
-    color: var(--text-primary);
-}
+/* ---- Chat toggle active state ---- */
 
 .chat-toggle-btn--active {
-    background: var(--accent);
-    color: var(--text-on-accent);
-    border-color: var(--accent);
-}
-
-.chat-toggle-btn--active:hover {
-    opacity: 0.9;
-    background: var(--accent);
-    color: var(--text-on-accent);
+    background: var(--accent) !important;
+    color: var(--text-on-accent) !important;
 }
 
 /* ---- Header buttons ---- */

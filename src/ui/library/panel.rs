@@ -347,6 +347,7 @@ pub fn LibraryPanel() -> Element {
                     span { class: "library-count", "{paper_count} papers" }
                 }
                 div { class: "library-header-right",
+                    GraphToggleButton {}
                     ChatToggleButton {}
                     ImportExportButtons {}
                     AddPaperButtons {}
@@ -862,6 +863,30 @@ pub fn LibraryPanel() -> Element {
                     }
                 }
             }
+        }
+    }
+}
+
+#[component]
+fn GraphToggleButton() -> Element {
+    let mut lib_state = use_context::<Signal<LibraryState>>();
+    let is_graph = lib_state.read().view == LibraryView::Graph;
+
+    rsx! {
+        button {
+            class: "btn btn--ghost",
+            class: if is_graph { "chat-toggle-btn--active" } else { "" },
+            title: "Paper Graph",
+            onclick: move |_| {
+                lib_state.with_mut(|s| {
+                    s.view = if s.view == LibraryView::Graph {
+                        LibraryView::AllPapers
+                    } else {
+                        LibraryView::Graph
+                    };
+                });
+            },
+            i { class: "bi bi-collection" }
         }
     }
 }
