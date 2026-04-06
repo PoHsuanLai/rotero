@@ -924,9 +924,10 @@ fn build_mcp_servers_json() -> serde_json::Value {
         let url = format!("http://127.0.0.1:{port}/mcp");
         tracing::info!("MCP: using embedded HTTP server at {url}");
         return serde_json::json!([{
-            "type": "sse",
+            "type": "http",
             "name": "rotero",
             "url": url,
+            "headers": [],
         }]);
     }
 
