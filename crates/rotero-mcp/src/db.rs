@@ -29,6 +29,11 @@ impl Database {
         Ok(Self { conn, data_dir })
     }
 
+    /// Create from an existing connection (for embedding in the main app).
+    pub fn from_conn(conn: Connection, data_dir: std::path::PathBuf) -> Self {
+        Self { conn, data_dir }
+    }
+
     pub fn papers_dir(&self) -> std::path::PathBuf {
         self.data_dir.join("papers")
     }

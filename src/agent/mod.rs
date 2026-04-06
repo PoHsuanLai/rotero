@@ -918,15 +918,24 @@ fn agent_working_dir() -> PathBuf {
 
 /// Build the JSON array of MCP servers to attach to any session.
 fn build_mcp_servers_json() -> serde_json::Value {
+    // Use the embedded HTTP MCP server if available
+    #[cfg(feature = "desktop")]
+    if let Some(&port) = crate::MCP_HTTP_PORT.get() {
+        let url = format!("http://127.0.0.1:{port}/mcp");
+        tracing::info!("MCP: using embedded HTTP server at {url}");
+        return serde_json::json!([{
+            "type": "http",
+            "name": "rotero",
+            "url": url,
+        }]);
+    }
+
+    // Fallback: try stdio binary (for standalone/development use)
     let mcp_binary = find_mcp_binary();
     let pdfium_path = find_pdfium_path();
 
-    match &mcp_binary {
-        Some(p) => tracing::info!("MCP binary found: {}", p.display()),
-        None => tracing::warn!("rotero-mcp binary not found — agent won't have library tools"),
-    }
-
     if let Some(mcp_bin) = &mcp_binary {
+        tracing::info!("MCP: using stdio binary at {}", mcp_bin.display());
         serde_json::json!([{
             "type": "stdio",
             "name": "rotero",
@@ -938,6 +947,7 @@ fn build_mcp_servers_json() -> serde_json::Value {
             }]
         }])
     } else {
+        tracing::warn!("MCP: no server available — agent won't have library tools");
         serde_json::json!([])
     }
 }

@@ -33,6 +33,7 @@ rotero-search = { path = "crates/rotero-search" }
 rotero-connector = { path = "crates/rotero-connector" }
 rotero-graph = { path = "crates/rotero-graph" }
 rotero-db = { path = "crates/rotero-db" }
+rotero-mcp = { path = "crates/rotero-mcp" }
 
 [package]
 name = "rotero"
@@ -47,6 +48,8 @@ rotero-search.workspace = true
 rotero-connector = { workspace = true, optional = true }
 rotero-graph.workspace = true
 rotero-db.workspace = true
+rotero-mcp.workspace = true
+rmcp = { version = "1", features = ["server", "transport-streamable-http-server"] }
 
 dioxus = "0.7"
 rfd = { version = "0.14", optional = true }
@@ -67,6 +70,7 @@ which = "8.0.2"
 pulldown-cmark = "0.13.3"
 futures-util = "0.3"
 libc = "0.2.184"
+axum = "0.8"
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 objc2 = { version = "0.6", optional = true }

@@ -7,11 +7,15 @@ edition.workspace = true
 name = "rotero-mcp"
 path = "src/main.rs"
 
+[lib]
+name = "rotero_mcp"
+path = "src/lib.rs"
+
 [dependencies]
 rotero-models.workspace = true
 rotero-pdf.workspace = true
 
-rmcp = { version = "1", features = ["server", "transport-io"] }
+rmcp = { version = "1", features = ["server", "transport-io", "transport-streamable-http-server"] }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

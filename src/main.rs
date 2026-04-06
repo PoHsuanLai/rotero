@@ -203,6 +203,46 @@ fn main() {
     #[cfg(feature = "desktop")]
     CONNECTOR_NOTIFY.get_or_init(|| std::sync::Mutex::new(connector_rx));
 
+    // Start embedded MCP server over HTTP (shares DB connection with the app)
+    #[cfg(feature = "desktop")]
+    {
+        let mcp_port = 21985u16; // connector is 21984
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create MCP runtime");
+            rt.block_on(async {
+                let Some((conn, lib_path)) = SHARED_DB.get() else {
+                    eprintln!("MCP: SHARED_DB not initialized");
+                    return;
+                };
+                let mcp_db = rotero_mcp::Database::from_conn(conn.clone(), lib_path.clone());
+                let pdf_available = rotero_pdf::PdfEngine::new(None).is_ok();
+                let mcp_server = rotero_mcp::RoteroMcp::new(mcp_db, pdf_available);
+
+                let config = rmcp::transport::StreamableHttpServerConfig::default()
+                    .with_stateful_mode(false)
+                    .with_json_response(true);
+
+                let service = rmcp::transport::StreamableHttpService::new(
+                    move || Ok(mcp_server.clone()),
+                    std::sync::Arc::new(
+                        rmcp::transport::streamable_http_server::session::local::LocalSessionManager::default(),
+                    ),
+                    config,
+                );
+
+                let app = axum::Router::new().fallback_service(service);
+
+                let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{mcp_port}"))
+                    .await
+                    .expect("Failed to bind MCP port");
+                tracing::info!("MCP server listening on 127.0.0.1:{mcp_port}");
+                axum::serve(listener, app).await.unwrap();
+            });
+        });
+
+        MCP_HTTP_PORT.get_or_init(|| mcp_port);
+    }
+
     #[cfg(feature = "desktop")]
     {
         use dioxus::desktop::tao::dpi::LogicalSize;
@@ -248,6 +288,10 @@ pub static SHARED_DB: std::sync::OnceLock<(rotero_db::turso::Connection, std::pa
 pub static CONNECTOR_NOTIFY: std::sync::OnceLock<
     std::sync::Mutex<tokio::sync::watch::Receiver<()>>,
 > = std::sync::OnceLock::new();
+
+/// MCP HTTP server port — set when the embedded MCP server starts.
+#[cfg(feature = "desktop")]
+pub static MCP_HTTP_PORT: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
 
 /// Build the native menu bar.
 #[cfg(feature = "desktop")]

@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::Database;
 
+#[derive(Clone)]
 pub struct RoteroMcp {
     db: Database,
     /// Whether pdfium is available (checked at startup).
