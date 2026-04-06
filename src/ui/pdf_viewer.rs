@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
@@ -6,14 +5,15 @@ use dioxus::prelude::*;
 use super::chat_panel::ChatToggleButton;
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use crate::app::RenderChannel;
-use crate::db::Database;
 use crate::state::app_state::{
     AnnotationMode, LibraryState, LibraryView, PdfTabManager, TabId, ViewerToolState,
 };
+use rotero_db::Database;
 use rotero_models::{Annotation, AnnotationType};
+use rotero_pdf::RenderFormat;
 
 /// Shared annotation context menu state: (ann_id, ann_type, page, color, content, x, y)
-type AnnCtxState = Signal<Option<(i64, AnnotationType, i32, String, String, f64, f64)>>;
+type AnnCtxState = Signal<Option<(String, AnnotationType, i32, String, String, f64, f64)>>;
 
 /// Convert a hex color like "#ff0000" to "rgba(r, g, b, alpha)".
 fn hex_to_rgba(hex: &str, alpha: f32) -> String {
@@ -38,7 +38,7 @@ pub fn PdfTabBar() -> Element {
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
 
     let mgr = tabs.read();
-    let tab_info: Vec<(TabId, String, bool, Option<i64>)> = mgr
+    let tab_info: Vec<(TabId, String, bool, Option<String>)> = mgr
         .tabs
         .iter()
         .map(|t| {
@@ -46,7 +46,7 @@ pub fn PdfTabBar() -> Element {
                 t.id,
                 t.title.clone(),
                 mgr.active_tab_id == Some(t.id),
-                t.paper_id,
+                t.paper_id.clone(),
             )
         })
         .collect();
@@ -54,7 +54,7 @@ pub fn PdfTabBar() -> Element {
     drop(mgr);
 
     // Tab context menu state: (tab_id, paper_id, tab_index, x, y)
-    let mut tab_ctx = use_signal(|| None::<(TabId, Option<i64>, usize, f64, f64)>);
+    let mut tab_ctx = use_signal(|| None::<(TabId, Option<String>, usize, f64, f64)>);
 
     rsx! {
         div { class: "pdf-tab-bar",
@@ -63,7 +63,7 @@ pub fn PdfTabBar() -> Element {
                     let tab_id = *tab_id;
                     let title = title.clone();
                     let is_active = *is_active;
-                    let paper_id = *paper_id;
+                    let paper_id = paper_id.clone();
                     let tab_class = if is_active { "pdf-tab pdf-tab--active" } else { "pdf-tab" };
                     let display_title = if title.len() > 30 {
                         format!("{}...", &title[..27])
@@ -75,9 +75,12 @@ pub fn PdfTabBar() -> Element {
                         div {
                             key: "tab-{tab_id}",
                             class: "{tab_class}",
-                            oncontextmenu: move |evt: Event<MouseData>| {
-                                evt.prevent_default();
-                                tab_ctx.set(Some((tab_id, paper_id, idx, evt.client_coordinates().x, evt.client_coordinates().y)));
+                            oncontextmenu: {
+                                let pid = paper_id.clone();
+                                move |evt: Event<MouseData>| {
+                                    evt.prevent_default();
+                                    tab_ctx.set(Some((tab_id, pid.clone(), idx, evt.client_coordinates().x, evt.client_coordinates().y)));
+                                }
                             },
                             onclick: move |_| {
                                 if is_active { return; }
@@ -98,10 +101,13 @@ pub fn PdfTabBar() -> Element {
                                     let needs = tabs.read().active_tab().map(|t| t.needs_render()).unwrap_or(false);
                                     if needs {
                                         let render_tx = render_ch.sender();
-                                        let cfg_dir = config.read().effective_library_path();
-                                        let cfg_q = config.read().render_quality;
+                                        let cfg = config.read();
+                                        let cfg_dir = cfg.effective_library_path();
+                                        let cfg_q = cfg.render_quality;
+                                        let cfg_fmt = RenderFormat::from_str(&cfg.render_format);
+                                        drop(cfg);
                                         tabs.with_mut(|m| m.tab_mut().is_loading = true);
-                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &cfg_dir, cfg_q).await;
+                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &cfg_dir, cfg_q, cfg_fmt).await;
                                     }
                                     // Restore scroll
                                     let scroll_top = tabs.read().active_tab().map(|t| t.view.scroll_top).unwrap_or(0.0);
@@ -126,11 +132,14 @@ pub fn PdfTabBar() -> Element {
                                         if needs {
                                             let new_id = tabs.read().active_tab_id.unwrap();
                                             let render_tx = render_ch.sender();
-                                            let cfg_dir = config.read().effective_library_path();
-                                            let cfg_q = config.read().render_quality;
+                                            let cfg = config.read();
+                                            let cfg_dir = cfg.effective_library_path();
+                                            let cfg_q = cfg.render_quality;
+                                            let cfg_fmt = RenderFormat::from_str(&cfg.render_format);
+                                            drop(cfg);
                                             tabs.with_mut(|m| m.tab_mut().is_loading = true);
                                             spawn(async move {
-                                                let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &cfg_dir, cfg_q).await;
+                                                let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &cfg_dir, cfg_q, cfg_fmt).await;
                                             });
                                         }
                                     }
@@ -200,12 +209,15 @@ pub fn PdfTabBar() -> Element {
                                 ContextMenuItem {
                                     label: "Show in library".to_string(),
                                     icon: Some("bi-collection".to_string()),
-                                    on_click: move |_| {
-                                        lib_state.with_mut(|s| {
-                                            s.view = LibraryView::AllPapers;
-                                            s.selected_paper_id = ctx_paper_id;
-                                        });
-                                        tab_ctx.set(None);
+                                    on_click: {
+                                        let pid = ctx_paper_id.clone();
+                                        move |_| {
+                                            lib_state.with_mut(|s| {
+                                                s.view = LibraryView::AllPapers;
+                                                s.selected_paper_id = pid.clone();
+                                            });
+                                            tab_ctx.set(None);
+                                        }
                                     },
                                 }
                             }
@@ -257,33 +269,33 @@ pub fn PdfViewer() -> Element {
         let data_dir = config.read().effective_library_path();
         let db = db.clone();
         spawn(async move {
+            let cfg = config.read();
+            let cfg_q = cfg.render_quality;
+            let cfg_fmt = RenderFormat::from_str(&cfg.render_format);
+            drop(cfg);
             if crate::state::commands::open_pdf(
-                &render_tx,
-                &mut tabs,
-                tid,
-                &data_dir,
-                config.read().render_quality,
+                &render_tx, &mut tabs, tid, &data_dir, cfg_q, cfg_fmt,
             )
             .await
             .is_ok()
             {
                 // Load annotations if paper_id is set
-                let paper_id = tabs.read().active_tab().and_then(|t| t.paper_id);
-                if let Some(pid) = paper_id {
+                let paper_id = tabs.read().active_tab().and_then(|t| t.paper_id.clone());
+                if let Some(ref pid) = paper_id {
                     let mut anns =
-                        crate::db::annotations::list_annotations_for_paper(db.conn(), pid)
+                        rotero_db::annotations::list_annotations_for_paper(db.conn(), pid)
                             .await
                             .unwrap_or_default();
 
                     // Extract annotations embedded in the PDF and import any new ones
                     let pdf_path = tabs.read().tab().pdf_path.clone();
-                    let rendered_pages: HashMap<u32, (u32, u32)> = tabs
+                    let rendered_pages: Vec<(u32, u32)> = tabs
                         .read()
                         .tab()
                         .render
                         .rendered_pages
                         .iter()
-                        .map(|(&idx, p)| (idx, (p.width, p.height)))
+                        .map(|p| (p.width, p.height))
                         .collect();
 
                     let (reply_tx, reply_rx) = std::sync::mpsc::channel();
@@ -316,7 +328,7 @@ pub fn PdfViewer() -> Element {
                                             .unwrap_or(0.0);
                                         // Get rendered dims for this page to convert extracted coords
                                         let (rw, rh) = rendered_pages
-                                            .get(&ext.page)
+                                            .get(ext.page as usize)
                                             .copied()
                                             .unwrap_or((1, 1));
                                         let sx = rw as f64 / ext.page_width_pts as f64;
@@ -334,7 +346,7 @@ pub fn PdfViewer() -> Element {
 
                                 // Convert PDF points to pixel coords
                                 let (rw, rh) = rendered_pages
-                                    .get(&ext.page)
+                                    .get(ext.page as usize)
                                     .copied()
                                     .unwrap_or((1, 1));
                                 let sx = rw as f32 / ext.page_width_pts;
@@ -351,7 +363,7 @@ pub fn PdfViewer() -> Element {
 
                                 let ann = Annotation {
                                     id: None,
-                                    paper_id: pid,
+                                    paper_id: pid.clone(),
                                     page: ext.page as i32,
                                     ann_type: ext.ann_type,
                                     color: ext.color,
@@ -361,7 +373,7 @@ pub fn PdfViewer() -> Element {
                                     modified_at: now,
                                 };
                                 if let Ok(id) =
-                                    crate::db::annotations::insert_annotation(db.conn(), &ann).await
+                                    rotero_db::annotations::insert_annotation(db.conn(), &ann).await
                                 {
                                     let mut ann = ann;
                                     ann.id = Some(id);
@@ -408,19 +420,25 @@ pub fn PdfViewer() -> Element {
                     Key::Character(ref c) if c == "+" || c == "=" => {
                         let new_zoom = (zoom + 0.3_f32).min(5.0);
                         let render_tx = render_ch.sender();
-                        let quality = config.read().render_quality;
-                        let data_dir = config.read().effective_library_path();
+                        let cfg = config.read();
+                        let quality = cfg.render_quality;
+                        let fmt = RenderFormat::from_str(&cfg.render_format);
+                        let data_dir = cfg.effective_library_path();
+                        drop(cfg);
                         spawn(async move {
-                            let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, &data_dir).await;
+                            let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, fmt, &data_dir).await;
                         });
                     }
                     Key::Character(ref c) if c == "-" => {
                         let new_zoom = (zoom - 0.3_f32).max(0.5);
                         let render_tx = render_ch.sender();
-                        let quality = config.read().render_quality;
-                        let data_dir = config.read().effective_library_path();
+                        let cfg = config.read();
+                        let quality = cfg.render_quality;
+                        let fmt = RenderFormat::from_str(&cfg.render_format);
+                        let data_dir = cfg.effective_library_path();
+                        drop(cfg);
                         spawn(async move {
-                            let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, &data_dir).await;
+                            let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, fmt, &data_dir).await;
                         });
                     }
                     Key::PageDown => {
@@ -494,76 +512,38 @@ pub fn PdfViewer() -> Element {
                     id: "pdf-pages-container",
                     onscroll: move |_| {
                         if is_loading() { return; }
-                        let (start, has_more_now, tid, pc, cur_zoom) = {
+                        let (start, has_more_now, tid) = {
                             let mgr = tabs.read();
                             if let Some(t) = mgr.active_tab() {
                                 let rendered = t.rendered_count();
-                                (rendered, rendered < t.page_count, t.id, t.page_count, t.view.zoom)
+                                (rendered, rendered < t.page_count, t.id)
                             } else { return; }
                         };
+                        if !has_more_now { return; }
 
                         is_loading.set(true);
                         spawn(async move {
-                            // Estimate current scroll position as a page index
                             let mut eval = document::eval(
                                 "(function() { let el = document.getElementById('pdf-pages-container'); \
-                                 if (!el) return JSON.stringify([0.0, 0.0]); \
-                                 let ratio = el.scrollTop / Math.max(el.scrollHeight, 1); \
-                                 let remaining = (el.scrollHeight - el.scrollTop - el.clientHeight) / Math.max(el.clientHeight, 1); \
-                                 return JSON.stringify([ratio, remaining]); })()"
+                                 if (!el) return 0.0; \
+                                 return (el.scrollHeight - el.scrollTop - el.clientHeight) / el.clientHeight; })()"
                             );
-                            let vals: Vec<f64> = eval.recv::<serde_json::Value>().await
-                                .ok()
-                                .and_then(|v| serde_json::from_value(v).ok())
-                                .unwrap_or_else(|| vec![0.0, 0.0]);
-                            let scroll_ratio = vals[0];
-                            let remaining_viewports = vals[1];
-
-                            // Estimate which page is at the current scroll position
-                            let estimated_page = (scroll_ratio * pc as f64) as u32;
-
-                            // Reload evicted pages near the viewport from disk cache
-                            let data_dir = config.read().effective_library_path();
-                            let pdf_path = {
-                                let mgr = tabs.read();
-                                mgr.active_tab().map(|t| t.pdf_path.clone()).unwrap_or_default()
-                            };
-                            let half_window = 15_u32;
-                            let reload_lo = estimated_page.saturating_sub(half_window);
-                            let reload_hi = (estimated_page + half_window).min(start);
-                            let mut reloaded = Vec::new();
-                            for idx in reload_lo..reload_hi {
-                                let already_resident = tabs.read().active_tab()
-                                    .map(|t| t.render.rendered_pages.contains_key(&idx))
-                                    .unwrap_or(true);
-                                if !already_resident
-                                    && let Some(page) = crate::cache::load_single_page(
-                                        &data_dir, &pdf_path, idx, cur_zoom,
-                                    )
-                                {
-                                    reloaded.push(page);
-                                }
-                            }
-                            if !reloaded.is_empty() {
-                                tabs.with_mut(|mgr| {
-                                    if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tid) {
-                                        for p in reloaded {
-                                            tab.render.rendered_pages.insert(p.page_index, p);
-                                        }
-                                        tab.render.evict_distant_pages(estimated_page);
-                                    }
-                                });
+                            let remaining_viewports = eval.recv::<f64>().await.unwrap_or(0.0);
+                            if remaining_viewports > 2.0 {
+                                is_loading.set(false);
+                                return;
                             }
 
-                            // Load more pages when near the bottom
-                            if has_more_now && remaining_viewports <= 2.0 {
-                                let render_tx = render_ch.sender();
-                                let count = batch_size;
-                                let quality = config.read().render_quality;
-                                let _ = crate::state::commands::render_more_pages(
-                                    &render_tx, &mut tabs, tid, start, count, quality, &data_dir,
-                                ).await;
-                            }
+                            let render_tx = render_ch.sender();
+                            let count = batch_size;
+                            let cfg = config.read();
+                            let quality = cfg.render_quality;
+                            let fmt = RenderFormat::from_str(&cfg.render_format);
+                            let data_dir = cfg.effective_library_path();
+                            drop(cfg);
+                            let _ = crate::state::commands::render_more_pages(
+                                &render_tx, &mut tabs, tid, start, count, quality, fmt, &data_dir,
+                            ).await;
                             is_loading.set(false);
                         });
                     },
@@ -571,30 +551,20 @@ pub fn PdfViewer() -> Element {
                     {
                         let mgr = tabs.read();
                         let tab = mgr.tab();
-                        let resident_pages = tab.render.rendered_pages.clone();
-                        let rc = rendered_count;
+                        let pages = tab.render.rendered_pages.clone();
                         drop(mgr);
                         rsx! {
-                            for idx in 0..rc {
-                                if let Some(page) = resident_pages.get(&idx) {
-                                    PdfPageWithOverlay {
-                                        key: "{idx}",
-                                        page_index: page.page_index,
-                                        base64_data: page.base64_data.clone(),
-                                        mime: page.mime,
-                                        width: page.width,
-                                        height: page.height,
-                                        zoom,
-                                        render_zoom,
-                                        tab_id,
-                                    }
-                                } else {
-                                    // Placeholder for evicted page — maintains scroll position
-                                    div {
-                                        key: "{idx}",
-                                        class: "pdf-page-placeholder",
-                                        style: "width: 100%; aspect-ratio: 8.5/11; background: var(--bg-secondary, #f0f0f0);",
-                                    }
+                            for (idx, page) in pages.iter().enumerate() {
+                                PdfPageWithOverlay {
+                                    key: "{idx}",
+                                    page_index: page.page_index,
+                                    base64_data: page.base64_data.clone(),
+                                    mime: page.mime,
+                                    width: page.width,
+                                    height: page.height,
+                                    zoom,
+                                    render_zoom,
+                                    tab_id,
                                 }
                             }
                         }
@@ -640,7 +610,7 @@ fn PdfPageWithOverlay(
 
     let mgr = tabs.read();
     let tab = mgr.tab();
-    let paper_id = tab.paper_id.unwrap_or(0);
+    let paper_id = tab.paper_id.clone().unwrap_or_default();
     let page_annotations: Vec<Annotation> = tab
         .annotations
         .iter()
@@ -831,15 +801,13 @@ fn PdfPageWithOverlay(
                                         }}
 
                                         let eoc = textLayer.querySelector('.endOfContent');
-                                        if (eoc) {{
+                                        if (eoc && anchor.parentElement === textLayer) {{
                                             eoc.style.width = textLayer.style.width;
                                             eoc.style.height = textLayer.style.height;
-                                            if (anchor.parentElement) {{
-                                                anchor.parentElement.insertBefore(
-                                                    eoc,
-                                                    modifyStart ? anchor : anchor.nextSibling
-                                                );
-                                            }}
+                                            textLayer.insertBefore(
+                                                eoc,
+                                                modifyStart ? anchor : anchor.nextSibling
+                                            );
                                         }}
 
                                         prevRange = range.cloneRange();
@@ -1023,14 +991,14 @@ fn PdfPageWithOverlay(
                                 drag_start.set(None); drag_current.set(None);
                                 let now = chrono::Utc::now();
                                 let ann = Annotation {
-                                    id: None, paper_id, page: page_index as i32, ann_type,
+                                    id: None, paper_id: paper_id.clone(), page: page_index as i32, ann_type,
                                     color: color.clone(),
                                     content: if matches!(ann_type, AnnotationType::Note | AnnotationType::Text) { Some(String::new()) } else { None },
                                     geometry, created_at: now, modified_at: now,
                                 };
                                 let db = db.clone();
                                 spawn(async move {
-                                    if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), &ann).await {
+                                    if let Ok(id) = rotero_db::annotations::insert_annotation(db.conn(), &ann).await {
                                         let mut ann = ann;
                                         ann.id = Some(id);
                                         undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Create(ann.clone())));
@@ -1071,23 +1039,26 @@ fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> Element {
         .and_then(|v| v.as_f64())
         .unwrap_or(24.0);
     let color = ann.color.clone();
-    let ann_id = ann.id.unwrap_or(0);
+    let ann_id = ann.id.clone().unwrap_or_default();
     let ann_type = ann.ann_type;
     let page = ann.page;
     let content = ann.content.clone().unwrap_or_default();
     let color_for_ctx = color.clone();
 
-    let on_context = move |evt: Event<MouseData>| {
-        evt.prevent_default();
-        ann_ctx.set(Some((
-            ann_id,
-            ann_type,
-            page,
-            color_for_ctx.clone(),
-            content.clone(),
-            evt.client_coordinates().x,
-            evt.client_coordinates().y,
-        )));
+    let on_context = {
+        let ann_id = ann_id.clone();
+        move |evt: Event<MouseData>| {
+            evt.prevent_default();
+            ann_ctx.set(Some((
+                ann_id.clone(),
+                ann_type,
+                page,
+                color_for_ctx.clone(),
+                content.clone(),
+                evt.client_coordinates().x,
+                evt.client_coordinates().y,
+            )));
+        }
     };
 
     match ann.ann_type {
@@ -1310,7 +1281,7 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                     tabs.with_mut(|m| m.tab_mut().nav.show_thumbnails = !m.tab().nav.show_thumbnails);
                     if tabs.read().tab().render.thumbnails.is_empty() {
                         spawn(async move {
-                            let _ = crate::state::commands::load_thumbnails(&render_tx, &mut tabs, tab_id, config.read().thumbnail_quality).await;
+                            let _ = crate::state::commands::load_thumbnails(&render_tx, &mut tabs, tab_id, 0, 50, config.read().thumbnail_quality).await;
                         });
                     }
                 },
@@ -1393,10 +1364,13 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 onclick: move |_| {
                     let new_zoom = (zoom - 0.3_f32).max(0.5);
                     let render_tx = render_ch.sender();
-                    let quality = config.read().render_quality;
-                    let data_dir = config.read().effective_library_path();
+                    let cfg = config.read();
+                    let quality = cfg.render_quality;
+                    let fmt = RenderFormat::from_str(&cfg.render_format);
+                    let data_dir = cfg.effective_library_path();
+                    drop(cfg);
                     spawn(async move {
-                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, &data_dir).await;
+                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, fmt, &data_dir).await;
                     });
                 },
                 span { class: "bi bi-zoom-out" }
@@ -1407,10 +1381,13 @@ fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 onclick: move |_| {
                     let new_zoom = (zoom + 0.3_f32).min(5.0);
                     let render_tx = render_ch.sender();
-                    let quality = config.read().render_quality;
-                    let data_dir = config.read().effective_library_path();
+                    let cfg = config.read();
+                    let quality = cfg.render_quality;
+                    let fmt = RenderFormat::from_str(&cfg.render_format);
+                    let data_dir = cfg.effective_library_path();
+                    drop(cfg);
                     spawn(async move {
-                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, &data_dir).await;
+                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, fmt, &data_dir).await;
                     });
                 },
                 span { class: "bi bi-zoom-in" }
@@ -1444,7 +1421,7 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                 onclick: move |_| {
                                     let db = db_extract.clone();
                                     let anns = anns_for_extract.clone();
-                                    let paper_id = tabs.read().tab().paper_id;
+                                    let paper_id = tabs.read().tab().paper_id.clone();
                                     let paper_title = tabs.read().tab().title.clone();
                                     spawn(async move {
                                         if let Some(pid) = paper_id {
@@ -1476,7 +1453,7 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                             let title = format!("Annotations from {}", paper_title);
                                             let mut note = rotero_models::Note::new(pid, title);
                                             note.body = body;
-                                            let _ = crate::db::notes::insert_note(db.conn(), &note).await;
+                                            let _ = rotero_db::notes::insert_note(db.conn(), &note).await;
                                         }
                                     });
                                 },
@@ -1492,7 +1469,7 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                 div { class: "annotation-panel-list",
                     for ann in annotations.iter() {
                         {
-                            let ann_id = ann.id.unwrap_or(0);
+                            let ann_id = ann.id.clone().unwrap_or_default();
                             let page = ann.page;
                             let color = ann.color.clone();
                             let ann_type = ann.ann_type;
@@ -1511,6 +1488,9 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                             };
                             let ctx_color = color.clone();
                             let ctx_content = content.clone();
+                            let aid_ctx = ann_id.clone();
+                            let aid_del = ann_id.clone();
+                            let aid_save = ann_id.clone();
                             rsx! {
                                 div {
                                     key: "panel-ann-{ann_id}",
@@ -1518,7 +1498,7 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                     style: "border-left-color: {color};",
                                     oncontextmenu: move |evt: Event<MouseData>| {
                                         evt.prevent_default();
-                                        ann_ctx.set(Some((ann_id, ann_type, page, ctx_color.clone(), ctx_content.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
+                                        ann_ctx.set(Some((aid_ctx.clone(), ann_type, page, ctx_color.clone(), ctx_content.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
                                     },
                                     div { class: "annotation-item-header",
                                         div { class: "annotation-item-meta",
@@ -1530,13 +1510,16 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                             class: "btn--danger-sm",
                                             onclick: move |_| {
                                                 let db = db_for_delete.clone();
-                                                let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id == Some(ann_id)).cloned();
+                                                let aid = aid_del.clone();
+                                                let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id.as_deref() == Some(aid.as_str())).cloned();
+                                                let aid2 = aid.clone();
                                                 spawn(async move {
-                                                    if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), ann_id).await {
+                                                    if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &aid).await {
                                                         if let Some(ann) = deleted_ann {
                                                             undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Delete(ann)));
                                                         }
-                                                        tabs.with_mut(|m| m.tab_mut().annotations.retain(|a| a.id != Some(ann_id)));
+                                                        let aid3 = aid2.clone();
+                                                        tabs.with_mut(|m| m.tab_mut().annotations.retain(|a| a.id.as_deref() != Some(aid3.as_str())));
                                                     }
                                                 });
                                             },
@@ -1555,14 +1538,17 @@ fn AnnotationPanel(tab_id: TabId) -> Element {
                                                             let old_content = content.clone();
                                                             let db = db_for_save.clone();
                                                             let nc = new_content.clone();
+                                                            let aid = aid_save.clone();
                                                             spawn(async move {
                                                                 let opt = if nc.is_empty() { None } else { Some(nc.as_str()) };
-                                                                if let Ok(()) = crate::db::annotations::update_annotation_content(db.conn(), ann_id, opt).await {
+                                                                if let Ok(()) = rotero_db::annotations::update_annotation_content(db.conn(), &aid, opt).await {
                                                                     let old = if old_content.is_empty() { None } else { Some(old_content) };
                                                                     let new = if new_content.is_empty() { None } else { Some(new_content.clone()) };
-                                                                    undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::UpdateContent { id: ann_id, old, new }));
+                                                                    let aid2 = aid.clone();
+                                                                    undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::UpdateContent { id: aid2, old, new }));
+                                                                    let aid3 = aid.clone();
                                                                     tabs.with_mut(|m| {
-                                                                        if let Some(a) = m.tab_mut().annotations.iter_mut().find(|a| a.id == Some(ann_id)) {
+                                                                        if let Some(a) = m.tab_mut().annotations.iter_mut().find(|a| a.id.as_deref() == Some(aid3.as_str())) {
                                                                             a.content = if new_content.is_empty() { None } else { Some(new_content.clone()) };
                                                                         }
                                                                     });
@@ -1605,11 +1591,13 @@ fn AnnotationContextMenu() -> Element {
     let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
     let mut ann_ctx = use_context::<AnnCtxState>();
 
-    let Some((ctx_ann_id, ctx_type, ctx_page, ctx_old_color, ctx_content, mx, my)) = ann_ctx()
+    let Some((ctx_ann_id_orig, ctx_type, ctx_page, ctx_old_color, ctx_content, mx, my)) = ann_ctx()
     else {
         return rsx! {};
     };
 
+    let ctx_ann_id = ctx_ann_id_orig;
+    let ctx_ann_id_del = ctx_ann_id.clone();
     let db_color = db.clone();
     let db_delete = db.clone();
     let colors = [
@@ -1679,6 +1667,7 @@ fn AnnotationContextMenu() -> Element {
                             let color_for_click = color.clone();
                             let db_swatch = db_color.clone();
                             let old_color_for_swatch = ctx_old_color.clone();
+                            let aid_swatch = ctx_ann_id.clone();
                             rsx! {
                                 span {
                                     class: "context-menu-color-swatch",
@@ -1688,11 +1677,14 @@ fn AnnotationContextMenu() -> Element {
                                         let c = color_for_click.clone();
                                         let old_c = old_color_for_swatch.clone();
                                         let db = db_swatch.clone();
+                                        let aid = aid_swatch.clone();
                                         spawn(async move {
-                                            if let Ok(()) = crate::db::annotations::update_annotation_color(db.conn(), ctx_ann_id, &c).await {
-                                                undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::UpdateColor { id: ctx_ann_id, old: old_c, new: c.clone() }));
+                                            if let Ok(()) = rotero_db::annotations::update_annotation_color(db.conn(), &aid, &c).await {
+                                                let aid2 = aid.clone();
+                                                undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::UpdateColor { id: aid2, old: old_c, new: c.clone() }));
+                                                let aid3 = aid.clone();
                                                 tabs.with_mut(|m| {
-                                                    if let Some(a) = m.tab_mut().annotations.iter_mut().find(|a| a.id == Some(ctx_ann_id)) {
+                                                    if let Some(a) = m.tab_mut().annotations.iter_mut().find(|a| a.id.as_deref() == Some(aid3.as_str())) {
                                                         a.color = c;
                                                     }
                                                 });
@@ -1713,18 +1705,24 @@ fn AnnotationContextMenu() -> Element {
                 label: "Delete".to_string(),
                 icon: Some("bi-trash".to_string()),
                 danger: Some(true),
-                on_click: move |_| {
-                    let db = db_delete.clone();
-                    let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id == Some(ctx_ann_id)).cloned();
-                    spawn(async move {
-                        if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), ctx_ann_id).await {
-                            if let Some(ann) = deleted_ann {
-                                undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Delete(ann)));
+                on_click: {
+                    let aid = ctx_ann_id_del.clone();
+                    move |_| {
+                        let db = db_delete.clone();
+                        let aid = aid.clone();
+                        let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id.as_deref() == Some(aid.as_str())).cloned();
+                        let aid2 = aid.clone();
+                        spawn(async move {
+                            if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &aid).await {
+                                if let Some(ann) = deleted_ann {
+                                    undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Delete(ann)));
+                                }
+                                let aid3 = aid2.clone();
+                                tabs.with_mut(|m| m.tab_mut().annotations.retain(|a| a.id.as_deref() != Some(aid3.as_str())));
                             }
-                            tabs.with_mut(|m| m.tab_mut().annotations.retain(|a| a.id != Some(ctx_ann_id)));
-                        }
-                    });
-                    ann_ctx.set(None);
+                        });
+                        ann_ctx.set(None);
+                    }
                 },
             }
         }
@@ -1809,30 +1807,73 @@ fn PdfSearchBar(tab_id: TabId) -> Element {
 
 #[component]
 fn ThumbnailSidebar() -> Element {
-    let tabs = use_context::<Signal<PdfTabManager>>();
-    let thumbnails = tabs.read().tab().render.thumbnails.clone();
+    let mut tabs = use_context::<Signal<PdfTabManager>>();
+    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+    let render_ch = use_context::<RenderChannel>();
+    let mut is_loading_thumbs = use_signal(|| false);
+
+    let mgr = tabs.read();
+    let tab = mgr.tab();
+    let page_count = tab.page_count;
+    let tab_id = tab.id;
+    let thumbnails = tab.render.thumbnails.clone();
+    drop(mgr);
 
     rsx! {
-        div { class: "thumbnail-sidebar",
-            for thumb in thumbnails.iter() {
-                {
-                    let page_idx = thumb.page_index;
-                    let base64 = thumb.base64_data.clone();
-                    let mime = thumb.mime;
-                    let w = thumb.width;
-                    let h = thumb.height;
-                    let page_num = page_idx + 1;
-                    rsx! {
-                        div {
-                            key: "thumb-{page_idx}", class: "thumbnail-item",
-                            onclick: move |_| {
-                                spawn(async move {
-                                    let js = format!("let pages = document.querySelectorAll('.pdf-page-wrapper'); if (pages[{page_idx}]) {{ pages[{page_idx}].scrollIntoView({{ behavior: 'smooth', block: 'start' }}); }}");
-                                    let _ = document::eval(&js);
-                                });
-                            },
-                            img { class: "thumbnail-img", src: "data:{mime};base64,{base64}", width: "{w}", height: "{h}" }
-                            span { class: "thumbnail-page-num", "{page_num}" }
+        div {
+            class: "thumbnail-sidebar",
+            onscroll: move |_| {
+                if is_loading_thumbs() { return; }
+                is_loading_thumbs.set(true);
+                spawn(async move {
+                    // Estimate which thumbnail is visible from scroll position
+                    let mut eval = document::eval(
+                        "(function() { let el = document.querySelector('.thumbnail-sidebar'); \
+                         if (!el) return 0.0; \
+                         return el.scrollTop / Math.max(el.scrollHeight, 1); })()"
+                    );
+                    let ratio = eval.recv::<f64>().await.unwrap_or(0.0);
+                    let center = (ratio * page_count as f64) as u32;
+                    let start = center.saturating_sub(25);
+                    let render_tx = render_ch.sender();
+                    let quality = config.read().thumbnail_quality;
+                    let _ = crate::state::commands::load_thumbnails(
+                        &render_tx, &mut tabs, tab_id, start, 50, quality,
+                    ).await;
+                    is_loading_thumbs.set(false);
+                });
+            },
+
+            for page_idx in 0..page_count {
+                if let Some(thumb) = thumbnails.get(&page_idx) {
+                    {
+                        let base64 = thumb.base64_data.clone();
+                        let mime = thumb.mime;
+                        let w = thumb.width;
+                        let h = thumb.height;
+                        let page_num = page_idx + 1;
+                        rsx! {
+                            div {
+                                key: "thumb-{page_idx}", class: "thumbnail-item",
+                                onclick: move |_| {
+                                    spawn(async move {
+                                        let js = format!("let pages = document.querySelectorAll('.pdf-page-wrapper'); if (pages[{page_idx}]) {{ pages[{page_idx}].scrollIntoView({{ behavior: 'smooth', block: 'start' }}); }}");
+                                        let _ = document::eval(&js);
+                                    });
+                                },
+                                img { class: "thumbnail-img", src: "data:{mime};base64,{base64}", width: "{w}", height: "{h}" }
+                                span { class: "thumbnail-page-num", "{page_num}" }
+                            }
+                        }
+                    }
+                } else {
+                    // Placeholder for unloaded thumbnail
+                    div {
+                        key: "thumb-{page_idx}", class: "thumbnail-item thumbnail-placeholder",
+                        style: "width: 120px; height: 160px; background: var(--bg-secondary, #e0e0e0);",
+                        {
+                            let num = page_idx + 1;
+                            rsx! { span { class: "thumbnail-page-num", "{num}" } }
                         }
                     }
                 }

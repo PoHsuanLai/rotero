@@ -1,13 +1,23 @@
 use dioxus::prelude::*;
+use futures_util::StreamExt;
 
-use crate::db::Database;
 use crate::state::app_state::{LibraryState, SearchSource};
+use rotero_db::Database;
 use rotero_search::parser::metadata_to_paper;
 
 /// Minimum query length before triggering external search.
 const MIN_QUERY_LEN: usize = 3;
 /// Debounce delay in milliseconds for external API search.
 const DEBOUNCE_MS: u64 = 250;
+
+/// Message sent to the search coroutine.
+#[derive(Clone)]
+enum SearchMsg {
+    /// New query text from user input.
+    Query(SearchSource, String),
+    /// Clear all results.
+    Clear,
+}
 
 #[component]
 pub fn SearchBar() -> Element {
@@ -17,9 +27,89 @@ pub fn SearchBar() -> Element {
     let source = lib_state.read().search_source.clone();
     let mut show_dropdown = use_signal(|| false);
 
-    // Generation counter for debouncing — incremented on each keystroke,
-    // the async task only applies results if its generation is still current.
-    let mut search_gen = use_signal(|| 0u64);
+    // Single coroutine handles debounce + two-phase search
+    let search_coro = use_coroutine(move |mut rx: UnboundedReceiver<SearchMsg>| async move {
+        while let Some(msg) = rx.next().await {
+            match msg {
+                SearchMsg::Clear => {
+                    lib_state.with_mut(|s| {
+                        s.external_results = None;
+                        s.external_searching = false;
+                    });
+                }
+                SearchMsg::Query(source, query) => {
+                    // Drain to latest message (skip intermediate keystrokes)
+                    let (source, query) = drain_latest(&mut rx, source, query);
+
+                    if query.trim().len() < MIN_QUERY_LEN {
+                        lib_state.with_mut(|s| {
+                            s.external_results = None;
+                            s.external_searching = false;
+                        });
+                        continue;
+                    }
+
+                    lib_state.with_mut(|s| s.external_searching = true);
+
+                    // Debounce: wait, then drain again in case more arrived
+                    tokio::time::sleep(std::time::Duration::from_millis(DEBOUNCE_MS)).await;
+                    let (source, query) = drain_latest(&mut rx, source, query);
+
+                    if query.trim().len() < MIN_QUERY_LEN {
+                        lib_state.with_mut(|s| {
+                            s.external_results = None;
+                            s.external_searching = false;
+                        });
+                        continue;
+                    }
+
+                    let Some(provider) = source.provider() else {
+                        continue;
+                    };
+
+                    // Phase 1: fast search (autocomplete for OpenAlex)
+                    match provider.search(&query, 20).await {
+                        Ok(metas) => {
+                            let papers: Vec<_> = metas.into_iter().map(metadata_to_paper).collect();
+                            lib_state.with_mut(|s| {
+                                s.external_searching = false;
+                                s.external_results = Some(papers);
+                            });
+                        }
+                        Err(e) => {
+                            eprintln!("External search error: {e}");
+                            lib_state.with_mut(|s| {
+                                s.external_searching = false;
+                                s.external_results = Some(Vec::new());
+                            });
+                        }
+                    }
+
+                    // Phase 2: if provider has sparse results (OpenAlex autocomplete),
+                    // fetch full metadata in background to have it ready for import
+                    if provider.needs_enrichment() {
+                        // Check no new messages arrived while we were searching
+                        if rx.try_recv().is_ok() {
+                            continue;
+                        }
+                        match provider.search_full(&query, 20).await {
+                            Ok(metas) => {
+                                let papers: Vec<_> =
+                                    metas.into_iter().map(metadata_to_paper).collect();
+                                // Only apply if query hasn't changed
+                                if lib_state.read().search_query == query {
+                                    lib_state.with_mut(|s| s.external_results = Some(papers));
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Full search enrichment error: {e}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
 
     let is_external = source != SearchSource::Local;
 
@@ -46,14 +136,13 @@ pub fn SearchBar() -> Element {
                     let current_source = lib_state.read().search_source.clone();
 
                     if current_source == SearchSource::Local {
-                        // Local: instant live search (no debounce needed)
                         if q.trim().is_empty() {
                             lib_state.with_mut(|s| s.search_results = None);
                             return;
                         }
                         let db = db.clone();
                         spawn(async move {
-                            match crate::db::papers::search_papers(db.conn(), &q).await {
+                            match rotero_db::papers::search_papers(db.conn(), &q).await {
                                 Ok(results) => {
                                     lib_state.with_mut(|s| s.search_results = Some(results));
                                 }
@@ -63,45 +152,7 @@ pub fn SearchBar() -> Element {
                             }
                         });
                     } else {
-                        // External: debounced live search
-                        if q.trim().len() < MIN_QUERY_LEN {
-                            lib_state.with_mut(|s| {
-                                s.external_results = None;
-                                s.external_searching = false;
-                            });
-                            return;
-                        }
-
-                        // Bump generation and mark as searching
-                        let generation = search_gen() + 1;
-                        search_gen.set(generation);
-                        lib_state.with_mut(|s| s.external_searching = true);
-
-                        let source = current_source.clone();
-                        spawn(async move {
-                            // Wait for debounce period
-                            tokio::time::sleep(std::time::Duration::from_millis(DEBOUNCE_MS)).await;
-
-                            // Check if this is still the latest keystroke
-                            if search_gen() != generation {
-                                return;
-                            }
-
-                            let q = lib_state.read().search_query.clone();
-                            if q.trim().len() < MIN_QUERY_LEN {
-                                return;
-                            }
-
-                            let results = run_external_search(&source, &q).await;
-
-                            // Only apply if still the latest generation
-                            if search_gen() == generation {
-                                lib_state.with_mut(|s| {
-                                    s.external_searching = false;
-                                    s.external_results = Some(results);
-                                });
-                            }
-                        });
+                        search_coro.send(SearchMsg::Query(current_source, q));
                     }
                 },
             }
@@ -118,8 +169,8 @@ pub fn SearchBar() -> Element {
                             let db = db_save.clone();
                             spawn(async move {
                                 let search = rotero_models::SavedSearch::new(q.clone(), q);
-                                let _ = crate::db::saved_searches::insert_saved_search(db.conn(), &search).await;
-                                if let Ok(searches) = crate::db::saved_searches::list_saved_searches(db.conn()).await {
+                                let _ = rotero_db::saved_searches::insert_saved_search(db.conn(), &search).await;
+                                if let Ok(searches) = rotero_db::saved_searches::list_saved_searches(db.conn()).await {
                                     lib_state.with_mut(|s| s.saved_searches = searches);
                                 }
                             });
@@ -132,7 +183,7 @@ pub fn SearchBar() -> Element {
                 button {
                     class: "search-clear",
                     onclick: move |_| {
-                        search_gen.set(search_gen() + 1);
+                        search_coro.send(SearchMsg::Clear);
                         lib_state.with_mut(|s| {
                             s.search_query.clear();
                             s.search_results = None;
@@ -164,7 +215,7 @@ pub fn SearchBar() -> Element {
                                         key: "{label}",
                                         class: if is_active { "search-source-option search-source-option--active" } else { "search-source-option" },
                                         onclick: move |_| {
-                                            search_gen.set(search_gen() + 1);
+                                            search_coro.send(SearchMsg::Clear);
                                             lib_state.with_mut(|st| {
                                                 st.search_source = s.clone();
                                                 st.search_results = None;
@@ -190,17 +241,24 @@ pub fn SearchBar() -> Element {
     }
 }
 
-async fn run_external_search(source: &SearchSource, query: &str) -> Vec<rotero_models::Paper> {
-    let provider = match source.provider() {
-        Some(p) => p,
-        None => return Vec::new(),
-    };
-
-    match provider.search(query, 20).await {
-        Ok(metas) => metas.into_iter().map(metadata_to_paper).collect(),
-        Err(e) => {
-            eprintln!("External search error: {e}");
-            Vec::new()
+/// Drain all pending messages from the channel, returning the latest values.
+fn drain_latest(
+    rx: &mut UnboundedReceiver<SearchMsg>,
+    source: SearchSource,
+    query: String,
+) -> (SearchSource, String) {
+    let mut latest_source = source;
+    let mut latest_query = query;
+    while let Ok(msg) = rx.try_recv() {
+        match msg {
+            SearchMsg::Query(s, q) => {
+                latest_source = s;
+                latest_query = q;
+            }
+            SearchMsg::Clear => {
+                latest_query = String::new();
+            }
         }
     }
+    (latest_source, latest_query)
 }

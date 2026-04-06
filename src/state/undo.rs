@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 use rotero_models::Annotation;
 
-use crate::db::Database;
 use crate::state::app_state::PdfTabManager;
+use rotero_db::Database;
 
 /// A forward annotation action (what was done).
 #[derive(Debug, Clone)]
@@ -10,12 +10,12 @@ pub enum UndoAction {
     Create(Annotation),
     Delete(Annotation),
     UpdateContent {
-        id: i64,
+        id: String,
         old: Option<String>,
         new: Option<String>,
     },
     UpdateColor {
-        id: i64,
+        id: String,
         old: String,
         new: String,
     },
@@ -58,19 +58,19 @@ impl UndoStack {
 
     /// After a re-insert gives us a new DB id, patch the annotation id
     /// in the last entry of the given stack so future undo/redo uses the correct id.
-    fn patch_last_ann_id(stack: &mut [UndoAction], new_id: i64) {
+    fn patch_last_ann_id(stack: &mut [UndoAction], new_id: String) {
         if let Some(UndoAction::Create(ann) | UndoAction::Delete(ann)) = stack.last_mut() {
             ann.id = Some(new_id);
         }
     }
 
     /// After undo re-inserts (reverse of Delete), patch the redo stack entry.
-    pub fn patch_last_redo_id(&mut self, new_id: i64) {
+    pub fn patch_last_redo_id(&mut self, new_id: String) {
         Self::patch_last_ann_id(&mut self.redo, new_id);
     }
 
     /// After redo re-inserts (forward of Create), patch the undo stack entry.
-    pub fn patch_last_undo_id(&mut self, new_id: i64) {
+    pub fn patch_last_undo_id(&mut self, new_id: String) {
         Self::patch_last_ann_id(&mut self.undo, new_id);
     }
 }
@@ -84,19 +84,20 @@ pub async fn reverse_action(
 ) {
     match action {
         UndoAction::Create(ref ann) => {
-            let ann_id = ann.id.unwrap_or(0);
-            if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), ann_id).await {
+            let ann_id = ann.id.clone().unwrap_or_default();
+            if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &ann_id).await {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {
-                        t.annotations.retain(|a| a.id != Some(ann_id));
+                        t.annotations
+                            .retain(|a| a.id.as_deref() != Some(ann_id.as_str()));
                     }
                 });
             }
         }
         UndoAction::Delete(ref ann) => {
-            if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), ann).await {
+            if let Ok(id) = rotero_db::annotations::insert_annotation(db.conn(), ann).await {
                 let mut ann = ann.clone();
-                ann.id = Some(id);
+                ann.id = Some(id.clone());
                 // Patch the redo stack so future redo uses the new id
                 undo_stack.with_mut(|s| s.patch_last_redo_id(id));
                 tabs.with_mut(|m| {
@@ -106,27 +107,39 @@ pub async fn reverse_action(
                 });
             }
         }
-        UndoAction::UpdateContent { id, ref old, .. } => {
+        UndoAction::UpdateContent {
+            ref id, ref old, ..
+        } => {
             let opt = old.as_deref();
             if let Ok(()) =
-                crate::db::annotations::update_annotation_content(db.conn(), id, opt).await
+                rotero_db::annotations::update_annotation_content(db.conn(), id, opt).await
             {
+                let id = id.clone();
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()
-                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id))
+                        && let Some(a) = t
+                            .annotations
+                            .iter_mut()
+                            .find(|a| a.id.as_deref() == Some(id.as_str()))
                     {
                         a.content = old.clone();
                     }
                 });
             }
         }
-        UndoAction::UpdateColor { id, ref old, .. } => {
+        UndoAction::UpdateColor {
+            ref id, ref old, ..
+        } => {
             if let Ok(()) =
-                crate::db::annotations::update_annotation_color(db.conn(), id, old).await
+                rotero_db::annotations::update_annotation_color(db.conn(), id, old).await
             {
+                let id = id.clone();
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()
-                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id))
+                        && let Some(a) = t
+                            .annotations
+                            .iter_mut()
+                            .find(|a| a.id.as_deref() == Some(id.as_str()))
                     {
                         a.color = old.clone();
                     }
@@ -145,9 +158,9 @@ pub async fn forward_action(
 ) {
     match action {
         UndoAction::Create(ref ann) => {
-            if let Ok(id) = crate::db::annotations::insert_annotation(db.conn(), ann).await {
+            if let Ok(id) = rotero_db::annotations::insert_annotation(db.conn(), ann).await {
                 let mut ann = ann.clone();
-                ann.id = Some(id);
+                ann.id = Some(id.clone());
                 // Patch the undo stack so future undo uses the new id
                 undo_stack.with_mut(|s| s.patch_last_undo_id(id));
                 tabs.with_mut(|m| {
@@ -158,36 +171,49 @@ pub async fn forward_action(
             }
         }
         UndoAction::Delete(ref ann) => {
-            let ann_id = ann.id.unwrap_or(0);
-            if let Ok(()) = crate::db::annotations::delete_annotation(db.conn(), ann_id).await {
+            let ann_id = ann.id.clone().unwrap_or_default();
+            if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &ann_id).await {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {
-                        t.annotations.retain(|a| a.id != Some(ann_id));
+                        t.annotations
+                            .retain(|a| a.id.as_deref() != Some(ann_id.as_str()));
                     }
                 });
             }
         }
-        UndoAction::UpdateContent { id, ref new, .. } => {
+        UndoAction::UpdateContent {
+            ref id, ref new, ..
+        } => {
             let opt = new.as_deref();
             if let Ok(()) =
-                crate::db::annotations::update_annotation_content(db.conn(), id, opt).await
+                rotero_db::annotations::update_annotation_content(db.conn(), id, opt).await
             {
+                let id = id.clone();
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()
-                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id))
+                        && let Some(a) = t
+                            .annotations
+                            .iter_mut()
+                            .find(|a| a.id.as_deref() == Some(id.as_str()))
                     {
                         a.content = new.clone();
                     }
                 });
             }
         }
-        UndoAction::UpdateColor { id, ref new, .. } => {
+        UndoAction::UpdateColor {
+            ref id, ref new, ..
+        } => {
             if let Ok(()) =
-                crate::db::annotations::update_annotation_color(db.conn(), id, new).await
+                rotero_db::annotations::update_annotation_color(db.conn(), id, new).await
             {
+                let id = id.clone();
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()
-                        && let Some(a) = t.annotations.iter_mut().find(|a| a.id == Some(id))
+                        && let Some(a) = t
+                            .annotations
+                            .iter_mut()
+                            .find(|a| a.id.as_deref() == Some(id.as_str()))
                     {
                         a.color = new.clone();
                     }

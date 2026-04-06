@@ -9,6 +9,7 @@
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-main);
+  position: relative;
 }
 
 .library-header {
@@ -31,7 +32,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .library-title {
@@ -195,6 +196,52 @@
   opacity: 1;
 }
 
+/* --- Drop Zone Overlay --- */
+.library-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: drop-fade-in 0.15s ease-out;
+}
+
+@keyframes drop-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.library-drop-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-10) var(--space-12, 3rem);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--bg-accent-subtle);
+  pointer-events: none;
+}
+
+.library-drop-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+  color: var(--accent);
+  opacity: 0.6;
+}
+
+.library-drop-message {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--accent);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
 /* --- Drag Ghost --- */
 .drag-ghost {
   position: fixed;
@@ -245,7 +292,8 @@
 .doi-input-row {
   display: flex;
   gap: var(--space-2);
-  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-6);
+  border-bottom: 1px solid var(--border);
 }
 
 .doi-input {

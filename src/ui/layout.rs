@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use super::chat_panel::ChatPanel;
+use super::graph_view::GraphView;
 #[cfg(feature = "desktop")]
 use super::keybindings::GlobalKeyHandler;
 use super::library_view::LibraryPanel;
@@ -50,6 +51,9 @@ pub fn Layout() -> Element {
                     LibraryView::PdfViewer if has_tabs => rsx! {
                         PdfTabBar {}
                         PdfViewer {}
+                    },
+                    LibraryView::Graph => rsx! {
+                        GraphView {}
                     },
                     _ => rsx! {
                         div { style: "flex: 1; display: flex; min-height: 0;",

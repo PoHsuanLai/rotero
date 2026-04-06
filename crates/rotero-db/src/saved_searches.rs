@@ -2,13 +2,18 @@ use chrono::Utc;
 use rotero_models::SavedSearch;
 use turso::{Connection, Value};
 
+use crate::crr;
+use crate::queries;
+
 pub async fn insert_saved_search(
     conn: &Connection,
     search: &SavedSearch,
-) -> Result<i64, turso::Error> {
+) -> Result<String, turso::Error> {
+    let uuid = uuid::Uuid::now_v7().to_string();
     conn.execute(
-        "INSERT INTO saved_searches (name, query, created_at) VALUES (?1, ?2, ?3)",
+        queries::SAVED_SEARCH_INSERT,
         turso::params::Params::Positional(vec![
+            Value::Text(uuid.clone()),
             Value::Text(search.name.clone()),
             Value::Text(search.query.clone()),
             Value::Text(search.created_at.to_rfc3339()),
@@ -16,22 +21,19 @@ pub async fn insert_saved_search(
     )
     .await?;
 
-    let mut rows = conn.query("SELECT last_insert_rowid()", ()).await?;
-    let row = rows
-        .next()
-        .await?
-        .ok_or(turso::Error::QueryReturnedNoRows)?;
-    let id = row.get_value(0)?.as_integer().copied().unwrap_or(0);
-    Ok(id)
+    crr::track_insert(
+        conn,
+        "saved_searches",
+        &uuid,
+        &["name", "query", "created_at"],
+    )
+    .await?;
+
+    Ok(uuid)
 }
 
 pub async fn list_saved_searches(conn: &Connection) -> Result<Vec<SavedSearch>, turso::Error> {
-    let mut rows = conn
-        .query(
-            "SELECT id, name, query, created_at FROM saved_searches ORDER BY created_at DESC",
-            (),
-        )
-        .await?;
+    let mut rows = conn.query(queries::SAVED_SEARCH_LIST, ()).await?;
     let mut searches = Vec::new();
     while let Some(row) = rows.next().await? {
         searches.push(row_to_saved_search(&row));
@@ -39,31 +41,29 @@ pub async fn list_saved_searches(conn: &Connection) -> Result<Vec<SavedSearch>, 
     Ok(searches)
 }
 
-pub async fn delete_saved_search(conn: &Connection, id: i64) -> Result<(), turso::Error> {
-    conn.execute("DELETE FROM saved_searches WHERE id = ?1", [id])
+pub async fn delete_saved_search(conn: &Connection, id: &str) -> Result<(), turso::Error> {
+    conn.execute(queries::SAVED_SEARCH_DELETE, [Value::Text(id.to_string())])
         .await?;
+    crr::track_delete(conn, "saved_searches", id).await?;
     Ok(())
 }
 
-#[allow(dead_code)]
 pub async fn rename_saved_search(
     conn: &Connection,
-    id: i64,
+    id: &str,
     name: &str,
 ) -> Result<(), turso::Error> {
     conn.execute(
-        "UPDATE saved_searches SET name = ?1 WHERE id = ?2",
-        [Value::Text(name.to_string()), Value::Integer(id)],
+        queries::SAVED_SEARCH_RENAME,
+        [Value::Text(name.to_string()), Value::Text(id.to_string())],
     )
     .await?;
+    crr::track_update(conn, "saved_searches", id, &["name"]).await?;
     Ok(())
 }
 
 fn row_to_saved_search(row: &turso::Row) -> SavedSearch {
-    let id = row
-        .get_value(0)
-        .ok()
-        .and_then(|v| v.as_integer().copied());
+    let id = row.get_value(0).ok().and_then(|v| v.as_text().cloned());
     let name = row
         .get_value(1)
         .ok()

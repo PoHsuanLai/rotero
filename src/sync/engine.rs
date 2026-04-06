@@ -1,5 +1,15 @@
 use std::path::{Path, PathBuf};
 
+/// Which sync transport to use.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum SyncTransport {
+    /// Sync via shared folder (iCloud Drive, Dropbox, etc.)
+    #[default]
+    File,
+    /// Sync via Apple CloudKit (Apple devices only)
+    CloudKit,
+}
+
 /// Application configuration, persisted to config.json.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SyncConfig {
@@ -43,6 +53,10 @@ pub struct SyncConfig {
     #[serde(default = "default_selection_color")]
     pub selection_color: String,
 
+    /// Image format for rendered PDF pages: "jpeg" or "png".
+    #[serde(default = "default_render_format")]
+    pub render_format: String,
+
     /// JPEG quality for rendered PDF pages (1-100, higher = sharper but slower).
     #[serde(default = "default_render_quality")]
     pub render_quality: u8,
@@ -51,7 +65,23 @@ pub struct SyncConfig {
     #[serde(default = "default_thumbnail_quality")]
     pub thumbnail_quality: u8,
 
-    /// Selected AI agent provider id (e.g. "claude", "gemini", "copilot", "codex").
+    /// Path for auto-exported .bib file (Better BibTeX). None = disabled.
+    #[serde(default)]
+    pub auto_export_bib_path: Option<String>,
+
+    /// Whether CRR sync is enabled.
+    #[serde(default)]
+    pub sync_enabled: bool,
+
+    /// Path to the shared sync folder (e.g. iCloud Drive, Dropbox).
+    #[serde(default)]
+    pub sync_folder_path: Option<String>,
+
+    /// Which sync transport to use.
+    #[serde(default)]
+    pub sync_transport: SyncTransport,
+
+    /// Selected AI agent provider id.
     #[serde(default = "default_agent_provider")]
     pub agent_provider: String,
 
@@ -75,6 +105,9 @@ fn default_page_batch_size() -> u32 {
 }
 fn default_selection_color() -> String {
     "#339af0".to_string()
+}
+fn default_render_format() -> String {
+    "jpeg".to_string()
 }
 fn default_render_quality() -> u8 {
     85
@@ -105,8 +138,13 @@ impl Default for SyncConfig {
             connector_enabled: default_true(),
             connector_port: default_connector_port(),
             auto_fetch_metadata: default_true(),
+            render_format: default_render_format(),
             render_quality: default_render_quality(),
             thumbnail_quality: default_thumbnail_quality(),
+            auto_export_bib_path: None,
+            sync_enabled: false,
+            sync_folder_path: None,
+            sync_transport: SyncTransport::default(),
             agent_provider: default_agent_provider(),
             agent_api_keys: std::collections::HashMap::new(),
         }

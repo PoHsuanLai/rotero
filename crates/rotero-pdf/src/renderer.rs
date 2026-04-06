@@ -1,7 +1,52 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use image::codecs::jpeg::JpegEncoder;
+use image::codecs::png::PngEncoder;
 use pdfium_render::prelude::*;
 use thiserror::Error;
+
+/// Image encoding format for rendered pages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderFormat {
+    Jpeg,
+    Png,
+}
+
+impl RenderFormat {
+    pub fn from_str(s: &str) -> Self {
+        if s.eq_ignore_ascii_case("png") {
+            Self::Png
+        } else {
+            Self::Jpeg
+        }
+    }
+
+    pub fn mime(self) -> &'static str {
+        match self {
+            Self::Jpeg => "image/jpeg",
+            Self::Png => "image/png",
+        }
+    }
+}
+
+/// Encode an image into the given format, returning raw bytes.
+fn encode_image(
+    image: &image::DynamicImage,
+    format: RenderFormat,
+    quality: u8,
+    buf: &mut Vec<u8>,
+) -> Result<(), image::ImageError> {
+    buf.clear();
+    match format {
+        RenderFormat::Jpeg => {
+            let encoder = JpegEncoder::new_with_quality(buf, quality);
+            image.write_with_encoder(encoder)
+        }
+        RenderFormat::Png => {
+            let encoder = PngEncoder::new(buf);
+            image.write_with_encoder(encoder)
+        }
+    }
+}
 
 fn file_mtime(path: &str) -> u64 {
     std::fs::metadata(path)
@@ -51,7 +96,6 @@ pub struct RenderedPage {
     pub mime: &'static str,
     pub width: u32,
     pub height: u32,
-    pub quality: u8,
 }
 
 impl PdfEngine {
@@ -108,8 +152,9 @@ impl PdfEngine {
         }
         let bytes = std::fs::read(pdf_path)
             .map_err(|e| PdfError::RenderError(format!("Failed to read {pdf_path}: {e}")))?;
-        self.cached_bytes = Some((pdf_path.to_string(), mtime, bytes.clone()));
-        Ok(bytes)
+        self.cached_bytes = Some((pdf_path.to_string(), mtime, bytes));
+        // Return a clone from the cache — avoids the previous double-clone on store.
+        Ok(self.cached_bytes.as_ref().unwrap().2.clone())
     }
 
     /// Open a PDF document from the byte cache (avoids repeated disk reads).
@@ -130,15 +175,16 @@ impl PdfEngine {
         })
     }
 
-    /// Render a single page to a base64-encoded JPEG string.
+    /// Render a single page to a base64-encoded image string.
     /// `scale` controls the zoom level (1.0 = 72 DPI, 2.0 = 144 DPI, etc.)
-    /// `quality` is JPEG quality (1-100).
+    /// `quality` is JPEG quality (1-100, ignored for PNG).
     pub fn render_page(
         &mut self,
         pdf_path: &str,
         page_index: u32,
         scale: f32,
         quality: u8,
+        format: RenderFormat,
     ) -> Result<RenderedPage, PdfError> {
         let document = self.open_document(pdf_path)?;
         let page_count = document.pages().len() as u32;
@@ -168,18 +214,16 @@ impl PdfEngine {
         let img_height = image.height();
 
         let mut img_bytes: Vec<u8> = Vec::with_capacity(256 * 1024);
-        let encoder = JpegEncoder::new_with_quality(&mut img_bytes, quality);
-        image.write_with_encoder(encoder)?;
+        encode_image(&image, format, quality, &mut img_bytes)?;
 
         let base64_data = BASE64.encode(&img_bytes);
 
         Ok(RenderedPage {
             page_index,
             base64_data,
-            mime: "image/jpeg",
+            mime: format.mime(),
             width: img_width,
             height: img_height,
-            quality,
         })
     }
 
@@ -191,6 +235,7 @@ impl PdfEngine {
         count: u32,
         scale: f32,
         quality: u8,
+        format: RenderFormat,
     ) -> Result<Vec<RenderedPage>, PdfError> {
         let document = self.open_document(pdf_path)?;
         let page_count = document.pages().len() as u32;
@@ -219,9 +264,7 @@ impl PdfEngine {
             let img_width = image.width();
             let img_height = image.height();
 
-            img_bytes.clear();
-            let encoder = JpegEncoder::new_with_quality(&mut img_bytes, quality);
-            image.write_with_encoder(encoder)?;
+            encode_image(&image, format, quality, &mut img_bytes)?;
 
             let base64_data = BASE64.encode(&img_bytes);
 
@@ -229,36 +272,38 @@ impl PdfEngine {
                 page = i,
                 width,
                 height,
-                jpeg_kb = img_bytes.len() / 1024,
+                img_kb = img_bytes.len() / 1024,
                 "rendered page"
             );
 
             pages.push(RenderedPage {
                 page_index: i,
                 base64_data,
-                mime: "image/jpeg",
+                mime: format.mime(),
                 width: img_width,
                 height: img_height,
-                quality,
             });
         }
 
         Ok(pages)
     }
 
-    /// Render all pages as small thumbnails (fixed max width).
-    pub fn render_all_thumbnails(
+    /// Render a range of pages as small thumbnails (fixed max width).
+    pub fn render_thumbnails_range(
         &mut self,
         pdf_path: &str,
+        start: u32,
+        count: u32,
         max_width: u32,
         quality: u8,
     ) -> Result<Vec<RenderedPage>, PdfError> {
         let document = self.open_document(pdf_path)?;
         let page_count = document.pages().len() as u32;
-        let mut thumbs = Vec::with_capacity(page_count as usize);
+        let end = (start + count).min(page_count);
+        let mut thumbs = Vec::with_capacity((end - start) as usize);
         let mut img_bytes: Vec<u8> = Vec::with_capacity(64 * 1024);
 
-        for i in 0..page_count {
+        for i in start..end {
             let page = document
                 .pages()
                 .get(i as u16)
@@ -292,7 +337,6 @@ impl PdfEngine {
                 mime: "image/jpeg",
                 width: img_width,
                 height: img_height,
-                quality,
             });
         }
 

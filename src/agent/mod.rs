@@ -870,6 +870,11 @@ fn build_mcp_servers_json() -> serde_json::Value {
     let mcp_binary = find_mcp_binary();
     let pdfium_path = find_pdfium_path();
 
+    match &mcp_binary {
+        Some(p) => tracing::info!("MCP binary found: {}", p.display()),
+        None => tracing::warn!("rotero-mcp binary not found — agent won't have library tools"),
+    }
+
     if let Some(mcp_bin) = &mcp_binary {
         serde_json::json!([{
             "type": "stdio",

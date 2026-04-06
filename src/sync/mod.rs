@@ -1,3 +1,5 @@
 pub mod engine;
 pub mod file_sync;
-pub mod webdav;
+
+#[cfg(feature = "cloudkit")]
+pub mod cloudkit_sync;

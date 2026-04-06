@@ -1,0 +1,11 @@
+[package]
+name = "rotero-graph"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rotero-models = { path = "../rotero-models" }
+fdg = { git = "https://github.com/grantshandy/fdg", default-features = false }
+petgraph = "0.7"
+serde.workspace = true
+serde_json.workspace = true

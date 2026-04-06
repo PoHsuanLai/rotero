@@ -18,15 +18,15 @@ pub struct SavePaperRequest {
     pub pages: Option<String>,
     pub publisher: Option<String>,
     pub abstract_text: Option<String>,
-    pub collection_id: Option<i64>,
-    pub tag_ids: Option<Vec<i64>>,
+    pub collection_id: Option<String>,
+    pub tag_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct SavePaperResponse {
     pub success: bool,
     pub message: String,
-    pub paper_id: Option<i64>,
+    pub paper_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -38,7 +38,7 @@ pub struct StatusResponse {
 
 #[derive(Debug, Serialize)]
 pub struct CollectionInfo {
-    pub id: i64,
+    pub id: String,
     pub name: String,
 }
 
@@ -49,7 +49,7 @@ pub struct CollectionsResponse {
 
 #[derive(Debug, Serialize)]
 pub struct TagInfo {
-    pub id: i64,
+    pub id: String,
     pub name: String,
     pub color: Option<String>,
 }

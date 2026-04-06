@@ -108,10 +108,56 @@ async function loadMetadata() {
   if (!pageMetadata) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     pageMetadata = { url: tab.url, title: tab.title };
-    // If on a PDF page, treat the URL as the PDF URL
-    if (tab.url?.match(/\.pdf(\?.*)?$/i)) {
-      pageMetadata.pdf_url = tab.url;
+  }
+
+  // If we're on a PDF page and don't have a pdf_url yet, use the current URL
+  if (pageMetadata && !pageMetadata.pdf_url) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const url = tab.url || '';
+    if (url.match(/\.pdf(\?.*)?$/i) || url.match(/\/pdf\//) || url.match(/content-type=application\/pdf/i)) {
+      pageMetadata.pdf_url = url;
     }
+  }
+
+  // Fallback: if client-side extraction found no DOI or authors, try server-side scrape
+  if (pageMetadata && !pageMetadata.doi && (!pageMetadata.authors || pageMetadata.authors.length === 0)) {
+    try {
+      const scrapeResp = await fetch(`${API}/api/scrape`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: pageMetadata.url }),
+      });
+      if (scrapeResp.ok) {
+        const scrapeData = await scrapeResp.json();
+        const m = scrapeData.success ? scrapeData.metadata : null;
+        if (m) {
+          if (m.title) pageMetadata.title = m.title;
+          if (m.authors?.length) pageMetadata.authors = m.authors;
+          if (m.doi) pageMetadata.doi = m.doi;
+          if (m.pdf_url) pageMetadata.pdf_url = m.pdf_url;
+          if (m.url) pageMetadata.url = m.url;
+          if (m.journal) pageMetadata.journal = m.journal;
+          if (m.year) pageMetadata.year = m.year;
+          if (m.volume) pageMetadata.volume = m.volume;
+          if (m.issue) pageMetadata.issue = m.issue;
+          if (m.pages) pageMetadata.pages = m.pages;
+          if (m.publisher) pageMetadata.publisher = m.publisher;
+          if (m.abstract_text) pageMetadata.abstract_text = m.abstract_text;
+        }
+      }
+    } catch {}
+  }
+
+  // If title is still empty/generic, try to derive from URL
+  if (pageMetadata && (!pageMetadata.title || pageMetadata.title === 'Untitled')) {
+    try {
+      const url = new URL(pageMetadata.url || pageMetadata.pdf_url || '');
+      const path = url.pathname.split('/').filter(Boolean).pop() || '';
+      const decoded = decodeURIComponent(path).replace(/\.pdf$/i, '').replace(/[_-]/g, ' ');
+      if (decoded && decoded.length > 2) {
+        pageMetadata.title = decoded;
+      }
+    } catch {}
   }
 
   if (pageMetadata) {

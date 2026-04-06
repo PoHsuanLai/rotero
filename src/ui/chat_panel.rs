@@ -22,14 +22,17 @@ impl AgentChannel {
     }
 }
 
-fn build_paper_context(lib_state: &LibraryState, tab_mgr: &PdfTabManager) -> Option<String> {
-    let paper_id = tab_mgr
+fn get_active_paper_id(lib_state: &LibraryState, tab_mgr: &PdfTabManager) -> Option<String> {
+    tab_mgr
         .active_tab_id
         .and_then(|tid| tab_mgr.tabs.iter().find(|t| t.id == tid))
-        .and_then(|t| t.paper_id)
-        .or(lib_state.selected_paper_id)?;
+        .and_then(|t| t.paper_id.clone())
+        .or_else(|| lib_state.selected_paper_id.clone())
+}
 
-    let paper = lib_state.papers.iter().find(|p| p.id == Some(paper_id))?;
+fn build_paper_context(lib_state: &LibraryState, tab_mgr: &PdfTabManager) -> Option<String> {
+    let paper_id = get_active_paper_id(lib_state, tab_mgr)?;
+    let paper = lib_state.papers.iter().find(|p| p.id.as_deref() == Some(paper_id.as_str()))?;
 
     Some(format!(
         "I'm currently looking at this paper in my library:\n\
@@ -48,16 +51,11 @@ fn get_context_paper_title(
     lib_state: &LibraryState,
     tab_mgr: &PdfTabManager,
 ) -> Option<String> {
-    let paper_id = tab_mgr
-        .active_tab_id
-        .and_then(|tid| tab_mgr.tabs.iter().find(|t| t.id == tid))
-        .and_then(|t| t.paper_id)
-        .or(lib_state.selected_paper_id)?;
-
+    let paper_id = get_active_paper_id(lib_state, tab_mgr)?;
     lib_state
         .papers
         .iter()
-        .find(|p| p.id == Some(paper_id))
+        .find(|p| p.id.as_deref() == Some(paper_id.as_str()))
         .map(|p| p.title.clone())
 }
 

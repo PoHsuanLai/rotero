@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Paper {
-    pub id: Option<i64>,
+    pub id: Option<String>,
     pub title: String,
     pub authors: Vec<String>,
     pub year: Option<i32>,
@@ -15,6 +15,7 @@ pub struct Paper {
     pub pages: Option<String>,
     pub publisher: Option<String>,
     pub url: Option<String>,
+    pub pdf_url: Option<String>,
     pub pdf_path: Option<String>,
     pub date_added: DateTime<Utc>,
     pub date_modified: DateTime<Utc>,
@@ -41,6 +42,7 @@ impl Paper {
             pages: None,
             publisher: None,
             url: None,
+            pdf_url: None,
             pdf_path: None,
             date_added: now,
             date_modified: now,

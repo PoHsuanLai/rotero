@@ -22,6 +22,7 @@
 .settings-dialog,
 .citation-dialog {
   background: var(--bg-surface);
+  color: var(--text-primary);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-xl);
   border: 1px solid var(--border);
@@ -138,6 +139,12 @@
   width: auto;
 }
 
+.settings-path-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .settings-number-input {
   width: 80px;
   text-align: center;
@@ -156,6 +163,18 @@
   margin-top: var(--space-2);
 }
 
+.settings-bib-path {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-xs);
+  background: var(--bg-elevated);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* --- Toggle Switch --- */
 .settings-toggle {

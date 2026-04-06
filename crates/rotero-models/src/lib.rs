@@ -2,6 +2,7 @@ pub mod annotation;
 pub mod collection;
 pub mod note;
 pub mod paper;
+pub mod queries;
 pub mod saved_search;
 pub mod tag;
 

@@ -9,7 +9,7 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<FetchedMetad
         urlencoding::encode(query)
     );
 
-    let client = reqwest::Client::new();
+    let client = crate::shared_client();
     let resp = client
         .get(&url)
         .send()
@@ -61,7 +61,7 @@ fn parse_arxiv_entries(xml: &str) -> Result<Vec<FetchedMetadata>, String> {
 pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<FetchedMetadata, String> {
     let url = format!("{ARXIV_API}?id_list={arxiv_id}");
 
-    let client = reqwest::Client::new();
+    let client = crate::shared_client();
     let resp = client
         .get(&url)
         .send()

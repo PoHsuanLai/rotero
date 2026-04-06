@@ -2,12 +2,9 @@ use std::collections::HashMap;
 use std::sync::mpsc;
 
 use dioxus::prelude::*;
-use rotero_pdf::PageTextData;
+use rotero_pdf::{PageTextData, RenderFormat};
 
 use super::app_state::{PdfTabManager, RenderedPageData, TabId};
-
-/// JPEG quality for the initial fast render pass (progressive rendering).
-pub const PREVIEW_QUALITY: u8 = 25;
 
 /// Result type for PDF text/metadata extraction.
 pub type PdfExtractResult = (Vec<(u32, String)>, rotero_pdf::PdfDocMetadata);
@@ -19,6 +16,7 @@ pub enum RenderRequest {
         zoom: f32,
         batch_size: u32,
         quality: u8,
+        format: RenderFormat,
         reply: mpsc::Sender<Result<(u32, Vec<RenderedPageData>), String>>,
     },
     RenderMorePages {
@@ -27,6 +25,7 @@ pub enum RenderRequest {
         count: u32,
         zoom: f32,
         quality: u8,
+        format: RenderFormat,
         reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
     SetZoom {
@@ -34,16 +33,18 @@ pub enum RenderRequest {
         page_count: u32,
         new_zoom: f32,
         quality: u8,
+        format: RenderFormat,
         reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
     ExtractText {
         pdf_path: String,
-        /// (page_index, img_width, img_height) for each page to extract
         page_dims: Vec<(u32, u32, u32)>,
         reply: mpsc::Sender<Result<HashMap<u32, PageTextData>, String>>,
     },
     RenderThumbnails {
         pdf_path: String,
+        start: u32,
+        count: u32,
         quality: u8,
         reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
@@ -55,24 +56,14 @@ pub enum RenderRequest {
         pdf_path: String,
         reply: mpsc::Sender<Result<Vec<(f32, f32)>, String>>,
     },
-    /// Extract raw text from first N pages + PDF document properties for metadata extraction.
     ExtractMetadataText {
         pdf_path: String,
         page_count: u32,
         reply: mpsc::Sender<Result<PdfExtractResult, String>>,
     },
-    /// Extract existing annotations from the PDF file.
     ExtractAnnotations {
         pdf_path: String,
         reply: mpsc::Sender<Result<Vec<rotero_pdf::ExtractedAnnotation>, String>>,
-    },
-    /// Re-render specific pages at higher quality (progressive rendering upgrade pass).
-    UpgradeQuality {
-        pdf_path: String,
-        page_indices: Vec<u32>,
-        zoom: f32,
-        quality: u8,
-        reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
 }
 
@@ -100,13 +91,14 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     zoom,
                     batch_size,
                     quality,
+                    format,
                     reply,
                 } => {
                     let result = (|| {
                         let info = engine.load_document(&pdf_path).map_err(|e| e.to_string())?;
                         let render_count = info.page_count.min(batch_size);
                         let rendered = engine
-                            .render_pages(&pdf_path, 0, render_count, zoom, quality)
+                            .render_pages(&pdf_path, 0, render_count, zoom, quality, format)
                             .map_err(|e| e.to_string())?;
                         let pages: Vec<RenderedPageData> =
                             rendered.into_iter().map(|r| r.into()).collect();
@@ -120,11 +112,12 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     count,
                     zoom,
                     quality,
+                    format,
                     reply,
                 } => {
                     let result = (|| {
                         let rendered = engine
-                            .render_pages(&pdf_path, start, count, zoom, quality)
+                            .render_pages(&pdf_path, start, count, zoom, quality, format)
                             .map_err(|e| e.to_string())?;
                         Ok(rendered
                             .into_iter()
@@ -138,11 +131,12 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     page_count,
                     new_zoom,
                     quality,
+                    format,
                     reply,
                 } => {
                     let result = (|| {
                         let rendered = engine
-                            .render_pages(&pdf_path, 0, page_count, new_zoom, quality)
+                            .render_pages(&pdf_path, 0, page_count, new_zoom, quality, format)
                             .map_err(|e| e.to_string())?;
                         Ok(rendered
                             .into_iter()
@@ -172,12 +166,14 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                 }
                 RenderRequest::RenderThumbnails {
                     pdf_path,
+                    start,
+                    count,
                     quality,
                     reply,
                 } => {
                     let result = (|| {
                         let rendered = engine
-                            .render_all_thumbnails(&pdf_path, 120, quality)
+                            .render_thumbnails_range(&pdf_path, start, count, 120, quality)
                             .map_err(|e| e.to_string())?;
                         Ok(rendered
                             .into_iter()
@@ -224,38 +220,12 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                         .map_err(|e| e.to_string());
                     let _ = reply.send(result);
                 }
-                RenderRequest::UpgradeQuality {
-                    pdf_path,
-                    page_indices,
-                    zoom,
-                    quality,
-                    reply,
-                } => {
-                    let result = (|| {
-                        let mut pages = Vec::with_capacity(page_indices.len());
-                        for &idx in &page_indices {
-                            match engine.render_page(&pdf_path, idx, zoom, quality) {
-                                Ok(rp) => pages.push(rp.into()),
-                                Err(e) => {
-                                    tracing::warn!(page = idx, "upgrade render failed: {e}");
-                                }
-                            }
-                        }
-                        Ok(pages)
-                    })();
-                    let _ = reply.send(result);
-                }
             }
-            // Free cached PDF file bytes after each request to reduce idle memory.
-            // The file will be re-read from disk (fast for hot files) on the next request.
-            engine.clear_byte_cache();
         }
     });
 
     tx
 }
-
-// ── Helper: wait for render thread reply ──────────────────────────
 
 async fn recv_reply<T: Send + 'static>(rx: mpsc::Receiver<Result<T, String>>) -> Result<T, String> {
     tokio::task::spawn_blocking(move || rx.recv())
@@ -264,120 +234,15 @@ async fn recv_reply<T: Send + 'static>(rx: mpsc::Receiver<Result<T, String>>) ->
         .map_err(|e| e.to_string())?
 }
 
-// ── Tab-aware async commands ──────────────────────────────────────
-
-/// Re-render pages at higher quality (background upgrade pass for progressive rendering).
-/// Only upgrades pages that are still resident and at lower quality than `quality`.
-/// Skips entirely if the tab's zoom has changed since the request was initiated.
-pub async fn upgrade_quality(
-    render_tx: &mpsc::Sender<RenderRequest>,
-    tabs: &mut Signal<PdfTabManager>,
-    tab_id: TabId,
-    page_indices: Vec<u32>,
-    quality: u8,
-    data_dir: &std::path::Path,
-) -> Result<(), String> {
-    let (pdf_path, zoom, render_zoom) = {
-        let mgr = tabs.read();
-        let tab = mgr
-            .tabs
-            .iter()
-            .find(|t| t.id == tab_id)
-            .ok_or("Tab not found")?;
-        (
-            tab.pdf_path.clone(),
-            tab.view.zoom,
-            tab.view.render_zoom,
-        )
-    };
-
-    // Skip if zoom changed (pages will be re-rendered at new zoom anyway)
-    if (render_zoom - zoom).abs() > 0.01 {
-        return Ok(());
-    }
-
-    // Filter to only pages still resident with lower quality
-    let indices_to_upgrade: Vec<u32> = {
-        let mgr = tabs.read();
-        let Some(tab) = mgr.tabs.iter().find(|t| t.id == tab_id) else {
-            return Ok(());
-        };
-        page_indices
-            .into_iter()
-            .filter(|&idx| {
-                tab.render
-                    .rendered_pages
-                    .get(&idx)
-                    .map_or(false, |p| p.quality < quality)
-            })
-            .collect()
-    };
-
-    if indices_to_upgrade.is_empty() {
-        return Ok(());
-    }
-
-    let (reply_tx, reply_rx) = mpsc::channel();
-    render_tx
-        .send(RenderRequest::UpgradeQuality {
-            pdf_path: pdf_path.clone(),
-            page_indices: indices_to_upgrade,
-            zoom,
-            quality,
-            reply: reply_tx,
-        })
-        .map_err(|e| e.to_string())?;
-
-    let pages = recv_reply(reply_rx).await?;
-
-    // Re-check zoom hasn't changed while we were rendering
-    let current_zoom = tabs
-        .read()
-        .tabs
-        .iter()
-        .find(|t| t.id == tab_id)
-        .map(|t| t.view.zoom)
-        .unwrap_or(0.0);
-    if (current_zoom - zoom).abs() > 0.01 {
-        return Ok(());
-    }
-
-    // Insert only if quality is better than what's currently there
-    tabs.with_mut(|mgr| {
-        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
-            for p in &pages {
-                tab.render.insert_if_better(p.clone());
-            }
-        }
-    });
-
-    // Save upgraded pages to disk cache in background
-    let page_count = tabs
-        .read()
-        .tabs
-        .iter()
-        .find(|t| t.id == tab_id)
-        .map(|t| t.page_count)
-        .unwrap_or(0);
-    let cache_dir = data_dir.to_path_buf();
-    let cache_path = pdf_path;
-    std::thread::spawn(move || {
-        crate::cache::save_pages(&cache_dir, &cache_path, zoom, page_count, &pages);
-    });
-
-    Ok(())
-}
-
-/// Open/render a PDF tab's first batch of pages.
-/// Uses disk cache when available for instant loading.
 pub async fn open_pdf(
     render_tx: &mpsc::Sender<RenderRequest>,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     data_dir: &std::path::Path,
     quality: u8,
+    format: RenderFormat,
 ) -> Result<(), String> {
-    let (path, zoom, batch_size) = {
+    let (path, zoom, dpr, batch_size) = {
         let mgr = tabs.read();
         let tab = mgr
             .tabs
@@ -387,21 +252,20 @@ pub async fn open_pdf(
         (
             tab.pdf_path.clone(),
             tab.view.zoom,
+            tab.view.dpr,
             tab.view.page_batch_size,
         )
     };
-
-    // Try loading from disk cache first
-    if let Some((meta, cached_pages)) = crate::cache::load_cached(data_dir, &path, zoom) {
+    let render_scale = zoom * dpr;
+    if let Some((meta, cached_pages)) = crate::cache::load_cached(data_dir, &path, render_scale) {
         tabs.with_mut(|mgr| {
             if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                 tab.page_count = meta.page_count;
-                tab.view.render_zoom = zoom;
-                tab.render.rendered_pages = cached_pages.into_iter().map(|p| (p.page_index, p)).collect();
+                tab.view.render_zoom = render_scale;
+                tab.render.rendered_pages = cached_pages;
                 tab.is_loading = false;
             }
         });
-        // Load cached text too
         if let Some(text_data) = crate::cache::load_cached_text(data_dir, &path) {
             tabs.with_mut(|mgr| {
                 if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
@@ -411,49 +275,38 @@ pub async fn open_pdf(
         }
         return Ok(());
     }
-
-    // Cache miss — render preview at low quality first, then upgrade in background
     let (reply_tx, reply_rx) = mpsc::channel();
     render_tx
         .send(RenderRequest::OpenPdf {
             pdf_path: path.clone(),
-            zoom,
+            zoom: render_scale,
             batch_size,
-            quality: PREVIEW_QUALITY,
+            quality,
+            format,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
-
     let (page_count, pages) = recv_reply(reply_rx).await?;
-
-    let preview_count = pages.len() as u32;
+    let cache_pages = pages.clone();
+    let cache_dir = data_dir.to_path_buf();
+    let cache_path = path.clone();
+    std::thread::spawn(move || {
+        crate::cache::save_pages(
+            &cache_dir,
+            &cache_path,
+            render_scale,
+            page_count,
+            &cache_pages,
+        );
+    });
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
             tab.page_count = page_count;
-            tab.view.render_zoom = zoom;
-            tab.render.rendered_pages = pages.into_iter().map(|p| (p.page_index, p)).collect();
+            tab.view.render_zoom = render_scale;
+            tab.render.rendered_pages = pages;
             tab.is_loading = false;
         }
     });
-
-    // Spawn background quality upgrade
-    let upgrade_indices: Vec<u32> = (0..preview_count).collect();
-    let render_tx_up = render_tx.clone();
-    let mut tabs_up = *tabs;
-    let data_dir_up = data_dir.to_path_buf();
-    spawn(async move {
-        let _ = upgrade_quality(
-            &render_tx_up,
-            &mut tabs_up,
-            tab_id,
-            upgrade_indices,
-            quality,
-            &data_dir_up,
-        )
-        .await;
-    });
-
-    // Extract text in background — don't block the render thread
     let page_dims: Vec<(u32, u32, u32)> = {
         let mgr = tabs.read();
         mgr.tabs
@@ -462,7 +315,7 @@ pub async fn open_pdf(
             .map(|t| {
                 t.render
                     .rendered_pages
-                    .values()
+                    .iter()
                     .map(|p| (p.page_index, p.width, p.height))
                     .collect()
             })
@@ -486,7 +339,6 @@ pub async fn open_pdf(
             std::thread::spawn(move || {
                 crate::cache::save_text(&cache_dir, &cache_path, &text_clone);
             });
-
             tabs2.with_mut(|mgr| {
                 if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                     tab.render.text_data = text_data;
@@ -494,11 +346,9 @@ pub async fn open_pdf(
             });
         }
     });
-
     Ok(())
 }
 
-/// Render additional pages for lazy loading on scroll.
 pub async fn render_more_pages(
     render_tx: &mpsc::Sender<RenderRequest>,
     tabs: &mut Signal<PdfTabManager>,
@@ -506,66 +356,54 @@ pub async fn render_more_pages(
     start: u32,
     count: u32,
     quality: u8,
+    format: RenderFormat,
     data_dir: &std::path::Path,
 ) -> Result<(), String> {
-    let (pdf_path, zoom) = {
+    let (pdf_path, zoom, dpr) = {
         let mgr = tabs.read();
         let tab = mgr
             .tabs
             .iter()
             .find(|t| t.id == tab_id)
             .ok_or("Tab not found")?;
-        (tab.pdf_path.clone(), tab.view.zoom)
+        (tab.pdf_path.clone(), tab.view.zoom, tab.view.dpr)
     };
-
+    let render_scale = zoom * dpr;
     let (reply_tx, reply_rx) = mpsc::channel();
     render_tx
         .send(RenderRequest::RenderMorePages {
             pdf_path: pdf_path.clone(),
             start,
             count,
-            zoom,
-            quality: PREVIEW_QUALITY,
+            zoom: render_scale,
+            quality,
+            format,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
-
     let pages = recv_reply(reply_rx).await?;
-
-    // Collect dims before mutating — we need them for text extraction
     let page_dims: Vec<(u32, u32, u32)> = pages
         .iter()
         .map(|p| (p.page_index, p.width, p.height))
         .collect();
-
-    let upgrade_indices: Vec<u32> = pages.iter().map(|p| p.page_index).collect();
-
+    let cache_pages = pages.clone();
+    let cache_dir = data_dir.to_path_buf();
+    let cache_path = pdf_path.clone();
+    let page_count = tabs.read().active_tab().map(|t| t.page_count).unwrap_or(0);
+    std::thread::spawn(move || {
+        crate::cache::save_pages(
+            &cache_dir,
+            &cache_path,
+            render_scale,
+            page_count,
+            &cache_pages,
+        );
+    });
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
-            for p in pages {
-                tab.render.rendered_pages.insert(p.page_index, p);
-            }
-            // Evict pages far from the newly loaded range to bound memory
-            tab.render.evict_distant_pages(start + count / 2);
+            tab.render.rendered_pages.extend(pages);
         }
     });
-
-    // Spawn background quality upgrade
-    let render_tx_up = render_tx.clone();
-    let mut tabs_up = *tabs;
-    let data_dir_up = data_dir.to_path_buf();
-    spawn(async move {
-        let _ = upgrade_quality(
-            &render_tx_up,
-            &mut tabs_up,
-            tab_id,
-            upgrade_indices,
-            quality,
-            &data_dir_up,
-        )
-        .await;
-    });
-
     let render_tx2 = render_tx.clone();
     let mut tabs2 = *tabs;
     spawn(async move {
@@ -583,83 +421,63 @@ pub async fn render_more_pages(
             });
         }
     });
-
     Ok(())
 }
 
-/// Change zoom level and re-render all loaded pages.
 pub async fn set_zoom(
     render_tx: &mpsc::Sender<RenderRequest>,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     new_zoom: f32,
     quality: u8,
-    data_dir: &std::path::Path,
+    format: RenderFormat,
+    _data_dir: &std::path::Path,
 ) -> Result<(), String> {
-    let (pdf_path, page_count) = {
+    let (pdf_path, page_count, dpr) = {
         let mgr = tabs.read();
         let tab = mgr
             .tabs
             .iter()
             .find(|t| t.id == tab_id)
             .ok_or("Tab not found")?;
-        (tab.pdf_path.clone(), tab.rendered_count())
+        (tab.pdf_path.clone(), tab.rendered_count(), tab.view.dpr)
     };
-
-    // Set zoom immediately for CSS progressive scaling
+    let render_scale = new_zoom * dpr;
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
             tab.view.zoom = new_zoom;
         }
     });
-
     let (reply_tx, reply_rx) = mpsc::channel();
     render_tx
         .send(RenderRequest::SetZoom {
             pdf_path,
             page_count,
-            new_zoom,
-            quality: PREVIEW_QUALITY,
+            new_zoom: render_scale,
+            quality,
+            format,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
-
     let pages = recv_reply(reply_rx).await?;
-
-    let upgrade_indices: Vec<u32> = pages.iter().map(|p| p.page_index).collect();
-
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
-            tab.view.render_zoom = new_zoom;
-            tab.render.rendered_pages = pages.into_iter().map(|p| (p.page_index, p)).collect();
-            tab.render.text_data.clear(); // will be re-extracted at new zoom
+            tab.view.render_zoom = render_scale;
+            tab.render.rendered_pages = pages;
+            tab.render.text_data.clear();
         }
     });
-
-    // Spawn background quality upgrade
-    let render_tx_up = render_tx.clone();
-    let mut tabs_up = *tabs;
-    let data_dir_up = data_dir.to_path_buf();
-    spawn(async move {
-        let _ = upgrade_quality(
-            &render_tx_up,
-            &mut tabs_up,
-            tab_id,
-            upgrade_indices,
-            quality,
-            &data_dir_up,
-        )
-        .await;
-    });
-
     Ok(())
 }
 
-/// Load thumbnails for all pages.
+const MAX_RESIDENT_THUMBS: usize = 50;
+
 pub async fn load_thumbnails(
     render_tx: &mpsc::Sender<RenderRequest>,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
+    start: u32,
+    count: u32,
     quality: u8,
 ) -> Result<(), String> {
     let pdf_path = {
@@ -671,28 +489,36 @@ pub async fn load_thumbnails(
             .pdf_path
             .clone()
     };
-
     let (reply_tx, reply_rx) = mpsc::channel();
     render_tx
         .send(RenderRequest::RenderThumbnails {
             pdf_path,
+            start,
+            count,
             quality,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
-
     let thumbnails = recv_reply(reply_rx).await?;
-
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
-            tab.render.thumbnails = thumbnails;
+            for thumb in thumbnails {
+                tab.render.thumbnails.insert(thumb.page_index, thumb);
+            }
+            let center = start + count / 2;
+            if tab.render.thumbnails.len() > MAX_RESIDENT_THUMBS {
+                let half = MAX_RESIDENT_THUMBS as u32 / 2;
+                let lo = center.saturating_sub(half);
+                let hi = center.saturating_add(half);
+                tab.render
+                    .thumbnails
+                    .retain(|&idx, _| idx >= lo && idx <= hi);
+            }
         }
     });
-
     Ok(())
 }
 
-/// Extract outline/bookmarks.
 pub async fn load_outline(
     render_tx: &mpsc::Sender<RenderRequest>,
     tabs: &mut Signal<PdfTabManager>,
@@ -707,7 +533,6 @@ pub async fn load_outline(
             .pdf_path
             .clone()
     };
-
     let (reply_tx, reply_rx) = mpsc::channel();
     render_tx
         .send(RenderRequest::ExtractOutline {
@@ -715,37 +540,29 @@ pub async fn load_outline(
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
-
     let outline = recv_reply(reply_rx).await?;
-
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
             tab.nav.outline = outline;
         }
     });
-
     Ok(())
 }
 
-/// Pre-cache a PDF in the background (render pages + extract text to disk + index fulltext).
-/// Fire-and-forget — does not update any UI state.
 pub async fn precache_pdf(
     render_tx: &mpsc::Sender<RenderRequest>,
     pdf_path: &str,
     data_dir: &std::path::Path,
     zoom: f32,
     quality: u8,
-    paper_id: Option<i64>,
-    db: Option<&turso::Connection>,
+    format: RenderFormat,
+    paper_id: Option<String>,
+    db: Option<&rotero_db::turso::Connection>,
 ) {
-    // Skip if already cached
     if crate::cache::load_cached(data_dir, pdf_path, zoom).is_some() {
         return;
     }
-
     let path = pdf_path.to_string();
-
-    // Render first batch of pages
     let (reply_tx, reply_rx) = mpsc::channel();
     if render_tx
         .send(RenderRequest::OpenPdf {
@@ -753,26 +570,22 @@ pub async fn precache_pdf(
             zoom,
             batch_size: 5,
             quality,
+            format,
             reply: reply_tx,
         })
         .is_err()
     {
         return;
     }
-
     let Ok((page_count, pages)) = recv_reply(reply_rx).await else {
         return;
     };
-
-    // Save pages to cache
     let dir = data_dir.to_path_buf();
     let p = path.clone();
     let pg = pages.clone();
     std::thread::spawn(move || {
         crate::cache::save_pages(&dir, &p, zoom, page_count, &pg);
     });
-
-    // Extract and cache text using actual rendered dims
     let page_dims: Vec<(u32, u32, u32)> = pages
         .iter()
         .map(|p| (p.page_index, p.width, p.height))
@@ -788,20 +601,18 @@ pub async fn precache_pdf(
     {
         return;
     }
-
     if let Ok(text_data) = recv_reply(text_rx).await {
         // Concatenate all text segments for full-text search
-        if let (Some(pid), Some(conn)) = (paper_id, db) {
+        if let (Some(pid), Some(conn)) = (&paper_id, db) {
             let fulltext: String = text_data
                 .values()
                 .flat_map(|td| td.segments.iter().map(|s| s.text.as_str()))
                 .collect::<Vec<_>>()
                 .join(" ");
             if !fulltext.is_empty() {
-                let _ = crate::db::papers::update_paper_fulltext(conn, pid, &fulltext).await;
+                let _ = rotero_db::papers::update_paper_fulltext(conn, pid, &fulltext).await;
             }
         }
-
         let dir = data_dir.to_path_buf();
         std::thread::spawn(move || {
             crate::cache::save_text(&dir, &path, &text_data);
@@ -809,30 +620,15 @@ pub async fn precache_pdf(
     }
 }
 
-/// Extract metadata from a PDF and update the paper record.
-///
-/// The paper is already inserted with filename as title. This function:
-/// 1. Extracts raw text from the first 2 pages (via render thread)
-/// 2. Reads PDF document properties (title, author)
-/// 3. Tries to find a DOI in the text
-/// 4. If DOI found + auto_fetch, calls CrossRef for full metadata
-/// 5. Falls back to PDF document properties if CrossRef unavailable
 pub async fn extract_and_fetch_metadata(
     render_tx: &mpsc::Sender<RenderRequest>,
-    conn: &turso::Connection,
-    paper_id: i64,
+    conn: &rotero_db::turso::Connection,
+    paper_id: &str,
     pdf_path: &str,
     auto_fetch: bool,
     lib_state: &mut Signal<super::app_state::LibraryState>,
 ) {
-    tracing::info!(
-        paper_id,
-        pdf_path,
-        auto_fetch,
-        "extract_and_fetch_metadata: start"
-    );
-
-    // 1. Extract raw text + doc properties via render thread
+    tracing::info!(%paper_id, pdf_path, auto_fetch, "extract_and_fetch_metadata: start");
     let (reply_tx, reply_rx) = mpsc::channel();
     if render_tx
         .send(RenderRequest::ExtractMetadataText {
@@ -845,21 +641,11 @@ pub async fn extract_and_fetch_metadata(
         tracing::warn!("extract_and_fetch_metadata: failed to send render request");
         return;
     }
-
     let Ok((raw_pages, doc_meta)) = recv_reply(reply_rx).await else {
         tracing::warn!("extract_and_fetch_metadata: render thread reply failed");
         return;
     };
-
-    tracing::info!(
-        pages = raw_pages.len(),
-        total_chars = raw_pages.iter().map(|(_, t)| t.len()).sum::<usize>(),
-        doc_title = ?doc_meta.title,
-        doc_author = ?doc_meta.author,
-        "extract_and_fetch_metadata: text extracted"
-    );
-
-    // 2. Try to extract DOI and arXiv ID from first 2 pages
+    tracing::info!(pages = raw_pages.len(), total_chars = raw_pages.iter().map(|(_, t)| t.len()).sum::<usize>(), doc_title = ?doc_meta.title, doc_author = ?doc_meta.author, "extract_and_fetch_metadata: text extracted");
     let combined_text: String = raw_pages
         .iter()
         .map(|(_, t)| t.as_str())
@@ -868,8 +654,6 @@ pub async fn extract_and_fetch_metadata(
     let doi = crate::metadata::doi_extract::extract_doi(&combined_text);
     let arxiv_id = crate::metadata::doi_extract::extract_arxiv_id(&combined_text);
     tracing::info!(?doi, ?arxiv_id, "extract_and_fetch_metadata: ID extraction");
-
-    // 3. If DOI found and auto_fetch enabled, call CrossRef
     if let Some(ref doi_str) = doi
         && auto_fetch
     {
@@ -886,8 +670,6 @@ pub async fn extract_and_fetch_metadata(
             }
         }
     }
-
-    // 3b. If arXiv ID found and auto_fetch enabled, call arXiv API
     if let Some(ref arxiv) = arxiv_id
         && auto_fetch
     {
@@ -904,8 +686,6 @@ pub async fn extract_and_fetch_metadata(
             }
         }
     }
-
-    // 4. Fallback: use PDF document properties + extracted DOI/arXiv ID
     let has_update = doc_meta.title.is_some()
         || doc_meta.author.is_some()
         || doi.is_some()
@@ -914,9 +694,12 @@ pub async fn extract_and_fetch_metadata(
         tracing::info!("extract_and_fetch_metadata: no metadata found");
         return;
     }
-
     lib_state.with_mut(|s| {
-        if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(paper_id)) {
+        if let Some(p) = s
+            .papers
+            .iter_mut()
+            .find(|p| p.id.as_ref().map(|id| id.to_string()) == Some(paper_id.to_string()))
+        {
             if let Some(ref title) = doc_meta.title {
                 p.title = title.clone();
             }
@@ -935,34 +718,35 @@ pub async fn extract_and_fetch_metadata(
             }
         }
     });
-
-    // Persist fallback metadata to DB
     let paper_snapshot = lib_state
         .read()
         .papers
         .iter()
-        .find(|p| p.id == Some(paper_id))
+        .find(|p| p.id.as_ref().map(|id| id.to_string()) == Some(paper_id.to_string()))
         .cloned();
     if let Some(paper) = paper_snapshot {
-        let _ = crate::db::papers::update_paper_metadata(conn, paper_id, &paper).await;
+        let _ = rotero_db::papers::update_paper_metadata(conn, paper_id, &paper).await;
     }
 }
 
-/// Apply fetched metadata to DB and in-memory state. Returns true on success.
 async fn apply_fetched_metadata(
-    conn: &turso::Connection,
-    paper_id: i64,
+    conn: &rotero_db::turso::Connection,
+    paper_id: &str,
     fetched: &rotero_models::Paper,
     lib_state: &mut Signal<super::app_state::LibraryState>,
 ) -> bool {
-    if crate::db::papers::update_paper_metadata(conn, paper_id, fetched)
+    if rotero_db::papers::update_paper_metadata(conn, paper_id, fetched)
         .await
         .is_err()
     {
         return false;
     }
     lib_state.with_mut(|s| {
-        if let Some(p) = s.papers.iter_mut().find(|p| p.id == Some(paper_id)) {
+        if let Some(p) = s
+            .papers
+            .iter_mut()
+            .find(|p| p.id.as_ref().map(|id| id.to_string()) == Some(paper_id.to_string()))
+        {
             p.title = fetched.title.clone();
             p.authors = fetched.authors.clone();
             p.year = fetched.year;
@@ -979,9 +763,8 @@ async fn apply_fetched_metadata(
             }
         }
     });
-    // Persist citation count separately (update_paper_metadata doesn't include it)
     if let Some(count) = fetched.citation_count {
-        let _ = crate::db::papers::update_citation_count(conn, paper_id, count).await;
+        let _ = rotero_db::papers::update_citation_count(conn, paper_id, count).await;
     }
     true
 }

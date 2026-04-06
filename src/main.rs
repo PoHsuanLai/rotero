@@ -1,7 +1,6 @@
 mod agent;
 mod app;
 mod cache;
-mod db;
 mod metadata;
 mod state;
 mod sync;
@@ -9,8 +8,6 @@ mod ui;
 
 #[cfg(feature = "desktop")]
 use std::sync::Arc;
-#[cfg(feature = "desktop")]
-use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(feature = "desktop")]
 use rotero_connector::ConnectorState;
@@ -35,34 +32,47 @@ fn main() {
     // Load config to check connector settings
     let config = sync::engine::SyncConfig::load();
 
+    // Initialize shared DB connection once (used by both connector and UI)
+    #[cfg(feature = "desktop")]
+    {
+        let lib_path = config.effective_library_path();
+        std::fs::create_dir_all(&lib_path).expect("Failed to create library directory");
+        let papers_dir = lib_path.join("papers");
+        let _ = std::fs::create_dir_all(papers_dir.join("unsorted"));
+        let db_path = lib_path.join("rotero.db");
+        let db_path_str = db_path.to_string_lossy().to_string();
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create init runtime");
+        let (conn, _lib_path) = rt.block_on(async {
+            let db = rotero_db::turso::Builder::new_local(&db_path_str)
+                .experimental_index_method(true)
+                .build()
+                .await
+                .expect("Failed to open database");
+            let conn = db.connect().expect("Failed to connect to database");
+            rotero_db::schema::initialize_db(&conn)
+                .await
+                .expect("Failed to initialize schema");
+            (conn, lib_path.clone())
+        });
+        let _ = SHARED_DB.set((conn, lib_path));
+    }
+
     // Start the browser connector server in the background (desktop only)
     #[cfg(feature = "desktop")]
-    let connector_dirty = Arc::new(AtomicBool::new(false));
+    let (connector_tx, connector_rx) = tokio::sync::watch::channel(());
     #[cfg(feature = "desktop")]
     if config.connector_enabled {
         let port = config.connector_port;
         let lib_path = config.effective_library_path();
-        let dirty_flag = connector_dirty.clone();
+        let connector_tx = connector_tx.clone();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
             rt.block_on(async {
-                // Open a dedicated DB connection for the connector thread
-                let db_path = lib_path.join("rotero.db");
-                let db_path_str = db_path.to_string_lossy().to_string();
-                let db = match turso::Builder::new_local(&db_path_str)
-                    .build()
-                    .await
-                {
-                    Ok(db) => db,
-                    Err(e) => {
-                        eprintln!("Connector failed to open DB: {e}");
-                        return;
-                    }
-                };
-                let conn = match db.connect() {
-                    Ok(c) => c,
-                    Err(e) => {
-                        eprintln!("Connector failed to connect to DB: {e}");
+                // Use the shared DB connection
+                let (conn, _) = match SHARED_DB.get() {
+                    Some(pair) => (pair.0.clone(), pair.1.clone()),
+                    None => {
+                        eprintln!("Connector: SHARED_DB not initialized");
                         return;
                     }
                 };
@@ -74,57 +84,62 @@ fn main() {
 
                 let state = Arc::new(ConnectorState {
                     on_paper_saved: Some(Box::new({
-                        let dirty_flag = dirty_flag.clone();
+                        let connector_tx = connector_tx.clone();
                         let lib_path = lib_path.clone();
                         move |paper, collection_id, tag_ids, pdf_url| {
                             let conn = conn_save.clone();
-                            let dirty = dirty_flag.clone();
+                            let connector_tx = connector_tx.clone();
                             let lib_path = lib_path.clone();
                             tokio::task::block_in_place(|| {
                                 tokio::runtime::Handle::current().block_on(async {
-                                    match db::papers::insert_paper(&conn, &paper).await {
+                                    let mut paper = paper;
+                                    if let Some(ref url) = pdf_url {
+                                        paper.pdf_url = Some(url.clone());
+                                    }
+                                    match rotero_db::papers::insert_paper(&conn, &paper).await {
                                         Ok(paper_id) => {
-                                            if let Some(coll_id) = collection_id {
-                                                let _ = db::collections::add_paper_to_collection(&conn, paper_id, coll_id).await;
+                                            if let Some(ref coll_id) = collection_id {
+                                                let _ = rotero_db::collections::add_paper_to_collection(&conn, &paper_id, coll_id).await;
                                             }
-                                            for tag_id in tag_ids {
-                                                let _ = db::tags::add_tag_to_paper(&conn, paper_id, tag_id).await;
+                                            for tag_id in &tag_ids {
+                                                let _ = rotero_db::tags::add_tag_to_paper(&conn, &paper_id, tag_id).await;
                                             }
-                                            dirty.store(true, Ordering::Release);
-                                            tracing::info!("Connector saved paper id={paper_id}: {}", paper.title);
+                                            let _ = connector_tx.send(());
+                                            tracing::info!("Connector saved paper id={}: {}", paper_id, paper.title);
 
                                             // Download PDF in background
+                                            let paper_id_enrich = paper_id.clone();
                                             if let Some(pdf_url) = pdf_url {
                                                 let conn_pdf = conn.clone();
-                                                let dirty_pdf = dirty.clone();
+                                                let connector_tx_pdf = connector_tx.clone();
                                                 let paper_clone = paper.clone();
                                                 let lib_path = lib_path.clone();
                                                 tokio::spawn(async move {
                                                     if let Err(e) = download_and_import_pdf(
                                                         &conn_pdf,
                                                         &lib_path,
-                                                        paper_id,
+                                                        &paper_id,
                                                         &paper_clone,
                                                         &pdf_url,
                                                     )
                                                     .await
                                                     {
-                                                        tracing::error!("PDF download failed for paper id={paper_id}: {e}");
+                                                        tracing::error!("PDF download failed for paper id={}: {e}", paper_id);
                                                     } else {
-                                                        dirty_pdf.store(true, Ordering::Release);
+                                                        let _ = connector_tx_pdf.send(());
                                                     }
                                                 });
                                             }
 
                                             // Enrich metadata in background
                                             let conn_enrich = conn.clone();
-                                            let dirty_enrich = dirty.clone();
+                                            let connector_tx_enrich = connector_tx.clone();
                                             tokio::spawn(async move {
                                                 if let Some(enriched) = metadata::enrich::enrich_paper(&paper).await
-                                                    && db::papers::update_paper_metadata(&conn_enrich, paper_id, &enriched).await.is_ok()
+                                                    && rotero_db::papers::update_paper_metadata(&conn_enrich, &paper_id_enrich, &enriched).await.is_ok()
                                                 {
-                                                    dirty_enrich.store(true, Ordering::Release);
-                                                    tracing::info!("Connector enriched metadata for paper id={paper_id}");
+                                                    let _ = connector_tx_enrich.send(());
+                                                    tracing::info!("Connector enriched metadata for paper id={}", paper_id_enrich);
                                                 }
                                             });
                                         }
@@ -141,12 +156,12 @@ fn main() {
                         // Block on async in sync callback context
                         tokio::task::block_in_place(|| {
                             tokio::runtime::Handle::current().block_on(async {
-                                match db::collections::list_collections(&conn).await {
+                                match rotero_db::collections::list_collections(&conn).await {
                                     Ok(colls) => colls
                                         .into_iter()
                                         .filter_map(|c| {
                                             Some(rotero_connector::handlers::CollectionInfo {
-                                                id: c.id?,
+                                                id: c.id.clone()?,
                                                 name: c.name,
                                             })
                                         })
@@ -160,12 +175,12 @@ fn main() {
                         let conn = conn_tags.clone();
                         tokio::task::block_in_place(|| {
                             tokio::runtime::Handle::current().block_on(async {
-                                match db::tags::list_tags(&conn).await {
+                                match rotero_db::tags::list_tags(&conn).await {
                                     Ok(tags) => tags
                                         .into_iter()
                                         .filter_map(|t| {
                                             Some(rotero_connector::handlers::TagInfo {
-                                                id: t.id?,
+                                                id: t.id.clone()?,
                                                 name: t.name,
                                                 color: t.color,
                                             })
@@ -184,14 +199,35 @@ fn main() {
         });
     }
 
-    // Store in a global so the Dioxus app can access it
+    // Store the watch receiver so the Dioxus app can await notifications
     #[cfg(feature = "desktop")]
-    CONNECTOR_DIRTY.get_or_init(|| connector_dirty);
+    CONNECTOR_NOTIFY.get_or_init(|| std::sync::Mutex::new(connector_rx));
 
     #[cfg(feature = "desktop")]
     {
+        use dioxus::desktop::tao::dpi::LogicalSize;
+        use dioxus::desktop::tao::window::WindowBuilder;
+
+        let menu = build_menu_bar();
+
+        let window = WindowBuilder::new()
+            .with_title("Rotero")
+            .with_inner_size(LogicalSize::new(1200.0, 800.0))
+            .with_min_inner_size(LogicalSize::new(600.0, 400.0))
+            .with_theme(None); // follow system light/dark mode
+
         dioxus::LaunchBuilder::new()
-            .with_cfg(dioxus::desktop::Config::default().with_disable_context_menu(true))
+            .with_cfg(
+                dioxus::desktop::Config::default()
+                    .with_disable_context_menu(true)
+                    .with_window(window)
+                    .with_menu(menu)
+                    .with_background_color(if config.dark_mode {
+                        (15, 23, 42, 255) // slate-900 for dark mode
+                    } else {
+                        (255, 255, 255, 255) // white for light mode
+                    }),
+            )
             .launch(app::App);
     }
 
@@ -201,17 +237,157 @@ fn main() {
     }
 }
 
-/// Global dirty flag set by the connector when a paper is saved via the extension.
-/// The UI polls this to refresh the library.
+/// Shared DB connection — initialized once, used by both connector and UI.
 #[cfg(feature = "desktop")]
-pub static CONNECTOR_DIRTY: std::sync::OnceLock<Arc<AtomicBool>> = std::sync::OnceLock::new();
+pub static SHARED_DB: std::sync::OnceLock<(rotero_db::turso::Connection, std::path::PathBuf)> =
+    std::sync::OnceLock::new();
+
+/// Watch channel receiver — the connector sends a notification when data changes.
+/// The UI awaits this instead of polling.
+#[cfg(feature = "desktop")]
+pub static CONNECTOR_NOTIFY: std::sync::OnceLock<
+    std::sync::Mutex<tokio::sync::watch::Receiver<()>>,
+> = std::sync::OnceLock::new();
+
+/// Build the native menu bar.
+#[cfg(feature = "desktop")]
+fn build_menu_bar() -> dioxus::desktop::muda::Menu {
+    use dioxus::desktop::muda::{
+        Menu, MenuItem, PredefinedMenuItem, Submenu,
+        accelerator::{Accelerator, Code, Modifiers},
+    };
+
+    let menu = Menu::new();
+
+    // File
+    let file_menu = Submenu::new("File", true);
+    file_menu
+        .append_items(&[
+            &MenuItem::with_id(
+                "open-pdf",
+                "Open PDF…",
+                true,
+                Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyO)),
+            ),
+            &PredefinedMenuItem::separator(),
+            &MenuItem::with_id(
+                "import-bibtex",
+                "Import BibTeX…",
+                true,
+                Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyI)),
+            ),
+            &MenuItem::with_id(
+                "export-bibtex",
+                "Export BibTeX…",
+                true,
+                Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyE)),
+            ),
+            &PredefinedMenuItem::separator(),
+            &MenuItem::with_id(
+                "close-tab",
+                "Close Tab",
+                true,
+                Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyW)),
+            ),
+        ])
+        .unwrap();
+
+    // Edit — required for Cmd+C/V/X to work in WebView text inputs
+    let edit_menu = Submenu::new("Edit", true);
+    edit_menu
+        .append_items(&[
+            &PredefinedMenuItem::undo(None),
+            &PredefinedMenuItem::redo(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::cut(None),
+            &PredefinedMenuItem::copy(None),
+            &PredefinedMenuItem::paste(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::select_all(None),
+            &PredefinedMenuItem::separator(),
+            &MenuItem::with_id(
+                "find",
+                "Find…",
+                true,
+                Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyF)),
+            ),
+        ])
+        .unwrap();
+
+    // View
+    let view_menu = Submenu::new("View", true);
+    view_menu
+        .append_items(&[
+            &MenuItem::with_id(
+                "show-library",
+                "Library",
+                true,
+                Some(Accelerator::new(Some(Modifiers::SUPER), Code::Digit1)),
+            ),
+            &PredefinedMenuItem::separator(),
+            &MenuItem::with_id(
+                "new-collection",
+                "New Collection",
+                true,
+                Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyN)),
+            ),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::fullscreen(None),
+        ])
+        .unwrap();
+
+    // Window
+    let window_menu = Submenu::new("Window", true);
+    window_menu
+        .append_items(&[
+            &PredefinedMenuItem::minimize(None),
+            &PredefinedMenuItem::maximize(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::hide(None),
+            &PredefinedMenuItem::hide_others(None),
+            &PredefinedMenuItem::show_all(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::close_window(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::quit(None),
+        ])
+        .unwrap();
+
+    menu.append_items(&[&file_menu, &edit_menu, &view_menu, &window_menu])
+        .unwrap();
+
+    // Debug-only Help menu with dev tools
+    if cfg!(debug_assertions) {
+        let help_menu = Submenu::new("Help", true);
+        help_menu
+            .append_items(&[
+                &MenuItem::with_id(
+                    "dioxus-toggle-dev-tools",
+                    "Toggle Developer Tools",
+                    true,
+                    None,
+                ),
+                &MenuItem::with_id("dioxus-float-top", "Float on Top", true, None),
+            ])
+            .unwrap();
+        menu.append(&help_menu).unwrap();
+
+        #[cfg(target_os = "macos")]
+        help_menu.set_as_help_menu_for_nsapp();
+    }
+
+    #[cfg(target_os = "macos")]
+    window_menu.set_as_windows_menu_for_nsapp();
+
+    menu
+}
 
 /// Download a PDF from a URL and import it into the library.
 #[cfg(feature = "desktop")]
-async fn download_and_import_pdf(
-    conn: &turso::Connection,
+pub async fn download_and_import_pdf(
+    conn: &rotero_db::turso::Connection,
     lib_path: &std::path::Path,
-    paper_id: i64,
+    paper_id: &str,
     paper: &rotero_models::Paper,
     pdf_url: &str,
 ) -> Result<(), String> {
@@ -303,10 +479,14 @@ async fn download_and_import_pdf(
     let rel_path = format!("{subfolder}/{final_name}");
 
     // Update the paper's pdf_path in the DB
-    db::papers::update_pdf_path(conn, paper_id, &rel_path)
+    rotero_db::papers::update_pdf_path(conn, paper_id, &rel_path)
         .await
         .map_err(|e| format!("Failed to update pdf_path: {e}"))?;
 
-    tracing::info!(paper_id, rel_path, "PDF downloaded and imported");
+    tracing::info!(
+        paper_id = paper_id,
+        rel_path = rel_path.as_str(),
+        "PDF downloaded and imported"
+    );
     Ok(())
 }

@@ -46,13 +46,9 @@ struct CrossRefDate {
 pub async fn fetch_by_doi(doi: &str) -> Result<FetchedMetadata, String> {
     let url = format!("{CROSSREF_API}/{doi}");
 
-    let client = reqwest::Client::new();
+    let client = crate::shared_client();
     let resp = client
         .get(&url)
-        .header(
-            "User-Agent",
-            "Rotero/0.1.0 (https://github.com/rotero; mailto:rotero@example.com)",
-        )
         .send()
         .await
         .map_err(|e| format!("HTTP request failed: {e}"))?;

@@ -80,6 +80,18 @@
   background: rgba(13, 148, 136, 0.15);
 }
 
+.app-container.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.app-container.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.app-container.dark .library-drop-overlay {
+  background: rgba(15, 23, 42, 0.85);
+}
+
 
 /* --- UI Scales --- */
 

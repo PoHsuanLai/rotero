@@ -1,12 +1,12 @@
 use dioxus::prelude::*;
 
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
-use crate::db::Database;
 use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTab, PdfTabManager};
+use rotero_db::Database;
 use rotero_models::Collection;
 
 /// Context menu state: (id, name, color, x, y).
-type TagContextMenu = (i64, String, Option<String>, f64, f64);
+type TagContextMenu = (String, String, Option<String>, f64, f64);
 
 #[component]
 pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
@@ -14,6 +14,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
     let db = use_context::<Database>();
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+    let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
     let state = lib_state.read();
     let view = state.view.clone();
     let papers = &state.papers;
@@ -30,20 +31,21 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
     let recent_opened: Vec<_> = recent_papers.into_iter().take(5).collect();
 
     // Collection context menu state: (collection_id, name, x, y)
-    let mut coll_ctx = use_signal(|| None::<(i64, String, f64, f64)>);
+    let mut coll_ctx = use_signal(|| None::<(String, String, f64, f64)>);
 
     // Tag context menu state: (tag_id, tag_name, tag_color, x, y)
     let mut tag_ctx = use_signal(|| None::<TagContextMenu>);
 
     // Recently opened context menu state: (paper_id, x, y)
-    let mut recent_ctx = use_signal(|| None::<(i64, f64, f64)>);
+    let mut recent_ctx = use_signal(|| None::<(String, f64, f64)>);
 
     // New collection inline edit state: None = not editing, Some(parent_id) = creating under parent
     // Some(None) = top-level, Some(Some(id)) = subcollection
-    let new_coll_editing: Signal<Option<Option<i64>>> = use_context();
+    let new_coll_editing: Signal<Option<Option<String>>> = use_context();
 
     // Drag-and-drop state for collection reparenting
-    let mut drag_coll: Signal<Option<i64>> = use_context_provider(|| Signal::new(None::<i64>));
+    let mut drag_coll: Signal<Option<String>> =
+        use_context_provider(|| Signal::new(None::<String>));
 
     // Drag paper from library
     let mut drag_paper = use_context::<Signal<DragPaper>>();
@@ -101,6 +103,14 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                         lib_state.with_mut(|s| s.view = LibraryView::Unread);
                     },
                     i { class: "bi bi-circle" }
+                }
+                button {
+                    class: "sidebar-collapsed-btn",
+                    title: "Graph",
+                    onclick: move |_| {
+                        lib_state.with_mut(|s| s.view = LibraryView::Graph);
+                    },
+                    i { class: "bi bi-diagram-3" }
                 }
                 // Settings at bottom
                 div { class: "sidebar-spacer" }
@@ -168,6 +178,13 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                     active: view == LibraryView::Duplicates,
                     view: LibraryView::Duplicates,
                 }
+                SidebarItem {
+                    label: format!("Graph"),
+                    count: None,
+                    icon: "diagram-3",
+                    active: view == LibraryView::Graph,
+                    view: LibraryView::Graph,
+                }
             }
 
             // Recently opened
@@ -175,7 +192,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                 CollapsibleSection { title: "Recent", initially_open: true,
                     for paper in recent_opened.iter() {
                         {
-                            let paper_id = paper.id.unwrap_or(0);
+                            let paper_id = paper.id.clone().unwrap_or_default();
                             let title = paper.title.clone();
                             let pdf_rel = paper.pdf_path.clone();
                             let recent_icon = if paper.pdf_path.is_some() { "bi bi-file-earmark-pdf" } else { "bi bi-file-earmark-text" };
@@ -185,12 +202,15 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                             } else {
                                 title.clone()
                             };
+                            let pid_drag = paper_id.clone();
+                            let pid_open = paper_id.clone();
+                            let pid_ctx = paper_id.clone();
                             rsx! {
                                 div {
                                     class: "sidebar-collection-item",
                                     draggable: "true",
                                     ondragstart: move |_| {
-                                        drag_paper.set(DragPaper(Some(paper_id)));
+                                        drag_paper.set(DragPaper(Some(pid_drag.clone())));
                                     },
                                     ondragend: move |_| {
                                         spawn(async move {
@@ -200,27 +220,18 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                     onmouseup: move |evt: Event<MouseData>| {
                                         if drag_paper().0.is_none()
                                             && evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary)
-                                                && let Some(ref rel_path) = pdf_rel {
-                                                    let full_path = db_recent.resolve_pdf_path(rel_path);
-                                                    let path_str = full_path.to_string_lossy().to_string();
-                                                    tabs.with_mut(|m| {
-                                                        if let Some(idx) = m.find_by_paper_id(paper_id) {
-                                                            let tid = m.tabs[idx].id;
-                                                            m.switch_to(tid);
-                                                        } else {
-                                                            let cfg = config.read();
-                                                            let id = m.next_id();
-                                                            let mut tab = PdfTab::new(id, path_str.clone(), title.clone(), cfg.default_zoom, cfg.page_batch_size);
-                                                            tab.paper_id = Some(paper_id);
-                                                            m.open_tab(tab);
-                                                        }
-                                                    });
-                                                    lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
-                                                }
+                                            && let Some(ref rel_path) = pdf_rel
+                                        {
+                                            let full_path = db_recent.resolve_pdf_path(rel_path);
+                                            let path_str = full_path.to_string_lossy().to_string();
+                                            let cfg = config.read();
+                                            tabs.with_mut(|m| m.open_or_switch(pid_open.clone(), path_str, title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
+                                            lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                        }
                                     },
                                     oncontextmenu: move |evt: Event<MouseData>| {
                                         evt.prevent_default();
-                                        recent_ctx.set(Some((paper_id, evt.client_coordinates().x, evt.client_coordinates().y)));
+                                        recent_ctx.set(Some((pid_ctx.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
                                     },
                                     i { class: "sidebar-collection-icon {recent_icon}" }
                                     span { class: "sidebar-collection-name", "{truncated}" }
@@ -255,10 +266,12 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                     evt.prevent_default();
                                     if let Some(dragged_id) = drag_coll() {
                                         let db = db_unnest.clone();
+                                        let did = dragged_id.clone();
                                         spawn(async move {
-                                            if let Ok(()) = crate::db::collections::reparent_collection(db.conn(), dragged_id, None).await {
+                                            if let Ok(()) = rotero_db::collections::reparent_collection(db.conn(), &did, None).await {
+                                                let did2 = did.clone();
                                                 lib_state.with_mut(|s| {
-                                                    if let Some(c) = s.collections.iter_mut().find(|c| c.id == Some(dragged_id)) {
+                                                    if let Some(c) = s.collections.iter_mut().find(|c| c.id.as_deref() == Some(did2.as_str())) {
                                                         c.parent_id = None;
                                                     }
                                                 });
@@ -283,20 +296,23 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                 CollapsibleSection { title: "Saved Searches", initially_open: true,
                     for search in state.saved_searches.iter() {
                         {
-                            let search_id = search.id.unwrap_or(0);
+                            let search_id = search.id.clone().unwrap_or_default();
                             let search_name = search.name.clone();
                             let search_query = search.query.clone();
-                            let is_active = view == LibraryView::SavedSearch(search_id);
+                            let is_active = view == LibraryView::SavedSearch(search_id.clone());
                             let item_class = if is_active { "sidebar-filter-item sidebar-filter-item--active" } else { "sidebar-filter-item" };
                             let db_del = db.clone();
+                            let sid_click = search_id.clone();
+                            let sid_del = search_id.clone();
                             rsx! {
                                 div {
                                     key: "saved-search-{search_id}",
                                     class: "{item_class}",
                                     onclick: move |_| {
+                                        let sid = sid_click.clone();
                                         lib_state.with_mut(|s| {
                                             s.search_query = search_query.clone();
-                                            s.view = LibraryView::SavedSearch(search_id);
+                                            s.view = LibraryView::SavedSearch(sid);
                                         });
                                     },
                                     div { class: "sidebar-filter-left",
@@ -308,9 +324,10 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                         onclick: move |evt| {
                                             evt.stop_propagation();
                                             let db = db_del.clone();
+                                            let sid = sid_del.clone();
                                             spawn(async move {
-                                                let _ = crate::db::saved_searches::delete_saved_search(db.conn(), search_id).await;
-                                                if let Ok(searches) = crate::db::saved_searches::list_saved_searches(db.conn()).await {
+                                                let _ = rotero_db::saved_searches::delete_saved_search(db.conn(), &sid).await;
+                                                if let Ok(searches) = rotero_db::saved_searches::list_saved_searches(db.conn()).await {
                                                     lib_state.with_mut(|s| s.saved_searches = searches);
                                                 }
                                             });
@@ -331,7 +348,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
             // Collection context menu
             if let Some((coll_id, coll_name, mx, my)) = coll_ctx() {
                 {
-                    let mut new_coll_editing: Signal<Option<Option<i64>>> = use_context();
+                    let mut new_coll_editing: Signal<Option<Option<String>>> = use_context();
                     let db_rename = db_for_ctx.clone();
                     let db_delete = db_for_ctx.clone();
                     let mut renaming = use_signal(|| false);
@@ -353,15 +370,19 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                         r#type: "text",
                                         value: "{rename_value}",
                                         oninput: move |evt| rename_value.set(evt.value()),
-                                        onkeypress: move |evt| {
+                                        onkeypress: {
+                                            let cid = coll_id.clone();
+                                            move |evt| {
                                             if evt.key() == Key::Enter {
                                                 let new_name = rename_value().trim().to_string();
                                                 if !new_name.is_empty() {
                                                     let db = db_rename.clone();
+                                                    let cid = cid.clone();
                                                     spawn(async move {
-                                                        if let Ok(()) = crate::db::collections::rename_collection(db.conn(), coll_id, &new_name).await {
+                                                        if let Ok(()) = rotero_db::collections::rename_collection(db.conn(), &cid, &new_name).await {
+                                                            let cid2 = cid.clone();
                                                             lib_state.with_mut(|s| {
-                                                                if let Some(c) = s.collections.iter_mut().find(|c| c.id == Some(coll_id)) {
+                                                                if let Some(c) = s.collections.iter_mut().find(|c| c.id.as_deref() == Some(cid2.as_str())) {
                                                                     c.name = new_name;
                                                                 }
                                                             });
@@ -371,7 +392,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                                     });
                                                 }
                                             }
-                                        },
+                                        }},
                                     }
                                 }
                             }
@@ -386,9 +407,12 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                 ContextMenuItem {
                                     label: "New subcollection".to_string(),
                                     icon: Some("bi-folder-plus".to_string()),
-                                    on_click: move |_| {
-                                        new_coll_editing.set(Some(Some(coll_id)));
-                                        coll_ctx.set(None);
+                                    on_click: {
+                                        let cid = coll_id.clone();
+                                        move |_| {
+                                            new_coll_editing.set(Some(Some(cid.clone())));
+                                            coll_ctx.set(None);
+                                        }
                                     },
                                 }
 
@@ -406,18 +430,23 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                     label: "Delete".to_string(),
                                     icon: Some("bi-trash".to_string()),
                                     danger: Some(true),
-                                    on_click: move |_| {
-                                        let db = db_delete.clone();
-                                        spawn(async move {
-                                            if let Ok(()) = crate::db::collections::delete_collection(db.conn(), coll_id).await {
-                                                lib_state.with_mut(|s| {
-                                                    s.collections.retain(|c| c.id != Some(coll_id));
-                                                    if s.view == LibraryView::Collection(coll_id) {
-                                                        s.view = LibraryView::AllPapers;
-                                                    }
-                                                });
-                                            }
-                                        });
+                                    on_click: {
+                                        let cid = coll_id.clone();
+                                        move |_| {
+                                            let db = db_delete.clone();
+                                            let cid = cid.clone();
+                                            spawn(async move {
+                                                if let Ok(()) = rotero_db::collections::delete_collection(db.conn(), &cid).await {
+                                                    let cid2 = cid.clone();
+                                                    lib_state.with_mut(|s| {
+                                                        s.collections.retain(|c| c.id.as_deref() != Some(cid2.as_str()));
+                                                        if s.view == LibraryView::Collection(cid.clone()) {
+                                                            s.view = LibraryView::AllPapers;
+                                                        }
+                                                    });
+                                                }
+                                            });
+                                        }
                                     },
                                 }
                             }
@@ -457,15 +486,19 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                         r#type: "text",
                                         value: "{rename_value}",
                                         oninput: move |evt| rename_value.set(evt.value()),
-                                        onkeypress: move |evt| {
+                                        onkeypress: {
+                                            let tid = tag_id.clone();
+                                            move |evt| {
                                             if evt.key() == Key::Enter {
                                                 let new_name = rename_value().trim().to_string();
                                                 if !new_name.is_empty() {
                                                     let db = db_rename.clone();
+                                                    let tid = tid.clone();
                                                     spawn(async move {
-                                                        if let Ok(()) = crate::db::tags::rename_tag(db.conn(), tag_id, &new_name).await {
+                                                        if let Ok(()) = rotero_db::tags::rename_tag(db.conn(), &tid, &new_name).await {
+                                                            let tid2 = tid.clone();
                                                             lib_state.with_mut(|s| {
-                                                                if let Some(t) = s.tags.iter_mut().find(|t| t.id == Some(tag_id)) {
+                                                                if let Some(t) = s.tags.iter_mut().find(|t| t.id.as_deref() == Some(tid2.as_str())) {
                                                                     t.name = new_name;
                                                                 }
                                                             });
@@ -475,7 +508,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                                     });
                                                 }
                                             }
-                                        },
+                                        }},
                                     }
                                 }
                             }
@@ -490,9 +523,12 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                 ContextMenuItem {
                                     label: "Filter by tag".to_string(),
                                     icon: Some("bi-funnel".to_string()),
-                                    on_click: move |_| {
-                                        lib_state.with_mut(|s| s.view = LibraryView::Tag(tag_id));
-                                        tag_ctx.set(None);
+                                    on_click: {
+                                        let tid = tag_id.clone();
+                                        move |_| {
+                                            lib_state.with_mut(|s| s.view = LibraryView::Tag(tid.clone()));
+                                            tag_ctx.set(None);
+                                        }
                                     },
                                 }
 
@@ -510,21 +546,25 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                                     span {
                                                         class: "context-menu-color-swatch",
                                                         style: "background: {color};",
-                                                        onclick: move |evt| {
+                                                        onclick: {
+                                                            let tid = tag_id.clone();
+                                                            move |evt: Event<MouseData>| {
                                                             evt.stop_propagation();
                                                             let c = color_for_click.clone();
                                                             let db = db_swatch.clone();
+                                                            let tid = tid.clone();
                                                             spawn(async move {
-                                                                if let Ok(()) = crate::db::tags::update_tag_color(db.conn(), tag_id, &c).await {
+                                                                if let Ok(()) = rotero_db::tags::update_tag_color(db.conn(), &tid, &c).await {
+                                                                    let tid2 = tid.clone();
                                                                     lib_state.with_mut(|s| {
-                                                                        if let Some(t) = s.tags.iter_mut().find(|t| t.id == Some(tag_id)) {
+                                                                        if let Some(t) = s.tags.iter_mut().find(|t| t.id.as_deref() == Some(tid2.as_str())) {
                                                                             t.color = Some(c);
                                                                         }
                                                                     });
                                                                 }
                                                                 tag_ctx.set(None);
                                                             });
-                                                        },
+                                                        }},
                                                     }
                                                 }
                                             }
@@ -546,18 +586,23 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                     label: "Delete".to_string(),
                                     icon: Some("bi-trash".to_string()),
                                     danger: Some(true),
-                                    on_click: move |_| {
-                                        let db = db_delete.clone();
-                                        spawn(async move {
-                                            if let Ok(()) = crate::db::tags::delete_tag(db.conn(), tag_id).await {
-                                                lib_state.with_mut(|s| {
-                                                    s.tags.retain(|t| t.id != Some(tag_id));
-                                                    if s.view == LibraryView::Tag(tag_id) {
-                                                        s.view = LibraryView::AllPapers;
-                                                    }
-                                                });
-                                            }
-                                        });
+                                    on_click: {
+                                        let tid = tag_id.clone();
+                                        move |_| {
+                                            let db = db_delete.clone();
+                                            let tid = tid.clone();
+                                            spawn(async move {
+                                                if let Ok(()) = rotero_db::tags::delete_tag(db.conn(), &tid).await {
+                                                    let tid2 = tid.clone();
+                                                    lib_state.with_mut(|s| {
+                                                        s.tags.retain(|t| t.id.as_deref() != Some(tid2.as_str()));
+                                                        if s.view == LibraryView::Tag(tid.clone()) {
+                                                            s.view = LibraryView::AllPapers;
+                                                        }
+                                                    });
+                                                }
+                                            });
+                                        }
                                     },
                                 }
                             }
@@ -578,12 +623,15 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                     ContextMenuItem {
                         label: "Show in library".to_string(),
                         icon: Some("bi-collection".to_string()),
-                        on_click: move |_| {
-                            lib_state.with_mut(|s| {
-                                s.view = LibraryView::AllPapers;
-                                s.selected_paper_id = Some(paper_id);
-                            });
-                            recent_ctx.set(None);
+                        on_click: {
+                            let pid = paper_id.clone();
+                            move |_| {
+                                lib_state.with_mut(|s| {
+                                    s.view = LibraryView::AllPapers;
+                                    s.selected_paper_id = Some(pid.clone());
+                                });
+                                recent_ctx.set(None);
+                            }
                         },
                     }
                 }
@@ -673,14 +721,14 @@ fn CollapsibleSection(
 #[component]
 fn CollectionTree(
     collections: Vec<Collection>,
-    parent_id: Option<i64>,
+    parent_id: Option<String>,
     depth: u32,
-    ctx_menu: Signal<Option<(i64, String, f64, f64)>>,
+    ctx_menu: Signal<Option<(String, String, f64, f64)>>,
 ) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
-    let new_coll_editing = use_context::<Signal<Option<Option<i64>>>>();
-    let mut drag_coll = use_context::<Signal<Option<i64>>>();
+    let new_coll_editing = use_context::<Signal<Option<Option<String>>>>();
+    let mut drag_coll = use_context::<Signal<Option<String>>>();
     let mut drag_paper = use_context::<Signal<DragPaper>>();
     let mut drop_hover = use_context::<Signal<Option<String>>>();
     let mut coll_ctx = ctx_menu;
@@ -693,7 +741,7 @@ fn CollectionTree(
         .cloned()
         .collect();
 
-    if children.is_empty() && new_coll_editing() != Some(parent_id) {
+    if children.is_empty() && new_coll_editing() != Some(parent_id.clone()) {
         return rsx! {};
     }
 
@@ -702,18 +750,18 @@ fn CollectionTree(
     rsx! {
         for coll in children.iter() {
             {
-                let coll_id = coll.id.unwrap_or(0);
+                let coll_id = coll.id.clone().unwrap_or_default();
                 let coll_name = coll.name.clone();
-                let is_active = view == LibraryView::Collection(coll_id);
+                let is_active = view == LibraryView::Collection(coll_id.clone());
                 let class = if is_active {
                     "sidebar-collection-item sidebar-collection-item--active"
                 } else {
                     "sidebar-collection-item"
                 };
 
-                let has_children = collections.iter().any(|c| c.parent_id == Some(coll_id));
+                let has_children = collections.iter().any(|c| c.parent_id.as_deref() == Some(coll_id.as_str()));
                 let collections_clone = collections.clone();
-                let creating_under_this = new_coll_editing() == Some(Some(coll_id));
+                let creating_under_this = new_coll_editing() == Some(Some(coll_id.clone()));
 
                 // Icon: open folder if active, filled folder if has children, outline if empty
                 let folder_icon = if is_active {
@@ -724,7 +772,7 @@ fn CollectionTree(
                     "bi bi-folder"
                 };
 
-                let is_drag_active = (drag_coll().is_some() && drag_coll() != Some(coll_id)) || drag_paper().0.is_some();
+                let is_drag_active = (drag_coll().is_some() && drag_coll().as_deref() != Some(coll_id.as_str())) || drag_paper().0.is_some();
                 let is_hover = drop_hover().as_deref() == Some(&format!("coll-{coll_id}"));
                 let item_class = if is_drag_active && is_hover {
                     format!("{class} sidebar-collection-item--drophover")
@@ -736,6 +784,15 @@ fn CollectionTree(
                 let db_for_drop = db.clone();
                 let db_for_paper_drop = db.clone();
 
+                let cid_click = coll_id.clone();
+                let cid_ctx = coll_id.clone();
+                let cid_drag = coll_id.clone();
+                let cid_enter = coll_id.clone();
+                let cid_leave = coll_id.clone();
+                let cid_drop = coll_id.clone();
+                let cid_child = coll_id.clone();
+                let cid_newrow = coll_id.clone();
+
                 rsx! {
                     div {
                         key: "coll-{coll_id}",
@@ -746,7 +803,7 @@ fn CollectionTree(
                             // Only navigate if this wasn't a drag operation
                             if drag_coll().is_none()
                                 && evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
-                                    lib_state.with_mut(|s| s.view = LibraryView::Collection(coll_id));
+                                    lib_state.with_mut(|s| s.view = LibraryView::Collection(cid_click.clone()));
                                 }
                         },
                         oncontextmenu: {
@@ -754,17 +811,17 @@ fn CollectionTree(
                             move |evt: Event<MouseData>| {
                                 evt.prevent_default();
                                 let coords = evt.page_coordinates();
-                                coll_ctx.set(Some((coll_id, name.clone(), coords.x, coords.y)));
+                                coll_ctx.set(Some((cid_ctx.clone(), name.clone(), coords.x, coords.y)));
                             }
                         },
                         ondragstart: move |_| {
-                            drag_coll.set(Some(coll_id));
+                            drag_coll.set(Some(cid_drag.clone()));
                         },
                         ondragenter: move |_| {
-                            drop_hover.set(Some(format!("coll-{coll_id}")));
+                            drop_hover.set(Some(format!("coll-{}", cid_enter)));
                         },
                         ondragleave: move |_| {
-                            if drop_hover().as_deref() == Some(&format!("coll-{coll_id}")) {
+                            if drop_hover().as_deref() == Some(&format!("coll-{}", cid_leave)) {
                                 drop_hover.set(None);
                             }
                         },
@@ -775,29 +832,33 @@ fn CollectionTree(
                             evt.prevent_default();
                             drop_hover.set(None);
                             if let Some(dragged_id) = drag_coll() {
-                                if dragged_id != coll_id {
+                                if dragged_id != cid_drop {
                                     // Reparent dragged collection under this one
                                     let db = db_for_drop.clone();
+                                    let target = cid_drop.clone();
                                     spawn(async move {
-                                        if let Ok(()) = crate::db::collections::reparent_collection(db.conn(), dragged_id, Some(coll_id)).await {
+                                        if let Ok(()) = rotero_db::collections::reparent_collection(db.conn(), &dragged_id, Some(&target)).await {
+                                            let did = dragged_id.clone();
+                                            let target2 = target.clone();
                                             lib_state.with_mut(|s| {
-                                                if let Some(c) = s.collections.iter_mut().find(|c| c.id == Some(dragged_id)) {
-                                                    c.parent_id = Some(coll_id);
+                                                if let Some(c) = s.collections.iter_mut().find(|c| c.id.as_deref() == Some(did.as_str())) {
+                                                    c.parent_id = Some(target2);
                                                 }
                                             });
                                         }
                                     });
                                 }
                                 drag_coll.set(None);
-                            } else if let Some(paper_id) = drag_paper().0 {
+                            } else if let Some(paper_id) = drag_paper().0.clone() {
                                 // Add paper to this collection
                                 let db = db_for_paper_drop.clone();
+                                let target = cid_drop.clone();
                                 spawn(async move {
-                                    if let Ok(()) = crate::db::collections::add_paper_to_collection(db.conn(), paper_id, coll_id).await {
+                                    if let Ok(()) = rotero_db::collections::add_paper_to_collection(db.conn(), &paper_id, &target).await {
                                         // Refresh only if currently viewing this collection
                                         let current_view = lib_state.read().view.clone();
-                                        if current_view == LibraryView::Collection(coll_id)
-                                            && let Ok(ids) = crate::db::collections::list_paper_ids_in_collection(db.conn(), coll_id).await {
+                                        if current_view == LibraryView::Collection(target.clone())
+                                            && let Ok(ids) = rotero_db::collections::list_paper_ids_in_collection(db.conn(), &target).await {
                                                 lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
                                             }
                                     }
@@ -815,14 +876,14 @@ fn CollectionTree(
                     if has_children || creating_under_this {
                         CollectionTree {
                             collections: collections_clone,
-                            parent_id: Some(coll_id),
+                            parent_id: Some(cid_child),
                             depth: depth + 1,
                             ctx_menu: coll_ctx,
                         }
                     }
                     // Inline new subcollection row
                     if creating_under_this {
-                        NewCollectionRow { parent_id: Some(coll_id), depth: depth + 1 }
+                        NewCollectionRow { parent_id: Some(cid_newrow), depth: depth + 1 }
                     }
                 }
             }
@@ -834,7 +895,7 @@ fn CollectionTree(
 /// If a collection is currently selected, creates under it; otherwise top-level.
 #[component]
 fn NewCollectionButton() -> Element {
-    let mut editing = use_context::<Signal<Option<Option<i64>>>>();
+    let mut editing = use_context::<Signal<Option<Option<String>>>>();
     let lib_state = use_context::<Signal<LibraryState>>();
 
     rsx! {
@@ -842,8 +903,8 @@ fn NewCollectionButton() -> Element {
             class: "sidebar-add-btn",
             onclick: move |_| {
                 // If viewing a collection, create subcollection; otherwise top-level
-                let parent = match lib_state.read().view {
-                    LibraryView::Collection(id) => Some(id),
+                let parent = match &lib_state.read().view {
+                    LibraryView::Collection(id) => Some(id.clone()),
                     _ => None,
                 };
                 editing.set(Some(parent));
@@ -855,10 +916,10 @@ fn NewCollectionButton() -> Element {
 
 /// An inline editable row that looks like a regular collection item.
 #[component]
-fn NewCollectionRow(parent_id: Option<i64>, depth: u32) -> Element {
+fn NewCollectionRow(parent_id: Option<String>, depth: u32) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
-    let mut editing = use_context::<Signal<Option<Option<i64>>>>();
+    let mut editing = use_context::<Signal<Option<Option<String>>>>();
     let mut name_value = use_signal(String::new);
     let mut submitted = use_signal(|| false);
 
@@ -883,10 +944,10 @@ fn NewCollectionRow(parent_id: Option<i64>, depth: u32) -> Element {
                             if !name.is_empty() {
                                 submitted.set(true);
                                 let mut coll = rotero_models::Collection::new(name);
-                                coll.parent_id = parent_id;
+                                coll.parent_id = parent_id.clone();
                                 let db = db.clone();
                                 spawn(async move {
-                                    if let Ok(id) = crate::db::collections::insert_collection(db.conn(), &coll).await {
+                                    if let Ok(id) = rotero_db::collections::insert_collection(db.conn(), &coll).await {
                                         let mut coll = coll;
                                         coll.id = Some(id);
                                         lib_state.with_mut(|s| s.collections.push(coll));
@@ -953,18 +1014,10 @@ fn TagSection(tags: Vec<rotero_models::Tag>, ctx_menu: Signal<Option<TagContextM
                         div { class: "sidebar-tags-wrap",
                             for tag in tags.iter() {
                                 {
-                                    let tag_id = tag.id.unwrap_or(0);
+                                    let tag_id = tag.id.clone().unwrap_or_default();
                                     let tag_name = tag.name.clone();
                                     let tag_color = tag.color.clone();
-                                    let bg = tag_color.clone().unwrap_or_else(|| {
-                                        // Auto-assign a muted color based on tag id
-                                        const PALETTE: &[&str] = &[
-                                            "#6b7085", "#7c6b85", "#6b8580", "#857a6b",
-                                            "#6b7a85", "#856b7a", "#6b856e", "#85706b",
-                                            "#6e6b85", "#7a856b", "#856b6b", "#6b8585",
-                                        ];
-                                        PALETTE[tag_id as usize % PALETTE.len()].to_string()
-                                    });
+                                    let bg = tag_color.clone().unwrap_or_else(|| "#6b7085".to_string());
                                     let is_paper_drop = drag_paper.read().0.is_some();
                                     let is_hover = drop_hover().as_deref() == Some(&format!("tag-{tag_id}"));
                                     let tag_class = if is_paper_drop && is_hover {
@@ -975,22 +1028,27 @@ fn TagSection(tags: Vec<rotero_models::Tag>, ctx_menu: Signal<Option<TagContextM
                                         "sidebar-tag"
                                     };
                                     let db_for_tag_drop = db.clone();
+                                    let tid_click = tag_id.clone();
+                                    let tid_ctx = tag_id.clone();
+                                    let tid_enter = tag_id.clone();
+                                    let tid_leave = tag_id.clone();
+                                    let tid_drop = tag_id.clone();
                                     rsx! {
                                         span {
                                             class: "{tag_class}",
                                             style: "background: {bg};",
                                             onclick: move |_| {
-                                                lib_state.with_mut(|s| s.view = LibraryView::Tag(tag_id));
+                                                lib_state.with_mut(|s| s.view = LibraryView::Tag(tid_click.clone()));
                                             },
                                             oncontextmenu: move |evt: Event<MouseData>| {
                                                 evt.prevent_default();
-                                                tag_ctx.set(Some((tag_id, tag_name.clone(), tag_color.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
+                                                tag_ctx.set(Some((tid_ctx.clone(), tag_name.clone(), tag_color.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
                                             },
                                             ondragenter: move |_| {
-                                                drop_hover.set(Some(format!("tag-{tag_id}")));
+                                                drop_hover.set(Some(format!("tag-{}", tid_enter)));
                                             },
                                             ondragleave: move |_| {
-                                                if drop_hover().as_deref() == Some(&format!("tag-{tag_id}")) {
+                                                if drop_hover().as_deref() == Some(&format!("tag-{}", tid_leave)) {
                                                     drop_hover.set(None);
                                                 }
                                             },
@@ -1000,13 +1058,15 @@ fn TagSection(tags: Vec<rotero_models::Tag>, ctx_menu: Signal<Option<TagContextM
                                             ondrop: move |evt| {
                                                 evt.prevent_default();
                                                 drop_hover.set(None);
-                                                if let Some(paper_id) = drag_paper().0 {
+                                                if let Some(ref paper_id) = drag_paper().0 {
                                                     let db = db_for_tag_drop.clone();
+                                                    let pid = paper_id.clone();
+                                                    let tid = tid_drop.clone();
                                                     spawn(async move {
-                                                        let _ = crate::db::tags::add_tag_to_paper(db.conn(), paper_id, tag_id).await;
+                                                        let _ = rotero_db::tags::add_tag_to_paper(db.conn(), &pid, &tid).await;
                                                         let current_view = lib_state.read().view.clone();
-                                                        if current_view == LibraryView::Tag(tag_id)
-                                                            && let Ok(ids) = crate::db::tags::list_paper_ids_by_tag(db.conn(), tag_id).await {
+                                                        if current_view == LibraryView::Tag(tid.clone())
+                                                            && let Ok(ids) = rotero_db::tags::list_paper_ids_by_tag(db.conn(), &tid).await {
                                                                 lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
                                                             }
                                                     });
@@ -1032,6 +1092,7 @@ fn OpenPdfButton() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+    let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
     let error_msg = use_signal(|| None::<String>);
 
     rsx! {
@@ -1054,7 +1115,7 @@ fn OpenPdfButton() -> Element {
                                 .file_stem()
                                 .map(|s| s.to_string_lossy().to_string())
                                 .unwrap_or_else(|| "Untitled".to_string());
-                            let tab = PdfTab::new(id, path_str.clone(), title, cfg.default_zoom, cfg.page_batch_size);
+                            let tab = PdfTab::new(id, path_str.clone(), title, cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0);
                             m.open_tab(tab);
                         }
                     });

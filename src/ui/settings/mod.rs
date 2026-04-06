@@ -2,8 +2,8 @@ mod appearance;
 mod claude;
 mod connector;
 mod import;
-mod library;
 mod pdf_viewer;
+mod sync;
 
 use crate::app::ShowSettings;
 use dioxus::prelude::*;
@@ -45,7 +45,7 @@ fn SettingsPanel(on_close: EventHandler<()>) -> Element {
                     }
                 }
 
-                library::LibrarySection {}
+                sync::SyncSection {}
 
                 div { class: "settings-divider" }
                 pdf_viewer::PdfViewerSection {}

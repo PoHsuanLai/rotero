@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::state::app_state::RenderedPageData;
 
 /// Current text extraction version. Bump to invalidate cached text data.
-const TEXT_VERSION: u32 = 1;
+const TEXT_VERSION: u32 = 3;
 
 /// Metadata stored alongside cached pages.
 #[derive(Debug, Serialize, Deserialize)]
@@ -29,6 +29,17 @@ pub struct CacheMeta {
     /// Text extraction version for cache invalidation.
     #[serde(default)]
     pub text_version: u32,
+    /// MIME type of cached images (e.g. "image/jpeg" or "image/png").
+    #[serde(default = "default_mime")]
+    pub mime: String,
+}
+
+fn default_mime() -> String {
+    "image/jpeg".to_string()
+}
+
+fn ext_for_mime(mime: &str) -> &str {
+    if mime == "image/png" { "png" } else { "jpg" }
 }
 
 /// Get the cache directory for a PDF.
@@ -72,21 +83,34 @@ pub fn load_cached(
     }
 
     let pages_dir = dir.join("pages");
+    let ext = ext_for_mime(&meta.mime);
+    let mime: &'static str = if meta.mime == "image/png" {
+        "image/png"
+    } else {
+        "image/jpeg"
+    };
     let mut pages = Vec::with_capacity(meta.page_count as usize);
     for i in 0..meta.page_count {
-        let jpg_path = pages_dir.join(format!("{i}.jpg"));
-        let bytes = fs::read(&jpg_path).ok()?;
+        let img_path = pages_dir.join(format!("{i}.{ext}"));
+        let bytes = match fs::read(&img_path) {
+            Ok(b) => b,
+            Err(_) => break, // Stop at first missing page — remaining pages will be lazy-loaded
+        };
         let base64_data =
             base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
         let (w, h) = meta.page_dims.get(i as usize).copied().unwrap_or((0, 0));
         pages.push(RenderedPageData {
             page_index: i,
             base64_data: std::sync::Arc::new(base64_data),
-            mime: "image/jpeg",
+            mime,
             width: w,
             height: h,
-            quality: 85,
         });
+    }
+
+    // Only return cache hit if we loaded at least some pages
+    if pages.is_empty() {
+        return None;
     }
 
     Some((meta, pages))
@@ -108,6 +132,10 @@ pub fn load_cached_text(data_dir: &Path, pdf_path: &str) -> Option<HashMap<u32, 
 }
 
 /// Save rendered pages to cache.
+///
+/// This merges incrementally: new page images are written to disk and
+/// `page_dims` in the metadata is extended (not replaced) so that
+/// subsequent batches from scroll-loading accumulate correctly.
 pub fn save_pages(
     data_dir: &Path,
     pdf_path: &str,
@@ -119,62 +147,51 @@ pub fn save_pages(
     let pages_dir = dir.join("pages");
     let _ = fs::create_dir_all(&pages_dir);
 
+    // Determine format from first page's mime
+    let mime = pages.first().map(|p| p.mime).unwrap_or("image/jpeg");
+    let ext = ext_for_mime(mime);
+
     // Write page images
     for page in pages {
         if let Ok(bytes) = base64::Engine::decode(
             &base64::engine::general_purpose::STANDARD,
             page.base64_data.as_str(),
         ) {
-            let _ = fs::write(pages_dir.join(format!("{}.jpg", page.page_index)), &bytes);
+            let _ = fs::write(pages_dir.join(format!("{}.{ext}", page.page_index)), &bytes);
         }
     }
 
-    // Write metadata
+    // Load existing metadata to merge page_dims (don't clobber previously cached pages)
+    let mtime = pdf_mtime(pdf_path);
+    let mut page_dims: Vec<(u32, u32)> = fs::read_to_string(dir.join("meta.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<CacheMeta>(&s).ok())
+        .filter(|m| (m.zoom - zoom).abs() < 0.01 && m.pdf_mtime == mtime)
+        .map(|m| m.page_dims)
+        .unwrap_or_default();
+
+    // Extend page_dims to fit the highest page index in this batch
+    for page in pages {
+        let idx = page.page_index as usize;
+        if idx >= page_dims.len() {
+            page_dims.resize(idx + 1, (0, 0));
+        }
+        page_dims[idx] = (page.width, page.height);
+    }
+
     let meta = CacheMeta {
         page_count,
         zoom,
-        pdf_mtime: pdf_mtime(pdf_path),
-        page_dims: pages.iter().map(|p| (p.width, p.height)).collect(),
+        pdf_mtime: mtime,
+        page_dims,
         text_version: TEXT_VERSION,
+        mime: mime.to_string(),
     };
     if let Ok(json) = serde_json::to_string(&meta) {
         let _ = fs::write(dir.join("meta.json"), json);
     }
 }
 
-/// Load a single page from the disk cache (for re-loading evicted pages).
-pub fn load_single_page(
-    data_dir: &Path,
-    pdf_path: &str,
-    page_index: u32,
-    zoom: f32,
-) -> Option<RenderedPageData> {
-    let dir = cache_dir(data_dir, pdf_path);
-    let meta_str = fs::read_to_string(dir.join("meta.json")).ok()?;
-    let meta: CacheMeta = serde_json::from_str(&meta_str).ok()?;
-
-    // Validate zoom + mtime
-    if (meta.zoom - zoom).abs() > 0.01 || meta.pdf_mtime != pdf_mtime(pdf_path) {
-        return None;
-    }
-
-    let jpg_path = dir.join("pages").join(format!("{page_index}.jpg"));
-    let bytes = fs::read(&jpg_path).ok()?;
-    let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
-    let (w, h) = meta
-        .page_dims
-        .get(page_index as usize)
-        .copied()
-        .unwrap_or((0, 0));
-    Some(RenderedPageData {
-        page_index,
-        base64_data: std::sync::Arc::new(base64_data),
-        mime: "image/jpeg",
-        width: w,
-        height: h,
-        quality: 85,
-    })
-}
 
 /// Save extracted text to cache.
 pub fn save_text(data_dir: &Path, pdf_path: &str, text_data: &HashMap<u32, PageTextData>) {

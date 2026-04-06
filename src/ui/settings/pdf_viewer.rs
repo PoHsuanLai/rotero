@@ -51,6 +51,7 @@ pub fn PdfViewerSection() -> Element {
     let current_zoom = config.read().default_zoom;
     let current_batch = config.read().page_batch_size;
     let current_color = config.read().selection_color.clone();
+    let current_format = config.read().render_format.clone();
     let current_quality = config.read().render_quality;
     let current_thumb_quality = config.read().thumbnail_quality;
 
@@ -127,20 +128,39 @@ pub fn PdfViewerSection() -> Element {
                 }
             }
 
-            // Render quality
+            // Render format
             div { class: "settings-field",
-                span { class: "settings-field-label", "Render quality" }
+                span { class: "settings-field-label", "Render format" }
                 div { class: "settings-field-control",
                     select {
                         class: "select settings-select",
-                        value: "{current_quality}",
+                        value: "{current_format}",
                         onchange: move |evt| {
-                            if let Ok(q) = evt.value().parse::<u8>() {
-                                update_config(&mut config, |c| c.render_quality = q);
-                            }
+                            let val = evt.value();
+                            update_config(&mut config, |c| c.render_format = val);
                         },
-                        for (val, label) in QUALITY_OPTIONS.iter() {
-                            option { value: "{val}", "{label}" }
+                        option { value: "jpeg", "JPEG (smaller, faster)" }
+                        option { value: "png", "PNG (lossless, sharper)" }
+                    }
+                }
+            }
+
+            // Render quality (only relevant for JPEG)
+            if current_format == "jpeg" {
+                div { class: "settings-field",
+                    span { class: "settings-field-label", "Render quality" }
+                    div { class: "settings-field-control",
+                        select {
+                            class: "select settings-select",
+                            value: "{current_quality}",
+                            onchange: move |evt| {
+                                if let Ok(q) = evt.value().parse::<u8>() {
+                                    update_config(&mut config, |c| c.render_quality = q);
+                                }
+                            },
+                            for (val, label) in QUALITY_OPTIONS.iter() {
+                                option { value: "{val}", "{label}" }
+                            }
                         }
                     }
                 }

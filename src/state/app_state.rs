@@ -8,41 +8,13 @@ use rotero_pdf::{BookmarkEntry, PageTextData, RenderedPage, SearchMatch};
 
 pub type TabId = u64;
 
-/// Maximum number of rendered pages kept in memory at once.
-/// Pages outside this window are evicted (they live on the disk cache).
-const MAX_RESIDENT_PAGES: usize = 30;
-
 /// Heavy render data — cleared when a tab is suspended to free memory.
 #[derive(Debug, Clone, Default)]
 pub struct PageRenderData {
-    pub rendered_pages: HashMap<u32, RenderedPageData>,
+    pub rendered_pages: Vec<RenderedPageData>,
     pub text_data: HashMap<u32, PageTextData>,
-    pub thumbnails: Vec<RenderedPageData>,
+    pub thumbnails: HashMap<u32, RenderedPageData>,
     pub _page_dimensions: Vec<(f32, f32)>,
-}
-
-impl PageRenderData {
-    /// Insert a page only if it improves quality (prevents downgrading a hi-res page).
-    pub fn insert_if_better(&mut self, page: RenderedPageData) {
-        if self
-            .rendered_pages
-            .get(&page.page_index)
-            .map_or(true, |existing| existing.quality < page.quality)
-        {
-            self.rendered_pages.insert(page.page_index, page);
-        }
-    }
-
-    /// Evict rendered pages that are far from `center_page` to keep memory bounded.
-    pub fn evict_distant_pages(&mut self, center_page: u32) {
-        if self.rendered_pages.len() <= MAX_RESIDENT_PAGES {
-            return;
-        }
-        let half = MAX_RESIDENT_PAGES as u32 / 2;
-        let lo = center_page.saturating_sub(half);
-        let hi = center_page.saturating_add(half);
-        self.rendered_pages.retain(|&idx, _| idx >= lo && idx <= hi);
-    }
 }
 
 /// Zoom and scroll state for a document.
@@ -52,6 +24,8 @@ pub struct ViewState {
     pub render_zoom: f32,
     pub scroll_top: f64,
     pub page_batch_size: u32,
+    /// Device pixel ratio — render at `zoom * dpr` for sharp output on HiDPI screens.
+    pub dpr: f32,
 }
 
 impl Default for ViewState {
@@ -61,6 +35,7 @@ impl Default for ViewState {
             render_zoom: 1.5,
             scroll_top: 0.0,
             page_batch_size: 5,
+            dpr: 1.0,
         }
     }
 }
@@ -87,7 +62,7 @@ pub struct NavPanels {
 pub struct PdfTab {
     pub id: TabId,
     pub pdf_path: String,
-    pub paper_id: Option<i64>,
+    pub paper_id: Option<String>,
     pub title: String,
     pub page_count: u32,
     pub is_loading: bool,
@@ -101,7 +76,14 @@ pub struct PdfTab {
 }
 
 impl PdfTab {
-    pub fn new(id: TabId, pdf_path: String, title: String, zoom: f32, batch_size: u32) -> Self {
+    pub fn new(
+        id: TabId,
+        pdf_path: String,
+        title: String,
+        zoom: f32,
+        batch_size: u32,
+        dpr: f32,
+    ) -> Self {
         Self {
             id,
             pdf_path,
@@ -113,8 +95,9 @@ impl PdfTab {
             render: PageRenderData::default(),
             view: ViewState {
                 zoom,
-                render_zoom: zoom,
+                render_zoom: zoom * dpr,
                 page_batch_size: batch_size,
+                dpr,
                 ..Default::default()
             },
             search: SearchState::default(),
@@ -128,19 +111,9 @@ impl PdfTab {
         self.render.rendered_pages.is_empty() && self.page_count > 0
     }
 
-    /// Number of currently resident (in-memory) rendered pages.
+    /// Number of rendered pages loaded so far.
     pub fn rendered_count(&self) -> u32 {
-        if self.render.rendered_pages.is_empty() {
-            return 0;
-        }
-        // The highest page index present + 1 gives the "loaded up to" count,
-        // which is what scroll-loading cares about.
-        self.render
-            .rendered_pages
-            .keys()
-            .max()
-            .map(|&m| m + 1)
-            .unwrap_or(0)
+        self.render.rendered_pages.len() as u32
     }
 
     /// Clear heavy render data to free memory (called on suspend).
@@ -164,8 +137,10 @@ impl PdfTabManager {
         self.next_id
     }
 
-    pub fn find_by_paper_id(&self, paper_id: i64) -> Option<usize> {
-        self.tabs.iter().position(|t| t.paper_id == Some(paper_id))
+    pub fn find_by_paper_id(&self, paper_id: &str) -> Option<usize> {
+        self.tabs
+            .iter()
+            .position(|t| t.paper_id.as_deref() == Some(paper_id))
     }
 
     pub fn find_by_path(&self, path: &str) -> Option<usize> {
@@ -249,6 +224,27 @@ impl PdfTabManager {
         self.switch_to(tab_id);
         tab_id
     }
+
+    /// Switch to an existing tab for this paper, or create a new one.
+    pub fn open_or_switch(
+        &mut self,
+        paper_id: String,
+        pdf_path: String,
+        title: String,
+        zoom: f32,
+        batch_size: u32,
+        dpr: f32,
+    ) {
+        if let Some(idx) = self.find_by_paper_id(&paper_id) {
+            let tid = self.tabs[idx].id;
+            self.switch_to(tid);
+        } else {
+            let id = self.next_id();
+            let mut tab = PdfTab::new(id, pdf_path, title, zoom, batch_size, dpr);
+            tab.paper_id = Some(paper_id);
+            self.open_tab(tab);
+        }
+    }
 }
 
 /// Shared viewer tool state (not per-tab).
@@ -293,7 +289,6 @@ pub struct RenderedPageData {
     pub mime: &'static str,
     pub width: u32,
     pub height: u32,
-    pub quality: u8,
 }
 
 impl From<RenderedPage> for RenderedPageData {
@@ -304,7 +299,6 @@ impl From<RenderedPage> for RenderedPageData {
             mime: rp.mime,
             width: rp.width,
             height: rp.height,
-            quality: rp.quality,
         }
     }
 }
@@ -340,11 +334,11 @@ impl SearchSource {
         ]
     }
 
-    pub fn provider(&self) -> Option<&'static dyn rotero_search::PaperSearchProvider> {
+    pub fn provider(&self) -> Option<rotero_search::SearchProvider> {
         match self {
-            Self::OpenAlex => Some(&rotero_search::OpenAlexProvider),
-            Self::ArXiv => Some(&rotero_search::ArXivProvider),
-            Self::SemanticScholar => Some(&rotero_search::SemanticScholarProvider),
+            Self::OpenAlex => Some(rotero_search::SearchProvider::OpenAlex),
+            Self::ArXiv => Some(rotero_search::SearchProvider::ArXiv),
+            Self::SemanticScholar => Some(rotero_search::SearchProvider::SemanticScholar),
             Self::Local => None,
         }
     }
@@ -356,16 +350,16 @@ pub struct LibraryState {
     pub papers: Vec<Paper>,
     pub collections: Vec<Collection>,
     pub tags: Vec<Tag>,
-    pub selected_paper_id: Option<i64>,
-    pub _selected_collection_id: Option<i64>,
+    pub selected_paper_id: Option<String>,
+    pub _selected_collection_id: Option<String>,
     pub view: LibraryView,
     pub search_query: String,
     pub search_results: Option<Vec<Paper>>,
     pub search_source: SearchSource,
     pub external_results: Option<Vec<Paper>>,
     pub external_searching: bool,
-    pub collection_paper_ids: Option<Vec<i64>>,
-    pub tag_paper_ids: Option<Vec<i64>>,
+    pub collection_paper_ids: Option<Vec<String>>,
+    pub tag_paper_ids: Option<Vec<String>>,
     pub duplicate_groups: Option<Vec<Vec<Paper>>>,
     pub saved_searches: Vec<rotero_models::SavedSearch>,
 }
@@ -377,20 +371,22 @@ pub enum LibraryView {
     RecentlyAdded,
     Favorites,
     Unread,
-    Collection(i64),
-    Tag(i64),
+    Collection(String),
+    Tag(String),
     Duplicates,
-    SavedSearch(i64),
+    SavedSearch(String),
     PdfViewer,
+    Graph,
 }
 
 impl LibraryState {
     pub fn selected_paper(&self) -> Option<&Paper> {
         self.selected_paper_id
-            .and_then(|id| self.papers.iter().find(|p| p.id == Some(id)))
+            .as_ref()
+            .and_then(|id| self.papers.iter().find(|p| p.id.as_ref() == Some(id)))
     }
 }
 
-/// Newtype for drag-paper signal to avoid context ambiguity with other `Signal<Option<i64>>`.
-#[derive(Debug, Clone, Copy)]
-pub struct DragPaper(pub Option<i64>);
+/// Newtype for drag-paper signal to avoid context ambiguity with other `Signal<Option<String>>`.
+#[derive(Debug, Clone)]
+pub struct DragPaper(pub Option<String>);
