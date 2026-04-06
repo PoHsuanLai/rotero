@@ -13,6 +13,7 @@ pub enum MessageContent {
         id: String,
         title: String,
         status: ToolStatus,
+        output: Option<String>,
     },
     Error(String),
 }
@@ -96,6 +97,14 @@ pub struct SlashCommand {
     pub hint: Option<String>,
 }
 
+/// An available model from the agent.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentModel {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+}
+
 /// A past session that can be resumed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PastSession {
@@ -135,6 +144,10 @@ pub struct ChatState {
     pub active_provider_id: String,
     /// Whether the connected agent supports listing past sessions.
     pub supports_list_sessions: bool,
+    /// Available models for the current provider.
+    pub available_models: Vec<AgentModel>,
+    /// Currently selected model id.
+    pub current_model: String,
 }
 
 /// Messages sent from UI -> agent thread.
@@ -145,6 +158,7 @@ pub enum ChatRequest {
     },
     Cancel,
     Authenticate { method_id: String },
+    SetModel { model_id: String },
     ListSessions,
     LoadSession { session_id: String, cwd: String },
     SwitchAgent { provider_id: String },
@@ -165,9 +179,10 @@ pub enum ChatEvent {
     UserMessage(String),
     TextDelta(String),
     ToolCallStarted { id: String, title: String },
-    ToolCallUpdated { id: String, status: ToolStatus },
+    ToolCallUpdated { id: String, status: ToolStatus, output: Option<String> },
     TurnCompleted,
     CommandsAvailable(Vec<SlashCommand>),
+    ModelsAvailable { models: Vec<AgentModel>, current: String },
     SessionList(Vec<PastSession>),
     /// Auth needed — informational, not an error.
     AuthRequired { provider_name: String },

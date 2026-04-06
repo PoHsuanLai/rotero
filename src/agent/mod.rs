@@ -6,8 +6,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 
 use types::{
-    AgentAuthMethod, AgentProvider, ChatEvent, ChatRequest, PastSession, SlashCommand, ToolStatus,
-    AGENT_PROVIDERS,
+    AgentAuthMethod, AgentModel, AgentProvider, ChatEvent, ChatRequest, PastSession, SlashCommand,
+    ToolStatus, AGENT_PROVIDERS,
 };
 
 fn find_mcp_binary() -> Option<PathBuf> {
@@ -588,6 +588,11 @@ fn connect_and_run(
                 .to_string();
             tracing::info!("ACP: session created: {session_id}");
             let _ = evt_tx.send(ChatEvent::SessionCreated);
+
+            // Extract available models
+            if let Some(models) = r.get("models") {
+                let _ = evt_tx.send(extract_models_event(models));
+            }
         }
         Err(e) if is_auth_error(&e) => {
             let _ = evt_tx.send(ChatEvent::AuthRequired {
@@ -783,6 +788,20 @@ fn connect_and_run(
                     provider_id: provider_id.clone(),
                 });
                 break LoopResult::SwitchAgent(provider_id);
+            }
+            Ok(ChatRequest::SetModel { model_id }) => {
+                let params = serde_json::json!({
+                    "sessionId": session_id,
+                    "modelId": model_id,
+                });
+                match conn.send_request("session/set_model", params, None) {
+                    Ok(_) => {
+                        tracing::info!("ACP: model set to {model_id}");
+                    }
+                    Err(e) => {
+                        let _ = evt_tx.send(ChatEvent::Error(format!("Set model failed: {e}")));
+                    }
+                }
             }
             Ok(ChatRequest::Authenticate { method_id }) => {
                 // Send authenticate request non-blocking — the response
@@ -1015,7 +1034,29 @@ fn handle_notification(
                         Some("failed") => ToolStatus::Failed,
                         _ => return,
                     };
-                    let _ = evt_tx.send(ChatEvent::ToolCallUpdated { id, status });
+                    // Extract text output from content array
+                    let output = update
+                        .get("content")
+                        .and_then(|c| c.as_array())
+                        .and_then(|arr| {
+                            let texts: Vec<String> = arr
+                                .iter()
+                                .filter_map(|item| {
+                                    // Content blocks or text items
+                                    item.get("text")
+                                        .and_then(|t| t.as_str())
+                                        .map(String::from)
+                                        .or_else(|| {
+                                            item.get("content")
+                                                .and_then(|c| c.get("text"))
+                                                .and_then(|t| t.as_str())
+                                                .map(String::from)
+                                        })
+                                })
+                                .collect();
+                            if texts.is_empty() { None } else { Some(texts.join("\n")) }
+                        });
+                    let _ = evt_tx.send(ChatEvent::ToolCallUpdated { id, status, output });
                 }
                 "available_commands_update" => {
                     let commands = update
@@ -1073,6 +1114,30 @@ fn api_key_env_for_method(method_id: &str) -> Option<String> {
         }
         _ => None,
     }
+}
+
+fn extract_models_event(models: &serde_json::Value) -> ChatEvent {
+    let available = models
+        .get("availableModels")
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|m| AgentModel {
+                    id: m.get("modelId").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    name: m.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    description: m.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let current = models
+        .get("currentModelId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default")
+        .to_string();
+
+    ChatEvent::ModelsAvailable { models: available, current }
 }
 
 fn extract_auth_methods(init_result: &serde_json::Value) -> Vec<AgentAuthMethod> {

@@ -138,6 +138,8 @@ pub fn ChatPanel() -> Element {
         .find(|p| p.id == active_provider)
         .map(|p| p.name)
         .unwrap_or("AI Chat");
+    let available_models = chat_state.read().available_models.clone();
+    let current_model = chat_state.read().current_model.clone();
     let show_commands = chat_state.read().show_command_picker;
     let commands = chat_state.read().commands.clone();
     let show_sessions = chat_state.read().show_session_browser;
@@ -179,6 +181,24 @@ pub fn ChatPanel() -> Element {
             div { class: "chat-header",
                 div { class: "chat-header-left",
                     span { class: "chat-title", "{provider_name}" }
+                    if !available_models.is_empty() {
+                        select {
+                            class: "chat-model-select",
+                            value: "{current_model}",
+                            onchange: move |e| {
+                                let model_id = e.value();
+                                chat_state.with_mut(|s| s.current_model = model_id.clone());
+                                agent_channel.send(ChatRequest::SetModel { model_id });
+                            },
+                            for model in available_models.iter() {
+                                option {
+                                    value: "{model.id}",
+                                    selected: model.id == current_model,
+                                    "{model.name}"
+                                }
+                            }
+                        }
+                    }
                     span {
                         class: "chat-status",
                         class: if is_busy { "chat-status--busy" } else { "" },
@@ -400,7 +420,7 @@ fn ChatMessageBubble(message: ChatMessage) -> Element {
                             }
                         }
                     },
-                    MessageContent::ToolUse { id: _, title, status } => {
+                    MessageContent::ToolUse { id: _, title, status, output } => {
                         let (icon_class, status_class) = match status {
                             ToolStatus::Pending | ToolStatus::InProgress =>
                                 ("bi bi-clock", "chat-tool-call--running"),
@@ -413,6 +433,11 @@ fn ChatMessageBubble(message: ChatMessage) -> Element {
                             div { key: "c{i}", class: "chat-tool-call {status_class}",
                                 i { class: "{icon_class} chat-tool-icon" }
                                 span { class: "chat-tool-name", "{title}" }
+                            }
+                            if let Some(out) = output {
+                                div { key: "c{i}-out", class: "chat-tool-output",
+                                    pre { "{out}" }
+                                }
                             }
                         }
                     },

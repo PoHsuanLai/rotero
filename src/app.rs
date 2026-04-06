@@ -592,22 +592,27 @@ fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
                         id,
                         title,
                         status: crate::agent::types::ToolStatus::InProgress,
+                        output: None,
                     });
                 }
             });
         }
-        ChatEvent::ToolCallUpdated { id, status } => {
+        ChatEvent::ToolCallUpdated { id, status, output } => {
             chat_state.with_mut(|s| {
                 if let Some(last) = s.messages.last_mut() {
                     for content in &mut last.content {
                         if let MessageContent::ToolUse {
                             id: tool_id,
                             status: tool_status,
+                            output: tool_output,
                             ..
                         } = content
                         {
                             if *tool_id == id {
                                 *tool_status = status.clone();
+                                if output.is_some() {
+                                    *tool_output = output.clone();
+                                }
                                 break;
                             }
                         }
@@ -617,6 +622,12 @@ fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
         }
         ChatEvent::TurnCompleted => {
             chat_state.with_mut(|s| s.status = AgentStatus::Idle);
+        }
+        ChatEvent::ModelsAvailable { models, current } => {
+            chat_state.with_mut(|s| {
+                s.available_models = models;
+                s.current_model = current;
+            });
         }
         ChatEvent::CommandsAvailable(commands) => {
             chat_state.with_mut(|s| s.commands = commands);
