@@ -707,7 +707,9 @@ fn connect_and_run(
                 );
             }
             Ok(ChatRequest::ListSessions) => {
-                match conn.send_request("session/list", serde_json::json!({}), None) {
+                match conn.send_request("session/list", serde_json::json!({
+                    "cwd": agent_working_dir().to_string_lossy(),
+                }), None) {
                     Ok(result) => {
                         let sessions = result
                             .get("sessions")
