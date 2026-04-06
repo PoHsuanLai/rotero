@@ -63,6 +63,8 @@ tracing-subscriber.workspace = true
 apple-utils = { version = "0.1", optional = true }
 regex = "1"
 urlencoding = "2"
+which = "8.0.2"
+pulldown-cmark = "0.13.3"
 futures-util = "0.3"
 
 [target.'cfg(target_vendor = "apple")'.dependencies]

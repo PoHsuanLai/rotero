@@ -1,3 +1,4 @@
+pub mod chat_panel;
 pub mod citation_dialog;
 pub mod components;
 pub mod graph_view;

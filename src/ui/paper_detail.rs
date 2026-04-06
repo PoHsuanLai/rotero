@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use super::chat_panel::ResizeHandle;
 use super::components::context_menu::{ContextMenu, ContextMenuItem};
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
 use crate::sync::engine::SyncConfig;
@@ -43,6 +44,7 @@ pub fn PaperDetail() -> Element {
 
     rsx! {
         div { class: "paper-detail",
+            ResizeHandle { target: "detail" }
 
             // Close button
             div { class: "detail-header",

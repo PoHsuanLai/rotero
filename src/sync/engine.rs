@@ -80,6 +80,18 @@ pub struct SyncConfig {
     /// Which sync transport to use.
     #[serde(default)]
     pub sync_transport: SyncTransport,
+
+    /// Selected AI agent provider id.
+    #[serde(default = "default_agent_provider")]
+    pub agent_provider: String,
+
+    /// API keys for agent providers (env var name -> value).
+    #[serde(default)]
+    pub agent_api_keys: std::collections::HashMap<String, String>,
+}
+
+fn default_agent_provider() -> String {
+    "claude".to_string()
 }
 
 fn default_zoom() -> f32 {
@@ -133,6 +145,8 @@ impl Default for SyncConfig {
             sync_enabled: false,
             sync_folder_path: None,
             sync_transport: SyncTransport::default(),
+            agent_provider: default_agent_provider(),
+            agent_api_keys: std::collections::HashMap::new(),
         }
     }
 }

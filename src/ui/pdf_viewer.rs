@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 
+use super::chat_panel::ChatToggleButton;
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use crate::app::RenderChannel;
 use crate::state::app_state::{
@@ -148,6 +149,12 @@ pub fn PdfTabBar() -> Element {
                         }
                     }
                 }
+            }
+
+            // Spacer + chat toggle
+            div { style: "flex: 1;" }
+            div { style: "padding: 4px 8px 4px 0; display: flex; align-items: center;",
+                ChatToggleButton {}
             }
 
             // Tab context menu
@@ -615,7 +622,8 @@ fn PdfPageWithOverlay(
         .text_data
         .get(&page_index)
         .map(|td| td.segments.clone())
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into();
     let search_bounds: Vec<(f64, f64, f64, f64)> = tab
         .search
         .matches

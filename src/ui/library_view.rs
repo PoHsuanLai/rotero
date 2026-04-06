@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 use dioxus_elements::HasFileData;
 
 use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
+use super::chat_panel::ChatToggleButton;
 use super::import_export::ImportExportButtons;
 use super::search_bar::SearchBar;
 use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTabManager};
@@ -343,6 +344,7 @@ pub fn LibraryPanel() -> Element {
                     span { class: "library-count", "{paper_count} papers" }
                 }
                 div { class: "library-header-right",
+                    ChatToggleButton {}
                     ImportExportButtons {}
                     AddPaperButtons {}
                 }
