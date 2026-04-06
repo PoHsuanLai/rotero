@@ -309,6 +309,12 @@ fn agent_main(
     }
 }
 
+impl Drop for RawAcpConnection {
+    fn drop(&mut self) {
+        self.kill();
+    }
+}
+
 enum LoopResult {
     SwitchAgent(String),
     Shutdown,
@@ -342,6 +348,13 @@ impl RawAcpConnection {
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
+
+        // Create new process group so we can kill all children on cleanup
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
 
         let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn node: {e}"))?;
         let stdout = child.stdout.take().ok_or("No stdout")?;
@@ -465,7 +478,24 @@ impl RawAcpConnection {
     }
 
     fn kill(&mut self) {
-        let _ = self.child.kill();
+        // Kill the entire process group to clean up node + any children
+        #[cfg(unix)]
+        {
+            let pid = self.child.id();
+            unsafe {
+                // Kill process group (negative pid)
+                libc::kill(-(pid as i32), libc::SIGTERM);
+            }
+            // Give it a moment to exit gracefully
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            unsafe {
+                libc::kill(-(pid as i32), libc::SIGKILL);
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = self.child.kill();
+        }
         let _ = self.child.wait();
     }
 }
