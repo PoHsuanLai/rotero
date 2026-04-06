@@ -651,10 +651,36 @@ fn connect_and_run(
                     let _ = stdin.flush();
                 }
 
-                // Read responses until we get the prompt result
+                // Read responses until we get the prompt result.
+                // Use try_recv in a loop so we can also check for UI requests
+                // (permission responses, cancel) without blocking.
                 loop {
-                    match conn.incoming.recv() {
-                        Err(_) => {
+                    // First check for pending UI requests (permission responses)
+                    match req_rx.try_recv() {
+                        Ok(ChatRequest::PermissionResponse { request_id, option_id }) => {
+                            let response = serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": request_id,
+                                "result": { "outcome": { "outcome": "selected", "optionId": option_id } }
+                            });
+                            let _ = conn.write_message(&response);
+                        }
+                        Ok(ChatRequest::Cancel) => {
+                            let _ = conn.send_notification(
+                                "session/cancel",
+                                serde_json::json!({ "sessionId": session_id }),
+                            );
+                        }
+                        _ => {}
+                    }
+
+                    // Try to read a line from the agent (non-blocking)
+                    match conn.incoming.try_recv() {
+                        Err(mpsc::TryRecvError::Empty) => {
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                            continue;
+                        }
+                        Err(mpsc::TryRecvError::Disconnected) => {
                             let _ = evt_tx.send(ChatEvent::Error("Connection closed".into()));
                             break;
                         }
@@ -708,24 +734,6 @@ fn connect_and_run(
                         }
                     }
 
-                    // Check for UI requests while streaming
-                    match req_rx.try_recv() {
-                        Ok(ChatRequest::Cancel) => {
-                            let _ = conn.send_notification(
-                                "session/cancel",
-                                serde_json::json!({ "sessionId": session_id }),
-                            );
-                        }
-                        Ok(ChatRequest::PermissionResponse { request_id, option_id }) => {
-                            let response = serde_json::json!({
-                                "jsonrpc": "2.0",
-                                "id": request_id,
-                                "result": { "outcome": { "outcome": "selected", "optionId": option_id } }
-                            });
-                            let _ = conn.write_message(&response);
-                        }
-                        _ => {}
-                    }
                 }
             }
             Ok(ChatRequest::Cancel) => {
