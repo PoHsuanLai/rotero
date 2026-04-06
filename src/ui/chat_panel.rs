@@ -97,7 +97,7 @@ pub fn ChatToggleButton() -> Element {
 
     rsx! {
         button {
-            class: "chat-toggle-btn",
+            class: "btn btn--ghost",
             class: if is_open { "chat-toggle-btn--active" } else { "" },
             title: "AI Chat",
             onclick: move |_| {
