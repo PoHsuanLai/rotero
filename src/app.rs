@@ -402,13 +402,13 @@ fn LoadLibraryData() -> Element {
                             rotero_db::collections::list_paper_ids_in_collection(conn, &coll_id)
                                 .await
                         {
-                            lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
+                            lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
                         }
                     }
                     LibraryView::Tag(tag_id) => {
                         if let Ok(ids) = rotero_db::tags::list_paper_ids_by_tag(conn, &tag_id).await
                         {
-                            lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
+                            lib_state.with_mut(|s| s.filter.tag_paper_ids = Some(ids));
                         }
                     }
                     _ => {}

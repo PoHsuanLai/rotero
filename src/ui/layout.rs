@@ -4,9 +4,9 @@ use super::chat_panel::ChatPanel;
 use super::graph_view::GraphView;
 #[cfg(feature = "desktop")]
 use super::keybindings::GlobalKeyHandler;
-use super::library_view::LibraryPanel;
+use super::library::LibraryPanel;
 use super::paper_detail::PaperDetail;
-use super::pdf_viewer::{PdfTabBar, PdfViewer};
+use super::pdf::{PdfTabBar, PdfViewer};
 use super::sidebar::Sidebar;
 use crate::agent::types::ChatState;
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};

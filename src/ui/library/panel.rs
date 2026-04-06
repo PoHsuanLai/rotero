@@ -1,12 +1,15 @@
 use dioxus::prelude::*;
 use dioxus_elements::HasFileData;
 
-use super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
-use super::chat_panel::ChatToggleButton;
-use super::import_export::ImportExportButtons;
-use super::search_bar::SearchBar;
+use crate::ui::chat_panel::ChatToggleButton;
+use crate::ui::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
+use crate::ui::import_export::ImportExportButtons;
+use crate::ui::search_bar::SearchBar;
 use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTabManager};
 use rotero_db::Database;
+
+use super::add_paper::{AddPaperButtons, AddPaperDOIInput};
+use super::external_results::ExternalResults;
 
 #[component]
 pub fn LibraryPanel() -> Element {
@@ -49,7 +52,7 @@ pub fn LibraryPanel() -> Element {
                         .await
                         {
                             Ok(ids) => {
-                                lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
+                                lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
                             }
                             Err(e) => eprintln!("Failed to load collection papers: {e}"),
                         }
@@ -60,7 +63,7 @@ pub fn LibraryPanel() -> Element {
                     spawn(async move {
                         match rotero_db::tags::list_paper_ids_by_tag(db.conn(), &tag_id).await {
                             Ok(ids) => {
-                                lib_state.with_mut(|s| s.tag_paper_ids = Some(ids));
+                                lib_state.with_mut(|s| s.filter.tag_paper_ids = Some(ids));
                             }
                             Err(e) => eprintln!("Failed to load tag papers: {e}"),
                         }
@@ -71,7 +74,7 @@ pub fn LibraryPanel() -> Element {
                     spawn(async move {
                         match rotero_db::papers::find_duplicates(db.conn()).await {
                             Ok(groups) => {
-                                lib_state.with_mut(|s| s.duplicate_groups = Some(groups));
+                                lib_state.with_mut(|s| s.filter.duplicate_groups = Some(groups));
                             }
                             Err(e) => eprintln!("Failed to find duplicates: {e}"),
                         }
@@ -83,7 +86,7 @@ pub fn LibraryPanel() -> Element {
                         spawn(async move {
                             match rotero_db::papers::search_papers(db.conn(), &query).await {
                                 Ok(papers) => {
-                                    lib_state.with_mut(|s| s.search_results = Some(papers));
+                                    lib_state.with_mut(|s| s.search.results = Some(papers));
                                 }
                                 Err(e) => eprintln!("Failed to run saved search: {e}"),
                             }
@@ -92,9 +95,9 @@ pub fn LibraryPanel() -> Element {
                 }
                 _ => {
                     lib_state.with_mut(|s| {
-                        s.collection_paper_ids = None;
-                        s.tag_paper_ids = None;
-                        s.duplicate_groups = None;
+                        s.filter.collection_paper_ids = None;
+                        s.filter.tag_paper_ids = None;
+                        s.filter.duplicate_groups = None;
                     });
                 }
             }
@@ -103,13 +106,13 @@ pub fn LibraryPanel() -> Element {
 
     let state = lib_state.read();
 
-    let is_external = state.search_source != crate::state::app_state::SearchSource::Local;
-    let external_results = state.external_results.clone();
-    let external_searching = state.external_searching;
-    let is_searching = state.search_results.is_some();
+    let is_external = state.search.source != crate::state::app_state::SearchSource::Local;
+    let external_results = state.search.external_results.clone();
+    let external_searching = state.search.external_searching;
+    let is_searching = state.search.results.is_some();
 
     let filtered: Vec<_> = if is_searching {
-        state.search_results.as_ref().unwrap().clone()
+        state.search.results.as_ref().unwrap().clone()
     } else {
         match &state.view {
             LibraryView::AllPapers => state.papers.clone(),
@@ -131,7 +134,7 @@ pub fn LibraryPanel() -> Element {
                 .cloned()
                 .collect(),
             LibraryView::Collection(_) => {
-                if let Some(ref ids) = state.collection_paper_ids {
+                if let Some(ref ids) = state.filter.collection_paper_ids {
                     state
                         .papers
                         .iter()
@@ -143,7 +146,7 @@ pub fn LibraryPanel() -> Element {
                 }
             }
             LibraryView::Tag(_) => {
-                if let Some(ref ids) = state.tag_paper_ids {
+                if let Some(ref ids) = state.filter.tag_paper_ids {
                     state
                         .papers
                         .iter()
@@ -155,7 +158,7 @@ pub fn LibraryPanel() -> Element {
                 }
             }
             LibraryView::Duplicates => {
-                if let Some(ref groups) = state.duplicate_groups {
+                if let Some(ref groups) = state.filter.duplicate_groups {
                     groups.iter().flatten().cloned().collect()
                 } else {
                     Vec::new()
@@ -167,7 +170,7 @@ pub fn LibraryPanel() -> Element {
 
     // Duplicate groups for merge UI
     let duplicate_groups = if matches!(state.view, LibraryView::Duplicates) {
-        state.duplicate_groups.clone()
+        state.filter.duplicate_groups.clone()
     } else {
         None
     };
@@ -471,12 +474,12 @@ pub fn LibraryPanel() -> Element {
                                                                         if let Ok(papers) = rotero_db::papers::list_papers(db.conn()).await {
                                                                             lib_state.with_mut(|s| {
                                                                                 s.papers = papers;
-                                                                                s.duplicate_groups = None;
+                                                                                s.filter.duplicate_groups = None;
                                                                             });
                                                                         }
                                                                         // Re-scan duplicates
                                                                         if let Ok(groups) = rotero_db::papers::find_duplicates(db.conn()).await {
-                                                                            lib_state.with_mut(|s| s.duplicate_groups = Some(groups));
+                                                                            lib_state.with_mut(|s| s.filter.duplicate_groups = Some(groups));
                                                                         }
                                                                     });
                                                                 }
@@ -818,7 +821,7 @@ pub fn LibraryPanel() -> Element {
                                                     spawn(async move {
                                                         if let Ok(()) = rotero_db::collections::remove_paper_from_collection(db.conn(), &pid, &cid).await
                                                             && let Ok(ids) = rotero_db::collections::list_paper_ids_in_collection(db.conn(), &cid).await {
-                                                                lib_state.with_mut(|s| s.collection_paper_ids = Some(ids));
+                                                                lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
                                                             }
                                                     });
                                                 },
@@ -861,333 +864,4 @@ pub fn LibraryPanel() -> Element {
             }
         }
     }
-}
-
-#[component]
-fn AddPaperButtons() -> Element {
-    let mut lib_state = use_context::<Signal<LibraryState>>();
-    let db = use_context::<rotero_db::Database>();
-    let render_ch = use_context::<crate::app::RenderChannel>();
-    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
-    let mut error_msg = use_context::<Signal<Option<String>>>();
-    let mut show_doi_input = use_context::<Signal<bool>>();
-
-    let db_for_pdf = db.clone();
-
-    rsx! {
-        div { class: "add-paper-row",
-            button {
-                class: "btn btn--primary",
-                onclick: move |_| {
-                    let db_for_pdf = db_for_pdf.clone();
-                    spawn(async move {
-                        let file = super::pick_file_async(&["pdf"], "Add Paper PDF").await;
-
-                        if let Some(path) = file {
-                            let path_str = path.to_string_lossy().to_string();
-                            let db = db_for_pdf;
-
-                            let filename = path.file_stem()
-                                .map(|s| s.to_string_lossy().to_string())
-                                .unwrap_or_else(|| "Untitled".to_string());
-
-                            match db.import_pdf(&path_str, Some(&filename), None, None) {
-                                Ok(rel_path) => {
-                                    let mut paper = rotero_models::Paper::new(filename);
-                                    paper.pdf_path = Some(rel_path.clone());
-                                    let full_path = db.resolve_pdf_path(&rel_path).to_string_lossy().to_string();
-                                    let auto_fetch = config.read().auto_fetch_metadata;
-                                    let meta_render_tx = render_ch.sender();
-                                    let meta_db = db.clone();
-
-                                    match rotero_db::papers::insert_paper(db.conn(), &paper).await {
-                                        Ok(id) => {
-                                            paper.id = Some(id.clone());
-                                            lib_state.with_mut(|s| s.papers.insert(0, paper));
-                                            error_msg.set(None);
-                                            // Extract metadata in background
-                                            spawn(async move {
-                                                crate::state::commands::extract_and_fetch_metadata(
-                                                    &meta_render_tx, meta_db.conn(), &id, &full_path, auto_fetch, &mut lib_state,
-                                                ).await;
-                                            });
-                                        }
-                                        Err(e) => error_msg.set(Some(format!("{e}"))),
-                                    }
-                                }
-                                Err(e) => error_msg.set(Some(e)),
-                            }
-                        }
-                    });
-                },
-                "+ Add PDF"
-            }
-
-            button {
-                class: "btn btn--success",
-                onclick: move |_| {
-                    show_doi_input.set(!show_doi_input());
-                },
-                "+ DOI"
-            }
-        }
-    }
-}
-
-#[component]
-fn AddPaperDOIInput() -> Element {
-    let mut lib_state = use_context::<Signal<LibraryState>>();
-    let db = use_context::<rotero_db::Database>();
-    let mut error_msg = use_context::<Signal<Option<String>>>();
-    let mut show_doi_input = use_context::<Signal<bool>>();
-    let mut doi_value = use_signal(String::new);
-
-    let db_for_doi = db.clone();
-
-    rsx! {
-        if show_doi_input() {
-            div { class: "doi-input-row",
-                input {
-                    class: "input doi-input",
-                    r#type: "text",
-                    placeholder: "Enter DOI (e.g. 10.1234/...)",
-                    value: "{doi_value}",
-                    oninput: move |evt| doi_value.set(evt.value()),
-                }
-                button {
-                    class: "btn btn--success",
-                    onclick: move |_| {
-                        let doi = doi_value().trim().to_string();
-                        if doi.is_empty() {
-                            return;
-                        }
-                        let db = db_for_doi.clone();
-
-                        spawn(async move {
-                            match crate::metadata::crossref::fetch_by_doi(&doi).await {
-                                Ok(meta) => {
-                                    let paper = crate::metadata::parser::metadata_to_paper(meta);
-                                    match rotero_db::papers::insert_paper(db.conn(), &paper).await {
-                                        Ok(id) => {
-                                            let mut paper = paper;
-                                            paper.id = Some(id);
-                                            lib_state.with_mut(|s| s.papers.insert(0, paper));
-                                            show_doi_input.set(false);
-                                            doi_value.set(String::new());
-                                            error_msg.set(None);
-                                        }
-                                        Err(e) => error_msg.set(Some(format!("{e}"))),
-                                    }
-                                }
-                                Err(e) => error_msg.set(Some(e)),
-                            }
-                        });
-                    },
-                    "Fetch"
-                }
-            }
-        }
-
-        if let Some(err) = error_msg.read().as_ref() {
-            div { class: "error-message",
-                "{err}"
-            }
-        }
-    }
-}
-
-#[component]
-fn ExternalResults(results: Vec<rotero_models::Paper>, searching: bool) -> Element {
-    let mut lib_state = use_context::<Signal<LibraryState>>();
-    let db = use_context::<Database>();
-    let source_label = lib_state.read().search_source.label();
-
-    // Collect DOIs already in the library for duplicate detection
-    let existing_dois: std::collections::HashSet<String> = lib_state
-        .read()
-        .papers
-        .iter()
-        .filter_map(|p| p.doi.clone())
-        .filter(|d| !d.is_empty())
-        .collect();
-
-    rsx! {
-        div { class: "library-list",
-            if searching {
-                div { class: "external-search-status",
-                    i { class: "bi bi-arrow-repeat external-spinner" }
-                    "Searching {source_label}..."
-                }
-            } else if results.is_empty() {
-                div { class: "library-empty",
-                    if lib_state.read().search_query.is_empty() {
-                        p { class: "library-empty-heading", "Search {source_label}" }
-                        p { class: "library-empty-sub", "Type a query and press Enter to search." }
-                    } else if lib_state.read().external_results.is_some() {
-                        p { class: "library-empty-heading", "No results found" }
-                        p { class: "library-empty-sub", "Try a different search term." }
-                    } else {
-                        p { class: "library-empty-heading", "Search {source_label}" }
-                        p { class: "library-empty-sub", "Press Enter to search." }
-                    }
-                }
-            } else {
-                {
-                    let importable_count = results.iter().filter(|p| {
-                        p.doi.as_ref().is_none_or(|d| d.is_empty() || !existing_dois.contains(d))
-                    }).count();
-                    let all_imported = importable_count == 0;
-                    let db_banner = db.clone();
-
-                    rsx! {
-                        // Banner
-                        div { class: "external-results-banner",
-                            span { "{results.len()} results from {source_label}" }
-                            button {
-                                class: "btn btn--sm btn--primary",
-                                disabled: all_imported,
-                                onclick: move |_| {
-                                    let state = lib_state.read();
-                                    let papers = state.external_results.clone().unwrap_or_default();
-                                    let existing: std::collections::HashSet<String> = state.papers.iter()
-                                        .filter_map(|p| p.doi.clone())
-                                        .filter(|d| !d.is_empty())
-                                        .collect();
-                                    drop(state);
-                                    let db = db_banner.clone();
-                                    spawn(async move {
-                                        let mut imported = 0;
-                                        for paper in papers {
-                                            // Skip papers with DOIs we already have
-                                            if let Some(ref doi) = paper.doi {
-                                                if !doi.is_empty() && existing.contains(doi) {
-                                                    continue;
-                                                }
-                                            }
-                                            if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
-                                                let mut paper = paper;
-                                                paper.id = Some(id);
-                                                lib_state.with_mut(|s| s.papers.insert(0, paper));
-                                                imported += 1;
-                                            }
-                                        }
-                                        eprintln!("Imported {imported} papers");
-                                    });
-                                },
-                                if all_imported { "All Imported" } else { "Import All" }
-                            }
-                        }
-                    }
-                }
-                for (i, paper) in results.iter().enumerate() {
-                    {
-                        let title = paper.title.clone();
-                        let authors = if paper.authors.is_empty() {
-                            "Unknown".to_string()
-                        } else if paper.authors.len() <= 2 {
-                            paper.authors.join(", ")
-                        } else {
-                            format!("{} et al.", paper.authors[0])
-                        };
-                        let year = paper.year.map(|y| y.to_string()).unwrap_or_default();
-                        let journal = paper.journal.clone().unwrap_or_default();
-                        let citation_count = paper.citation_count;
-                        let doi = paper.doi.clone().unwrap_or_default();
-                        let abstract_text = paper.abstract_text.clone().unwrap_or_default();
-                        let has_abstract = !abstract_text.is_empty();
-                        let already_imported = !doi.is_empty() && existing_dois.contains(&doi);
-                        let paper_clone = paper.clone();
-                        let db_import = db.clone();
-
-                        rsx! {
-                            div {
-                                key: "ext-{i}",
-                                class: if already_imported { "library-card external-result-card external-result-card--imported" } else { "library-card external-result-card" },
-
-                                div { class: "library-card-body",
-                                    div { class: "library-card-title", "{title}" }
-                                    div { class: "library-card-meta",
-                                        span { class: "library-card-authors", "{authors}" }
-                                        if !year.is_empty() {
-                                            span { class: "library-card-sep", "\u{00b7}" }
-                                            span { class: "library-card-year", "{year}" }
-                                        }
-                                        if !journal.is_empty() {
-                                            span { class: "library-card-sep", "\u{00b7}" }
-                                            span { class: "library-card-journal", "{journal}" }
-                                        }
-                                        if let Some(count) = citation_count {
-                                            span { class: "library-card-sep", "\u{00b7}" }
-                                            span { class: "library-card-citations", title: "Citation count", "{count} cited" }
-                                        }
-                                        if !doi.is_empty() {
-                                            span { class: "library-card-sep", "\u{00b7}" }
-                                            span { class: "library-card-doi", "{doi}" }
-                                        }
-                                    }
-                                    if has_abstract {
-                                        div { class: "external-result-abstract", "{abstract_text}" }
-                                    }
-                                }
-
-                                div { class: "library-card-actions",
-                                    if already_imported {
-                                        button {
-                                            class: "btn btn--sm btn--ghost external-imported-btn",
-                                            disabled: true,
-                                            i { class: "bi bi-check-lg" }
-                                            "Imported"
-                                        }
-                                    } else {
-                                        button {
-                                            class: "btn btn--sm btn--primary",
-                                            onclick: move |_| {
-                                                let paper = paper_clone.clone();
-                                                let db = db_import.clone();
-                                                spawn(async move {
-                                                    // If we have a DOI but sparse metadata (autocomplete result),
-                                                    // fetch full details first
-                                                    let paper = enrich_before_import(paper).await;
-                                                    match rotero_db::papers::insert_paper(db.conn(), &paper).await {
-                                                        Ok(id) => {
-                                                            let mut paper = paper;
-                                                            paper.id = Some(id);
-                                                            lib_state.with_mut(|s| s.papers.insert(0, paper));
-                                                        }
-                                                        Err(e) => eprintln!("Failed to import: {e}"),
-                                                    }
-                                                });
-                                            },
-                                            "Import"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// If a paper has a DOI but missing authors (e.g. from autocomplete),
-/// try to fetch full metadata before inserting.
-async fn enrich_before_import(paper: rotero_models::Paper) -> rotero_models::Paper {
-    // Only enrich if we have a DOI but are missing basic fields
-    let needs_enrichment =
-        paper.authors.is_empty() && paper.doi.as_ref().is_some_and(|d| !d.is_empty());
-    if !needs_enrichment {
-        return paper;
-    }
-
-    let doi = paper.doi.as_deref().unwrap_or_default();
-    // Try OpenAlex full endpoint first (fastest), then CrossRef
-    if let Ok(meta) = crate::metadata::openalex::fetch_by_doi(doi).await {
-        return crate::metadata::parser::metadata_to_paper(meta);
-    }
-    if let Ok(meta) = crate::metadata::crossref::fetch_by_doi(doi).await {
-        return crate::metadata::parser::metadata_to_paper(meta);
-    }
-    paper
 }

@@ -6,9 +6,9 @@ pub mod import_export;
 #[cfg(feature = "desktop")]
 pub mod keybindings;
 pub mod layout;
-pub mod library_view;
+pub mod library;
 pub mod paper_detail;
-pub mod pdf_viewer;
+pub mod pdf;
 pub mod search_bar;
 pub mod settings;
 pub mod sidebar;

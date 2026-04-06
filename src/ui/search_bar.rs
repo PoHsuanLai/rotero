@@ -23,8 +23,8 @@ enum SearchMsg {
 pub fn SearchBar() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
-    let query = lib_state.read().search_query.clone();
-    let source = lib_state.read().search_source.clone();
+    let query = lib_state.read().search.query.clone();
+    let source = lib_state.read().search.source.clone();
     let mut show_dropdown = use_signal(|| false);
 
     // Single coroutine handles debounce + two-phase search
@@ -33,8 +33,8 @@ pub fn SearchBar() -> Element {
             match msg {
                 SearchMsg::Clear => {
                     lib_state.with_mut(|s| {
-                        s.external_results = None;
-                        s.external_searching = false;
+                        s.search.external_results = None;
+                        s.search.external_searching = false;
                     });
                 }
                 SearchMsg::Query(source, query) => {
@@ -43,13 +43,13 @@ pub fn SearchBar() -> Element {
 
                     if query.trim().len() < MIN_QUERY_LEN {
                         lib_state.with_mut(|s| {
-                            s.external_results = None;
-                            s.external_searching = false;
+                            s.search.external_results = None;
+                            s.search.external_searching = false;
                         });
                         continue;
                     }
 
-                    lib_state.with_mut(|s| s.external_searching = true);
+                    lib_state.with_mut(|s| s.search.external_searching = true);
 
                     // Debounce: wait, then drain again in case more arrived
                     tokio::time::sleep(std::time::Duration::from_millis(DEBOUNCE_MS)).await;
@@ -57,8 +57,8 @@ pub fn SearchBar() -> Element {
 
                     if query.trim().len() < MIN_QUERY_LEN {
                         lib_state.with_mut(|s| {
-                            s.external_results = None;
-                            s.external_searching = false;
+                            s.search.external_results = None;
+                            s.search.external_searching = false;
                         });
                         continue;
                     }
@@ -72,15 +72,15 @@ pub fn SearchBar() -> Element {
                         Ok(metas) => {
                             let papers: Vec<_> = metas.into_iter().map(metadata_to_paper).collect();
                             lib_state.with_mut(|s| {
-                                s.external_searching = false;
-                                s.external_results = Some(papers);
+                                s.search.external_searching = false;
+                                s.search.external_results = Some(papers);
                             });
                         }
                         Err(e) => {
                             eprintln!("External search error: {e}");
                             lib_state.with_mut(|s| {
-                                s.external_searching = false;
-                                s.external_results = Some(Vec::new());
+                                s.search.external_searching = false;
+                                s.search.external_results = Some(Vec::new());
                             });
                         }
                     }
@@ -97,8 +97,8 @@ pub fn SearchBar() -> Element {
                                 let papers: Vec<_> =
                                     metas.into_iter().map(metadata_to_paper).collect();
                                 // Only apply if query hasn't changed
-                                if lib_state.read().search_query == query {
-                                    lib_state.with_mut(|s| s.external_results = Some(papers));
+                                if lib_state.read().search.query == query {
+                                    lib_state.with_mut(|s| s.search.external_results = Some(papers));
                                 }
                             }
                             Err(e) => {
@@ -131,23 +131,23 @@ pub fn SearchBar() -> Element {
                 value: "{query}",
                 oninput: move |evt| {
                     let q = evt.value();
-                    lib_state.with_mut(|s| s.search_query = q.clone());
+                    lib_state.with_mut(|s| s.search.query = q.clone());
 
-                    let current_source = lib_state.read().search_source.clone();
+                    let current_source = lib_state.read().search.source.clone();
 
                     if current_source == SearchSource::Local {
                         if q.trim().is_empty() {
-                            lib_state.with_mut(|s| s.search_results = None);
+                            lib_state.with_mut(|s| s.search.results = None);
                             return;
                         }
                         let db = db.clone();
                         spawn(async move {
                             match rotero_db::papers::search_papers(db.conn(), &q).await {
                                 Ok(results) => {
-                                    lib_state.with_mut(|s| s.search_results = Some(results));
+                                    lib_state.with_mut(|s| s.search.results = Some(results));
                                 }
                                 Err(_) => {
-                                    lib_state.with_mut(|s| s.search_results = Some(Vec::new()));
+                                    lib_state.with_mut(|s| s.search.results = Some(Vec::new()));
                                 }
                             }
                         });
@@ -185,10 +185,10 @@ pub fn SearchBar() -> Element {
                     onclick: move |_| {
                         search_coro.send(SearchMsg::Clear);
                         lib_state.with_mut(|s| {
-                            s.search_query.clear();
-                            s.search_results = None;
-                            s.external_results = None;
-                            s.external_searching = false;
+                            s.search.query.clear();
+                            s.search.results = None;
+                            s.search.external_results = None;
+                            s.search.external_searching = false;
                         });
                     },
                     i { class: "bi bi-x-lg" }
@@ -217,10 +217,10 @@ pub fn SearchBar() -> Element {
                                         onclick: move |_| {
                                             search_coro.send(SearchMsg::Clear);
                                             lib_state.with_mut(|st| {
-                                                st.search_source = s.clone();
-                                                st.search_results = None;
-                                                st.external_results = None;
-                                                st.external_searching = false;
+                                                st.search.source = s.clone();
+                                                st.search.results = None;
+                                                st.search.external_results = None;
+                                                st.search.external_searching = false;
                                             });
                                             show_dropdown.set(false);
                                         },

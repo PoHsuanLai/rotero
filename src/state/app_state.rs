@@ -344,6 +344,24 @@ impl SearchSource {
     }
 }
 
+/// Library search state: query, results, and external API search.
+#[derive(Debug, Clone, Default)]
+pub struct LibrarySearchState {
+    pub query: String,
+    pub results: Option<Vec<Paper>>,
+    pub source: SearchSource,
+    pub external_results: Option<Vec<Paper>>,
+    pub external_searching: bool,
+}
+
+/// Library filter state: cached IDs for collection/tag/duplicate views.
+#[derive(Debug, Clone, Default)]
+pub struct LibraryFilterState {
+    pub collection_paper_ids: Option<Vec<String>>,
+    pub tag_paper_ids: Option<Vec<String>>,
+    pub duplicate_groups: Option<Vec<Vec<Paper>>>,
+}
+
 /// Tracks the library state: papers, collections, tags.
 #[derive(Debug, Clone, Default)]
 pub struct LibraryState {
@@ -353,14 +371,8 @@ pub struct LibraryState {
     pub selected_paper_id: Option<String>,
     pub _selected_collection_id: Option<String>,
     pub view: LibraryView,
-    pub search_query: String,
-    pub search_results: Option<Vec<Paper>>,
-    pub search_source: SearchSource,
-    pub external_results: Option<Vec<Paper>>,
-    pub external_searching: bool,
-    pub collection_paper_ids: Option<Vec<String>>,
-    pub tag_paper_ids: Option<Vec<String>>,
-    pub duplicate_groups: Option<Vec<Vec<Paper>>>,
+    pub search: LibrarySearchState,
+    pub filter: LibraryFilterState,
     pub saved_searches: Vec<rotero_models::SavedSearch>,
 }
 
@@ -385,6 +397,18 @@ impl LibraryState {
             .as_ref()
             .and_then(|id| self.papers.iter().find(|p| p.id.as_ref() == Some(id)))
     }
+}
+
+/// Shared annotation context-menu state: which annotation was right-clicked and where.
+#[derive(Debug, Clone)]
+pub struct AnnotationContextInfo {
+    pub annotation_id: String,
+    pub ann_type: rotero_models::AnnotationType,
+    pub page: i32,
+    pub color: String,
+    pub content: String,
+    pub x: f64,
+    pub y: f64,
 }
 
 /// Newtype for drag-paper signal to avoid context ambiguity with other `Signal<Option<String>>`.
