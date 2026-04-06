@@ -432,7 +432,7 @@ impl RawAcpConnection {
                     let response = serde_json::json!({
                         "jsonrpc": "2.0",
                         "id": req_id,
-                        "result": { "outcome": { "type": "selected", "optionId": "allow" } }
+                        "result": { "outcome": { "outcome": "selected", "optionId": "default" } }
                     });
                     let _ = self.write_message(&response);
                 }
@@ -680,7 +680,7 @@ fn connect_and_run(
                                         let response = serde_json::json!({
                                             "jsonrpc": "2.0",
                                             "id": req_id,
-                                            "result": { "outcome": { "type": "selected", "optionId": "allow" } }
+                                            "result": { "outcome": { "outcome": "selected", "optionId": "default" } }
                                         });
                                         if let Err(e) = conn.write_message(&response) {
                                             tracing::error!("ACP: failed to send permission response: {e}");
@@ -896,7 +896,7 @@ fn connect_and_run(
                                 let response = serde_json::json!({
                                     "jsonrpc": "2.0",
                                     "id": req_id,
-                                    "result": { "outcome": { "type": "selected", "optionId": "allow" } }
+                                    "result": { "outcome": { "outcome": "selected", "optionId": "default" } }
                                 });
                                 let _ = conn.write_message(&response);
                             }
