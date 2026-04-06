@@ -119,13 +119,14 @@ pub fn ChatPanel() -> Element {
     let messages = chat_state.read().messages.clone();
     let msg_count = messages.len();
 
-    // Auto-scroll to bottom when messages change or status becomes idle (session loaded)
-    let scroll_trigger = (msg_count, matches!(status, AgentStatus::Idle));
+    // Auto-scroll to bottom: track message content changes via a hash
+    let scroll_key = chat_state.read().messages.last().map(|m| m.content.len()).unwrap_or(0);
+    let scroll_trigger = (msg_count, scroll_key, matches!(status, AgentStatus::Idle | AgentStatus::Streaming));
     use_effect(move || {
         let _ = scroll_trigger;
         spawn(async {
             let _ = dioxus::document::eval(
-                "setTimeout(() => { let el = document.querySelector('.chat-messages'); if (el) el.scrollTop = el.scrollHeight; }, 50)"
+                "setTimeout(() => { let el = document.querySelector('.chat-messages'); if (el) el.scrollTop = el.scrollHeight; }, 30)"
             );
         });
     });
@@ -185,24 +186,6 @@ pub fn ChatPanel() -> Element {
                         class: "chat-status",
                         class: if is_busy { "chat-status--busy" } else { "" },
                         "{status_text}"
-                    }
-                    if !available_models.is_empty() {
-                        select {
-                            class: "chat-model-select",
-                            value: "{current_model}",
-                            onchange: move |e| {
-                                let model_id = e.value();
-                                chat_state.with_mut(|s| s.current_model = model_id.clone());
-                                agent_channel.send(ChatRequest::SetModel { model_id });
-                            },
-                            for model in available_models.iter() {
-                                option {
-                                    value: "{model.id}",
-                                    selected: model.id == current_model,
-                                    "{model.name}"
-                                }
-                            }
-                        }
                     }
                 }
                 div { class: "chat-header-right",
@@ -348,7 +331,27 @@ pub fn ChatPanel() -> Element {
                 }
             }
 
-            // Input area
+            // Model selector + Input area
+            if !available_models.is_empty() {
+                div { class: "chat-input-meta",
+                    select {
+                        class: "chat-model-select",
+                        value: "{current_model}",
+                        onchange: move |e| {
+                            let model_id = e.value();
+                            chat_state.with_mut(|s| s.current_model = model_id.clone());
+                            agent_channel.send(ChatRequest::SetModel { model_id });
+                        },
+                        for model in available_models.iter() {
+                            option {
+                                value: "{model.id}",
+                                selected: model.id == current_model,
+                                "{model.name}"
+                            }
+                        }
+                    }
+                }
+            }
             div { class: "chat-input-area",
                 textarea {
                     class: "chat-input",

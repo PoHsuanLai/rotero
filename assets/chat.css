@@ -61,18 +61,6 @@
     letter-spacing: var(--tracking-wider);
 }
 
-.chat-model-select {
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-    background: var(--bg-main);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: 2px 6px;
-    height: 24px;
-    max-width: 140px;
-    cursor: pointer;
-}
-
 .chat-status {
     font-size: var(--text-xs);
     color: var(--text-tertiary);
@@ -243,6 +231,27 @@
 }
 
 /* ---- Input ---- */
+
+.chat-input-meta {
+    display: flex;
+    align-items: center;
+    padding: var(--space-1) var(--space-6) 0;
+    flex-shrink: 0;
+}
+
+.chat-model-select {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    outline: none;
+}
+
+.chat-model-select:hover {
+    color: var(--text-secondary);
+}
 
 .chat-input-area {
     display: flex;
