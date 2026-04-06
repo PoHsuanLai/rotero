@@ -8,10 +8,12 @@ A lightweight, Rust-native paper reading and reference management app. Built as 
 - **PDF Annotations** — Highlights and sticky notes on PDFs
 - **Library Management** — Organize papers into collections with tags
 - **Full-Text Search** — Search across papers and PDFs (built-in FTS)
-- **DOI Metadata Fetch** — Auto-populate paper details from CrossRef
+- **DOI Metadata Fetch** — Auto-populate paper details from CrossRef, Semantic Scholar, OpenAlex
+- **Zotero Web Translators** — 742 community-maintained scrapers for Google Scholar, arXiv, Nature, IEEE, ACM, PubMed, and more
 - **BibTeX / RIS / CSL Import & Export** — Interchange with other reference managers
 - **Citation Generation** — Generate bibliographies in 14 CSL styles (APA, IEEE, Chicago, etc.)
 - **Browser Connector** — Save papers from your browser with one click (Chrome extension)
+- **Citation Graph** — Visualize paper relationships
 - **Cross-Device Sync** — File-based sync via cloud folders
 - **SQLite Storage** — Fast local database, no server needed
 
@@ -80,15 +82,19 @@ just test-save-paper
 
 ## Architecture
 
-Cargo workspace with 5 crates:
+Cargo workspace with 9 crates:
 
 | Crate | Purpose | Key deps |
 |---|---|---|
 | `rotero-models` | Shared data types (Paper, Collection, Tag, Annotation, Note) | serde |
+| `rotero-db` | SQLite CRUD operations | turso |
 | `rotero-pdf` | PDF rendering + annotation writing | pdfium-render, lopdf |
 | `rotero-bib` | BibTeX/RIS/CSL import/export + citation generation | biblatex, hayagriva |
 | `rotero-connector` | Browser extension HTTP server | axum |
-| `rotero` (app) | Desktop UI, database, metadata fetching | dioxus, turso, reqwest |
+| `rotero-translate` | Zotero translation server (Node.js sidecar) | reqwest |
+| `rotero-graph` | Citation graph visualization | — |
+| `rotero-mcp` | MCP server for AI agent integration | rmcp |
+| `rotero` (app) | Desktop UI, metadata fetching, state management | dioxus, reqwest |
 
 All library crates depend on `rotero-models`. The app crate depends on all of them.
 
@@ -102,6 +108,7 @@ All library crates depend on `rotero-models`. The app crate depends on all of th
 | Database | turso (pure Rust SQLite) |
 | Full-text search | turso FTS |
 | Citations | hayagriva (CSL) |
+| Web scraping | Zotero translation-server (Node.js) |
 | HTTP client | reqwest |
 | Browser connector | axum |
 | Serialization | serde |
@@ -117,4 +124,4 @@ Papers and metadata are stored in a local SQLite database. Imported PDFs are cop
 
 ## License
 
-MIT OR Apache-2.0
+AGPL-3.0-or-later
