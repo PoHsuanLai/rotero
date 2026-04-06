@@ -108,9 +108,14 @@ async function loadMetadata() {
   if (!pageMetadata) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     pageMetadata = { url: tab.url, title: tab.title };
-    // If on a PDF page, treat the URL as the PDF URL
-    if (tab.url?.match(/\.pdf(\?.*)?$/i)) {
-      pageMetadata.pdf_url = tab.url;
+  }
+
+  // If we're on a PDF page and don't have a pdf_url yet, use the current URL
+  if (pageMetadata && !pageMetadata.pdf_url) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const url = tab.url || '';
+    if (url.match(/\.pdf(\?.*)?$/i) || url.match(/\/pdf\//) || url.match(/content-type=application\/pdf/i)) {
+      pageMetadata.pdf_url = url;
     }
   }
 
@@ -124,17 +129,21 @@ async function loadMetadata() {
       });
       if (scrapeResp.ok) {
         const scrapeData = await scrapeResp.json();
-        if (scrapeData.doi) pageMetadata.doi = scrapeData.doi;
-        if (scrapeData.authors?.length) pageMetadata.authors = scrapeData.authors;
-        if (scrapeData.title) pageMetadata.title = scrapeData.title;
-        if (scrapeData.year) pageMetadata.year = scrapeData.year;
-        if (scrapeData.journal) pageMetadata.journal = scrapeData.journal;
-        if (scrapeData.abstract_text) pageMetadata.abstract_text = scrapeData.abstract_text;
-        if (scrapeData.pdf_url) pageMetadata.pdf_url = scrapeData.pdf_url;
-        if (scrapeData.volume) pageMetadata.volume = scrapeData.volume;
-        if (scrapeData.issue) pageMetadata.issue = scrapeData.issue;
-        if (scrapeData.pages) pageMetadata.pages = scrapeData.pages;
-        if (scrapeData.publisher) pageMetadata.publisher = scrapeData.publisher;
+        const m = scrapeData.success ? scrapeData.metadata : null;
+        if (m) {
+          if (m.title) pageMetadata.title = m.title;
+          if (m.authors?.length) pageMetadata.authors = m.authors;
+          if (m.doi) pageMetadata.doi = m.doi;
+          if (m.pdf_url) pageMetadata.pdf_url = m.pdf_url;
+          if (m.url) pageMetadata.url = m.url;
+          if (m.journal) pageMetadata.journal = m.journal;
+          if (m.year) pageMetadata.year = m.year;
+          if (m.volume) pageMetadata.volume = m.volume;
+          if (m.issue) pageMetadata.issue = m.issue;
+          if (m.pages) pageMetadata.pages = m.pages;
+          if (m.publisher) pageMetadata.publisher = m.publisher;
+          if (m.abstract_text) pageMetadata.abstract_text = m.abstract_text;
+        }
       }
     } catch {}
   }
