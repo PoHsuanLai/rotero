@@ -662,6 +662,26 @@ fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
                 });
             });
         }
+        ChatEvent::PermissionRequest { request_id, tool_title, options } => {
+            chat_state.with_mut(|s| {
+                // Ensure there's an assistant message for the permission UI
+                if s.messages.last().map(|m| &m.role) != Some(&ChatRole::Assistant) {
+                    s.messages.push(ChatMessage {
+                        role: ChatRole::Assistant,
+                        content: vec![],
+                        timestamp: chrono::Utc::now(),
+                    });
+                }
+                if let Some(last) = s.messages.last_mut() {
+                    last.content.push(MessageContent::Permission {
+                        request_id,
+                        tool_title,
+                        options,
+                        responded: false,
+                    });
+                }
+            });
+        }
         ChatEvent::Error(err) => {
             chat_state.with_mut(|s| {
                 s.status = AgentStatus::Error(err.clone());

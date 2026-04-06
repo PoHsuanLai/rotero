@@ -16,6 +16,13 @@ pub enum MessageContent {
         output: Option<String>,
     },
     Error(String),
+    /// Permission request shown as inline buttons.
+    Permission {
+        request_id: serde_json::Value,
+        tool_title: String,
+        options: Vec<(String, String)>, // (optionId, label)
+        responded: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -157,6 +164,10 @@ pub enum ChatRequest {
         paper_context: Option<String>,
     },
     Cancel,
+    PermissionResponse {
+        request_id: serde_json::Value,
+        option_id: String,
+    },
     Authenticate { method_id: String },
     SetModel { model_id: String },
     ListSessions,
@@ -179,6 +190,12 @@ pub enum ChatEvent {
     UserMessage(String),
     TextDelta(String),
     ToolCallStarted { id: String, title: String },
+    /// Agent asks for permission to run a tool.
+    PermissionRequest {
+        request_id: serde_json::Value,
+        tool_title: String,
+        options: Vec<(String, String)>, // (optionId, label)
+    },
     ToolCallUpdated { id: String, status: ToolStatus, output: Option<String> },
     TurnCompleted,
     CommandsAvailable(Vec<SlashCommand>),

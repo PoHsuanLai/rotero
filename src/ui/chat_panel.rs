@@ -404,6 +404,8 @@ pub fn ChatPanel() -> Element {
 
 #[component]
 fn ChatMessageBubble(message: ChatMessage) -> Element {
+    let mut chat_state = use_context::<Signal<ChatState>>();
+    let agent_channel = use_context::<AgentChannel>();
     let is_user = message.role == ChatRole::User;
     let bubble_class = if is_user {
         "chat-bubble chat-bubble--user"
@@ -451,6 +453,55 @@ fn ChatMessageBubble(message: ChatMessage) -> Element {
                         div { key: "c{i}", class: "chat-error",
                             i { class: "bi bi-exclamation-triangle chat-error-icon" }
                             span { "{err}" }
+                        }
+                    },
+                    MessageContent::Permission { request_id, tool_title, options, responded } => {
+                        if *responded {
+                            rsx! {
+                                div { key: "c{i}", class: "chat-tool-call chat-tool-call--done",
+                                    i { class: "bi bi-check2 chat-tool-icon" }
+                                    span { class: "chat-tool-name", "{tool_title}" }
+                                }
+                            }
+                        } else {
+                            let req_id = request_id.clone();
+                            let opts = options.clone();
+                            rsx! {
+                                div { key: "c{i}", class: "chat-permission",
+                                    span { class: "chat-permission-title", "Allow {tool_title}?" }
+                                    div { class: "chat-permission-buttons",
+                                        for (opt_id, label) in opts.iter() {
+                                            {
+                                                let opt_id = opt_id.clone();
+                                                let req_id = req_id.clone();
+                                                rsx! {
+                                                    button {
+                                                        key: "{opt_id}",
+                                                        class: "btn btn--primary chat-permission-btn",
+                                                        onclick: move |_| {
+                                                            agent_channel.send(ChatRequest::PermissionResponse {
+                                                                request_id: req_id.clone(),
+                                                                option_id: opt_id.clone(),
+                                                            });
+                                                            // Mark as responded
+                                                            chat_state.with_mut(|s| {
+                                                                for msg in &mut s.messages {
+                                                                    for content in &mut msg.content {
+                                                                        if let MessageContent::Permission { responded, .. } = content {
+                                                                            *responded = true;
+                                                                        }
+                                                                    }
+                                                                }
+                                                            });
+                                                        },
+                                                        "{label}"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     },
                 }
