@@ -1,5 +1,5 @@
 [package]
-name = "rotero-connector"
+name = "rotero-translate"
 version.workspace = true
 edition.workspace = true
 
@@ -7,12 +7,10 @@ edition.workspace = true
 rotero-models.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-chrono.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-axum = "0.8"
-tower-http = { version = "0.6", features = ["cors"] }
+
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
-scraper = "0.22"
-rotero-translate = { path = "../rotero-translate" }
+which = "8"
+directories = "6"

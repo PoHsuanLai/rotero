@@ -8,6 +8,7 @@ members = [
     "crates/rotero-graph",
     "crates/rotero-db",
     "crates/rotero-mcp",
+    "crates/rotero-translate",
 ]
 resolver = "3"
 
@@ -34,6 +35,7 @@ rotero-connector = { path = "crates/rotero-connector" }
 rotero-graph = { path = "crates/rotero-graph" }
 rotero-db = { path = "crates/rotero-db" }
 rotero-mcp = { path = "crates/rotero-mcp" }
+rotero-translate = { path = "crates/rotero-translate" }
 
 [package]
 name = "rotero"
@@ -46,6 +48,7 @@ rotero-pdf.workspace = true
 rotero-bib.workspace = true
 rotero-search.workspace = true
 rotero-connector = { workspace = true, optional = true }
+rotero-translate = { workspace = true, optional = true }
 rotero-graph.workspace = true
 rotero-db.workspace = true
 rotero-mcp.workspace = true
@@ -80,7 +83,7 @@ block2 = { version = "0.6", optional = true }
 
 [features]
 default = ["desktop"]
-desktop = ["dioxus/desktop", "dep:rfd", "dep:rotero-connector", "dep:directories"]
+desktop = ["dioxus/desktop", "dep:rfd", "dep:rotero-connector", "dep:rotero-translate", "dep:directories"]
 mobile = ["dioxus/mobile", "dep:apple-utils"]
 cloudkit = ["dep:objc2", "dep:objc2-cloud-kit", "dep:objc2-foundation", "dep:block2"]
 pdfium-static = ["rotero-pdf/static"]

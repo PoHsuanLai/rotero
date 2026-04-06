@@ -21,6 +21,9 @@ pub struct ConnectorState {
     pub on_get_collections: Option<Box<dyn Fn() -> Vec<CollectionInfo> + Send + Sync>>,
     /// Callback to get the list of tags.
     pub on_get_tags: Option<Box<dyn Fn() -> Vec<TagInfo> + Send + Sync>>,
+    /// Zotero translation server for web scraping.
+    /// Behind RwLock so it can be set after the connector starts.
+    pub translation_server: tokio::sync::RwLock<Option<rotero_translate::TranslationServer>>,
 }
 
 /// Default port for the browser connector.

@@ -113,7 +113,49 @@ pub struct ScrapeResult {
     pub abstract_text: Option<String>,
 }
 
-pub async fn scrape(Json(req): Json<ScrapeRequest>) -> Json<ScrapeResponse> {
+pub async fn scrape(
+    State(state): State<Arc<ConnectorState>>,
+    Json(req): Json<ScrapeRequest>,
+) -> Json<ScrapeResponse> {
+    // Try Zotero translation server first (much better coverage)
+    {
+        let ts_guard = state.translation_server.read().await;
+        if let Some(ref ts) = *ts_guard {
+            match ts.translate_web(&req.url).await {
+                Ok(items) => {
+                    if let Some(item) = items.iter().find(|i| i.item_type != "note" && i.item_type != "attachment" && !i.title.is_empty()) {
+                        let pdf_url = item.pdf_url();
+                        if let Some(p) = item.clone().into_paper() {
+                            return Json(ScrapeResponse {
+                                success: true,
+                                metadata: Some(ScrapeResult {
+                                    title: Some(p.title.clone()),
+                                    authors: p.authors.clone(),
+                                    doi: p.doi.clone(),
+                                    url: p.url.clone(),
+                                    pdf_url,
+                                    journal: p.journal.clone(),
+                                    year: p.year,
+                                    volume: p.volume.clone(),
+                                    issue: p.issue.clone(),
+                                    pages: p.pages.clone(),
+                                    publisher: p.publisher.clone(),
+                                    abstract_text: p.abstract_text.clone(),
+                                }),
+                                error: None,
+                            });
+                        }
+                    }
+                    tracing::debug!("Translation server returned no usable results for {}, falling back", req.url);
+                }
+                Err(e) => {
+                    tracing::debug!("Translation server error for {}: {e}, falling back", req.url);
+                }
+            }
+        }
+    }
+
+    // Fallback: meta-tag scraper
     match super::scrape::scrape_url(&req.url).await {
         Ok(meta) => Json(ScrapeResponse {
             success: true,

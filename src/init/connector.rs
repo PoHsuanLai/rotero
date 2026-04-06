@@ -149,7 +149,26 @@ pub(crate) fn start_connector(
                             })
                         })
                     })),
+                    translation_server: tokio::sync::RwLock::new(None),
                 });
+
+                // Start translation server in background (don't block connector)
+                {
+                    let state_clone = state.clone();
+                    tokio::spawn(async move {
+                        let ts = rotero_translate::TranslationServer::new(1969);
+                        match ts.ensure_running().await {
+                            Ok(()) => {
+                                tracing::info!("Zotero translation server started");
+                                *state_clone.translation_server.write().await = Some(ts);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to start translation server: {e}");
+                            }
+                        }
+                    });
+                }
+
                 if let Err(e) = rotero_connector::start_server(state, port).await {
                     eprintln!("Browser connector error: {e}");
                 }

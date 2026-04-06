@@ -5921,6 +5921,7 @@ dependencies = [
  "rotero-models",
  "rotero-pdf",
  "rotero-search",
+ "rotero-translate",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -5953,6 +5954,7 @@ dependencies = [
  "chrono",
  "reqwest",
  "rotero-models",
+ "rotero-translate",
  "scraper",
  "serde",
  "serde_json",
@@ -6041,6 +6043,21 @@ dependencies = [
  "serde",
  "serde_json",
  "urlencoding",
+]
+
+[[package]]
+name = "rotero-translate"
+version = "0.1.0"
+dependencies = [
+ "directories",
+ "reqwest",
+ "rotero-models",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "which 8.0.2",
 ]
 
 [[package]]
