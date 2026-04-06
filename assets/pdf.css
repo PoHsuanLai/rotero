@@ -188,13 +188,23 @@
 
 .pdf-pages {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto;
   background: var(--bg-pdf-canvas);
   padding: var(--space-8);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-8);
+}
+
+/* Drag-to-pan: grabbing cursor while panning */
+.pdf-pages.panning {
+  cursor: grabbing !important;
+  user-select: none;
+}
+.pdf-pages.panning * {
+  cursor: grabbing !important;
+  user-select: none !important;
 }
 
 .pdf-page-wrapper {
