@@ -308,6 +308,22 @@
 }
 
 /* --- Duplicate Groups --- */
+.duplicate-merge-all {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+}
+
+.duplicate-merge-all-hint {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
 .duplicate-group {
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-md);
@@ -336,7 +352,7 @@
 
 .duplicate-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border-light);
@@ -351,9 +367,59 @@
   min-width: 0;
 }
 
+.duplicate-item-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.duplicate-item-title-row .library-card-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.duplicate-pdf-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--bg-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.duplicate-item-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.duplicate-doi {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.duplicate-journal {
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.duplicate-date-added {
+  color: var(--text-tertiary);
+}
+
 .duplicate-item-actions {
   flex-shrink: 0;
   margin-left: var(--space-2);
+  display: flex;
+  gap: var(--space-1);
 }
 
 .duplicate-field-count {
