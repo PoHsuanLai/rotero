@@ -42,10 +42,10 @@ fn build_paper_context(lib_state: &LibraryState, tab_mgr: &PdfTabManager) -> Opt
     let paper = lib_state.papers.iter().find(|p| p.id.as_deref() == Some(paper_id.as_str()))?;
 
     Some(format!(
-        "I'm currently looking at this paper in my library:\n\
+        "<rotero-context>\nI'm currently looking at this paper in my library:\n\
          Title: {}\nAuthors: {}\nYear: {}\nDOI: {}\nPaper ID: {}\n\
          You can use the rotero MCP tools to search my library, \
-         read this paper's annotations, extract PDF text, etc.",
+         read this paper's annotations, extract PDF text, etc.\n</rotero-context>",
         paper.title,
         paper.authors.join(", "),
         paper.year.map(|y| y.to_string()).unwrap_or_default(),

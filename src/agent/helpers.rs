@@ -278,6 +278,7 @@ pub(crate) fn strip_protocol_tags(text: &str) -> String {
         "local-command-stdout", "local-command-stderr", "local-command-caveat",
         "system-reminder", "task-notification", "task-id", "tool-use-id",
         "output-file", "status", "summary",
+        "rotero-context",
     ];
 
     let mut result = text.to_string();
