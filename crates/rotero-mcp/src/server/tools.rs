@@ -202,11 +202,14 @@ impl RoteroMcp {
         }
 
         // Try cached text first (extracted when the PDF was viewed in the app)
+        // The app caches using a hash of the FULL absolute path
+        let abs_pdf_path = self.db.resolve_pdf_path(pdf_path);
+        let abs_path_str = abs_pdf_path.to_string_lossy().to_string();
         let data_dir = self.db.data_dir();
         let cache_key = {
             use std::hash::{Hash, Hasher};
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            pdf_path.hash(&mut hasher);
+            abs_path_str.hash(&mut hasher);
             format!("{:016x}", hasher.finish())
         };
         let text_cache = data_dir.join("cache").join(&cache_key).join("text.json");
@@ -245,9 +248,6 @@ impl RoteroMcp {
                 "No cached text available and PDF engine is not loaded. Open the paper in the viewer first to extract text.",
             ));
         }
-
-        let abs_path = self.db.resolve_pdf_path(pdf_path);
-        let abs_path_str = abs_path.to_string_lossy().to_string();
 
         let results = tokio::task::spawn_blocking(move || {
             let engine = rotero_pdf::PdfEngine::new(None)
