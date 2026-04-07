@@ -1,5 +1,6 @@
 <script lang="ts">
   import { theme, toggleTheme } from '$lib/theme';
+  import { base } from '$app/paths';
   import { onMount } from 'svelte';
 
   let scrolled = $state(false);
@@ -18,7 +19,7 @@
 
 <nav class="nav" class:scrolled>
   <div class="nav-inner container">
-    <a href="/" class="wordmark" onclick={navClick}>Rotero</a>
+    <a href="{base}/" class="wordmark" onclick={navClick}>Rotero</a>
 
     <button class="hamburger" onclick={() => mobileOpen = !mobileOpen} aria-label="Toggle menu">
       <span class="bar" class:open={mobileOpen}></span>

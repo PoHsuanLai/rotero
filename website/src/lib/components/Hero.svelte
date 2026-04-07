@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { base } from '$app/paths';
 
   let loaded = $state(false);
 
@@ -36,7 +37,7 @@
 
     <div class="hero-visual">
       <div class="app-screenshot">
-        <img src="/screenshot-library.png" alt="Rotero library view" />
+        <img src="{base}/screenshot-library.png" alt="Rotero library view" />
       </div>
     </div>
   </div>
