@@ -168,107 +168,22 @@ impl RoteroMcp {
         json_result(&papers)
     }
 
-    #[tool(description = "Extract plain text from a paper's PDF. Returns text per page. Uses cached text if available.")]
+    #[tool(description = "Extract plain text from a paper's PDF. Returns the full text stored in the database (extracted when the PDF was first opened).")]
     async fn extract_pdf_text(
         &self,
         Parameters(params): Parameters<ExtractPdfTextParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let paper = self
-            .db
-            .get_paper_by_id(&params.paper_id)
-            .await
-            .map_err(|e| err(e))?
-            .ok_or_else(|| err(format!("No paper found with ID {}", params.paper_id)))?;
+        // Read fulltext from the database (populated when user opens PDF in the viewer)
+        let fulltext = self.db.get_paper_fulltext(&params.paper_id).await.map_err(|e| err(e))?;
 
-        let pdf_path = paper
-            .links
-            .pdf_path
-            .as_ref()
-            .ok_or_else(|| err("Paper has no PDF file"))?;
-
-        let page_indices: Vec<u32> = match params.pages {
-            Some(pages) => {
-                let mut p = pages;
-                p.truncate(50);
-                p
+        match fulltext {
+            Some(text) if !text.is_empty() => {
+                Ok(CallToolResult::success(vec![Content::text(text)]))
             }
-            None => (0..10).collect(),
-        };
-
-        #[derive(Serialize)]
-        struct PageText {
-            page: u32,
-            text: String,
-        }
-
-        // Try cached text first (extracted when the PDF was viewed in the app)
-        // The app caches using a hash of the FULL absolute path
-        let abs_pdf_path = self.db.resolve_pdf_path(pdf_path);
-        let abs_path_str = abs_pdf_path.to_string_lossy().to_string();
-        let data_dir = self.db.data_dir();
-        let cache_key = {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            abs_path_str.hash(&mut hasher);
-            format!("{:016x}", hasher.finish())
-        };
-        let text_cache = data_dir.join("cache").join(&cache_key).join("text.json");
-
-        if text_cache.exists() {
-            if let Ok(text_str) = std::fs::read_to_string(&text_cache) {
-                if let Ok(cached) = serde_json::from_str::<Vec<serde_json::Value>>(&text_str) {
-                    let pages: Vec<PageText> = cached
-                        .iter()
-                        .filter_map(|entry| {
-                            let page_idx = entry.get("page_index")?.as_u64()? as u32;
-                            if !page_indices.contains(&page_idx) {
-                                return None;
-                            }
-                            // Concatenate all text segments on this page
-                            let segments = entry.get("segments")?.as_array()?;
-                            let text: String = segments
-                                .iter()
-                                .filter_map(|seg| seg.get("text").and_then(|t| t.as_str()))
-                                .collect::<Vec<_>>()
-                                .join("");
-                            Some(PageText { page: page_idx, text })
-                        })
-                        .collect();
-
-                    if !pages.is_empty() {
-                        return json_result(&pages);
-                    }
-                }
+            _ => {
+                Err(err("No extracted text available for this paper. Open the paper in the PDF viewer first to extract text."))
             }
         }
-
-        // Fall back to pdfium extraction if available
-        if !self.pdf_available {
-            return Err(err(
-                "No cached text available and PDF engine is not loaded. Open the paper in the viewer first to extract text.",
-            ));
-        }
-
-        let results = tokio::task::spawn_blocking(move || {
-            let engine = rotero_pdf::PdfEngine::new(None)
-                .map_err(|e| format!("Failed to init PDF engine: {e}"))?;
-            rotero_pdf::text_extract::extract_raw_text(
-                engine.pdfium(),
-                &abs_path_str,
-                &page_indices,
-            )
-            .map_err(|e| format!("{e}"))
-        })
-        .await
-        .map_err(|e| err(e))?
-        .map_err(|e| err(e))?;
-
-        let pages: Vec<PageText> = results
-            .into_iter()
-            .map(|(page, text)| PageText { page, text })
-            .collect();
-
-        json_result(&pages)
     }
 
     #[tool(description = "Add a note to a paper")]

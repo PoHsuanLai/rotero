@@ -385,6 +385,20 @@ impl Database {
         Ok(())
     }
 
+    pub async fn get_paper_fulltext(&self, paper_id: &str) -> Result<Option<String>, turso::Error> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT fulltext FROM papers WHERE id = ?1",
+                [Value::Text(paper_id.to_string())],
+            )
+            .await?;
+        match rows.next().await? {
+            Some(row) => Ok(get_opt_text(&row, 0)),
+            None => Ok(None),
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Graph / Relationships
     // -----------------------------------------------------------------------
