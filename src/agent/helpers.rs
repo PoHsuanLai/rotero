@@ -6,9 +6,16 @@ use super::install::{find_mcp_binary, find_pdfium_path};
 use super::types::{AgentAuthMethod, AgentModel, ChatEvent, ChatRequest, SlashCommand, ToolStatus};
 
 pub(crate) fn agent_working_dir() -> PathBuf {
-    directories::BaseDirs::new()
-        .map(|d| d.data_dir().join("com.rotero.Rotero"))
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+    #[cfg(feature = "desktop")]
+    {
+        directories::BaseDirs::new()
+            .map(|d| d.data_dir().join("com.rotero.Rotero"))
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+    }
+    #[cfg(not(feature = "desktop"))]
+    {
+        std::env::current_dir().unwrap_or_default()
+    }
 }
 
 pub(crate) fn build_mcp_servers_json() -> serde_json::Value {

@@ -1,7 +1,10 @@
+#[cfg(feature = "desktop")]
 use std::sync::Arc;
 
+#[cfg(feature = "desktop")]
 use rotero_connector::ConnectorState;
 
+#[cfg(feature = "desktop")]
 use super::database::SHARED_DB;
 
 #[cfg(feature = "desktop")]

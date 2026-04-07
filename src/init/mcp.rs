@@ -1,3 +1,4 @@
+#[cfg(feature = "desktop")]
 use super::database::SHARED_DB;
 
 #[cfg(feature = "desktop")]

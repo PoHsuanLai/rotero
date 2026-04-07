@@ -11,6 +11,62 @@ use rotero_db::Database;
 use super::add_paper::{AddPaperButtons, AddPaperDOIInput};
 use super::external_results::ExternalResults;
 
+#[cfg(feature = "desktop")]
+fn download_pdf_menu_item(
+    show: bool,
+    paper: &rotero_models::Paper,
+    paper_id: &str,
+    mut lib_state: Signal<LibraryState>,
+) -> Element {
+    if !show || paper.links.pdf_url.is_none() {
+        return rsx! {};
+    }
+    let pdf_url = paper.links.pdf_url.clone().unwrap_or_default();
+    let paper_clone = paper.clone();
+    let pid = paper_id.to_string();
+    rsx! {
+        ContextMenuItem {
+            label: "Download PDF".to_string(),
+            icon: Some("bi-download".to_string()),
+            on_click: move |_| {
+                let pdf_url = pdf_url.clone();
+                let paper_clone = paper_clone.clone();
+                let pid = pid.clone();
+                spawn(async move {
+                    if let Some((conn, lib_path)) = crate::SHARED_DB.get() {
+                        match crate::download_and_import_pdf(
+                            conn,
+                            lib_path,
+                            &pid,
+                            &paper_clone,
+                            &pdf_url,
+                        ).await {
+                            Ok(()) => {
+                                if let Ok(papers) = rotero_db::papers::list_papers(conn).await {
+                                    lib_state.with_mut(|s| s.papers = papers);
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("Download PDF failed: {e}");
+                            }
+                        }
+                    }
+                });
+            },
+        }
+    }
+}
+
+#[cfg(not(feature = "desktop"))]
+fn download_pdf_menu_item(
+    _show: bool,
+    _paper: &rotero_models::Paper,
+    _paper_id: &str,
+    _lib_state: Signal<LibraryState>,
+) -> Element {
+    rsx! {}
+}
+
 #[component]
 pub fn LibraryPanel() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
@@ -768,44 +824,7 @@ pub fn LibraryPanel() -> Element {
                                     }
                                 }
 
-                                if !has_pdf && paper.links.pdf_url.is_some() {
-                                    {
-                                        let pdf_url = paper.links.pdf_url.clone().unwrap_or_default();
-                                        let paper_clone = paper.clone();
-                                        let pid_dl = pid.clone();
-                                        rsx! {
-                                            ContextMenuItem {
-                                                label: "Download PDF".to_string(),
-                                                icon: Some("bi-download".to_string()),
-                                                on_click: move |_| {
-                                                    let pdf_url = pdf_url.clone();
-                                                    let paper_clone = paper_clone.clone();
-                                                    let pid = pid_dl.clone();
-                                                    spawn(async move {
-                                                        if let Some((conn, lib_path)) = crate::SHARED_DB.get() {
-                                                            match crate::download_and_import_pdf(
-                                                                conn,
-                                                                lib_path,
-                                                                &pid,
-                                                                &paper_clone,
-                                                                &pdf_url,
-                                                            ).await {
-                                                                Ok(()) => {
-                                                                    if let Ok(papers) = rotero_db::papers::list_papers(conn).await {
-                                                                        lib_state.with_mut(|s| s.papers = papers);
-                                                                    }
-                                                                }
-                                                                Err(e) => {
-                                                                    tracing::error!("Download PDF failed: {e}");
-                                                                }
-                                                            }
-                                                        }
-                                                    });
-                                                },
-                                            }
-                                        }
-                                    }
-                                }
+                                {download_pdf_menu_item(!has_pdf, &paper, &pid, lib_state)}
 
                                 ContextMenuItem {
                                     label: if is_fav { "Unfavorite".to_string() } else { "Favorite".to_string() },

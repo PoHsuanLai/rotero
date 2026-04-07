@@ -5,9 +5,12 @@ use super::node::find_npm;
 use super::types::AgentProvider;
 
 pub(crate) fn agents_cache_dir() -> PathBuf {
+    #[cfg(feature = "desktop")]
     let base = directories::BaseDirs::new()
         .map(|d| d.data_dir().to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
+    #[cfg(not(feature = "desktop"))]
+    let base = PathBuf::from(".");
     base.join("com.rotero.Rotero").join("agents")
 }
 
