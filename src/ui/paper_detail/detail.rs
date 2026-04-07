@@ -272,7 +272,10 @@ pub fn PaperDetail() -> Element {
                                             let path_str = full_path.to_string_lossy().to_string();
                                             let cfg = config.read();
                                             tabs.with_mut(|m| m.open_or_switch(pid_open.clone(), path_str, title.clone(), cfg.pdf.default_zoom, cfg.pdf.page_batch_size, dpr_sig.read().0));
-                                            lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                            lib_state.with_mut(|s| { s.touch_paper(&pid_open); s.view = LibraryView::PdfViewer; });
+                                            let db_touch = db_open.clone();
+                                            let pid_touch = pid_open.clone();
+                                            spawn(async move { let _ = rotero_db::papers::touch_paper(db_touch.conn(), &pid_touch).await; });
                                         }
                                     },
                                     "Open Paper"

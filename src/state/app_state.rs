@@ -429,6 +429,13 @@ impl LibraryState {
             .as_ref()
             .and_then(|id| self.papers.iter().find(|p| p.id.as_ref() == Some(id)))
     }
+
+    /// Update date_modified for a paper in the in-memory list (call after opening a PDF).
+    pub fn touch_paper(&mut self, paper_id: &str) {
+        if let Some(p) = self.papers.iter_mut().find(|p| p.id.as_deref() == Some(paper_id)) {
+            p.status.date_modified = chrono::Utc::now();
+        }
+    }
 }
 
 /// Shared annotation context-menu state: which annotation was right-clicked and where.

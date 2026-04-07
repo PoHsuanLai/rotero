@@ -33,6 +33,7 @@ pub const PAPER_UPDATE_METADATA: &str = "\
 
 pub const PAPER_UPDATE_PDF_PATH: &str =
     "UPDATE papers SET pdf_path = ?1, date_modified = ?2 WHERE id = ?3";
+pub const PAPER_TOUCH: &str = "UPDATE papers SET date_modified = ?1 WHERE id = ?2";
 pub const PAPER_DELETE: &str = "DELETE FROM papers WHERE id = ?1";
 
 pub const PAPER_FIND_DOI_DUPLICATES: &str = "\

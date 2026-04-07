@@ -345,6 +345,17 @@ pub async fn update_pdf_path(
     Ok(())
 }
 
+pub async fn touch_paper(conn: &Connection, id: &str) -> Result<(), turso::Error> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        queries::PAPER_TOUCH,
+        [Value::Text(now), Value::Text(id.to_string())],
+    )
+    .await?;
+    crr::track_update(conn, "papers", id, &["date_modified"]).await?;
+    Ok(())
+}
+
 pub async fn delete_paper(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::PAPER_DELETE, [Value::Text(id.to_string())])
         .await?;

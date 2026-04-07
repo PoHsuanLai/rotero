@@ -194,7 +194,7 @@ pub fn GraphView() -> Element {
                                     let dpr_val = dpr.read().0;
                                     tabs.with_mut(|m| {
                                         m.open_or_switch(
-                                            pid,
+                                            pid.clone(),
                                             abs_path,
                                             title,
                                             cfg.pdf.default_zoom,
@@ -202,7 +202,10 @@ pub fn GraphView() -> Element {
                                             dpr_val,
                                         )
                                     });
-                                    lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
+                                    lib_state.with_mut(|s| { s.touch_paper(&pid); s.view = LibraryView::PdfViewer; });
+                                    let db_touch = db.clone();
+                                    let pid_touch = pid;
+                                    spawn(async move { let _ = rotero_db::papers::touch_paper(db_touch.conn(), &pid_touch).await; });
                                 }
                             }
                         }
