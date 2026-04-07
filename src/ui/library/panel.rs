@@ -873,10 +873,10 @@ fn GraphToggleButton() -> Element {
     let is_graph = lib_state.read().view == LibraryView::Graph;
 
     rsx! {
-        button {
-            class: "btn btn--ghost",
-            class: if is_graph { "chat-toggle-btn--active" } else { "" },
-            "data-tooltip": "Paper Graph",
+        crate::ui::components::icon_button::IconButton {
+            icon: "diagram-3",
+            tooltip: "Paper Graph",
+            active: is_graph,
             onclick: move |_| {
                 lib_state.with_mut(|s| {
                     s.view = if s.view == LibraryView::Graph {
@@ -886,7 +886,6 @@ fn GraphToggleButton() -> Element {
                     };
                 });
             },
-            i { class: "bi bi-diagram-3" }
         }
     }
 }

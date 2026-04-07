@@ -249,3 +249,60 @@
 [data-tooltip]:hover::after {
   opacity: 1;
 }
+
+/* ---- Icon button with tooltip ---- */
+
+.icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-base);
+  transition: background var(--transition-fast),
+              color var(--transition-fast);
+}
+
+.icon-btn:hover {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+
+.icon-btn--active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.icon-btn--active:hover {
+  opacity: 0.9;
+}
+
+.icon-btn-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+  border-radius: 4px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 100;
+}
+
+.icon-btn:hover .icon-btn-tooltip {
+  opacity: 1;
+}

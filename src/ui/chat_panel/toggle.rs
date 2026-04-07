@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::agent::types::ChatState;
+use crate::ui::components::icon_button::IconButton;
 
 /// Chat toggle button for the library header / PDF tab bar.
 #[component]
@@ -9,14 +10,13 @@ pub fn ChatToggleButton() -> Element {
     let is_open = chat_state.read().panel_open;
 
     rsx! {
-        button {
-            class: "btn btn--ghost",
-            class: if is_open { "chat-toggle-btn--active" } else { "" },
-            "data-tooltip": "AI Chat",
+        IconButton {
+            icon: "chat-dots",
+            tooltip: "AI Chat",
+            active: is_open,
             onclick: move |_| {
                 chat_state.with_mut(|s| s.panel_open = !s.panel_open);
             },
-            i { class: "bi bi-chat-dots" }
         }
     }
 }
