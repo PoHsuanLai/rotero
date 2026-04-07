@@ -4,3 +4,4 @@ name = "Rotero"
 [bundle]
 identifier = "com.rotero.Rotero"
 publisher = "Rotero"
+icon = ["assets/icon.icns"]

@@ -1,5 +1,9 @@
 # Rotero
 
+<p align="center">
+  <img src="assets/icon.png" alt="Rotero" width="128" />
+</p>
+
 A lightweight, Rust-native paper reading and reference management app. Built as a faster, simpler alternative to Zotero.
 
 ## Features
