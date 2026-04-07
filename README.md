@@ -5,6 +5,7 @@
 </p>
 
 <p align="center">
+  <a href="https://pohsuanlai.github.io/rotero"><img src="https://img.shields.io/badge/website-rotero-teal" alt="Website"></a>
   <a href="https://github.com/PoHsuanLai/rotero/actions/workflows/ci.yml"><img src="https://github.com/PoHsuanLai/rotero/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/PoHsuanLai/rotero/releases/latest"><img src="https://img.shields.io/github/v/release/PoHsuanLai/rotero" alt="Release"></a>
   <a href="https://github.com/PoHsuanLai/rotero/blob/master/LICENSE"><img src="https://img.shields.io/github/license/PoHsuanLai/rotero" alt="License"></a>
