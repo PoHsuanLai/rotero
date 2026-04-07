@@ -36,6 +36,8 @@ jobs:
       - name: Prepare and sign app bundle
         run: |
           APP_PATH="target/dx/rotero/release/macos/Rotero.app"
+          PLIST="$APP_PATH/Contents/Info.plist"
+          VERSION="${GITHUB_REF_NAME#v}"
 
           # Copy PDFium into the app bundle so it's self-contained
           cp lib/libpdfium.dylib "$APP_PATH/Contents/MacOS/"
@@ -44,7 +46,13 @@ jobs:
           # Copy app icon
           cp assets/icon.icns "$APP_PATH/Contents/Resources/icon.icns"
 
-          # Ad-hoc codesign so macOS Gatekeeper doesn't flag it as "damaged"
+          # Patch Info.plist: Retina support, version from tag
+          /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$PLIST"
+
+          # Strip quarantine and ad-hoc codesign
+          xattr -cr "$APP_PATH"
           codesign --force --deep --sign - "$APP_PATH"
 
       - name: Create DMG with drag-to-install
