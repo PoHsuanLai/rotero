@@ -37,6 +37,10 @@ impl Database {
         Self { conn, data_dir }
     }
 
+    pub fn data_dir(&self) -> &std::path::Path {
+        &self.data_dir
+    }
+
     pub fn papers_dir(&self) -> std::path::PathBuf {
         self.data_dir.join("papers")
     }

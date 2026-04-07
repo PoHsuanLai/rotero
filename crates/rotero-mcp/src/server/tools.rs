@@ -168,17 +168,11 @@ impl RoteroMcp {
         json_result(&papers)
     }
 
-    #[tool(description = "Extract plain text from a paper's PDF. Returns text per page.")]
+    #[tool(description = "Extract plain text from a paper's PDF. Returns text per page. Uses cached text if available.")]
     async fn extract_pdf_text(
         &self,
         Parameters(params): Parameters<ExtractPdfTextParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        if !self.pdf_available {
-            return Err(err(
-                "PDF engine not available. Set PDFIUM_DYNAMIC_LIB_PATH to enable PDF text extraction.",
-            ));
-        }
-
         let paper = self
             .db
             .get_paper_by_id(&params.paper_id)
@@ -191,8 +185,6 @@ impl RoteroMcp {
             .pdf_path
             .as_ref()
             .ok_or_else(|| err("Paper has no PDF file"))?;
-        let abs_path = self.db.resolve_pdf_path(pdf_path);
-        let abs_path_str = abs_path.to_string_lossy().to_string();
 
         let page_indices: Vec<u32> = match params.pages {
             Some(pages) => {
@@ -203,7 +195,60 @@ impl RoteroMcp {
             None => (0..10).collect(),
         };
 
-        // PdfEngine is not Send/Sync, so we create it on the blocking thread
+        #[derive(Serialize)]
+        struct PageText {
+            page: u32,
+            text: String,
+        }
+
+        // Try cached text first (extracted when the PDF was viewed in the app)
+        let data_dir = self.db.data_dir();
+        let cache_key = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            pdf_path.hash(&mut hasher);
+            format!("{:016x}", hasher.finish())
+        };
+        let text_cache = data_dir.join("cache").join(&cache_key).join("text.json");
+
+        if text_cache.exists() {
+            if let Ok(text_str) = std::fs::read_to_string(&text_cache) {
+                if let Ok(cached) = serde_json::from_str::<Vec<serde_json::Value>>(&text_str) {
+                    let pages: Vec<PageText> = cached
+                        .iter()
+                        .filter_map(|entry| {
+                            let page_idx = entry.get("page_index")?.as_u64()? as u32;
+                            if !page_indices.contains(&page_idx) {
+                                return None;
+                            }
+                            // Concatenate all text segments on this page
+                            let segments = entry.get("segments")?.as_array()?;
+                            let text: String = segments
+                                .iter()
+                                .filter_map(|seg| seg.get("text").and_then(|t| t.as_str()))
+                                .collect::<Vec<_>>()
+                                .join("");
+                            Some(PageText { page: page_idx, text })
+                        })
+                        .collect();
+
+                    if !pages.is_empty() {
+                        return json_result(&pages);
+                    }
+                }
+            }
+        }
+
+        // Fall back to pdfium extraction if available
+        if !self.pdf_available {
+            return Err(err(
+                "No cached text available and PDF engine is not loaded. Open the paper in the viewer first to extract text.",
+            ));
+        }
+
+        let abs_path = self.db.resolve_pdf_path(pdf_path);
+        let abs_path_str = abs_path.to_string_lossy().to_string();
+
         let results = tokio::task::spawn_blocking(move || {
             let engine = rotero_pdf::PdfEngine::new(None)
                 .map_err(|e| format!("Failed to init PDF engine: {e}"))?;
@@ -218,11 +263,6 @@ impl RoteroMcp {
         .map_err(|e| err(e))?
         .map_err(|e| err(e))?;
 
-        #[derive(Serialize)]
-        struct PageText {
-            page: u32,
-            text: String,
-        }
         let pages: Vec<PageText> = results
             .into_iter()
             .map(|(page, text)| PageText { page, text })
