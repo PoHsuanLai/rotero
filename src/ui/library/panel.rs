@@ -876,7 +876,7 @@ fn GraphToggleButton() -> Element {
         button {
             class: "btn btn--ghost",
             class: if is_graph { "chat-toggle-btn--active" } else { "" },
-            title: "Paper Graph",
+            "data-tooltip": "Paper Graph",
             onclick: move |_| {
                 lib_state.with_mut(|s| {
                     s.view = if s.view == LibraryView::Graph {

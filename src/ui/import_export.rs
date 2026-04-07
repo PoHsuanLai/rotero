@@ -65,7 +65,7 @@ fn ImportButton() -> Element {
                     }
                 });
             },
-            title: "Import",
+            "data-tooltip": "Import",
             i { class: "bi bi-upload" }
         }
         if let Some(msg) = status.read().as_ref() {
@@ -99,7 +99,7 @@ fn ExportBibtexButton() -> Element {
                     }
                 }
             },
-            title: "Export .bib",
+            "data-tooltip": "Export .bib",
             i { class: "bi bi-download" }
         }
         if let Some(msg) = status.read().as_ref() {

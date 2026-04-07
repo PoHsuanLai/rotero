@@ -116,10 +116,11 @@ impl PdfTab {
         self.render.rendered_pages.len() as u32
     }
 
-    /// Clear heavy render data to free memory (called on suspend).
+    /// Mark tab as suspended. Rendered pages are kept in memory so they
+    /// don't need to be re-loaded from cache (which can lose pages due to
+    /// race conditions with async cache writes).
     pub fn suspend(&mut self) {
         self.is_suspended = true;
-        self.render = PageRenderData::default();
     }
 }
 

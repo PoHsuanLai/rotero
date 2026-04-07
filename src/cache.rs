@@ -94,7 +94,7 @@ pub fn load_cached(
         let img_path = pages_dir.join(format!("{i}.{ext}"));
         let bytes = match fs::read(&img_path) {
             Ok(b) => b,
-            Err(_) => break, // Stop at first missing page — remaining pages will be lazy-loaded
+            Err(_) => continue, // Skip missing pages — they'll be lazy-loaded on scroll
         };
         let base64_data =
             base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);

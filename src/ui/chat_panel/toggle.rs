@@ -12,7 +12,7 @@ pub fn ChatToggleButton() -> Element {
         button {
             class: "btn btn--ghost",
             class: if is_open { "chat-toggle-btn--active" } else { "" },
-            title: "AI Chat",
+            "data-tooltip": "AI Chat",
             onclick: move |_| {
                 chat_state.with_mut(|s| s.panel_open = !s.panel_open);
             },
