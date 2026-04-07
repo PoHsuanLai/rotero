@@ -15,6 +15,12 @@ struct OpenAlexWork {
     #[serde(rename = "abstract_inverted_index")]
     abstract_inverted_index: Option<serde_json::Value>,
     cited_by_count: Option<i64>,
+    open_access: Option<OpenAlexOA>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAlexOA {
+    oa_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -97,6 +103,47 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, Stri
         }
     }
     Ok(results)
+}
+
+/// Find an open-access PDF URL via OpenAlex.
+/// Tries DOI lookup first (if provided), then falls back to title search.
+pub async fn find_oa_pdf(doi: Option<&str>, title: &str) -> Result<Option<String>, String> {
+    // Try DOI lookup first — exact match
+    if let Some(doi) = doi {
+        let url = format!("{OPENALEX_API}/https://doi.org/{doi}");
+        if let Ok(work) = fetch_work(&url).await {
+            if let Some(oa_url) = work.open_access.and_then(|oa| oa.oa_url) {
+                return Ok(Some(oa_url));
+            }
+        }
+    }
+
+    // Fall back to title search
+    let url = format!(
+        "{OPENALEX_API}?search={}&per_page=1",
+        urlencoding::encode(title)
+    );
+    let client = crate::shared_client();
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("OpenAlex request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Ok(None);
+    }
+
+    let data: OpenAlexSearchResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse OpenAlex response: {e}"))?;
+
+    Ok(data
+        .results
+        .and_then(|r| r.into_iter().next())
+        .and_then(|w| w.open_access)
+        .and_then(|oa| oa.oa_url))
 }
 
 /// Fast autocomplete search — returns lightweight results (~50-100ms).

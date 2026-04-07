@@ -1,7 +1,35 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use dioxus::prelude::*;
 
 use crate::state::app_state::LibraryState;
 use rotero_db::Database;
+
+/// Papers that need OA PDF fetching after import.
+#[derive(Clone, PartialEq)]
+pub struct OaPending {
+    pub id: String,
+    pub doi: Option<String>,
+    pub title: String,
+    pub first_author: Option<String>,
+    pub year: Option<i32>,
+}
+
+/// State for the OA download flow. Stored as context so it persists across view switches.
+#[derive(Clone, PartialEq)]
+pub enum OaState {
+    /// Show prompt dialog: "N papers without PDFs — download?"
+    Prompt(Vec<OaPending>),
+    /// Downloading in background (non-blocking banner)
+    Downloading { done: usize, total: usize, downloaded: usize },
+    /// Finished (dismissable banner)
+    Done { downloaded: usize, total: usize },
+}
+
+/// Cancel flag for OA downloads. Stored as context.
+#[derive(Clone)]
+pub struct OaCancelFlag(pub Signal<Option<Arc<AtomicBool>>>);
 
 #[component]
 pub fn ImportExportButtons() -> Element {
@@ -13,10 +41,36 @@ pub fn ImportExportButtons() -> Element {
     }
 }
 
+/// Renders the OA prompt dialog and progress/done banner.
+/// Must be rendered in a component that stays mounted across view switches (e.g. Layout).
+#[component]
+pub fn OaOverlay() -> Element {
+    let oa_state = use_context::<Signal<Option<OaState>>>();
+    let cancel_flag = use_context::<OaCancelFlag>();
+
+    rsx! {
+        // Prompt dialog (modal — only for the initial yes/no)
+        if let Some(OaState::Prompt(ref papers)) = oa_state() {
+            OaPromptDialog { papers: papers.clone() }
+        }
+        // Progress/done banner (non-blocking)
+        match oa_state() {
+            Some(OaState::Downloading { done, total, downloaded }) => rsx! {
+                OaProgressBanner { done, total, downloaded, cancel_flag: cancel_flag.0 }
+            },
+            Some(OaState::Done { downloaded, total }) => rsx! {
+                OaDoneBanner { downloaded, total }
+            },
+            _ => rsx! {}
+        }
+    }
+}
+
 #[component]
 fn ImportButton() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
+    let mut oa_state = use_context::<Signal<Option<OaState>>>();
     let mut status = use_signal(|| None::<String>);
 
     rsx! {
@@ -37,77 +91,72 @@ fn ImportButton() -> Element {
                                     .unwrap_or("")
                                     .to_lowercase();
 
-                                // Directory containing the bib file (for resolving relative PDF paths)
                                 let bib_dir = path.parent().map(|p| p.to_path_buf());
 
-                                match ext.as_str() {
-                                    "ris" | "json" => {
-                                        let result = if ext == "ris" {
-                                            rotero_bib::import_ris(&content)
-                                        } else {
-                                            rotero_bib::import_csl_json(&content)
-                                        };
-                                        match result {
-                                            Ok(papers) => {
-                                                let count = papers.len();
-                                                let mut imported = 0;
-                                                for paper in papers {
-                                                    if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
-                                                        let mut paper = paper;
-                                                        paper.id = Some(id);
-                                                        lib_state.with_mut(|s| s.papers.insert(0, paper));
-                                                        imported += 1;
-                                                    }
-                                                }
-                                                status.set(Some(format!("Imported {imported}/{count} papers")));
-                                            }
-                                            Err(e) => status.set(Some(format!("Parse error: {e}"))),
-                                        }
-                                    }
-                                    _ => {
-                                        // BibTeX import with PDF support
-                                        match rotero_bib::import_bibtex(&content) {
-                                            Ok(entries) => {
-                                                let count = entries.len();
-                                                let mut imported = 0;
-                                                let mut pdfs_imported = 0;
-                                                for entry in entries {
-                                                    let rotero_bib::ImportedPaper { paper, source_pdf } = entry;
-                                                    if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
-                                                        let mut paper = paper;
-                                                        paper.id = Some(id.clone());
+                                let parsed: Result<Vec<(rotero_models::Paper, Option<String>)>, String> = match ext.as_str() {
+                                    "ris" => rotero_bib::import_ris(&content)
+                                        .map(|papers| papers.into_iter().map(|p| (p, None)).collect()),
+                                    "json" => rotero_bib::import_csl_json(&content)
+                                        .map(|papers| papers.into_iter().map(|p| (p, None)).collect()),
+                                    _ => rotero_bib::import_bibtex(&content)
+                                        .map(|entries| entries.into_iter().map(|e| (e.paper, e.source_pdf)).collect()),
+                                };
 
-                                                        // Try to import the associated PDF
-                                                        if let (Some(bib_dir), Some(rel_pdf)) = (&bib_dir, &source_pdf) {
-                                                            let pdf_abs = bib_dir.join(rel_pdf);
-                                                            if pdf_abs.exists() {
-                                                                if let Ok(rel_path) = db.import_pdf(
-                                                                    pdf_abs.to_str().unwrap_or_default(),
-                                                                    Some(paper.title.as_str()),
-                                                                    paper.authors.first().map(|a| a.as_str()),
-                                                                    paper.year,
-                                                                ) {
-                                                                    let _ = rotero_db::papers::update_pdf_path(db.conn(), &id, &rel_path).await;
-                                                                    paper.links.pdf_path = Some(rel_path);
-                                                                    pdfs_imported += 1;
-                                                                }
-                                                            }
+                                match parsed {
+                                    Ok(entries) => {
+                                        let count = entries.len();
+                                        let mut imported = 0;
+                                        let mut pdfs_found = 0;
+                                        let mut needs_oa = Vec::new();
+
+                                        for (paper, source_pdf) in entries {
+                                            if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
+                                                let mut paper = paper;
+                                                paper.id = Some(id.clone());
+
+                                                if let (Some(bib_dir), Some(rel_pdf)) = (&bib_dir, &source_pdf) {
+                                                    let pdf_abs = bib_dir.join(rel_pdf);
+                                                    if pdf_abs.exists() {
+                                                        if let Ok(rel_path) = db.import_pdf(
+                                                            pdf_abs.to_str().unwrap_or_default(),
+                                                            Some(paper.title.as_str()),
+                                                            paper.authors.first().map(|a| a.as_str()),
+                                                            paper.year,
+                                                        ) {
+                                                            let _ = rotero_db::papers::update_pdf_path(db.conn(), &id, &rel_path).await;
+                                                            paper.links.pdf_path = Some(rel_path);
+                                                            pdfs_found += 1;
                                                         }
-
-                                                        lib_state.with_mut(|s| s.papers.insert(0, paper));
-                                                        imported += 1;
                                                     }
                                                 }
-                                                let pdf_msg = if pdfs_imported > 0 {
-                                                    format!(" ({pdfs_imported} PDFs)")
-                                                } else {
-                                                    String::new()
-                                                };
-                                                status.set(Some(format!("Imported {imported}/{count} papers{pdf_msg}")));
+
+                                                if paper.links.pdf_path.is_none() {
+                                                    needs_oa.push(OaPending {
+                                                        id,
+                                                        doi: paper.doi.clone(),
+                                                        title: paper.title.clone(),
+                                                        first_author: paper.authors.first().cloned(),
+                                                        year: paper.year,
+                                                    });
+                                                }
+
+                                                lib_state.with_mut(|s| s.papers.insert(0, paper));
+                                                imported += 1;
                                             }
-                                            Err(e) => status.set(Some(format!("Parse error: {e}"))),
+                                        }
+
+                                        let pdf_msg = if pdfs_found > 0 {
+                                            format!(" ({pdfs_found} PDFs)")
+                                        } else {
+                                            String::new()
+                                        };
+                                        status.set(Some(format!("Imported {imported}/{count} papers{pdf_msg}")));
+
+                                        if !needs_oa.is_empty() {
+                                            oa_state.set(Some(OaState::Prompt(needs_oa)));
                                         }
                                     }
+                                    Err(e) => status.set(Some(format!("Parse error: {e}"))),
                                 }
                             }
                             Err(e) => status.set(Some(format!("Read error: {e}"))),
@@ -120,6 +169,158 @@ fn ImportButton() -> Element {
         }
         if let Some(msg) = status.read().as_ref() {
             span { class: "import-status", "{msg}" }
+        }
+    }
+}
+
+/// Modal dialog for the initial "Download OA PDFs?" prompt.
+#[component]
+fn OaPromptDialog(papers: Vec<OaPending>) -> Element {
+    let mut lib_state = use_context::<Signal<LibraryState>>();
+    let db = use_context::<Database>();
+    let mut oa_state = use_context::<Signal<Option<OaState>>>();
+    let cancel_ctx = use_context::<OaCancelFlag>();
+    let mut cancel_flag = cancel_ctx.0;
+    let count = papers.len();
+
+    rsx! {
+        div { class: "citation-overlay",
+            onclick: move |_| oa_state.set(None),
+
+            div { class: "citation-dialog oa-dialog",
+                onclick: move |evt| evt.stop_propagation(),
+
+                div { class: "oa-dialog-header",
+                    h3 { "Download Open Access PDFs" }
+                    button {
+                        class: "detail-close",
+                        onclick: move |_| oa_state.set(None),
+                        "\u{00d7}"
+                    }
+                }
+                p { class: "oa-dialog-text",
+                    "{count} imported papers don't have PDFs. Search OpenAlex for open access versions?"
+                }
+                div { class: "oa-dialog-actions",
+                    button {
+                        class: "btn btn--ghost",
+                        onclick: move |_| oa_state.set(None),
+                        "Skip"
+                    }
+                    button {
+                        class: "btn btn--primary",
+                        onclick: move |_| {
+                            let papers = papers.clone();
+                            let total = papers.len();
+                            let db = db.clone();
+                            let cancelled = Arc::new(AtomicBool::new(false));
+                            cancel_flag.set(Some(cancelled.clone()));
+                            oa_state.set(Some(OaState::Downloading { done: 0, total, downloaded: 0 }));
+
+                            spawn(async move {
+                                let mut downloaded = 0;
+                                for (i, p) in papers.iter().enumerate() {
+                                    if cancelled.load(Ordering::Relaxed) {
+                                        break;
+                                    }
+                                    oa_state.set(Some(OaState::Downloading { done: i + 1, total, downloaded }));
+                                    if let Ok(Some(pdf_url)) = crate::metadata::openalex::find_oa_pdf(p.doi.as_deref(), &p.title).await {
+                                        if cancelled.load(Ordering::Relaxed) { break; }
+                                        if let Ok(resp) = reqwest::get(&pdf_url).await {
+                                            if resp.status().is_success() {
+                                                let is_pdf = resp.headers()
+                                                    .get(reqwest::header::CONTENT_TYPE)
+                                                    .and_then(|v| v.to_str().ok())
+                                                    .is_none_or(|ct| !ct.contains("text/html"));
+                                                if let Ok(bytes) = resp.bytes().await {
+                                                    if is_pdf && bytes.starts_with(b"%PDF") {
+                                                        if let Ok(rel_path) = db.import_pdf_bytes(
+                                                            &bytes,
+                                                            &p.title,
+                                                            p.first_author.as_deref(),
+                                                            p.year,
+                                                        ) {
+                                                            let _ = rotero_db::papers::update_pdf_path(db.conn(), &p.id, &rel_path).await;
+                                                            let pid = p.id.clone();
+                                                            lib_state.with_mut(|s| {
+                                                                if let Some(paper) = s.papers.iter_mut().find(|paper| paper.id.as_deref() == Some(pid.as_str())) {
+                                                                    paper.links.pdf_path = Some(rel_path);
+                                                                }
+                                                            });
+                                                            downloaded += 1;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                oa_state.set(Some(OaState::Done { downloaded, total }));
+                            });
+                        },
+                        "Download"
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Non-blocking progress banner shown during OA download.
+#[component]
+fn OaProgressBanner(
+    done: usize,
+    total: usize,
+    downloaded: usize,
+    cancel_flag: Signal<Option<Arc<AtomicBool>>>,
+) -> Element {
+    let mut oa_state = use_context::<Signal<Option<OaState>>>();
+    let pct = if total > 0 { done as f64 / total as f64 * 100.0 } else { 0.0 };
+
+    rsx! {
+        div { class: "oa-banner",
+            div { class: "oa-banner-content",
+                div { class: "oa-banner-text",
+                    "Downloading PDFs... {done}/{total} ({downloaded} found)"
+                }
+                button {
+                    class: "btn btn--ghost btn--xs",
+                    onclick: move |_| {
+                        if let Some(flag) = cancel_flag() {
+                            flag.store(true, Ordering::Relaxed);
+                        }
+                        oa_state.set(None);
+                    },
+                    "Cancel"
+                }
+            }
+            div { class: "oa-progress-bar",
+                div {
+                    class: "oa-progress-fill",
+                    style: "width: {pct}%",
+                }
+            }
+        }
+    }
+}
+
+/// Non-blocking done banner.
+#[component]
+fn OaDoneBanner(downloaded: usize, total: usize) -> Element {
+    let mut oa_state = use_context::<Signal<Option<OaState>>>();
+
+    rsx! {
+        div { class: "oa-banner oa-banner--done",
+            div { class: "oa-banner-content",
+                div { class: "oa-banner-text",
+                    "Found {downloaded} open access PDFs out of {total} papers"
+                }
+                button {
+                    class: "btn btn--ghost btn--xs",
+                    onclick: move |_| oa_state.set(None),
+                    "Dismiss"
+                }
+            }
         }
     }
 }

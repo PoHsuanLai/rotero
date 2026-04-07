@@ -280,10 +280,10 @@ pub fn PaperDetail() -> Element {
                             }
                         }
                     }
-                    // Find Open Access PDF (when DOI exists but no PDF)
-                    if paper.links.pdf_path.is_none() && paper.doi.is_some() {
+                    // Find Open Access PDF (when no PDF attached)
+                    if paper.links.pdf_path.is_none() {
                         {
-                            let doi_for_oa = paper.doi.clone().unwrap_or_default();
+                            let doi_for_oa = paper.doi.clone();
                             let paper_title = paper.title.clone();
                             let paper_authors = paper.authors.clone();
                             let paper_year = paper.year;
@@ -301,26 +301,19 @@ pub fn PaperDetail() -> Element {
                                         let paper_id = pid_oa.clone();
                                         oa_status.set(Some("Searching...".to_string()));
                                         spawn(async move {
-                                            // Try arXiv first if DOI looks like an arXiv DOI
-                                            let arxiv_id = doi
-                                                .strip_prefix("10.48550/arXiv.")
-                                                .or_else(|| doi.strip_prefix("arXiv:"))
-                                                .map(|s| s.to_string());
-
-                                            let pdf_url = if let Some(ref aid) = arxiv_id {
-                                                // arXiv PDF is always available
-                                                Ok(Some(format!("https://arxiv.org/pdf/{aid}")))
-                                            } else {
-                                                crate::metadata::unpaywall::fetch_oa_url(&doi).await
-                                            };
-
-                                            match pdf_url {
+                                            match crate::metadata::openalex::find_oa_pdf(doi.as_deref(), &title).await {
                                                 Ok(Some(pdf_url)) => {
                                                     oa_status.set(Some("Downloading...".to_string()));
                                                     match reqwest::get(&pdf_url).await {
                                                         Ok(resp) if resp.status().is_success() => {
+                                                            // Check content type — some URLs return HTML instead of PDF
+                                                            let is_pdf = resp.headers()
+                                                                .get(reqwest::header::CONTENT_TYPE)
+                                                                .and_then(|v| v.to_str().ok())
+                                                                .is_none_or(|ct| !ct.contains("text/html"));
+
                                                             match resp.bytes().await {
-                                                                Ok(bytes) => {
+                                                                Ok(bytes) if is_pdf && bytes.starts_with(b"%PDF") => {
                                                                     let first_author = authors.first().map(|a| a.as_str());
                                                                     match db.import_pdf_bytes(&bytes, &title, first_author, year) {
                                                                         Ok(rel_path) => {
@@ -337,6 +330,7 @@ pub fn PaperDetail() -> Element {
                                                                         Err(e) => oa_status.set(Some(format!("Save failed: {e}"))),
                                                                     }
                                                                 }
+                                                                Ok(_) => oa_status.set(Some("OA link did not return a PDF".to_string())),
                                                                 Err(e) => oa_status.set(Some(format!("Download failed: {e}"))),
                                                             }
                                                         }

@@ -87,6 +87,9 @@ pub fn App() -> Element {
     use_context_provider(|| Signal::new(DragPaper(None)));
     // Undo/redo stack for annotation operations
     use_context_provider(|| Signal::new(crate::state::undo::UndoStack::default()));
+    // OA download state — persists across view switches
+    use_context_provider(|| Signal::new(None::<crate::ui::import_export::OaState>));
+    use_context_provider(|| crate::ui::import_export::OaCancelFlag(Signal::new(None)));
 
     // Detect device pixel ratio for HiDPI rendering
     let mut dpr_signal = use_context_provider(|| Signal::new(DevicePixelRatio(1.0)));
