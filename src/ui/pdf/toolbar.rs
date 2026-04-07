@@ -3,7 +3,6 @@ use dioxus::prelude::*;
 use crate::app::RenderChannel;
 use crate::state::app_state::{AnnotationMode, PdfTabManager, TabId, ViewerToolState};
 use rotero_db::Database;
-use rotero_pdf::RenderFormat;
 
 #[component]
 pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
@@ -166,7 +165,7 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                     tabs.with_mut(|m| m.tab_mut().nav.show_thumbnails = !m.tab().nav.show_thumbnails);
                     if tabs.read().tab().render.thumbnails.is_empty() {
                         spawn(async move {
-                            let _ = crate::state::commands::load_thumbnails(&render_tx, &mut tabs, tab_id, 0, 50, config.read().thumbnail_quality).await;
+                            let _ = crate::state::commands::load_thumbnails(&render_tx, &mut tabs, tab_id, 0, 50).await;
                         });
                     }
                 },
@@ -249,13 +248,9 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 onclick: move |_| {
                     let new_zoom = (zoom - 0.3_f32).max(0.5);
                     let render_tx = render_ch.sender();
-                    let cfg = config.read();
-                    let quality = cfg.render_quality;
-                    let fmt = RenderFormat::from_str(&cfg.render_format);
-                    let data_dir = cfg.effective_library_path();
-                    drop(cfg);
+                    let data_dir = config.read().effective_library_path();
                     spawn(async move {
-                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, fmt, &data_dir).await;
+                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, &data_dir).await;
                     });
                 },
                 span { class: "bi bi-zoom-out" }
@@ -266,13 +261,9 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 onclick: move |_| {
                     let new_zoom = (zoom + 0.3_f32).min(5.0);
                     let render_tx = render_ch.sender();
-                    let cfg = config.read();
-                    let quality = cfg.render_quality;
-                    let fmt = RenderFormat::from_str(&cfg.render_format);
-                    let data_dir = cfg.effective_library_path();
-                    drop(cfg);
+                    let data_dir = config.read().effective_library_path();
                     spawn(async move {
-                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, quality, fmt, &data_dir).await;
+                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, &data_dir).await;
                     });
                 },
                 span { class: "bi bi-zoom-in" }

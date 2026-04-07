@@ -6,7 +6,6 @@ use crate::state::app_state::PdfTabManager;
 #[component]
 pub(crate) fn ThumbnailSidebar() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
-    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let render_ch = use_context::<RenderChannel>();
     let mut is_loading_thumbs = use_signal(|| false);
 
@@ -34,9 +33,8 @@ pub(crate) fn ThumbnailSidebar() -> Element {
                     let center = (ratio * page_count as f64) as u32;
                     let start = center.saturating_sub(25);
                     let render_tx = render_ch.sender();
-                    let quality = config.read().thumbnail_quality;
                     let _ = crate::state::commands::load_thumbnails(
-                        &render_tx, &mut tabs, tab_id, start, 50, quality,
+                        &render_tx, &mut tabs, tab_id, start, 50,
                     ).await;
                     is_loading_thumbs.set(false);
                 });

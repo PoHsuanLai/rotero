@@ -4,7 +4,6 @@ use super::super::chat_panel::ChatToggleButton;
 use super::super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use crate::app::RenderChannel;
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager, TabId};
-use rotero_pdf::RenderFormat;
 
 #[component]
 pub fn PdfTabBar() -> Element {
@@ -100,12 +99,8 @@ pub fn PdfTabBar() -> Element {
                                     if needs {
                                         tabs.with_mut(|m| m.tab_mut().is_loading = true);
                                         let render_tx = render_ch.sender();
-                                        let cfg = config.read();
-                                        let cfg_dir = cfg.effective_library_path();
-                                        let cfg_q = cfg.render_quality;
-                                        let cfg_fmt = RenderFormat::from_str(&cfg.render_format);
-                                        drop(cfg);
-                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &cfg_dir, cfg_q, cfg_fmt).await;
+                                        let cfg_dir = config.read().effective_library_path();
+                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &cfg_dir).await;
                                     }
                                 });
                             },
@@ -123,14 +118,10 @@ pub fn PdfTabBar() -> Element {
                                         if needs {
                                             let new_id = tabs.read().active_tab_id.unwrap();
                                             let render_tx = render_ch.sender();
-                                            let cfg = config.read();
-                                            let cfg_dir = cfg.effective_library_path();
-                                            let cfg_q = cfg.render_quality;
-                                            let cfg_fmt = RenderFormat::from_str(&cfg.render_format);
-                                            drop(cfg);
+                                            let cfg_dir = config.read().effective_library_path();
                                             tabs.with_mut(|m| m.tab_mut().is_loading = true);
                                             spawn(async move {
-                                                let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &cfg_dir, cfg_q, cfg_fmt).await;
+                                                let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &cfg_dir).await;
                                             });
                                         }
                                     }

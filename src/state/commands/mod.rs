@@ -9,7 +9,7 @@ pub use pdf_loading::*;
 use std::collections::HashMap;
 use std::sync::mpsc;
 
-use rotero_pdf::{PageTextData, RenderFormat};
+use rotero_pdf::PageTextData;
 
 use super::app_state::RenderedPageData;
 
@@ -22,8 +22,6 @@ pub enum RenderRequest {
         pdf_path: String,
         zoom: f32,
         batch_size: u32,
-        quality: u8,
-        format: RenderFormat,
         reply: mpsc::Sender<Result<(u32, Vec<RenderedPageData>), String>>,
     },
     RenderMorePages {
@@ -31,16 +29,12 @@ pub enum RenderRequest {
         start: u32,
         count: u32,
         zoom: f32,
-        quality: u8,
-        format: RenderFormat,
         reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
     SetZoom {
         pdf_path: String,
         page_count: u32,
         new_zoom: f32,
-        quality: u8,
-        format: RenderFormat,
         reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
     ExtractText {
@@ -52,7 +46,6 @@ pub enum RenderRequest {
         pdf_path: String,
         start: u32,
         count: u32,
-        quality: u8,
         reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
     ExtractOutline {
@@ -97,15 +90,13 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     pdf_path,
                     zoom,
                     batch_size,
-                    quality,
-                    format,
                     reply,
                 } => {
                     let result = (|| {
                         let info = engine.load_document(&pdf_path).map_err(|e| e.to_string())?;
                         let render_count = info.page_count.min(batch_size);
                         let rendered = engine
-                            .render_pages(&pdf_path, 0, render_count, zoom, quality, format)
+                            .render_pages(&pdf_path, 0, render_count, zoom)
                             .map_err(|e| e.to_string())?;
                         let pages: Vec<RenderedPageData> =
                             rendered.into_iter().map(|r| r.into()).collect();
@@ -118,13 +109,11 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     start,
                     count,
                     zoom,
-                    quality,
-                    format,
                     reply,
                 } => {
                     let result = (|| {
                         let rendered = engine
-                            .render_pages(&pdf_path, start, count, zoom, quality, format)
+                            .render_pages(&pdf_path, start, count, zoom)
                             .map_err(|e| e.to_string())?;
                         Ok(rendered
                             .into_iter()
@@ -137,13 +126,11 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     pdf_path,
                     page_count,
                     new_zoom,
-                    quality,
-                    format,
                     reply,
                 } => {
                     let result = (|| {
                         let rendered = engine
-                            .render_pages(&pdf_path, 0, page_count, new_zoom, quality, format)
+                            .render_pages(&pdf_path, 0, page_count, new_zoom)
                             .map_err(|e| e.to_string())?;
                         Ok(rendered
                             .into_iter()
@@ -175,12 +162,11 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     pdf_path,
                     start,
                     count,
-                    quality,
                     reply,
                 } => {
                     let result = (|| {
                         let rendered = engine
-                            .render_thumbnails_range(&pdf_path, start, count, 120, quality)
+                            .render_thumbnails_range(&pdf_path, start, count, 120)
                             .map_err(|e| e.to_string())?;
                         Ok(rendered
                             .into_iter()

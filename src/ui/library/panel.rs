@@ -301,8 +301,6 @@ pub fn LibraryPanel() -> Element {
                                         let cfg = config.read();
                                         let data_dir = cfg.effective_library_path();
                                         let zoom = cfg.default_zoom * dpr_sig.read().0;
-                                        let quality = cfg.render_quality;
-                                        let fmt = rotero_pdf::RenderFormat::from_str(&cfg.render_format);
                                         drop(cfg);
                                         let db_for_cache = db.clone();
                                         let auto_fetch = config.read().auto_fetch_metadata;
@@ -311,7 +309,7 @@ pub fn LibraryPanel() -> Element {
                                         let meta_db = db.clone();
                                         let paper_id2 = paper_id.clone();
                                         spawn(async move {
-                                            crate::state::commands::precache_pdf(&render_tx, &full_path, &data_dir, zoom, quality, fmt, paper_id, Some(db_for_cache.conn())).await;
+                                            crate::state::commands::precache_pdf(&render_tx, &full_path, &data_dir, zoom, paper_id, Some(db_for_cache.conn())).await;
                                         });
                                         // Extract metadata (DOI + CrossRef) in background
                                         if let Some(pid) = paper_id2 {

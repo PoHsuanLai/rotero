@@ -1,8 +1,6 @@
 use std::sync::mpsc;
 
 use dioxus::prelude::*;
-use rotero_pdf::RenderFormat;
-
 use super::{recv_reply, RenderRequest};
 use crate::state::app_state::{PdfTabManager, TabId};
 
@@ -14,7 +12,6 @@ pub async fn load_thumbnails(
     tab_id: TabId,
     start: u32,
     count: u32,
-    quality: u8,
 ) -> Result<(), String> {
     let pdf_path = {
         let mgr = tabs.read();
@@ -31,7 +28,6 @@ pub async fn load_thumbnails(
             pdf_path,
             start,
             count,
-            quality,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
@@ -90,8 +86,6 @@ pub async fn precache_pdf(
     pdf_path: &str,
     data_dir: &std::path::Path,
     zoom: f32,
-    quality: u8,
-    format: RenderFormat,
     paper_id: Option<String>,
     db: Option<&rotero_db::turso::Connection>,
 ) {
@@ -105,8 +99,6 @@ pub async fn precache_pdf(
             pdf_path: path.clone(),
             zoom,
             batch_size: 5,
-            quality,
-            format,
             reply: reply_tx,
         })
         .is_err()

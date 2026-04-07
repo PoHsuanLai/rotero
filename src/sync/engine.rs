@@ -53,18 +53,6 @@ pub struct SyncConfig {
     #[serde(default = "default_selection_color")]
     pub selection_color: String,
 
-    /// Image format for rendered PDF pages: "jpeg" or "png".
-    #[serde(default = "default_render_format")]
-    pub render_format: String,
-
-    /// JPEG quality for rendered PDF pages (1-100, higher = sharper but slower).
-    #[serde(default = "default_render_quality")]
-    pub render_quality: u8,
-
-    /// JPEG quality for thumbnail images (1-100).
-    #[serde(default = "default_thumbnail_quality")]
-    pub thumbnail_quality: u8,
-
     /// Path for auto-exported .bib file (Better BibTeX). None = disabled.
     #[serde(default)]
     pub auto_export_bib_path: Option<String>,
@@ -114,15 +102,7 @@ fn default_page_batch_size() -> u32 {
 fn default_selection_color() -> String {
     "#339af0".to_string()
 }
-fn default_render_format() -> String {
-    "jpeg".to_string()
-}
-fn default_render_quality() -> u8 {
-    85
-}
-fn default_thumbnail_quality() -> u8 {
-    70
-}
+
 fn default_ui_scale() -> String {
     "default".to_string()
 }
@@ -146,9 +126,6 @@ impl Default for SyncConfig {
             connector_enabled: default_true(),
             connector_port: default_connector_port(),
             auto_fetch_metadata: default_true(),
-            render_format: default_render_format(),
-            render_quality: default_render_quality(),
-            thumbnail_quality: default_thumbnail_quality(),
             auto_export_bib_path: None,
             sync_enabled: false,
             sync_folder_path: None,

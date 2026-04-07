@@ -1,7 +1,6 @@
 use std::sync::mpsc;
 
 use dioxus::prelude::*;
-use rotero_pdf::RenderFormat;
 
 use super::{recv_reply, RenderRequest};
 use crate::state::app_state::{PdfTabManager, TabId};
@@ -11,8 +10,6 @@ pub async fn open_pdf(
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     data_dir: &std::path::Path,
-    quality: u8,
-    format: RenderFormat,
 ) -> Result<(), String> {
     let (path, zoom, dpr, batch_size) = {
         let mgr = tabs.read();
@@ -70,8 +67,6 @@ pub async fn open_pdf(
             pdf_path: path.clone(),
             zoom: render_scale,
             batch_size,
-            quality,
-            format,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
@@ -144,8 +139,6 @@ pub async fn render_more_pages(
     tab_id: TabId,
     start: u32,
     count: u32,
-    quality: u8,
-    format: RenderFormat,
     data_dir: &std::path::Path,
 ) -> Result<(), String> {
     let (pdf_path, zoom, dpr) = {
@@ -165,8 +158,6 @@ pub async fn render_more_pages(
             start,
             count,
             zoom: render_scale,
-            quality,
-            format,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
@@ -218,8 +209,6 @@ pub async fn set_zoom(
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     new_zoom: f32,
-    quality: u8,
-    format: RenderFormat,
     _data_dir: &std::path::Path,
 ) -> Result<(), String> {
     let (pdf_path, page_count, dpr) = {
@@ -243,8 +232,6 @@ pub async fn set_zoom(
             pdf_path,
             page_count,
             new_zoom: render_scale,
-            quality,
-            format,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;

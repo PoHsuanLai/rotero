@@ -35,11 +35,11 @@ pub struct CacheMeta {
 }
 
 fn default_mime() -> String {
-    "image/jpeg".to_string()
+    "image/png".to_string()
 }
 
-fn ext_for_mime(mime: &str) -> &str {
-    if mime == "image/png" { "png" } else { "jpg" }
+fn ext_for_mime(_mime: &str) -> &str {
+    "png"
 }
 
 /// Extract (width, height) from PNG or JPEG image bytes by reading the header.

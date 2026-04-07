@@ -135,12 +135,10 @@ fn action_close_tab(
         if needs && let Some(new_id) = new_id {
             let render_tx = render_ch.sender();
             let cfg_dir = config.read().effective_library_path();
-            let cfg_q = config.read().render_quality;
-            let cfg_fmt = rotero_pdf::RenderFormat::from_str(&config.read().render_format);
             tabs.with_mut(|m| m.tab_mut().is_loading = true);
             spawn(async move {
                 let _ = crate::state::commands::open_pdf(
-                    &render_tx, &mut tabs, new_id, &cfg_dir, cfg_q, cfg_fmt,
+                    &render_tx, &mut tabs, new_id, &cfg_dir,
                 )
                 .await;
             });

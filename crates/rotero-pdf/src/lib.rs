@@ -4,7 +4,6 @@ pub mod text_extract;
 
 pub use annotations::write_annotations;
 pub use renderer::{
-    BookmarkEntry, ExtractedAnnotation, PdfDocumentInfo, PdfEngine, PdfError, RenderFormat,
-    RenderedPage,
+    BookmarkEntry, ExtractedAnnotation, PdfDocumentInfo, PdfEngine, PdfError, RenderedPage,
 };
 pub use text_extract::{PageTextData, PdfDocMetadata, SearchMatch, TextSegment, group_into_lines};
