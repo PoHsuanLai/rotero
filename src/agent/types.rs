@@ -168,11 +168,20 @@ pub enum ChatRequest {
         request_id: serde_json::Value,
         option_id: String,
     },
-    Authenticate { method_id: String },
-    SetModel { model_id: String },
+    Authenticate {
+        method_id: String,
+    },
+    SetModel {
+        model_id: String,
+    },
     ListSessions,
-    LoadSession { session_id: String, cwd: String },
-    SwitchAgent { provider_id: String },
+    LoadSession {
+        session_id: String,
+        cwd: String,
+    },
+    SwitchAgent {
+        provider_id: String,
+    },
     Shutdown,
 }
 
@@ -180,7 +189,9 @@ pub enum ChatRequest {
 #[derive(Debug)]
 pub enum ChatEvent {
     /// Agent is switching — sent immediately before teardown for instant UI feedback.
-    Switching { provider_id: String },
+    Switching {
+        provider_id: String,
+    },
     Connected {
         auth_methods: Vec<AgentAuthMethod>,
         provider_id: String,
@@ -189,19 +200,31 @@ pub enum ChatEvent {
     SessionCreated,
     UserMessage(String),
     TextDelta(String),
-    ToolCallStarted { id: String, title: String },
+    ToolCallStarted {
+        id: String,
+        title: String,
+    },
     /// Agent asks for permission to run a tool.
     PermissionRequest {
         request_id: serde_json::Value,
         tool_title: String,
         options: Vec<(String, String)>, // (optionId, label)
     },
-    ToolCallUpdated { id: String, status: ToolStatus, output: Option<String> },
+    ToolCallUpdated {
+        id: String,
+        status: ToolStatus,
+        output: Option<String>,
+    },
     TurnCompleted,
     CommandsAvailable(Vec<SlashCommand>),
-    ModelsAvailable { models: Vec<AgentModel>, current: String },
+    ModelsAvailable {
+        models: Vec<AgentModel>,
+        current: String,
+    },
     SessionList(Vec<PastSession>),
     /// Auth needed — informational, not an error.
-    AuthRequired { provider_name: String },
+    AuthRequired {
+        provider_name: String,
+    },
     Error(String),
 }

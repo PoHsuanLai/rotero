@@ -295,6 +295,106 @@ impl RoteroMcp {
             .map_err(|e| err(e))?;
         json_result(&serde_json::json!({ "success": true }))
     }
+
+    #[tool(description = "Get papers related to a specific paper via shared tags, authors, collections, or journal. Returns relationship type, strength, and connected paper details.")]
+    async fn get_paper_relationships(
+        &self,
+        Parameters(params): Parameters<GetPaperRelationshipsParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let papers = self.db.list_all_papers().await.map_err(|e| err(e))?;
+        let tags = self.db.list_tags().await.map_err(|e| err(e))?;
+        let paper_tags = self.db.list_all_paper_tags().await.map_err(|e| err(e))?;
+        let paper_colls = self.db.list_all_paper_collections().await.map_err(|e| err(e))?;
+
+        let filter = rotero_graph::data::GraphFilter::default();
+        let edges = rotero_graph::edges::compute_edges(&papers, &tags, &paper_tags, &paper_colls, &filter);
+
+        let paper_map: std::collections::HashMap<&str, &rotero_models::Paper> = papers
+            .iter()
+            .filter_map(|p| Some((p.id.as_deref()?, p)))
+            .collect();
+
+        let relationships: Vec<PaperRelationship> = edges
+            .iter()
+            .filter_map(|e| {
+                let (other_id, is_source) = if e.source == params.paper_id {
+                    (e.target.as_str(), true)
+                } else if e.target == params.paper_id {
+                    (e.source.as_str(), false)
+                } else {
+                    return None;
+                };
+                let _ = is_source;
+                let other = paper_map.get(other_id)?;
+                Some(PaperRelationship {
+                    related_paper_id: other_id.to_string(),
+                    related_paper_title: other.title.clone(),
+                    relationship_type: format!("{:?}", e.rel_type),
+                    label: e.label.clone(),
+                    weight: e.weight,
+                })
+            })
+            .collect();
+
+        if relationships.is_empty() {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "No relationships found for paper {}",
+                params.paper_id
+            ))]))
+        } else {
+            json_result(&relationships)
+        }
+    }
+
+    #[tool(description = "Get the full paper relationship graph showing how all papers in the library are connected via shared tags, authors, collections, and journals. Returns nodes (papers) and edges (relationships with types and weights).")]
+    async fn get_library_graph(
+        &self,
+        Parameters(params): Parameters<GetLibraryGraphParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let papers = self.db.list_all_papers().await.map_err(|e| err(e))?;
+        let tags = self.db.list_tags().await.map_err(|e| err(e))?;
+        let paper_tags = self.db.list_all_paper_tags().await.map_err(|e| err(e))?;
+        let paper_colls = self.db.list_all_paper_collections().await.map_err(|e| err(e))?;
+
+        let max_edges = params.max_edges.unwrap_or(100).min(500) as usize;
+        let filter = rotero_graph::data::GraphFilter::default();
+        let mut edges = rotero_graph::edges::compute_edges(&papers, &tags, &paper_tags, &paper_colls, &filter);
+        edges.truncate(max_edges);
+
+        // Collect node IDs that appear in edges
+        let mut node_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for e in &edges {
+            node_ids.insert(&e.source);
+            node_ids.insert(&e.target);
+        }
+
+        let nodes: Vec<GraphNode> = papers
+            .iter()
+            .filter(|p| p.id.as_deref().is_some_and(|id| node_ids.contains(id)))
+            .map(|p| GraphNode {
+                id: p.id.clone().unwrap_or_default(),
+                title: p.title.clone(),
+                authors: p.authors.clone(),
+                year: p.year,
+            })
+            .collect();
+
+        let graph_edges: Vec<GraphEdge> = edges
+            .iter()
+            .map(|e| GraphEdge {
+                source: e.source.clone(),
+                target: e.target.clone(),
+                relationship_type: format!("{:?}", e.rel_type),
+                label: e.label.clone(),
+                weight: e.weight,
+            })
+            .collect();
+
+        json_result(&LibraryGraph {
+            nodes,
+            edges: graph_edges,
+        })
+    }
 }
 
 // -- ServerHandler implementation --------------------------------------------

@@ -5998,6 +5998,7 @@ dependencies = [
  "clap",
  "directories",
  "rmcp",
+ "rotero-graph",
  "rotero-models",
  "rotero-pdf",
  "schemars",

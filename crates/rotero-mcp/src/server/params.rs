@@ -97,6 +97,50 @@ pub struct SetPaperFavoriteParams {
     pub is_favorite: bool,
 }
 
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct GetPaperRelationshipsParams {
+    /// Paper ID to find relationships for
+    pub paper_id: String,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct GetLibraryGraphParams {
+    /// Maximum number of edges to return (default 100, max 500)
+    pub max_edges: Option<u32>,
+}
+
+#[derive(Serialize)]
+pub(super) struct PaperRelationship {
+    pub related_paper_id: String,
+    pub related_paper_title: String,
+    pub relationship_type: String,
+    pub label: String,
+    pub weight: f32,
+}
+
+#[derive(Serialize)]
+pub(super) struct GraphNode {
+    pub id: String,
+    pub title: String,
+    pub authors: Vec<String>,
+    pub year: Option<i32>,
+}
+
+#[derive(Serialize)]
+pub(super) struct GraphEdge {
+    pub source: String,
+    pub target: String,
+    pub relationship_type: String,
+    pub label: String,
+    pub weight: f32,
+}
+
+#[derive(Serialize)]
+pub(super) struct LibraryGraph {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+}
+
 #[derive(Serialize)]
 pub(super) struct LibraryStats {
     pub total_papers: u32,

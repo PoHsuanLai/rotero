@@ -377,6 +377,51 @@ impl Database {
             .await?;
         Ok(())
     }
+
+    // -----------------------------------------------------------------------
+    // Graph / Relationships
+    // -----------------------------------------------------------------------
+
+    pub async fn list_all_paper_tags(&self) -> Result<Vec<(String, String)>, turso::Error> {
+        let mut rows = self
+            .conn
+            .query("SELECT paper_id, tag_id FROM paper_tags", ())
+            .await?;
+        let mut pairs = Vec::new();
+        while let Some(row) = rows.next().await? {
+            if let (Some(pid), Some(tid)) = (get_opt_text(&row, 0), get_opt_text(&row, 1)) {
+                pairs.push((pid, tid));
+            }
+        }
+        Ok(pairs)
+    }
+
+    pub async fn list_all_paper_collections(&self) -> Result<Vec<(String, String)>, turso::Error> {
+        let mut rows = self
+            .conn
+            .query("SELECT paper_id, collection_id FROM paper_collections", ())
+            .await?;
+        let mut pairs = Vec::new();
+        while let Some(row) = rows.next().await? {
+            if let (Some(pid), Some(cid)) = (get_opt_text(&row, 0), get_opt_text(&row, 1)) {
+                pairs.push((pid, cid));
+            }
+        }
+        Ok(pairs)
+    }
+
+    pub async fn list_all_papers(&self) -> Result<Vec<Paper>, turso::Error> {
+        let sql = queries::PAPER_LIST_PAGINATED.replace("{COLS}", queries::PAPER_SELECT_COLS);
+        let mut rows = self
+            .conn
+            .query(&sql, [Value::Integer(10000), Value::Integer(0)])
+            .await?;
+        let mut papers = Vec::new();
+        while let Some(row) = rows.next().await? {
+            papers.push(row_to_paper(&row));
+        }
+        Ok(papers)
+    }
 }
 
 // ---------------------------------------------------------------------------
