@@ -35,60 +35,8 @@
     </div>
 
     <div class="hero-visual">
-      <div class="app-mock">
-        <div class="mock-titlebar">
-          <span class="dot red"></span>
-          <span class="dot yellow"></span>
-          <span class="dot green"></span>
-        </div>
-        <div class="mock-body">
-          <div class="mock-sidebar">
-            <div class="mock-sidebar-item active"></div>
-            <div class="mock-sidebar-item"></div>
-            <div class="mock-sidebar-item"></div>
-            <div class="mock-sidebar-divider"></div>
-            <div class="mock-sidebar-item short"></div>
-            <div class="mock-sidebar-item"></div>
-          </div>
-          <div class="mock-main">
-            <div class="mock-toolbar">
-              <div class="mock-tab active"></div>
-              <div class="mock-tab"></div>
-            </div>
-            <div class="mock-pdf">
-              <div class="mock-page">
-                <div class="mock-line w-80"></div>
-                <div class="mock-line w-60"></div>
-                <div class="mock-line"></div>
-                <div class="mock-line"></div>
-                <div class="mock-line highlight"></div>
-                <div class="mock-line highlight"></div>
-                <div class="mock-line w-90"></div>
-                <div class="mock-line"></div>
-                <div class="mock-line w-70"></div>
-                <div class="mock-line"></div>
-                <div class="mock-line w-40"></div>
-              </div>
-            </div>
-          </div>
-          <div class="mock-detail">
-            <div class="mock-detail-title"></div>
-            <div class="mock-detail-meta"></div>
-            <div class="mock-detail-meta short"></div>
-            <div class="mock-detail-divider"></div>
-            <div class="mock-detail-label"></div>
-            <div class="mock-detail-tag"></div>
-            <div class="mock-detail-tag"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Floating decorative elements -->
-      <div class="float-annotation">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--accent)" opacity="0.8"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="var(--accent)" stroke-width="2"/><path d="M8 7h8M8 11h5" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/></svg>
-      </div>
-      <div class="float-cite">
-        <span>[1]</span>
+      <div class="app-screenshot">
+        <img src="/screenshot-library.png" alt="Rotero library view" />
       </div>
     </div>
   </div>
@@ -245,7 +193,7 @@
     background: var(--bg-muted);
   }
 
-  /* App mockup */
+  /* App screenshot */
   .hero-visual {
     position: relative;
     opacity: 0;
@@ -258,220 +206,17 @@
     transform: translateY(0) scale(1);
   }
 
-  .app-mock {
+  .app-screenshot {
     border-radius: var(--radius-xl);
     border: 1px solid var(--border);
-    background: var(--bg-surface);
     box-shadow: var(--shadow-card);
     overflow: hidden;
   }
 
-  .mock-titlebar {
-    display: flex;
-    gap: 6px;
-    padding: 10px 14px;
-    background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-  }
-  .dot.red { background: #ef4444; }
-  .dot.yellow { background: #f59e0b; }
-  .dot.green { background: #22c55e; }
-
-  .mock-body {
-    display: grid;
-    grid-template-columns: 140px 1fr 120px;
-    height: 320px;
-  }
-
-  .mock-sidebar {
-    padding: 12px 10px;
-    border-right: 1px solid var(--border-subtle);
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .mock-sidebar-item {
-    height: 8px;
-    border-radius: 3px;
-    background: var(--text-muted);
-    opacity: 0.3;
-    width: 80%;
-  }
-
-  .mock-sidebar-item.active {
-    background: var(--accent);
-    opacity: 0.6;
-  }
-
-  .mock-sidebar-item.short {
-    width: 50%;
-  }
-
-  .mock-sidebar-divider {
-    height: 1px;
-    background: var(--border-subtle);
-    margin: 6px 0;
-  }
-
-  .mock-main {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .mock-toolbar {
-    display: flex;
-    gap: 2px;
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .mock-tab {
-    height: 6px;
-    width: 60px;
-    border-radius: 3px;
-    background: var(--text-muted);
-    opacity: 0.2;
-  }
-
-  .mock-tab.active {
-    background: var(--accent);
-    opacity: 0.5;
-  }
-
-  .mock-pdf {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 16px;
-    background: var(--bg-muted);
-  }
-
-  .mock-page {
-    background: var(--bg-primary);
-    border-radius: 4px;
-    padding: 16px 14px;
-    box-shadow: var(--shadow-sm);
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+  .app-screenshot img {
+    display: block;
     width: 100%;
-    max-width: 280px;
-  }
-
-  .mock-line {
-    height: 4px;
-    border-radius: 2px;
-    background: var(--text-muted);
-    opacity: 0.2;
-    width: 100%;
-  }
-
-  .mock-line.w-80 { width: 80%; }
-  .mock-line.w-90 { width: 90%; }
-  .mock-line.w-70 { width: 70%; }
-  .mock-line.w-60 { width: 60%; }
-  .mock-line.w-40 { width: 40%; }
-
-  .mock-line.highlight {
-    background: var(--accent);
-    opacity: 0.25;
-  }
-
-  .mock-detail {
-    padding: 12px 10px;
-    border-left: 1px solid var(--border-subtle);
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .mock-detail-title {
-    height: 10px;
-    width: 85%;
-    border-radius: 3px;
-    background: var(--text-muted);
-    opacity: 0.35;
-  }
-
-  .mock-detail-meta {
-    height: 6px;
-    width: 70%;
-    border-radius: 3px;
-    background: var(--text-muted);
-    opacity: 0.2;
-  }
-
-  .mock-detail-meta.short { width: 45%; }
-
-  .mock-detail-divider {
-    height: 1px;
-    background: var(--border-subtle);
-    margin: 4px 0;
-  }
-
-  .mock-detail-label {
-    height: 5px;
-    width: 35%;
-    border-radius: 3px;
-    background: var(--accent);
-    opacity: 0.4;
-  }
-
-  .mock-detail-tag {
-    height: 14px;
-    width: 55px;
-    border-radius: var(--radius-full);
-    background: var(--accent);
-    opacity: 0.15;
-  }
-
-  /* Floating elements */
-  .float-annotation {
-    position: absolute;
-    top: 20%;
-    right: -16px;
-    padding: 8px;
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-md);
-    animation: float 6s ease-in-out infinite;
-    opacity: 0;
-    transition: opacity 1s var(--ease) 0.8s;
-  }
-
-  .loaded .float-annotation { opacity: 1; }
-
-  .float-cite {
-    position: absolute;
-    bottom: 25%;
-    left: -12px;
-    padding: 4px 10px;
-    background: var(--accent);
-    color: #fff;
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    font-weight: 600;
-    border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-md);
-    animation: float 5s ease-in-out infinite 1s;
-    opacity: 0;
-    transition: opacity 1s var(--ease) 1s;
-  }
-
-  .loaded .float-cite { opacity: 1; }
-
-  @keyframes float {
-    0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
+    height: auto;
   }
 
   @media (max-width: 1024px) {
@@ -489,15 +234,6 @@
     .hero-actions {
       justify-content: center;
     }
-
-    .mock-body {
-      grid-template-columns: 100px 1fr 90px;
-      height: 260px;
-    }
-
-    .float-annotation, .float-cite {
-      display: none;
-    }
   }
 
   @media (max-width: 640px) {
@@ -505,15 +241,6 @@
       min-height: auto;
       padding-top: 120px;
       padding-bottom: var(--space-12);
-    }
-
-    .mock-detail {
-      display: none;
-    }
-
-    .mock-body {
-      grid-template-columns: 80px 1fr;
-      height: 220px;
     }
   }
 </style>
