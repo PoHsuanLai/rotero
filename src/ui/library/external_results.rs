@@ -201,8 +201,10 @@ async fn try_download_oa_pdf(
             let _ = rotero_db::papers::update_pdf_path(db.conn(), paper_id, &rel_path).await;
             let pid = paper_id.to_string();
             lib_state.with_mut(|s| {
-                if let Some(p) =
-                    s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid.as_str()))
+                if let Some(p) = s
+                    .papers
+                    .iter_mut()
+                    .find(|p| p.id.as_deref() == Some(pid.as_str()))
                 {
                     p.links.pdf_path = Some(rel_path.clone());
                 }
