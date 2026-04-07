@@ -44,7 +44,13 @@ Under active development. Known limitations:
 - PDF virtual text layer (selection/copy) needs refinement
 - Mobile app (iOS/Android) planned, not yet available
 
-## Getting Started
+## Install
+
+Download the latest release from the [Releases page](https://github.com/PoHsuanLai/rotero/releases/latest).
+
+> **macOS note:** On first launch, macOS may show "Rotero can't be opened because Apple cannot check it for malicious software." This is because the app is not notarized with an Apple Developer account. To open it: right-click the app → Open → Open. You only need to do this once.
+
+### Build from source
 
 Requires [Rust](https://rustup.rs/) and [just](https://github.com/casey/just).
 
@@ -58,8 +64,13 @@ Other commands: `just check`, `just lint`, `just build-release`, `just run-relea
 
 ## Browser Extension
 
-1. `chrome://extensions/` → Developer mode → Load unpacked → select `extension/`
-2. Keep Rotero running (connects to `localhost:21984`)
+Download `Rotero-Extension.zip` from the [Releases page](https://github.com/PoHsuanLai/rotero/releases/latest), unzip it, then:
+
+1. Go to `chrome://extensions/` → enable **Developer mode** (top right)
+2. Click **Load unpacked** → select the unzipped folder
+3. Keep Rotero running (the extension connects to `localhost:21984`)
+
+> **Why Developer mode?** The extension is not on the Chrome Web Store, which requires a paid developer account. Loading unpacked is the standard way to install extensions distributed outside the store.
 
 ## Architecture
 
