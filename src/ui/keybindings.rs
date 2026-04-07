@@ -56,13 +56,31 @@ fn action_import_bibtex(db: Database, mut lib_state: Signal<LibraryState>) {
     let file = crate::ui::pick_file(&["bib", "bibtex"], "Import BibTeX");
     if let Some(path) = file
         && let Ok(content) = std::fs::read_to_string(&path)
-        && let Ok(papers) = rotero_bib::import_bibtex(&content)
+        && let Ok(entries) = rotero_bib::import_bibtex(&content)
     {
+        let bib_dir = path.parent().map(|p| p.to_path_buf());
         spawn(async move {
-            for paper in papers {
+            for entry in entries {
+                let rotero_bib::ImportedPaper { paper, source_pdf } = entry;
                 if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
                     let mut paper = paper;
-                    paper.id = Some(id);
+                    paper.id = Some(id.clone());
+
+                    if let (Some(bib_dir), Some(rel_pdf)) = (&bib_dir, &source_pdf) {
+                        let pdf_abs = bib_dir.join(rel_pdf);
+                        if pdf_abs.exists() {
+                            if let Ok(rel_path) = db.import_pdf(
+                                pdf_abs.to_str().unwrap_or_default(),
+                                Some(paper.title.as_str()),
+                                paper.authors.first().map(|a| a.as_str()),
+                                paper.year,
+                            ) {
+                                let _ = rotero_db::papers::update_pdf_path(db.conn(), &id, &rel_path).await;
+                                paper.links.pdf_path = Some(rel_path);
+                            }
+                        }
+                    }
+
                     lib_state.with_mut(|s| s.papers.insert(0, paper));
                 }
             }

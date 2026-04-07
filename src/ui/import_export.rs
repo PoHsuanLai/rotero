@@ -21,7 +21,7 @@ fn ImportButton() -> Element {
 
     rsx! {
         button {
-            class: "icon-btn",
+            class: "btn btn--ghost",
             onclick: move |_| {
                 let db = db.clone();
                 spawn(async move {
@@ -37,27 +37,77 @@ fn ImportButton() -> Element {
                                     .unwrap_or("")
                                     .to_lowercase();
 
-                                let result = match ext.as_str() {
-                                    "ris" => rotero_bib::import_ris(&content),
-                                    "json" => rotero_bib::import_csl_json(&content),
-                                    _ => rotero_bib::import_bibtex(&content),
-                                };
+                                // Directory containing the bib file (for resolving relative PDF paths)
+                                let bib_dir = path.parent().map(|p| p.to_path_buf());
 
-                                match result {
-                                    Ok(papers) => {
-                                        let count = papers.len();
-                                        let mut imported = 0;
-                                        for paper in papers {
-                                            if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
-                                                let mut paper = paper;
-                                                paper.id = Some(id);
-                                                lib_state.with_mut(|s| s.papers.insert(0, paper));
-                                                imported += 1;
+                                match ext.as_str() {
+                                    "ris" | "json" => {
+                                        let result = if ext == "ris" {
+                                            rotero_bib::import_ris(&content)
+                                        } else {
+                                            rotero_bib::import_csl_json(&content)
+                                        };
+                                        match result {
+                                            Ok(papers) => {
+                                                let count = papers.len();
+                                                let mut imported = 0;
+                                                for paper in papers {
+                                                    if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
+                                                        let mut paper = paper;
+                                                        paper.id = Some(id);
+                                                        lib_state.with_mut(|s| s.papers.insert(0, paper));
+                                                        imported += 1;
+                                                    }
+                                                }
+                                                status.set(Some(format!("Imported {imported}/{count} papers")));
                                             }
+                                            Err(e) => status.set(Some(format!("Parse error: {e}"))),
                                         }
-                                        status.set(Some(format!("Imported {imported}/{count} papers")));
                                     }
-                                    Err(e) => status.set(Some(format!("Parse error: {e}"))),
+                                    _ => {
+                                        // BibTeX import with PDF support
+                                        match rotero_bib::import_bibtex(&content) {
+                                            Ok(entries) => {
+                                                let count = entries.len();
+                                                let mut imported = 0;
+                                                let mut pdfs_imported = 0;
+                                                for entry in entries {
+                                                    let rotero_bib::ImportedPaper { paper, source_pdf } = entry;
+                                                    if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
+                                                        let mut paper = paper;
+                                                        paper.id = Some(id.clone());
+
+                                                        // Try to import the associated PDF
+                                                        if let (Some(bib_dir), Some(rel_pdf)) = (&bib_dir, &source_pdf) {
+                                                            let pdf_abs = bib_dir.join(rel_pdf);
+                                                            if pdf_abs.exists() {
+                                                                if let Ok(rel_path) = db.import_pdf(
+                                                                    pdf_abs.to_str().unwrap_or_default(),
+                                                                    Some(paper.title.as_str()),
+                                                                    paper.authors.first().map(|a| a.as_str()),
+                                                                    paper.year,
+                                                                ) {
+                                                                    let _ = rotero_db::papers::update_pdf_path(db.conn(), &id, &rel_path).await;
+                                                                    paper.links.pdf_path = Some(rel_path);
+                                                                    pdfs_imported += 1;
+                                                                }
+                                                            }
+                                                        }
+
+                                                        lib_state.with_mut(|s| s.papers.insert(0, paper));
+                                                        imported += 1;
+                                                    }
+                                                }
+                                                let pdf_msg = if pdfs_imported > 0 {
+                                                    format!(" ({pdfs_imported} PDFs)")
+                                                } else {
+                                                    String::new()
+                                                };
+                                                status.set(Some(format!("Imported {imported}/{count} papers{pdf_msg}")));
+                                            }
+                                            Err(e) => status.set(Some(format!("Parse error: {e}"))),
+                                        }
+                                    }
                                 }
                             }
                             Err(e) => status.set(Some(format!("Read error: {e}"))),
@@ -65,8 +115,7 @@ fn ImportButton() -> Element {
                     }
                 });
             },
-            i { class: "bi bi-upload" }
-            span { class: "icon-btn-tooltip", "Import" }
+            "Import"
         }
         if let Some(msg) = status.read().as_ref() {
             span { class: "import-status", "{msg}" }
@@ -81,7 +130,7 @@ fn ExportBibtexButton() -> Element {
 
     rsx! {
         button {
-            class: "icon-btn",
+            class: "btn btn--ghost",
             onclick: move |_| {
                 let papers = lib_state.read().papers.clone();
                 if papers.is_empty() {
@@ -99,8 +148,7 @@ fn ExportBibtexButton() -> Element {
                     }
                 }
             },
-            i { class: "bi bi-download" }
-            span { class: "icon-btn-tooltip", "Export .bib" }
+            "Export"
         }
         if let Some(msg) = status.read().as_ref() {
             span { class: "import-status", "{msg}" }

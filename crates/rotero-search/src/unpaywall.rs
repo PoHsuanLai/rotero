@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 const UNPAYWALL_API: &str = "https://api.unpaywall.org/v2";
-const EMAIL: &str = "rotero@example.com";
+const EMAIL: &str = "rotero.app@proton.me";
 
 #[derive(Debug, Deserialize)]
 struct UnpaywallResponse {

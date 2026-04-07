@@ -877,11 +877,11 @@ fn GraphToggleButton() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let is_graph = lib_state.read().view == LibraryView::Graph;
 
+    let class = if is_graph { "btn btn--ghost-active" } else { "btn btn--secondary" };
+
     rsx! {
-        crate::ui::components::icon_button::IconButton {
-            icon: "diagram-3",
-            tooltip: "Paper Graph",
-            active: is_graph,
+        button {
+            class,
             onclick: move |_| {
                 lib_state.with_mut(|s| {
                     s.view = if s.view == LibraryView::Graph {
@@ -891,6 +891,7 @@ fn GraphToggleButton() -> Element {
                     };
                 });
             },
+            "Graph"
         }
     }
 }

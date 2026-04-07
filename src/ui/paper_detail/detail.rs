@@ -45,6 +45,12 @@ pub fn PaperDetail() -> Element {
     // Hook for Open Access PDF download status (must be unconditional)
     let mut oa_status = use_signal(|| None::<String>);
 
+    // Reset OA status when selected paper changes
+    let _ = use_memo(move || {
+        let _ = lib_state.read().selected_paper_id.clone();
+        oa_status.set(None);
+    });
+
     rsx! {
         div { class: "paper-detail",
             ResizeHandle { target: "detail" }
@@ -295,15 +301,26 @@ pub fn PaperDetail() -> Element {
                                         let paper_id = pid_oa.clone();
                                         oa_status.set(Some("Searching...".to_string()));
                                         spawn(async move {
-                                            match crate::metadata::unpaywall::fetch_oa_url(&doi).await {
+                                            // Try arXiv first if DOI looks like an arXiv DOI
+                                            let arxiv_id = doi
+                                                .strip_prefix("10.48550/arXiv.")
+                                                .or_else(|| doi.strip_prefix("arXiv:"))
+                                                .map(|s| s.to_string());
+
+                                            let pdf_url = if let Some(ref aid) = arxiv_id {
+                                                // arXiv PDF is always available
+                                                Ok(Some(format!("https://arxiv.org/pdf/{aid}")))
+                                            } else {
+                                                crate::metadata::unpaywall::fetch_oa_url(&doi).await
+                                            };
+
+                                            match pdf_url {
                                                 Ok(Some(pdf_url)) => {
                                                     oa_status.set(Some("Downloading...".to_string()));
-                                                    // Download the PDF
                                                     match reqwest::get(&pdf_url).await {
                                                         Ok(resp) if resp.status().is_success() => {
                                                             match resp.bytes().await {
                                                                 Ok(bytes) => {
-                                                                    // Save to library
                                                                     let first_author = authors.first().map(|a| a.as_str());
                                                                     match db.import_pdf_bytes(&bytes, &title, first_author, year) {
                                                                         Ok(rel_path) => {

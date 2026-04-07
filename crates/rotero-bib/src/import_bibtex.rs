@@ -1,8 +1,16 @@
 use biblatex::{Bibliography, ChunksExt, PermissiveType};
 use rotero_models::{Paper, PaperLinks, Publication};
 
-/// Parse a BibTeX/BibLaTeX string into a list of Papers.
-pub fn import_bibtex(input: &str) -> Result<Vec<Paper>, String> {
+/// A parsed paper together with any file paths from the bib entry.
+/// File paths are raw values from the `file` field (semicolon-separated, relative to bib file).
+pub struct ImportedPaper {
+    pub paper: Paper,
+    /// Raw file paths from the bib `file` field (first PDF found, if any).
+    pub source_pdf: Option<String>,
+}
+
+/// Parse a BibTeX/BibLaTeX string into a list of Papers with optional source PDF paths.
+pub fn import_bibtex(input: &str) -> Result<Vec<ImportedPaper>, String> {
     let bibliography =
         Bibliography::parse(input).map_err(|e| format!("Failed to parse BibTeX: {e}"))?;
 
@@ -84,7 +92,18 @@ pub fn import_bibtex(input: &str) -> Result<Vec<Paper>, String> {
                 .join("; ")
         });
 
-        papers.push(Paper {
+        // Extract first PDF path from the `file` field (Zotero format: "path1;path2;...")
+        let source_pdf = entry.get("file").and_then(|chunks| {
+            let raw = chunks.format_verbatim();
+            raw.split(';')
+                .map(|s| s.trim())
+                .find(|s| s.to_lowercase().ends_with(".pdf"))
+                .map(|s| s.to_string())
+        });
+
+        papers.push(ImportedPaper {
+            source_pdf,
+            paper: Paper {
             title,
             authors,
             year,
@@ -102,7 +121,7 @@ pub fn import_bibtex(input: &str) -> Result<Vec<Paper>, String> {
                 ..Default::default()
             },
             ..Default::default()
-        });
+        }});
     }
 
     Ok(papers)

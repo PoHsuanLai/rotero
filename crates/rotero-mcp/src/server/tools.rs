@@ -168,22 +168,57 @@ impl RoteroMcp {
         json_result(&papers)
     }
 
-    #[tool(description = "Extract plain text from a paper's PDF. Returns the full text stored in the database (extracted when the PDF was first opened).")]
+    #[tool(description = "Extract plain text from a paper's PDF. Returns the full text (from database or cache).")]
     async fn extract_pdf_text(
         &self,
         Parameters(params): Parameters<ExtractPdfTextParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        // Read fulltext from the database (populated when user opens PDF in the viewer)
+        // 1. Try fulltext column in DB
         let fulltext = self.db.get_paper_fulltext(&params.paper_id).await.map_err(|e| err(e))?;
-
-        match fulltext {
-            Some(text) if !text.is_empty() => {
-                Ok(CallToolResult::success(vec![Content::text(text)]))
-            }
-            _ => {
-                Err(err("No extracted text available for this paper. Open the paper in the PDF viewer first to extract text."))
+        if let Some(text) = fulltext {
+            if !text.is_empty() {
+                return Ok(CallToolResult::success(vec![Content::text(text)]));
             }
         }
+
+        // 2. Fall back to cached text files on disk
+        let paper = self.db.get_paper_by_id(&params.paper_id).await.map_err(|e| err(e))?
+            .ok_or_else(|| err(format!("No paper found with ID {}", params.paper_id)))?;
+        let pdf_path = paper.links.pdf_path.as_ref()
+            .ok_or_else(|| err("Paper has no PDF file"))?;
+        let abs_path = self.db.resolve_pdf_path(pdf_path).to_string_lossy().to_string();
+
+        let cache_key = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            abs_path.hash(&mut hasher);
+            format!("{:016x}", hasher.finish())
+        };
+        let text_cache = self.db.data_dir().join("cache").join(&cache_key).join("text.json");
+
+        if text_cache.exists() {
+            if let Ok(text_str) = std::fs::read_to_string(&text_cache) {
+                if let Ok(cached) = serde_json::from_str::<Vec<serde_json::Value>>(&text_str) {
+                    let text: String = cached.iter()
+                        .filter_map(|entry| {
+                            let segments = entry.get("segments")?.as_array()?;
+                            let page_text: String = segments.iter()
+                                .filter_map(|seg| seg.get("text").and_then(|t| t.as_str()))
+                                .collect::<Vec<_>>()
+                                .join("");
+                            Some(page_text)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+
+                    if !text.is_empty() {
+                        return Ok(CallToolResult::success(vec![Content::text(text)]));
+                    }
+                }
+            }
+        }
+
+        Err(err("No extracted text available. Open the paper in the PDF viewer first."))
     }
 
     #[tool(description = "Add a note to a paper")]
