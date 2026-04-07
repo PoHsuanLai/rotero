@@ -174,8 +174,9 @@ pub fn PaperDetail() -> Element {
                                             title: "Copy citation key",
                                             onclick: move |evt| {
                                                 evt.stop_propagation();
-                                                let js = format!("navigator.clipboard.writeText({})", serde_json::to_string(&key_for_copy2).unwrap_or_default());
-                                                let _ = document::eval(&js);
+                                                if let Ok(mut clip) = arboard::Clipboard::new() {
+                                                    let _ = clip.set_text(&*key_for_copy2);
+                                                }
                                                 copied_hint.set(true);
                                                 spawn(async move {
                                                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -381,8 +382,9 @@ pub fn PaperDetail() -> Element {
                                 label: "Copy DOI".to_string(),
                                 icon: Some("bi-clipboard".to_string()),
                                 on_click: move |_| {
-                                    let js = format!("navigator.clipboard.writeText({})", serde_json::to_string(&doi_copy).unwrap_or_default());
-                                    let _ = document::eval(&js);
+                                    if let Ok(mut clip) = arboard::Clipboard::new() {
+                                        let _ = clip.set_text(&*doi_copy);
+                                    }
                                     doi_ctx.set(None);
                                 },
                             }
@@ -392,8 +394,7 @@ pub fn PaperDetail() -> Element {
                                 icon: Some("bi-box-arrow-up-right".to_string()),
                                 on_click: move |_| {
                                     let url = format!("https://doi.org/{}", doi_open);
-                                    let js = format!("window.open({}, '_blank')", serde_json::to_string(&url).unwrap_or_default());
-                                    let _ = document::eval(&js);
+                                    let _ = open::that(&url);
                                     doi_ctx.set(None);
                                 },
                             }

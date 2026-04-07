@@ -797,8 +797,9 @@ pub fn LibraryPanel() -> Element {
                                                 label: "Copy DOI".to_string(),
                                                 icon: Some("bi-link-45deg".to_string()),
                                                 on_click: move |_| {
-                                                    let js = format!("navigator.clipboard.writeText(`{}`)", doi_copy);
-                                                    document::eval(&js);
+                                                    if let Ok(mut clip) = arboard::Clipboard::new() {
+                                                        let _ = clip.set_text(&*doi_copy);
+                                                    }
                                                 },
                                             }
                                         }

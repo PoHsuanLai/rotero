@@ -101,10 +101,9 @@ pub fn CitationDialog() -> Element {
                     button {
                         class: "btn btn--primary",
                         onclick: move |_| {
-                            // Copy to clipboard via eval
-                            let text = formatted().replace('`', "\\`");
-                            let js = format!("navigator.clipboard.writeText(`{text}`)");
-                            document::eval(&js);
+                            if let Ok(mut clip) = arboard::Clipboard::new() {
+                                let _ = clip.set_text(formatted());
+                            }
                         },
                         "Copy to Clipboard"
                     }

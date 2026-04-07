@@ -267,8 +267,9 @@ pub(crate) fn AnnotationContextMenu() -> Element {
                             label: "Copy text".to_string(),
                             icon: Some("bi-clipboard".to_string()),
                             on_click: move |_| {
-                                let js = format!("navigator.clipboard.writeText({})", serde_json::to_string(&text).unwrap_or_default());
-                                let _ = document::eval(&js);
+                                if let Ok(mut clip) = arboard::Clipboard::new() {
+                                    let _ = clip.set_text(&*text);
+                                }
                                 ann_ctx.set(None);
                             },
                         }
