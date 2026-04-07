@@ -1,5 +1,5 @@
 use biblatex::{Bibliography, ChunksExt, PermissiveType};
-use rotero_models::Paper;
+use rotero_models::{Paper, PaperLinks, Publication};
 
 /// Parse a BibTeX/BibLaTeX string into a list of Papers.
 pub fn import_bibtex(input: &str) -> Result<Vec<Paper>, String> {
@@ -84,19 +84,25 @@ pub fn import_bibtex(input: &str) -> Result<Vec<Paper>, String> {
                 .join("; ")
         });
 
-        let mut paper = Paper::new(title);
-        paper.authors = authors;
-        paper.year = year;
-        paper.journal = journal;
-        paper.volume = volume;
-        paper.issue = issue;
-        paper.doi = doi;
-        paper.url = url;
-        paper.pages = pages;
-        paper.abstract_text = abstract_text;
-        paper.publisher = publisher;
-
-        papers.push(paper);
+        papers.push(Paper {
+            title,
+            authors,
+            year,
+            doi,
+            abstract_text,
+            publication: Publication {
+                journal,
+                volume,
+                issue,
+                pages,
+                publisher,
+            },
+            links: PaperLinks {
+                url,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
     }
 
     Ok(papers)

@@ -39,7 +39,7 @@ pub fn PaperDetail() -> Element {
 
     // Hooks for citation key editing (must be unconditional)
     let mut editing_key = use_signal(|| false);
-    let mut edit_key_value = use_signal(|| paper.citation_key.clone().unwrap_or_default());
+    let mut edit_key_value = use_signal(|| paper.citation.citation_key.clone().unwrap_or_default());
     let mut copied_hint = use_signal(|| false);
 
     // Hook for Open Access PDF download status (must be unconditional)
@@ -82,7 +82,7 @@ pub fn PaperDetail() -> Element {
             }
 
             // Citation count
-            if let Some(count) = paper.citation_count {
+            if let Some(count) = paper.citation.citation_count {
                 div { class: "detail-field",
                     label { class: "detail-label", "Citations" }
                     div { class: "detail-value detail-value--citations", "{count}" }
@@ -90,7 +90,7 @@ pub fn PaperDetail() -> Element {
             }
 
             // Citation key
-            if let Some(ref cite_key) = paper.citation_key {
+            if let Some(ref cite_key) = paper.citation.citation_key {
                 {
                     let key_for_copy = cite_key.clone();
                     let key_for_copy2 = cite_key.clone();
@@ -122,7 +122,7 @@ pub fn PaperDetail() -> Element {
                                                             let pid2 = pid.clone();
                                                             lib_state.with_mut(|s| {
                                                                 if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
-                                                                    p.citation_key = Some(new_key);
+                                                                    p.citation.citation_key = Some(new_key);
                                                                 }
                                                             });
                                                             editing_key.set(false);
@@ -145,7 +145,7 @@ pub fn PaperDetail() -> Element {
                                                     let pid2 = pid.clone();
                                                     lib_state.with_mut(|s| {
                                                         if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
-                                                            p.citation_key = Some(new_key);
+                                                            p.citation.citation_key = Some(new_key);
                                                         }
                                                     });
                                                     editing_key.set(false);
@@ -194,7 +194,7 @@ pub fn PaperDetail() -> Element {
             }
 
             // Journal
-            if let Some(ref journal) = paper.journal {
+            if let Some(ref journal) = paper.publication.journal {
                 div { class: "detail-field",
                     label { class: "detail-label", "Journal" }
                     div { class: "detail-value detail-value--journal", "{journal}" }
@@ -252,9 +252,9 @@ pub fn PaperDetail() -> Element {
             // Open / Delete buttons
             div { class: "detail-delete-section",
                 div { class: "detail-actions",
-                    if paper.pdf_path.is_some() {
+                    if paper.links.pdf_path.is_some() {
                         {
-                            let pdf_rel_path = paper.pdf_path.clone();
+                            let pdf_rel_path = paper.links.pdf_path.clone();
                             let title = paper.title.clone();
                             let db_open = db.clone();
                             rsx! {
@@ -265,7 +265,7 @@ pub fn PaperDetail() -> Element {
                                             let full_path = db_open.resolve_pdf_path(rel_path);
                                             let path_str = full_path.to_string_lossy().to_string();
                                             let cfg = config.read();
-                                            tabs.with_mut(|m| m.open_or_switch(pid_open.clone(), path_str, title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
+                                            tabs.with_mut(|m| m.open_or_switch(pid_open.clone(), path_str, title.clone(), cfg.pdf.default_zoom, cfg.pdf.page_batch_size, dpr_sig.read().0));
                                             lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                         }
                                     },
@@ -275,7 +275,7 @@ pub fn PaperDetail() -> Element {
                         }
                     }
                     // Find Open Access PDF (when DOI exists but no PDF)
-                    if paper.pdf_path.is_none() && paper.doi.is_some() {
+                    if paper.links.pdf_path.is_none() && paper.doi.is_some() {
                         {
                             let doi_for_oa = paper.doi.clone().unwrap_or_default();
                             let paper_title = paper.title.clone();
@@ -312,7 +312,7 @@ pub fn PaperDetail() -> Element {
                                                                             let pid2 = pid.clone();
                                                                             lib_state.with_mut(|s| {
                                                                                 if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
-                                                                                    p.pdf_path = Some(rel_path);
+                                                                                    p.links.pdf_path = Some(rel_path);
                                                                                 }
                                                                             });
                                                                             oa_status.set(Some("PDF downloaded!".to_string()));

@@ -41,8 +41,8 @@ fn action_open_pdf(
                     id,
                     path_str.clone(),
                     title,
-                    cfg.default_zoom,
-                    cfg.page_batch_size,
+                    cfg.pdf.default_zoom,
+                    cfg.pdf.page_batch_size,
                     dpr_sig.read().0,
                 );
                 m.open_tab(tab);

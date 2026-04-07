@@ -3,7 +3,6 @@ use futures_util::StreamExt;
 
 use crate::state::app_state::{LibraryState, SearchSource};
 use rotero_db::Database;
-use rotero_search::parser::metadata_to_paper;
 
 /// Minimum query length before triggering external search.
 const MIN_QUERY_LEN: usize = 3;
@@ -70,7 +69,7 @@ pub fn SearchBar() -> Element {
                     // Phase 1: fast search (autocomplete for OpenAlex)
                     match provider.search(&query, 20).await {
                         Ok(metas) => {
-                            let papers: Vec<_> = metas.into_iter().map(metadata_to_paper).collect();
+                            let papers: Vec<_> = metas;
                             lib_state.with_mut(|s| {
                                 s.search.external_searching = false;
                                 s.search.external_results = Some(papers);
@@ -95,7 +94,7 @@ pub fn SearchBar() -> Element {
                         match provider.search_full(&query, 20).await {
                             Ok(metas) => {
                                 let papers: Vec<_> =
-                                    metas.into_iter().map(metadata_to_paper).collect();
+                                    metas;
                                 // Only apply if query hasn't changed
                                 if lib_state.read().search.query == query {
                                     lib_state.with_mut(|s| s.search.external_results = Some(papers));

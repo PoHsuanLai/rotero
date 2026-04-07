@@ -43,10 +43,10 @@ fn update_config(config: &mut Signal<SyncConfig>, f: impl FnOnce(&mut SyncConfig
 pub fn PdfViewerSection() -> Element {
     let mut config = use_context::<Signal<SyncConfig>>();
     let mut tabs = use_context::<Signal<PdfTabManager>>();
-    let current_zoom = config.read().default_zoom;
-    let current_batch = config.read().page_batch_size;
+    let current_zoom = config.read().pdf.default_zoom;
+    let current_batch = config.read().pdf.page_batch_size;
     let current_resident = config.read().max_resident_tabs;
-    let current_color = config.read().selection_color.clone();
+    let current_color = config.read().pdf.selection_color.clone();
 
     rsx! {
         div { class: "settings-section",
@@ -61,7 +61,7 @@ pub fn PdfViewerSection() -> Element {
                         value: "{current_zoom}",
                         onchange: move |evt| {
                             if let Ok(z) = evt.value().parse::<f32>() {
-                                update_config(&mut config, |c| c.default_zoom = z);
+                                update_config(&mut config, |c| c.pdf.default_zoom = z);
                             }
                         },
                         for (val, label) in ZOOM_OPTIONS.iter() {
@@ -92,7 +92,7 @@ pub fn PdfViewerSection() -> Element {
                                         style: "background: {c};",
                                         onclick: move |_| {
                                             let color = c2.clone();
-                                            update_config(&mut config, |c| c.selection_color = color);
+                                            update_config(&mut config, |c| c.pdf.selection_color = color);
                                         },
                                     }
                                 }
@@ -111,7 +111,7 @@ pub fn PdfViewerSection() -> Element {
                         value: "{current_batch}",
                         onchange: move |evt| {
                             if let Ok(b) = evt.value().parse::<u32>() {
-                                update_config(&mut config, |c| c.page_batch_size = b);
+                                update_config(&mut config, |c| c.pdf.page_batch_size = b);
                             }
                         },
                         for (val, label) in BATCH_OPTIONS.iter() {

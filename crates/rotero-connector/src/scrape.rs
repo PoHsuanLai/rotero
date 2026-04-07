@@ -1,25 +1,9 @@
+use rotero_models::{Paper, PaperLinks, Publication};
 use scraper::{Html, Selector};
 use serde::Deserialize;
 
-/// Metadata extracted from a web page's meta tags and JSON-LD.
-#[derive(Debug, Default, Clone)]
-pub struct ScrapedMetadata {
-    pub title: Option<String>,
-    pub authors: Vec<String>,
-    pub doi: Option<String>,
-    pub url: Option<String>,
-    pub pdf_url: Option<String>,
-    pub journal: Option<String>,
-    pub year: Option<i32>,
-    pub volume: Option<String>,
-    pub issue: Option<String>,
-    pub pages: Option<String>,
-    pub publisher: Option<String>,
-    pub abstract_text: Option<String>,
-}
-
-/// Fetch a URL and extract scholarly metadata from its HTML.
-pub async fn scrape_url(url: &str) -> Result<ScrapedMetadata, String> {
+/// Fetch a URL and extract scholarly metadata from its HTML, returning a Paper directly.
+pub async fn scrape_url(url: &str) -> Result<Paper, String> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
@@ -45,16 +29,57 @@ pub async fn scrape_url(url: &str) -> Result<ScrapedMetadata, String> {
         .await
         .map_err(|e| format!("Failed to read response: {e}"))?;
 
-    let mut meta = extract_from_html(&html);
-    meta.url = Some(final_url);
-    Ok(meta)
+    let mut paper = extract_from_html(&html);
+    paper.links.url = Some(final_url);
+    Ok(paper)
+}
+
+/// Intermediate struct used only during HTML parsing to accumulate scraped fields.
+#[derive(Debug, Default)]
+struct ScrapedFields {
+    title: Option<String>,
+    authors: Vec<String>,
+    doi: Option<String>,
+    url: Option<String>,
+    pdf_url: Option<String>,
+    journal: Option<String>,
+    year: Option<i32>,
+    volume: Option<String>,
+    issue: Option<String>,
+    pages: Option<String>,
+    publisher: Option<String>,
+    abstract_text: Option<String>,
+}
+
+impl ScrapedFields {
+    fn into_paper(self) -> Paper {
+        Paper {
+            title: self.title.unwrap_or_else(|| "Untitled".to_string()),
+            authors: self.authors,
+            year: self.year,
+            doi: self.doi,
+            abstract_text: self.abstract_text,
+            publication: Publication {
+                journal: self.journal,
+                volume: self.volume,
+                issue: self.issue,
+                pages: self.pages,
+                publisher: self.publisher,
+            },
+            links: PaperLinks {
+                url: self.url,
+                pdf_url: self.pdf_url,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
 }
 
 /// Extract metadata from an HTML string using meta tags and JSON-LD.
-#[allow(clippy::field_reassign_with_default)]
-pub fn extract_from_html(html: &str) -> ScrapedMetadata {
+pub fn extract_from_html(html: &str) -> Paper {
     let doc = Html::parse_document(html);
-    let mut meta = ScrapedMetadata::default();
+    let mut meta = ScrapedFields::default();
 
     // --- DOI ---
     meta.doi = get_meta(
@@ -175,7 +200,7 @@ pub fn extract_from_html(html: &str) -> ScrapedMetadata {
     // --- JSON-LD structured data ---
     extract_jsonld(&doc, &mut meta);
 
-    meta
+    meta.into_paper()
 }
 
 fn get_meta(doc: &Html, attrs: &[(&str, &str)]) -> Option<String> {
@@ -265,7 +290,7 @@ struct JsonLdAuthor {
     family_name: Option<String>,
 }
 
-fn extract_jsonld(doc: &Html, meta: &mut ScrapedMetadata) {
+fn extract_jsonld(doc: &Html, meta: &mut ScrapedFields) {
     let Ok(sel) = Selector::parse(r#"script[type="application/ld+json"]"#) else {
         return;
     };
@@ -386,21 +411,4 @@ fn parse_jsonld_authors(value: serde_json::Value) -> Vec<String> {
             }
         })
         .collect()
-}
-
-/// Convert scraped metadata into a Paper model.
-pub fn to_paper(meta: ScrapedMetadata) -> rotero_models::Paper {
-    let title = meta.title.unwrap_or_else(|| "Untitled".to_string());
-    let mut paper = rotero_models::Paper::new(title);
-    paper.authors = meta.authors;
-    paper.doi = meta.doi;
-    paper.url = meta.url;
-    paper.journal = meta.journal;
-    paper.year = meta.year;
-    paper.volume = meta.volume;
-    paper.issue = meta.issue;
-    paper.pages = meta.pages;
-    paper.publisher = meta.publisher;
-    paper.abstract_text = meta.abstract_text;
-    paper
 }

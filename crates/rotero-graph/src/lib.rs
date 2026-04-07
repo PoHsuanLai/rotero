@@ -95,8 +95,8 @@ pub fn build_and_simulate(
                 y: pos[1] as f64,
                 size: 6.0,
                 color,
-                is_read: paper.is_read,
-                is_favorite: paper.is_favorite,
+                is_read: paper.status.is_read,
+                is_favorite: paper.status.is_favorite,
             })
         })
         .collect();

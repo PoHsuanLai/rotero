@@ -75,7 +75,7 @@ pub fn App() -> Element {
     use_context_provider(|| {
         let cfg = config.read();
         Signal::new(ViewerToolState {
-            annotation_color: cfg.default_annotation_color.clone(),
+            annotation_color: cfg.ui.default_annotation_color.clone(),
             ..Default::default()
         })
     });

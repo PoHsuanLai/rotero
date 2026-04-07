@@ -11,8 +11,8 @@ const SCALE_OPTIONS: &[(&str, &str)] = &[
 #[component]
 pub fn AppearanceSection() -> Element {
     let mut config = use_context::<Signal<SyncConfig>>();
-    let dark_mode = config.read().dark_mode;
-    let current_scale = config.read().ui_scale.clone();
+    let dark_mode = config.read().ui.dark_mode;
+    let current_scale = config.read().ui.ui_scale.clone();
 
     rsx! {
         div { class: "settings-section",
@@ -28,7 +28,7 @@ pub fn AppearanceSection() -> Element {
                             checked: dark_mode,
                             onchange: move |evt| {
                                 let checked = evt.checked();
-                                config.with_mut(|c| c.dark_mode = checked);
+                                config.with_mut(|c| c.ui.dark_mode = checked);
                                 let _ = config.read().save();
                             },
                         }
@@ -59,7 +59,7 @@ pub fn AppearanceSection() -> Element {
                                         class: "{btn_class}",
                                         onclick: move |_| {
                                             let scale = v2.clone();
-                                            config.with_mut(|c| c.ui_scale = scale);
+                                            config.with_mut(|c| c.ui.ui_scale = scale);
                                             let _ = config.read().save();
                                         },
                                         "{label}"

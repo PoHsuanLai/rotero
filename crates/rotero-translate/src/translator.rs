@@ -107,40 +107,11 @@ impl ZoteroItem {
             return None;
         }
 
-        let mut paper = rotero_models::Paper::new(self.title);
+        let non_empty = |s: String| -> Option<String> {
+            if s.is_empty() { None } else { Some(s) }
+        };
 
-        if !self.doi.is_empty() {
-            paper.doi = Some(self.doi);
-        }
-        if !self.url.is_empty() {
-            paper.url = Some(self.url);
-        }
-        if !self.publication_title.is_empty() {
-            paper.journal = Some(self.publication_title);
-        }
-        if !self.volume.is_empty() {
-            paper.volume = Some(self.volume);
-        }
-        if !self.issue.is_empty() {
-            paper.issue = Some(self.issue);
-        }
-        if !self.pages.is_empty() {
-            paper.pages = Some(self.pages);
-        }
-        if !self.publisher.is_empty() {
-            paper.publisher = Some(self.publisher);
-        }
-        if !self.abstract_note.is_empty() {
-            paper.abstract_text = Some(self.abstract_note);
-        }
-
-        // Parse year from date
-        if !self.date.is_empty() {
-            paper.year = extract_year(&self.date);
-        }
-
-        // Build author list
-        paper.authors = self
+        let authors: Vec<String> = self
             .creators
             .into_iter()
             .filter(|c| c.creator_type.is_empty() || c.creator_type == "author")
@@ -156,7 +127,25 @@ impl ZoteroItem {
             .filter(|s| !s.is_empty())
             .collect();
 
-        Some(paper)
+        Some(rotero_models::Paper {
+            title: self.title,
+            authors,
+            year: if self.date.is_empty() { None } else { extract_year(&self.date) },
+            doi: non_empty(self.doi),
+            abstract_text: non_empty(self.abstract_note),
+            publication: rotero_models::Publication {
+                journal: non_empty(self.publication_title),
+                volume: non_empty(self.volume),
+                issue: non_empty(self.issue),
+                pages: non_empty(self.pages),
+                publisher: non_empty(self.publisher),
+            },
+            links: rotero_models::PaperLinks {
+                url: non_empty(self.url),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
     }
 }
 

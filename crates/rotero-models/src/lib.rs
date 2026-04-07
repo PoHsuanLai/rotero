@@ -9,6 +9,6 @@ pub mod tag;
 pub use annotation::{Annotation, AnnotationType};
 pub use collection::Collection;
 pub use note::Note;
-pub use paper::Paper;
+pub use paper::{CitationInfo, LibraryStatus, Paper, PaperLinks, Publication};
 pub use saved_search::SavedSearch;
 pub use tag::Tag;

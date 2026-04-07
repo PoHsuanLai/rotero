@@ -11,8 +11,8 @@ pub fn AgentSection() -> Element {
     let agent_channel = use_context::<AgentChannel>();
 
     // Local selection state — only committed on Save
-    let mut pending_provider = use_signal(|| config.read().agent_provider.clone());
-    let saved_provider = config.read().agent_provider.clone();
+    let mut pending_provider = use_signal(|| config.read().agent.agent_provider.clone());
+    let saved_provider = config.read().agent.agent_provider.clone();
     let connected_provider = chat_state.read().active_provider_id.clone();
     let agent_connected = chat_state.read().session_active;
     let agent_status = chat_state.read().status.clone();
@@ -81,7 +81,7 @@ pub fn AgentSection() -> Element {
                             class: "btn btn--primary",
                             onclick: move |_| {
                                 let pid = pending_provider.read().clone();
-                                config.with_mut(|c| c.agent_provider = pid.clone());
+                                config.with_mut(|c| c.agent.agent_provider = pid.clone());
                                 let _ = config.read().save();
                                 agent_channel.send(ChatRequest::SwitchAgent {
                                     provider_id: pid,
@@ -100,7 +100,7 @@ pub fn AgentSection() -> Element {
                     let selected_is_api_key = auth_methods.get(sel_idx).map(|m| m.is_api_key).unwrap_or(false);
                     let selected_env_var = auth_methods.get(sel_idx).and_then(|m| m.api_key_env_var.clone()).unwrap_or_default();
                     let current_key = if selected_is_api_key {
-                        config.read().agent_api_keys.get(&selected_env_var).cloned().unwrap_or_default()
+                        config.read().agent.agent_api_keys.get(&selected_env_var).cloned().unwrap_or_default()
                     } else {
                         String::new()
                     };
@@ -164,7 +164,7 @@ pub fn AgentSection() -> Element {
                                             class: "btn btn--secondary",
                                             onclick: move |_| {
                                                 config.with_mut(|c| {
-                                                    c.agent_api_keys.remove(&selected_env_var);
+                                                    c.agent.agent_api_keys.remove(&selected_env_var);
                                                 });
                                                 let _ = config.read().save();
                                             },
@@ -187,11 +187,11 @@ pub fn AgentSection() -> Element {
                                                 let val = api_key_input.read().clone();
                                                 if !val.is_empty() {
                                                     config.with_mut(|c| {
-                                                        c.agent_api_keys.insert(selected_env_var.clone(), val);
+                                                        c.agent.agent_api_keys.insert(selected_env_var.clone(), val);
                                                     });
                                                     let _ = config.read().save();
                                                     api_key_input.set(String::new());
-                                                    let pid = config.read().agent_provider.clone();
+                                                    let pid = config.read().agent.agent_provider.clone();
                                                     agent_channel.send(ChatRequest::SwitchAgent {
                                                         provider_id: pid,
                                                     });

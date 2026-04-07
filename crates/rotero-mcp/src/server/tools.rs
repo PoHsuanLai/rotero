@@ -187,6 +187,7 @@ impl RoteroMcp {
             .ok_or_else(|| err(format!("No paper found with ID {}", params.paper_id)))?;
 
         let pdf_path = paper
+            .links
             .pdf_path
             .as_ref()
             .ok_or_else(|| err("Paper has no PDF file"))?;
@@ -526,7 +527,7 @@ impl ServerHandler for RoteroMcp {
                     paper.title,
                     paper.authors.join(", "),
                     paper.year.map(|y| y.to_string()).unwrap_or_default(),
-                    paper.journal.as_deref().unwrap_or(""),
+                    paper.publication.journal.as_deref().unwrap_or(""),
                 );
                 if let Some(abstract_text) = &paper.abstract_text {
                     prompt.push_str(&format!("\nAbstract:\n{abstract_text}\n"));
@@ -567,7 +568,7 @@ impl ServerHandler for RoteroMcp {
                         paper.title,
                         paper.year.map(|y| y.to_string()).unwrap_or_default(),
                         paper.authors.join(", "),
-                        paper.journal.as_deref().unwrap_or(""),
+                        paper.publication.journal.as_deref().unwrap_or(""),
                     ));
                     if let Some(abstract_text) = &paper.abstract_text {
                         prompt.push_str(&format!("**Abstract:** {abstract_text}\n"));

@@ -124,13 +124,13 @@ pub fn LibraryPanel() -> Element {
             LibraryView::Favorites => state
                 .papers
                 .iter()
-                .filter(|p| p.is_favorite)
+                .filter(|p| p.status.is_favorite)
                 .cloned()
                 .collect(),
             LibraryView::Unread => state
                 .papers
                 .iter()
-                .filter(|p| !p.is_read)
+                .filter(|p| !p.status.is_read)
                 .cloned()
                 .collect(),
             LibraryView::Collection(_) => {
@@ -282,8 +282,14 @@ pub fn LibraryPanel() -> Element {
 
                                 match db.import_pdf(&file_path_str, Some(&title), None, None) {
                                     Ok(rel_path) => {
-                                        let mut paper = rotero_models::Paper::new(title);
-                                        paper.pdf_path = Some(rel_path.clone());
+                                        let mut paper = rotero_models::Paper {
+                                            title,
+                                            links: rotero_models::PaperLinks {
+                                                pdf_path: Some(rel_path.clone()),
+                                                ..Default::default()
+                                            },
+                                            ..Default::default()
+                                        };
                                         let paper_id = match rotero_db::papers::insert_paper(db.conn(), &paper).await {
                                             Ok(id) => {
                                                 paper.id = Some(id.clone());
@@ -300,7 +306,7 @@ pub fn LibraryPanel() -> Element {
                                         let render_tx = render_ch.sender();
                                         let cfg = config.read();
                                         let data_dir = cfg.effective_library_path();
-                                        let zoom = cfg.default_zoom * dpr_sig.read().0;
+                                        let zoom = cfg.pdf.default_zoom * dpr_sig.read().0;
                                         drop(cfg);
                                         let db_for_cache = db.clone();
                                         let auto_fetch = config.read().auto_fetch_metadata;
@@ -423,13 +429,13 @@ pub fn LibraryPanel() -> Element {
                                                 format!("{} et al.", paper.authors[0])
                                             };
                                             let year = paper.year.map(|y| y.to_string()).unwrap_or_default();
-                                            let has_pdf = paper.pdf_path.is_some();
+                                            let has_pdf = paper.links.pdf_path.is_some();
                                             let field_count = [
                                                 paper.doi.is_some(),
                                                 paper.abstract_text.is_some(),
-                                                paper.journal.is_some(),
+                                                paper.publication.journal.is_some(),
                                                 paper.year.is_some(),
-                                                paper.pdf_path.is_some(),
+                                                paper.links.pdf_path.is_some(),
                                                 !paper.authors.is_empty(),
                                             ].iter().filter(|&&b| b).count();
                                             rsx! {
@@ -499,7 +505,7 @@ pub fn LibraryPanel() -> Element {
                         {
                             let paper_id = paper.id.clone().unwrap_or_default();
                             let title = paper.title.clone();
-                            let pdf_rel_path = paper.pdf_path.clone();
+                            let pdf_rel_path = paper.links.pdf_path.clone();
                             let authors = if paper.authors.is_empty() {
                                 "Unknown".to_string()
                             } else if paper.authors.len() <= 2 {
@@ -508,11 +514,11 @@ pub fn LibraryPanel() -> Element {
                                 format!("{} et al.", paper.authors[0])
                             };
                             let year = paper.year.map(|y| y.to_string()).unwrap_or_default();
-                            let journal = paper.journal.clone().unwrap_or_default();
-                            let citation_count = paper.citation_count;
-                            let has_pdf = paper.pdf_path.is_some();
-                            let is_read = paper.is_read;
-                            let is_fav = paper.is_favorite;
+                            let journal = paper.publication.journal.clone().unwrap_or_default();
+                            let citation_count = paper.citation.citation_count;
+                            let has_pdf = paper.links.pdf_path.is_some();
+                            let is_read = paper.status.is_read;
+                            let is_fav = paper.status.is_favorite;
                             let selected = state.selected_paper_id.as_deref() == Some(paper_id.as_str());
                             let row_class = if selected {
                                 "library-card library-card--selected"
@@ -604,7 +610,7 @@ pub fn LibraryPanel() -> Element {
                                                         let pid2 = pid.clone();
                                                         lib_state.with_mut(|s| {
                                                             if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
-                                                                p.is_favorite = new_val;
+                                                                p.status.is_favorite = new_val;
                                                             }
                                                         });
                                                     }
@@ -623,7 +629,7 @@ pub fn LibraryPanel() -> Element {
                                                         let full_path = db_for_view.resolve_pdf_path(rel_path);
                                                         let path_str = full_path.to_string_lossy().to_string();
                                                         let cfg = config.read();
-                                                        tabs.with_mut(|m| m.open_or_switch(pid_open.clone(), path_str, title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
+                                                        tabs.with_mut(|m| m.open_or_switch(pid_open.clone(), path_str, title.clone(), cfg.pdf.default_zoom, cfg.pdf.page_batch_size, dpr_sig.read().0));
                                                         lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                                     }
                                                 },
@@ -647,11 +653,11 @@ pub fn LibraryPanel() -> Element {
                     drop(state);
 
                     if let Some(paper) = menu_paper {
-                        let has_pdf = paper.pdf_path.is_some();
-                        let is_fav = paper.is_favorite;
-                        let is_read = paper.is_read;
+                        let has_pdf = paper.links.pdf_path.is_some();
+                        let is_fav = paper.status.is_favorite;
+                        let is_read = paper.status.is_read;
                         let doi = paper.doi.clone();
-                        let pdf_rel = paper.pdf_path.clone();
+                        let pdf_rel = paper.links.pdf_path.clone();
                         let paper_title_for_open = paper.title.clone();
                         let pid = menu_paper_id;
                         let db_ctx = db.clone();
@@ -676,7 +682,7 @@ pub fn LibraryPanel() -> Element {
                                                     let full_path = db_ctx.resolve_pdf_path(rel_path);
                                                     let path_str = full_path.to_string_lossy().to_string();
                                                     let cfg = config.read();
-                                                    tabs.with_mut(|m| m.open_or_switch(pid.clone(), path_str, paper_title_for_open.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
+                                                    tabs.with_mut(|m| m.open_or_switch(pid.clone(), path_str, paper_title_for_open.clone(), cfg.pdf.default_zoom, cfg.pdf.page_batch_size, dpr_sig.read().0));
                                                     lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                                 }
                                             }
@@ -684,9 +690,9 @@ pub fn LibraryPanel() -> Element {
                                     }
                                 }
 
-                                if !has_pdf && paper.pdf_url.is_some() {
+                                if !has_pdf && paper.links.pdf_url.is_some() {
                                     {
-                                        let pdf_url = paper.pdf_url.clone().unwrap_or_default();
+                                        let pdf_url = paper.links.pdf_url.clone().unwrap_or_default();
                                         let paper_clone = paper.clone();
                                         let pid_dl = pid.clone();
                                         rsx! {
@@ -738,7 +744,7 @@ pub fn LibraryPanel() -> Element {
                                                     let pid2 = pid.clone();
                                                     lib_state.with_mut(|s| {
                                                         if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
-                                                            p.is_favorite = new_val;
+                                                            p.status.is_favorite = new_val;
                                                         }
                                                     });
                                                 }
@@ -761,7 +767,7 @@ pub fn LibraryPanel() -> Element {
                                                     let pid2 = pid.clone();
                                                     lib_state.with_mut(|s| {
                                                         if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
-                                                            p.is_read = new_val;
+                                                            p.status.is_read = new_val;
                                                         }
                                                     });
                                                 }

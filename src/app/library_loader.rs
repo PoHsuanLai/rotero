@@ -67,7 +67,7 @@ pub fn LoadLibraryData() -> Element {
 
                         match result {
                             Ok(meta) => {
-                                if let Some(count) = meta.citation_count {
+                                if let Some(count) = meta.citation.citation_count {
                                     let _ = rotero_db::papers::update_citation_count(
                                         db.conn(),
                                         &paper_id,
@@ -78,7 +78,7 @@ pub fn LoadLibraryData() -> Element {
                                         if let Some(p) = s.papers.iter_mut().find(|p| {
                                             p.id.as_deref() == Some(paper_id.as_str())
                                         }) {
-                                            p.citation_count = Some(count);
+                                            p.citation.citation_count = Some(count);
                                         }
                                     });
                                 }
@@ -132,10 +132,13 @@ pub fn LoadLibraryData() -> Element {
 
                     for (paper_id, title, authors, year) in &needs_keys {
                         // Build a minimal Paper for key generation (only needs authors + year)
-                        let mut stub = rotero_models::Paper::new(title.clone());
-                        stub.id = Some(paper_id.clone());
-                        stub.authors = authors.clone();
-                        stub.year = *year;
+                        let stub = rotero_models::Paper {
+                            id: Some(paper_id.clone()),
+                            title: title.clone(),
+                            authors: authors.clone(),
+                            year: *year,
+                            ..Default::default()
+                        };
 
                         let key = rotero_bib::generate_unique_cite_key(&stub, &all_keys);
                         if rotero_db::papers::update_citation_key(db.conn(), paper_id, &key)
@@ -147,7 +150,7 @@ pub fn LoadLibraryData() -> Element {
                                 if let Some(p) = s.papers.iter_mut().find(|p| {
                                     p.id.as_deref() == Some(pid.as_str())
                                 }) {
-                                    p.citation_key = Some(key.clone());
+                                    p.citation.citation_key = Some(key.clone());
                                 }
                             });
                             all_keys.push(key);
@@ -158,7 +161,7 @@ pub fn LoadLibraryData() -> Element {
                     // Auto-export .bib if configured and keys were updated
                     if keys_updated {
                         let config = config.read();
-                        if let Some(ref bib_path) = config.auto_export_bib_path {
+                        if let Some(ref bib_path) = config.sync.auto_export_bib_path {
                             let state = lib_state.read();
                             let bib_content = rotero_bib::export_bibtex(&state.papers);
                             if let Err(e) = std::fs::write(bib_path, &bib_content) {

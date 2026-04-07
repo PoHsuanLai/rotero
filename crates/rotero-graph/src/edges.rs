@@ -100,7 +100,7 @@ pub fn compute_edges(
         let mut journal_to_papers: HashMap<String, Vec<&str>> = HashMap::new();
         for paper in papers {
             if let Some(ref pid) = paper.id
-                && let Some(ref j) = paper.journal
+                && let Some(ref j) = paper.publication.journal
             {
                 let key = j.trim().to_lowercase();
                 if !key.is_empty() {

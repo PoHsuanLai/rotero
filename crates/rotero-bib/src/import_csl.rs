@@ -1,4 +1,4 @@
-use rotero_models::Paper;
+use rotero_models::{Paper, PaperLinks, Publication};
 use serde::Deserialize;
 
 /// Parse a CSL-JSON string into a list of Papers.
@@ -109,19 +109,25 @@ impl CslItem {
                 .and_then(|s| s.split('-').next().and_then(|y| y.trim().parse().ok()))
         });
 
-        let mut paper = Paper::new(title);
-        paper.authors = authors;
-        paper.year = year;
-        paper.doi = self.doi;
-        paper.abstract_text = self.abstract_text;
-        paper.journal = self.container_title;
-        paper.volume = self.volume.map(|v| v.to_string());
-        paper.issue = self.issue.map(|v| v.to_string());
-        paper.pages = self.page;
-        paper.publisher = self.publisher;
-        paper.url = self.url;
-
-        Some(paper)
+        Some(Paper {
+            title,
+            authors,
+            year,
+            doi: self.doi,
+            abstract_text: self.abstract_text,
+            publication: Publication {
+                journal: self.container_title,
+                volume: self.volume.map(|v| v.to_string()),
+                issue: self.issue.map(|v| v.to_string()),
+                pages: self.page,
+                publisher: self.publisher,
+            },
+            links: PaperLinks {
+                url: self.url,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
     }
 }
 
@@ -158,13 +164,13 @@ mod tests {
         assert_eq!(p.authors, vec!["John Smith", "Jane Doe"]);
         assert_eq!(p.year, Some(2023));
         assert_eq!(p.doi.as_deref(), Some("10.1234/test"));
-        assert_eq!(p.journal.as_deref(), Some("Nature"));
-        assert_eq!(p.volume.as_deref(), Some("42"));
-        assert_eq!(p.issue.as_deref(), Some("3"));
-        assert_eq!(p.pages.as_deref(), Some("100-110"));
+        assert_eq!(p.publication.journal.as_deref(), Some("Nature"));
+        assert_eq!(p.publication.volume.as_deref(), Some("42"));
+        assert_eq!(p.publication.issue.as_deref(), Some("3"));
+        assert_eq!(p.publication.pages.as_deref(), Some("100-110"));
         assert_eq!(p.abstract_text.as_deref(), Some("This is the abstract."));
-        assert_eq!(p.publisher.as_deref(), Some("Springer"));
-        assert_eq!(p.url.as_deref(), Some("https://example.com/paper"));
+        assert_eq!(p.publication.publisher.as_deref(), Some("Springer"));
+        assert_eq!(p.links.url.as_deref(), Some("https://example.com/paper"));
     }
 
     #[test]
@@ -178,7 +184,7 @@ mod tests {
     fn test_numeric_volume() {
         let input = r#"[{"title": "Test", "volume": 5, "issue": 12}]"#;
         let papers = import_csl_json(input).unwrap();
-        assert_eq!(papers[0].volume.as_deref(), Some("5"));
-        assert_eq!(papers[0].issue.as_deref(), Some("12"));
+        assert_eq!(papers[0].publication.volume.as_deref(), Some("5"));
+        assert_eq!(papers[0].publication.issue.as_deref(), Some("12"));
     }
 }

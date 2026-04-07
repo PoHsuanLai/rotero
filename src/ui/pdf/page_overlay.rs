@@ -54,7 +54,7 @@ pub(crate) fn PdfPageWithOverlay(
     drop(mgr);
 
     let selection_color = {
-        let hex = &config.read().selection_color;
+        let hex = &config.read().pdf.selection_color;
         hex_to_rgba(hex, 0.3)
     };
 

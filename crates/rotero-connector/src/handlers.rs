@@ -132,14 +132,14 @@ pub async fn scrape(
                                     title: Some(p.title.clone()),
                                     authors: p.authors.clone(),
                                     doi: p.doi.clone(),
-                                    url: p.url.clone(),
+                                    url: p.links.url.clone(),
                                     pdf_url,
-                                    journal: p.journal.clone(),
+                                    journal: p.publication.journal.clone(),
                                     year: p.year,
-                                    volume: p.volume.clone(),
-                                    issue: p.issue.clone(),
-                                    pages: p.pages.clone(),
-                                    publisher: p.publisher.clone(),
+                                    volume: p.publication.volume.clone(),
+                                    issue: p.publication.issue.clone(),
+                                    pages: p.publication.pages.clone(),
+                                    publisher: p.publication.publisher.clone(),
                                     abstract_text: p.abstract_text.clone(),
                                 }),
                                 error: None,
@@ -157,21 +157,21 @@ pub async fn scrape(
 
     // Fallback: meta-tag scraper
     match super::scrape::scrape_url(&req.url).await {
-        Ok(meta) => Json(ScrapeResponse {
+        Ok(p) => Json(ScrapeResponse {
             success: true,
             metadata: Some(ScrapeResult {
-                title: meta.title,
-                authors: meta.authors,
-                doi: meta.doi,
-                url: meta.url,
-                pdf_url: meta.pdf_url,
-                journal: meta.journal,
-                year: meta.year,
-                volume: meta.volume,
-                issue: meta.issue,
-                pages: meta.pages,
-                publisher: meta.publisher,
-                abstract_text: meta.abstract_text,
+                title: Some(p.title.clone()),
+                authors: p.authors.clone(),
+                doi: p.doi.clone(),
+                url: p.links.url.clone(),
+                pdf_url: p.links.pdf_url.clone(),
+                journal: p.publication.journal.clone(),
+                year: p.year,
+                volume: p.publication.volume.clone(),
+                issue: p.publication.issue.clone(),
+                pages: p.publication.pages.clone(),
+                publisher: p.publication.publisher.clone(),
+                abstract_text: p.abstract_text.clone(),
             }),
             error: None,
         }),
@@ -187,20 +187,25 @@ pub async fn save_paper(
     State(state): State<Arc<ConnectorState>>,
     Json(req): Json<SavePaperRequest>,
 ) -> Json<SavePaperResponse> {
-    let title = req.title.unwrap_or_else(|| "Untitled".to_string());
-    let mut paper = rotero_models::Paper::new(title);
-    paper.doi = req.doi;
-    paper.url = req.url;
-    paper.journal = req.journal;
-    paper.year = req.year;
-    paper.volume = req.volume;
-    paper.issue = req.issue;
-    paper.pages = req.pages;
-    paper.publisher = req.publisher;
-    paper.abstract_text = req.abstract_text;
-    if let Some(authors) = req.authors {
-        paper.authors = authors;
-    }
+    let paper = rotero_models::Paper {
+        title: req.title.unwrap_or_else(|| "Untitled".to_string()),
+        authors: req.authors.unwrap_or_default(),
+        year: req.year,
+        doi: req.doi,
+        abstract_text: req.abstract_text,
+        publication: rotero_models::Publication {
+            journal: req.journal,
+            volume: req.volume,
+            issue: req.issue,
+            pages: req.pages,
+            publisher: req.publisher,
+        },
+        links: rotero_models::PaperLinks {
+            url: req.url,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
 
     if let Some(ref callback) = state.on_paper_saved {
         callback(

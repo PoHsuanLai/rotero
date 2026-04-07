@@ -182,7 +182,7 @@ pub fn GraphView() -> Element {
                                 .iter()
                                 .find(|p| p.id.as_deref() == Some(event.id.as_str()))
                             {
-                                if let Some(ref pdf_path) = paper.pdf_path {
+                                if let Some(ref pdf_path) = paper.links.pdf_path {
                                     let abs_path = db
                                         .resolve_pdf_path(pdf_path)
                                         .to_string_lossy()
@@ -197,8 +197,8 @@ pub fn GraphView() -> Element {
                                             pid,
                                             abs_path,
                                             title,
-                                            cfg.default_zoom,
-                                            cfg.page_batch_size,
+                                            cfg.pdf.default_zoom,
+                                            cfg.pdf.page_batch_size,
                                             dpr_val,
                                         )
                                     });

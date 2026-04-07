@@ -2,7 +2,10 @@ use std::path::Path;
 
 use chrono::Utc;
 use rotero_models::queries;
-use rotero_models::{Annotation, AnnotationType, Collection, Note, Paper, Tag};
+use rotero_models::{
+    Annotation, AnnotationType, CitationInfo, Collection, LibraryStatus, Note, Paper, PaperLinks,
+    Publication, Tag,
+};
 use turso::{Connection, Value};
 
 #[derive(Clone)]
@@ -467,25 +470,33 @@ fn row_to_paper(row: &turso::Row) -> Paper {
         year: get_opt_i64(row, 3).map(|i| i as i32),
         doi: get_opt_text(row, 4),
         abstract_text: get_opt_text(row, 5),
-        journal: get_opt_text(row, 6),
-        volume: get_opt_text(row, 7),
-        issue: get_opt_text(row, 8),
-        pages: get_opt_text(row, 9),
-        publisher: get_opt_text(row, 10),
-        url: get_opt_text(row, 11),
-        pdf_path: get_opt_text(row, 12),
-        date_added: chrono::DateTime::parse_from_rfc3339(&date_added_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now()),
-        date_modified: chrono::DateTime::parse_from_rfc3339(&date_modified_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now()),
-        is_favorite: get_bool(row, 15),
-        is_read: get_bool(row, 16),
-        citation_count: get_opt_i64(row, 18),
-        citation_key: get_opt_text(row, 19),
-        pdf_url: get_opt_text(row, 20),
-        extra_meta: extra_meta_str.and_then(|s| serde_json::from_str(&s).ok()),
+        publication: Publication {
+            journal: get_opt_text(row, 6),
+            volume: get_opt_text(row, 7),
+            issue: get_opt_text(row, 8),
+            pages: get_opt_text(row, 9),
+            publisher: get_opt_text(row, 10),
+        },
+        links: PaperLinks {
+            url: get_opt_text(row, 11),
+            pdf_path: get_opt_text(row, 12),
+            pdf_url: get_opt_text(row, 20),
+        },
+        status: LibraryStatus {
+            date_added: chrono::DateTime::parse_from_rfc3339(&date_added_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
+            date_modified: chrono::DateTime::parse_from_rfc3339(&date_modified_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
+            is_favorite: get_bool(row, 15),
+            is_read: get_bool(row, 16),
+        },
+        citation: CitationInfo {
+            citation_count: get_opt_i64(row, 18),
+            citation_key: get_opt_text(row, 19),
+            extra_meta: extra_meta_str.and_then(|s| serde_json::from_str(&s).ok()),
+        },
     }
 }
 

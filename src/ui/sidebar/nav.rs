@@ -22,13 +22,13 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
 
     // Compute counts for smart filters
     let total = papers.len();
-    let favorites_count = papers.iter().filter(|p| p.is_favorite).count();
-    let unread_count = papers.iter().filter(|p| !p.is_read).count();
+    let favorites_count = papers.iter().filter(|p| p.status.is_favorite).count();
+    let unread_count = papers.iter().filter(|p| !p.status.is_read).count();
     let recent_count = total.min(20);
 
     // Recently opened (last 5 papers viewed — tracked by date_modified)
-    let mut recent_papers: Vec<_> = papers.iter().filter(|p| p.pdf_path.is_some()).collect();
-    recent_papers.sort_by(|a, b| b.date_modified.cmp(&a.date_modified));
+    let mut recent_papers: Vec<_> = papers.iter().filter(|p| p.links.pdf_path.is_some()).collect();
+    recent_papers.sort_by(|a, b| b.status.date_modified.cmp(&a.status.date_modified));
     let recent_opened: Vec<_> = recent_papers.into_iter().take(5).collect();
 
     // Collection context menu state: (collection_id, name, x, y)
@@ -180,8 +180,8 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                         {
                             let paper_id = paper.id.clone().unwrap_or_default();
                             let title = paper.title.clone();
-                            let pdf_rel = paper.pdf_path.clone();
-                            let recent_icon = if paper.pdf_path.is_some() { "bi bi-file-earmark-pdf" } else { "bi bi-file-earmark-text" };
+                            let pdf_rel = paper.links.pdf_path.clone();
+                            let recent_icon = if paper.links.pdf_path.is_some() { "bi bi-file-earmark-pdf" } else { "bi bi-file-earmark-text" };
                             let db_recent = db.clone();
                             let truncated = if title.len() > 35 {
                                 format!("{}...", &title[..32])
@@ -211,7 +211,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                             let full_path = db_recent.resolve_pdf_path(rel_path);
                                             let path_str = full_path.to_string_lossy().to_string();
                                             let cfg = config.read();
-                                            tabs.with_mut(|m| m.open_or_switch(pid_open.clone(), path_str, title.clone(), cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0));
+                                            tabs.with_mut(|m| m.open_or_switch(pid_open.clone(), path_str, title.clone(), cfg.pdf.default_zoom, cfg.pdf.page_batch_size, dpr_sig.read().0));
                                             lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
                                         }
                                     },

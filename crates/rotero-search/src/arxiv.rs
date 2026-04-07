@@ -1,9 +1,9 @@
-use crate::FetchedMetadata;
+use rotero_models::{Paper, PaperLinks, Publication};
 
 const ARXIV_API: &str = "https://export.arxiv.org/api/query";
 
 /// Search arXiv by query and return up to `limit` results.
-pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<FetchedMetadata>, String> {
+pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, String> {
     let url = format!(
         "{ARXIV_API}?search_query=all:{}&start=0&max_results={limit}",
         urlencoding::encode(query)
@@ -28,7 +28,7 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<FetchedMetad
     parse_arxiv_entries(&body)
 }
 
-fn parse_arxiv_entries(xml: &str) -> Result<Vec<FetchedMetadata>, String> {
+fn parse_arxiv_entries(xml: &str) -> Result<Vec<Paper>, String> {
     let mut results = Vec::new();
     let mut search_from = 0;
 
@@ -47,8 +47,8 @@ fn parse_arxiv_entries(xml: &str) -> Result<Vec<FetchedMetadata>, String> {
         // Remove version suffix (e.g. "1802.06070v2" -> "1802.06070")
         let arxiv_id = arxiv_id.split('v').next().unwrap_or(&arxiv_id);
 
-        if let Ok(meta) = parse_arxiv_atom(entry, arxiv_id) {
-            results.push(meta);
+        if let Ok(paper) = parse_arxiv_atom(entry, arxiv_id) {
+            results.push(paper);
         }
 
         search_from = abs_end;
@@ -58,7 +58,7 @@ fn parse_arxiv_entries(xml: &str) -> Result<Vec<FetchedMetadata>, String> {
 }
 
 /// Fetch metadata from the arXiv API using an arXiv ID (e.g. "1802.06070").
-pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<FetchedMetadata, String> {
+pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<Paper, String> {
     let url = format!("{ARXIV_API}?id_list={arxiv_id}");
 
     let client = crate::shared_client();
@@ -79,7 +79,7 @@ pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<FetchedMetadata, String
     parse_arxiv_atom(&body, arxiv_id)
 }
 
-fn parse_arxiv_atom(xml: &str, arxiv_id: &str) -> Result<FetchedMetadata, String> {
+fn parse_arxiv_atom(xml: &str, arxiv_id: &str) -> Result<Paper, String> {
     let entry_start = xml.find("<entry>").ok_or("No entry in arXiv response")?;
     let entry_end = xml.find("</entry>").ok_or("Malformed arXiv response")?;
     let entry = &xml[entry_start..entry_end];
@@ -105,19 +105,21 @@ fn parse_arxiv_atom(xml: &str, arxiv_id: &str) -> Result<FetchedMetadata, String
 
     let year = extract_tag(entry, "published").and_then(|s| s.get(..4)?.parse::<i32>().ok());
 
-    Ok(FetchedMetadata {
+    Ok(Paper {
         title,
         authors,
         year,
-        journal: Some("arXiv".to_string()),
-        volume: None,
-        issue: None,
-        pages: None,
-        publisher: None,
+        doi: Some(format!("arXiv:{arxiv_id}")),
         abstract_text,
-        url: Some(format!("https://arxiv.org/abs/{arxiv_id}")),
-        doi: format!("arXiv:{arxiv_id}"),
-        citation_count: None,
+        publication: Publication {
+            journal: Some("arXiv".to_string()),
+            ..Default::default()
+        },
+        links: PaperLinks {
+            url: Some(format!("https://arxiv.org/abs/{arxiv_id}")),
+            ..Default::default()
+        },
+        ..Default::default()
     })
 }
 

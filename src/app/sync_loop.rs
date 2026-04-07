@@ -20,7 +20,7 @@ pub fn SyncLoop() -> Element {
                 tokio::time::sleep(std::time::Duration::from_secs(30)).await;
 
                 let cfg = config.read().clone();
-                if !cfg.sync_enabled {
+                if !cfg.sync.sync_enabled {
                     continue;
                 }
 
@@ -30,9 +30,9 @@ pub fn SyncLoop() -> Element {
                     Err(_) => continue,
                 };
 
-                let applied = match cfg.sync_transport {
+                let applied = match cfg.sync.sync_transport {
                     crate::sync::engine::SyncTransport::File => {
-                        let Some(ref folder) = cfg.sync_folder_path else {
+                        let Some(ref folder) = cfg.sync.sync_folder_path else {
                             continue;
                         };
                         let engine = crate::sync::file_sync::FileSyncEngine::new(
@@ -53,7 +53,7 @@ pub fn SyncLoop() -> Element {
                         let papers_dir = db.papers_dir();
                         let papers = lib_state.read().papers.clone();
                         for paper in &papers {
-                            if let Some(ref path) = paper.pdf_path {
+                            if let Some(ref path) = paper.links.pdf_path {
                                 let _ = engine.export_pdf(&papers_dir, path);
                                 let _ = engine.import_pdf(&papers_dir, path);
                             }

@@ -37,7 +37,7 @@ fn agent_main(
     let config = crate::sync::engine::SyncConfig::load();
     let mut current_provider = AGENT_PROVIDERS
         .iter()
-        .find(|p| p.id == config.agent_provider)
+        .find(|p| p.id == config.agent.agent_provider)
         .unwrap_or(&AGENT_PROVIDERS[0]);
 
     loop {

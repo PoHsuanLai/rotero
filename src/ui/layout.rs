@@ -22,8 +22,8 @@ pub fn Layout() -> Element {
     let view = lib_state.read().view.clone();
     let chat_open = chat_state.read().panel_open;
 
-    let dark = config.read().dark_mode;
-    let scale = config.read().ui_scale.clone();
+    let dark = config.read().ui.dark_mode;
+    let scale = config.read().ui.ui_scale.clone();
     let has_tabs = tab_mgr.read().active_tab_id.is_some();
 
     let container_class = if dark {

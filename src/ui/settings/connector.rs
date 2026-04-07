@@ -5,8 +5,8 @@ use crate::sync::engine::SyncConfig;
 #[component]
 pub fn ConnectorSection() -> Element {
     let mut config = use_context::<Signal<SyncConfig>>();
-    let enabled = config.read().connector_enabled;
-    let port = config.read().connector_port;
+    let enabled = config.read().connector.connector_enabled;
+    let port = config.read().connector.connector_port;
 
     rsx! {
         div { class: "settings-section",
@@ -22,7 +22,7 @@ pub fn ConnectorSection() -> Element {
                             checked: enabled,
                             onchange: move |evt| {
                                 let checked = evt.checked();
-                                config.with_mut(|c| c.connector_enabled = checked);
+                                config.with_mut(|c| c.connector.connector_enabled = checked);
                                 let _ = config.read().save();
                             },
                         }
@@ -46,7 +46,7 @@ pub fn ConnectorSection() -> Element {
                             max: "65535",
                             onchange: move |evt| {
                                 if let Ok(p) = evt.value().parse::<u16>() {
-                                    config.with_mut(|c| c.connector_port = p);
+                                    config.with_mut(|c| c.connector.connector_port = p);
                                     let _ = config.read().save();
                                 }
                             },

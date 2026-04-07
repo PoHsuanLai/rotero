@@ -97,8 +97,8 @@ pub(crate) fn ExternalResults(results: Vec<rotero_models::Paper>, searching: boo
                             format!("{} et al.", paper.authors[0])
                         };
                         let year = paper.year.map(|y| y.to_string()).unwrap_or_default();
-                        let journal = paper.journal.clone().unwrap_or_default();
-                        let citation_count = paper.citation_count;
+                        let journal = paper.publication.journal.clone().unwrap_or_default();
+                        let citation_count = paper.citation.citation_count;
                         let doi = paper.doi.clone().unwrap_or_default();
                         let abstract_text = paper.abstract_text.clone().unwrap_or_default();
                         let has_abstract = !abstract_text.is_empty();
@@ -190,11 +190,11 @@ async fn enrich_before_import(paper: rotero_models::Paper) -> rotero_models::Pap
 
     let doi = paper.doi.as_deref().unwrap_or_default();
     // Try OpenAlex full endpoint first (fastest), then CrossRef
-    if let Ok(meta) = crate::metadata::openalex::fetch_by_doi(doi).await {
-        return crate::metadata::parser::metadata_to_paper(meta);
+    if let Ok(enriched) = crate::metadata::openalex::fetch_by_doi(doi).await {
+        return enriched;
     }
-    if let Ok(meta) = crate::metadata::crossref::fetch_by_doi(doi).await {
-        return crate::metadata::parser::metadata_to_paper(meta);
+    if let Ok(enriched) = crate::metadata::crossref::fetch_by_doi(doi).await {
+        return enriched;
     }
     paper
 }

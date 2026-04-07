@@ -38,7 +38,7 @@ pub fn ImportSection() -> Element {
                 span { class: "settings-field-label", "Auto-export .bib file" }
                 div { class: "settings-field-control",
                     {
-                        let bib_path = config.read().auto_export_bib_path.clone();
+                        let bib_path = config.read().sync.auto_export_bib_path.clone();
                         let has_path = bib_path.is_some();
                         let display_path = bib_path.unwrap_or_default();
                         rsx! {
@@ -47,7 +47,7 @@ pub fn ImportSection() -> Element {
                                 button {
                                     class: "btn btn--sm btn--ghost",
                                     onclick: move |_| {
-                                        config.with_mut(|c| c.auto_export_bib_path = None);
+                                        config.with_mut(|c| c.sync.auto_export_bib_path = None);
                                         let _ = config.read().save();
                                     },
                                     "Clear"
@@ -66,7 +66,7 @@ pub fn ImportSection() -> Element {
                                                 .await
                                             {
                                                 let path = file.path().to_string_lossy().to_string();
-                                                config.with_mut(|c| c.auto_export_bib_path = Some(path));
+                                                config.with_mut(|c| c.sync.auto_export_bib_path = Some(path));
                                                 let _ = config.read().save();
                                             }
                                         });

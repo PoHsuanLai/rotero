@@ -1,11 +1,12 @@
 pub mod arxiv;
 pub mod crossref;
 pub mod openalex;
-pub mod parser;
 pub mod semantic_scholar;
 pub mod unpaywall;
 
 use std::sync::OnceLock;
+
+use rotero_models::Paper;
 
 /// Shared HTTP client — reuses connections and TLS sessions across all API calls.
 static SHARED_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
@@ -17,22 +18,6 @@ pub fn shared_client() -> &'static reqwest::Client {
             .build()
             .expect("Failed to build HTTP client")
     })
-}
-
-/// Metadata fetched from an external API.
-pub struct FetchedMetadata {
-    pub title: String,
-    pub authors: Vec<String>,
-    pub year: Option<i32>,
-    pub journal: Option<String>,
-    pub volume: Option<String>,
-    pub issue: Option<String>,
-    pub pages: Option<String>,
-    pub publisher: Option<String>,
-    pub abstract_text: Option<String>,
-    pub url: Option<String>,
-    pub doi: String,
-    pub citation_count: Option<i64>,
 }
 
 /// Search provider enum — replaces trait with direct async dispatch.
@@ -53,7 +38,7 @@ impl SearchProvider {
     }
 
     /// Fast search for live type-ahead. OpenAlex uses autocomplete endpoint.
-    pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<FetchedMetadata>, String> {
+    pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<Paper>, String> {
         match self {
             Self::OpenAlex => openalex::autocomplete(query).await,
             Self::ArXiv => arxiv::search_papers(query, limit).await,
@@ -67,7 +52,7 @@ impl SearchProvider {
         &self,
         query: &str,
         limit: usize,
-    ) -> Result<Vec<FetchedMetadata>, String> {
+    ) -> Result<Vec<Paper>, String> {
         match self {
             Self::OpenAlex => openalex::search_papers(query, limit).await,
             Self::ArXiv => arxiv::search_papers(query, limit).await,
@@ -76,7 +61,7 @@ impl SearchProvider {
     }
 
     /// Fetch full metadata by DOI.
-    pub async fn fetch_by_doi(&self, doi: &str) -> Result<FetchedMetadata, String> {
+    pub async fn fetch_by_doi(&self, doi: &str) -> Result<Paper, String> {
         match self {
             Self::OpenAlex => openalex::fetch_by_doi(doi).await,
             Self::ArXiv => {

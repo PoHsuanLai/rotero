@@ -19,8 +19,8 @@ pub(crate) fn start_connector(
 ) {
     let (connector_tx, connector_rx) = tokio::sync::watch::channel(());
 
-    if config.connector_enabled {
-        let port = config.connector_port;
+    if config.connector.connector_enabled {
+        let port = config.connector.connector_port;
         let lib_path = config.effective_library_path();
         let connector_tx = connector_tx.clone();
         std::thread::spawn(move || {
@@ -52,7 +52,7 @@ pub(crate) fn start_connector(
                                 tokio::runtime::Handle::current().block_on(async {
                                     let mut paper = paper;
                                     if let Some(ref url) = pdf_url {
-                                        paper.pdf_url = Some(url.clone());
+                                        paper.links.pdf_url = Some(url.clone());
                                     }
                                     match rotero_db::papers::insert_paper(&conn, &paper).await {
                                         Ok(paper_id) => {

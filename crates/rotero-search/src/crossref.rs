@@ -1,6 +1,5 @@
+use rotero_models::{Paper, PaperLinks, Publication};
 use serde::Deserialize;
-
-use crate::FetchedMetadata;
 
 const CROSSREF_API: &str = "https://api.crossref.org/works";
 
@@ -43,7 +42,7 @@ struct CrossRefDate {
     date_parts: Option<Vec<Vec<Option<i32>>>>,
 }
 
-pub async fn fetch_by_doi(doi: &str) -> Result<FetchedMetadata, String> {
+pub async fn fetch_by_doi(doi: &str) -> Result<Paper, String> {
     let url = format!("{CROSSREF_API}/{doi}");
 
     let client = crate::shared_client();
@@ -94,19 +93,24 @@ pub async fn fetch_by_doi(doi: &str) -> Result<FetchedMetadata, String> {
     // Strip HTML tags from abstract (CrossRef often returns JATS XML fragments)
     let abstract_text = work.abstract_text.map(|s| strip_html_tags(&s));
 
-    Ok(FetchedMetadata {
+    Ok(Paper {
         title,
         authors,
         year,
-        journal,
-        volume: work.volume,
-        issue: work.issue,
-        pages: work.page,
-        publisher: work.publisher,
+        doi: Some(work.doi.unwrap_or_else(|| doi.to_string())),
         abstract_text,
-        url: work.url,
-        doi: work.doi.unwrap_or_else(|| doi.to_string()),
-        citation_count: None,
+        publication: Publication {
+            journal,
+            volume: work.volume,
+            issue: work.issue,
+            pages: work.page,
+            publisher: work.publisher,
+        },
+        links: PaperLinks {
+            url: work.url,
+            ..Default::default()
+        },
+        ..Default::default()
     })
 }
 

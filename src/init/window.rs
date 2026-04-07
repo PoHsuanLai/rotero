@@ -152,7 +152,7 @@ pub(crate) fn launch_desktop(config: &crate::sync::engine::SyncConfig) {
                 .with_disable_context_menu(true)
                 .with_window(window)
                 .with_menu(menu)
-                .with_background_color(if config.dark_mode {
+                .with_background_color(if config.ui.dark_mode {
                     (15, 23, 42, 255) // slate-900 for dark mode
                 } else {
                     (255, 255, 255, 255) // white for light mode

@@ -1,5 +1,5 @@
 use biblib::{CitationParser, RisParser};
-use rotero_models::Paper;
+use rotero_models::{Paper, PaperLinks, Publication};
 
 /// Parse an RIS format string into a list of Papers using biblib.
 pub fn import_ris(input: &str) -> Result<Vec<Paper>, String> {
@@ -28,19 +28,25 @@ pub fn import_ris(input: &str) -> Result<Vec<Paper>, String> {
 
             let url = c.urls.into_iter().next();
 
-            let mut paper = Paper::new(c.title);
-            paper.authors = authors;
-            paper.year = year;
-            paper.doi = c.doi;
-            paper.abstract_text = c.abstract_text;
-            paper.journal = c.journal;
-            paper.volume = c.volume;
-            paper.issue = c.issue;
-            paper.pages = c.pages;
-            paper.publisher = c.publisher;
-            paper.url = url;
-
-            Some(paper)
+            Some(Paper {
+                title: c.title,
+                authors,
+                year,
+                doi: c.doi,
+                abstract_text: c.abstract_text,
+                publication: Publication {
+                    journal: c.journal,
+                    volume: c.volume,
+                    issue: c.issue,
+                    pages: c.pages,
+                    publisher: c.publisher,
+                },
+                links: PaperLinks {
+                    url,
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
         })
         .collect();
 
@@ -79,12 +85,12 @@ ER  -
         assert_eq!(p.title, "A test paper");
         assert_eq!(p.year, Some(2023));
         assert_eq!(p.doi.as_deref(), Some("10.1234/test"));
-        assert_eq!(p.journal.as_deref(), Some("Nature"));
-        assert_eq!(p.volume.as_deref(), Some("42"));
-        assert_eq!(p.issue.as_deref(), Some("3"));
+        assert_eq!(p.publication.journal.as_deref(), Some("Nature"));
+        assert_eq!(p.publication.volume.as_deref(), Some("42"));
+        assert_eq!(p.publication.issue.as_deref(), Some("3"));
         assert_eq!(p.abstract_text.as_deref(), Some("This is the abstract."));
-        assert_eq!(p.publisher.as_deref(), Some("Springer"));
-        assert_eq!(p.url.as_deref(), Some("https://example.com/paper"));
+        assert_eq!(p.publication.publisher.as_deref(), Some("Springer"));
+        assert_eq!(p.links.url.as_deref(), Some("https://example.com/paper"));
     }
 
     #[test]

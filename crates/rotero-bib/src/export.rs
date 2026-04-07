@@ -8,7 +8,7 @@ pub fn export_bibtex(papers: &[Paper]) -> String {
     let mut output = String::new();
 
     for paper in papers {
-        let key = match paper.citation_key.as_deref() {
+        let key = match paper.citation.citation_key.as_deref() {
             Some(k) if !k.is_empty() => k.to_string(),
             _ => generate_cite_key(paper),
         };
@@ -25,19 +25,19 @@ pub fn export_bibtex(papers: &[Paper]) -> String {
             let _ = writeln!(output, "  year = {{{year}}},");
         }
 
-        if let Some(ref journal) = paper.journal {
+        if let Some(ref journal) = paper.publication.journal {
             let _ = writeln!(output, "  journal = {{{{{journal}}}}},");
         }
 
-        if let Some(ref volume) = paper.volume {
+        if let Some(ref volume) = paper.publication.volume {
             let _ = writeln!(output, "  volume = {{{volume}}},");
         }
 
-        if let Some(ref issue) = paper.issue {
+        if let Some(ref issue) = paper.publication.issue {
             let _ = writeln!(output, "  number = {{{issue}}},");
         }
 
-        if let Some(ref pages) = paper.pages {
+        if let Some(ref pages) = paper.publication.pages {
             let _ = writeln!(output, "  pages = {{{pages}}},");
         }
 
@@ -45,11 +45,11 @@ pub fn export_bibtex(papers: &[Paper]) -> String {
             let _ = writeln!(output, "  doi = {{{doi}}},");
         }
 
-        if let Some(ref url) = paper.url {
+        if let Some(ref url) = paper.links.url {
             let _ = writeln!(output, "  url = {{{url}}},");
         }
 
-        if let Some(ref publisher) = paper.publisher {
+        if let Some(ref publisher) = paper.publication.publisher {
             let _ = writeln!(output, "  publisher = {{{{{publisher}}}}},");
         }
 

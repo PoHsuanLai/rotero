@@ -26,7 +26,7 @@ impl RawAcpConnection {
         }
         // Pass any stored API keys as env vars
         let config = crate::sync::engine::SyncConfig::load();
-        for (key, val) in &config.agent_api_keys {
+        for (key, val) in &config.agent.agent_api_keys {
             if !val.is_empty() {
                 cmd.env(key, val);
             }

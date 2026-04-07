@@ -1,6 +1,5 @@
+use rotero_models::{CitationInfo, Paper, Publication};
 use serde::Deserialize;
-
-use crate::FetchedMetadata;
 
 const S2_API: &str = "https://api.semanticscholar.org/graph/v1/paper";
 const S2_FIELDS: &str =
@@ -47,7 +46,7 @@ struct S2SearchResponse {
 }
 
 /// Search Semantic Scholar and return up to `limit` results.
-pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<FetchedMetadata>, String> {
+pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, String> {
     let url = format!(
         "https://api.semanticscholar.org/graph/v1/paper/search?query={}&limit={limit}&fields={S2_FIELDS}",
         urlencoding::encode(query)
@@ -80,22 +79,22 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<FetchedMetad
             .as_ref()
             .and_then(|e| e.doi.clone())
             .unwrap_or_default();
-        if let Ok(meta) = paper_to_metadata(paper, &doi) {
-            results.push(meta);
+        if let Ok(p) = s2_to_paper(paper, &doi) {
+            results.push(p);
         }
     }
     Ok(results)
 }
 
 /// Fetch metadata from Semantic Scholar by DOI.
-pub async fn fetch_by_doi(doi: &str) -> Result<FetchedMetadata, String> {
+pub async fn fetch_by_doi(doi: &str) -> Result<Paper, String> {
     let url = format!("{S2_API}/DOI:{doi}?fields={S2_FIELDS}");
     let paper = fetch_paper(&url).await?;
-    paper_to_metadata(paper, doi)
+    s2_to_paper(paper, doi)
 }
 
 /// Fetch metadata from Semantic Scholar by arXiv ID.
-pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<FetchedMetadata, String> {
+pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<Paper, String> {
     let url = format!("{S2_API}/ARXIV:{arxiv_id}?fields={S2_FIELDS}");
     let paper = fetch_paper(&url).await?;
     let doi = paper
@@ -103,7 +102,7 @@ pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<FetchedMetadata, String
         .as_ref()
         .and_then(|e| e.doi.clone())
         .unwrap_or_default();
-    paper_to_metadata(paper, &doi)
+    s2_to_paper(paper, &doi)
 }
 
 async fn fetch_paper(url: &str) -> Result<S2Paper, String> {
@@ -127,7 +126,7 @@ async fn fetch_paper(url: &str) -> Result<S2Paper, String> {
         .map_err(|e| format!("Failed to parse Semantic Scholar response: {e}"))
 }
 
-fn paper_to_metadata(paper: S2Paper, doi: &str) -> Result<FetchedMetadata, String> {
+fn s2_to_paper(paper: S2Paper, doi: &str) -> Result<Paper, String> {
     let title = paper.title.unwrap_or_default();
     if title.is_empty() {
         return Err("Empty title from Semantic Scholar".to_string());
@@ -145,18 +144,20 @@ fn paper_to_metadata(paper: S2Paper, doi: &str) -> Result<FetchedMetadata, Strin
         .and_then(|v| v.name)
         .or(paper.venue.filter(|v| !v.is_empty()));
 
-    Ok(FetchedMetadata {
+    Ok(Paper {
         title,
         authors,
         year: paper.year,
-        journal,
-        volume: None,
-        issue: None,
-        pages: None,
-        publisher: None,
+        doi: if doi.is_empty() { None } else { Some(doi.to_string()) },
         abstract_text: paper.abstract_text,
-        url: None,
-        doi: doi.to_string(),
-        citation_count: paper.citation_count,
+        publication: Publication {
+            journal,
+            ..Default::default()
+        },
+        citation: CitationInfo {
+            citation_count: paper.citation_count,
+            ..Default::default()
+        },
+        ..Default::default()
     })
 }

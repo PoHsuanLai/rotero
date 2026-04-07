@@ -43,9 +43,8 @@ pub async fn extract_and_fetch_metadata(
         && auto_fetch
     {
         match crate::metadata::crossref::fetch_by_doi(doi_str).await {
-            Ok(meta) => {
-                tracing::info!(title = %meta.title, authors = ?meta.authors, "extract_and_fetch_metadata: CrossRef success");
-                let fetched = crate::metadata::parser::metadata_to_paper(meta);
+            Ok(fetched) => {
+                tracing::info!(title = %fetched.title, authors = ?fetched.authors, "extract_and_fetch_metadata: CrossRef success");
                 if apply_fetched_metadata(conn, paper_id, &fetched, lib_state).await {
                     return;
                 }
@@ -59,9 +58,8 @@ pub async fn extract_and_fetch_metadata(
         && auto_fetch
     {
         match crate::metadata::arxiv::fetch_by_arxiv_id(arxiv).await {
-            Ok(meta) => {
-                tracing::info!(title = %meta.title, authors = ?meta.authors, "extract_and_fetch_metadata: arXiv success");
-                let fetched = crate::metadata::parser::metadata_to_paper(meta);
+            Ok(fetched) => {
+                tracing::info!(title = %fetched.title, authors = ?fetched.authors, "extract_and_fetch_metadata: arXiv success");
                 if apply_fetched_metadata(conn, paper_id, &fetched, lib_state).await {
                     return;
                 }
@@ -137,18 +135,14 @@ async fn apply_fetched_metadata(
             p.year = fetched.year;
             p.doi = fetched.doi.clone();
             p.abstract_text = fetched.abstract_text.clone();
-            p.journal = fetched.journal.clone();
-            p.volume = fetched.volume.clone();
-            p.issue = fetched.issue.clone();
-            p.pages = fetched.pages.clone();
-            p.publisher = fetched.publisher.clone();
-            p.url = fetched.url.clone();
-            if fetched.citation_count.is_some() {
-                p.citation_count = fetched.citation_count;
+            p.publication = fetched.publication.clone();
+            p.links.url = fetched.links.url.clone();
+            if fetched.citation.citation_count.is_some() {
+                p.citation.citation_count = fetched.citation.citation_count;
             }
         }
     });
-    if let Some(count) = fetched.citation_count {
+    if let Some(count) = fetched.citation.citation_count {
         let _ = rotero_db::papers::update_citation_count(conn, paper_id, count).await;
     }
     true

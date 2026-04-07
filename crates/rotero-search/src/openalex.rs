@@ -1,6 +1,5 @@
+use rotero_models::{CitationInfo, Paper, Publication};
 use serde::Deserialize;
-
-use crate::FetchedMetadata;
 
 const OPENALEX_API: &str = "https://api.openalex.org/works";
 const OPENALEX_AUTOCOMPLETE: &str = "https://api.openalex.org/autocomplete/works";
@@ -47,14 +46,14 @@ struct OpenAlexSearchResponse {
 }
 
 /// Fetch metadata from OpenAlex by DOI.
-pub async fn fetch_by_doi(doi: &str) -> Result<FetchedMetadata, String> {
+pub async fn fetch_by_doi(doi: &str) -> Result<Paper, String> {
     let url = format!("{OPENALEX_API}/https://doi.org/{doi}");
     let work = fetch_work(&url).await?;
-    work_to_metadata(work, doi)
+    work_to_paper(work, doi)
 }
 
 /// Search OpenAlex by title and return the best match.
-pub async fn search_by_title(title: &str) -> Result<FetchedMetadata, String> {
+pub async fn search_by_title(title: &str) -> Result<Paper, String> {
     let results = search_papers(title, 1).await?;
     results
         .into_iter()
@@ -63,7 +62,7 @@ pub async fn search_by_title(title: &str) -> Result<FetchedMetadata, String> {
 }
 
 /// Search OpenAlex and return up to `limit` results.
-pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<FetchedMetadata>, String> {
+pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, String> {
     let url = format!(
         "{OPENALEX_API}?search={}&per_page={limit}",
         urlencoding::encode(query)
@@ -93,8 +92,8 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<FetchedMetad
             .as_deref()
             .unwrap_or("")
             .replace("https://doi.org/", "");
-        if let Ok(meta) = work_to_metadata(work, &doi) {
-            results.push(meta);
+        if let Ok(paper) = work_to_paper(work, &doi) {
+            results.push(paper);
         }
     }
     Ok(results)
@@ -102,7 +101,7 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<FetchedMetad
 
 /// Fast autocomplete search — returns lightweight results (~50-100ms).
 /// Use this for live type-ahead, then fetch full details on import.
-pub async fn autocomplete(query: &str) -> Result<Vec<FetchedMetadata>, String> {
+pub async fn autocomplete(query: &str) -> Result<Vec<Paper>, String> {
     let url = format!("{OPENALEX_AUTOCOMPLETE}?q={}", urlencoding::encode(query));
 
     let client = crate::shared_client();
@@ -135,19 +134,18 @@ pub async fn autocomplete(query: &str) -> Result<Vec<FetchedMetadata>, String> {
             .as_deref()
             .unwrap_or("")
             .replace("https://doi.org/", "");
-        results.push(FetchedMetadata {
+        results.push(Paper {
             title,
-            authors: Vec::new(),
-            year: None,
-            journal: item.hint.clone(),
-            volume: None,
-            issue: None,
-            pages: None,
-            publisher: None,
-            abstract_text: None,
-            url: None,
-            doi,
-            citation_count: item.cited_by_count,
+            doi: if doi.is_empty() { None } else { Some(doi) },
+            publication: Publication {
+                journal: item.hint.clone(),
+                ..Default::default()
+            },
+            citation: CitationInfo {
+                citation_count: item.cited_by_count,
+                ..Default::default()
+            },
+            ..Default::default()
         });
     }
     Ok(results)
@@ -184,7 +182,7 @@ async fn fetch_work(url: &str) -> Result<OpenAlexWork, String> {
         .map_err(|e| format!("Failed to parse OpenAlex response: {e}"))
 }
 
-fn work_to_metadata(work: OpenAlexWork, doi: &str) -> Result<FetchedMetadata, String> {
+fn work_to_paper(work: OpenAlexWork, doi: &str) -> Result<Paper, String> {
     let title = work.title.unwrap_or_default();
     if title.is_empty() {
         return Err("Empty title from OpenAlex".to_string());
@@ -213,23 +211,22 @@ fn work_to_metadata(work: OpenAlexWork, doi: &str) -> Result<FetchedMetadata, St
         .abstract_inverted_index
         .and_then(|idx| reconstruct_abstract(&idx));
 
-    Ok(FetchedMetadata {
+    Ok(Paper {
         title,
         authors,
         year: work.publication_year,
-        journal,
-        volume: None,
-        issue: None,
-        pages: None,
-        publisher,
+        doi: if doi.is_empty() { None } else { Some(doi.to_string()) },
         abstract_text,
-        url: None,
-        doi: if doi.is_empty() {
-            String::new()
-        } else {
-            doi.to_string()
+        publication: Publication {
+            journal,
+            publisher,
+            ..Default::default()
         },
-        citation_count: work.cited_by_count,
+        citation: CitationInfo {
+            citation_count: work.cited_by_count,
+            ..Default::default()
+        },
+        ..Default::default()
     })
 }
 

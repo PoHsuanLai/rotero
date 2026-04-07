@@ -32,8 +32,14 @@ pub(crate) fn AddPaperButtons() -> Element {
 
                             match db.import_pdf(&path_str, Some(&filename), None, None) {
                                 Ok(rel_path) => {
-                                    let mut paper = rotero_models::Paper::new(filename);
-                                    paper.pdf_path = Some(rel_path.clone());
+                                    let mut paper = rotero_models::Paper {
+                                        title: filename,
+                                        links: rotero_models::PaperLinks {
+                                            pdf_path: Some(rel_path.clone()),
+                                            ..Default::default()
+                                        },
+                                        ..Default::default()
+                                    };
                                     let full_path = db.resolve_pdf_path(&rel_path).to_string_lossy().to_string();
                                     let auto_fetch = config.read().auto_fetch_metadata;
                                     let meta_render_tx = render_ch.sender();
@@ -104,8 +110,7 @@ pub(crate) fn AddPaperDOIInput() -> Element {
 
                         spawn(async move {
                             match crate::metadata::crossref::fetch_by_doi(&doi).await {
-                                Ok(meta) => {
-                                    let paper = crate::metadata::parser::metadata_to_paper(meta);
+                                Ok(paper) => {
                                     match rotero_db::papers::insert_paper(db.conn(), &paper).await {
                                         Ok(id) => {
                                             let mut paper = paper;

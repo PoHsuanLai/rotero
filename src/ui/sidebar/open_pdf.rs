@@ -30,7 +30,7 @@ pub(crate) fn OpenPdfButton() -> Element {
                                 .file_stem()
                                 .map(|s| s.to_string_lossy().to_string())
                                 .unwrap_or_else(|| "Untitled".to_string());
-                            let tab = PdfTab::new(id, path_str.clone(), title, cfg.default_zoom, cfg.page_batch_size, dpr_sig.read().0);
+                            let tab = PdfTab::new(id, path_str.clone(), title, cfg.pdf.default_zoom, cfg.pdf.page_batch_size, dpr_sig.read().0);
                             m.open_tab(tab);
                         }
                     });

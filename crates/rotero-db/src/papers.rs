@@ -1,5 +1,5 @@
 use chrono::Utc;
-use rotero_models::Paper;
+use rotero_models::{CitationInfo, LibraryStatus, Paper, PaperLinks, Publication};
 use turso::{Connection, Value};
 
 use crate::crr;
@@ -9,6 +9,7 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, tu
     let uuid = uuid::Uuid::now_v7().to_string();
     let authors_json = serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
     let extra_meta = paper
+        .citation
         .extra_meta
         .as_ref()
         .map(|v| serde_json::to_string(v).unwrap_or_default());
@@ -34,55 +35,65 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, tu
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
             paper
+                .publication
                 .journal
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
             paper
+                .publication
                 .volume
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
             paper
+                .publication
                 .issue
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
             paper
+                .publication
                 .pages
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
             paper
+                .publication
                 .publisher
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
             paper
+                .links
                 .url
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
             paper
+                .links
                 .pdf_path
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
-            Value::Text(paper.date_added.to_rfc3339()),
-            Value::Text(paper.date_modified.to_rfc3339()),
-            Value::Integer(paper.is_favorite as i64),
-            Value::Integer(paper.is_read as i64),
+            Value::Text(paper.status.date_added.to_rfc3339()),
+            Value::Text(paper.status.date_modified.to_rfc3339()),
+            Value::Integer(paper.status.is_favorite as i64),
+            Value::Integer(paper.status.is_read as i64),
             extra_meta.map(Value::Text).unwrap_or(Value::Null),
             paper
+                .citation
                 .citation_count
                 .map(Value::Integer)
                 .unwrap_or(Value::Null),
             paper
+                .citation
                 .citation_key
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
             paper
+                .links
                 .pdf_url
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
@@ -253,31 +264,37 @@ pub async fn update_paper_metadata(
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
             paper
+                .publication
                 .journal
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
             paper
+                .publication
                 .volume
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
             paper
+                .publication
                 .issue
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
             paper
+                .publication
                 .pages
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
             paper
+                .publication
                 .publisher
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
                 .unwrap_or(Value::Null),
             paper
+                .links
                 .url
                 .as_ref()
                 .map(|s| Value::Text(s.clone()))
@@ -375,25 +392,33 @@ fn row_to_paper(row: &turso::Row) -> Paper {
         year: get_opt_i64(row, 3).map(|i| i as i32),
         doi: get_opt_text(row, 4),
         abstract_text: get_opt_text(row, 5),
-        journal: get_opt_text(row, 6),
-        volume: get_opt_text(row, 7),
-        issue: get_opt_text(row, 8),
-        pages: get_opt_text(row, 9),
-        publisher: get_opt_text(row, 10),
-        url: get_opt_text(row, 11),
-        pdf_path: get_opt_text(row, 12),
-        date_added: chrono::DateTime::parse_from_rfc3339(&date_added_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now()),
-        date_modified: chrono::DateTime::parse_from_rfc3339(&date_modified_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now()),
-        is_favorite: get_bool(row, 15),
-        is_read: get_bool(row, 16),
-        citation_count: get_opt_i64(row, 18),
-        citation_key: get_opt_text(row, 19),
-        pdf_url: get_opt_text(row, 20),
-        extra_meta: extra_meta_str.and_then(|s| serde_json::from_str(&s).ok()),
+        publication: Publication {
+            journal: get_opt_text(row, 6),
+            volume: get_opt_text(row, 7),
+            issue: get_opt_text(row, 8),
+            pages: get_opt_text(row, 9),
+            publisher: get_opt_text(row, 10),
+        },
+        links: PaperLinks {
+            url: get_opt_text(row, 11),
+            pdf_path: get_opt_text(row, 12),
+            pdf_url: get_opt_text(row, 20),
+        },
+        status: LibraryStatus {
+            date_added: chrono::DateTime::parse_from_rfc3339(&date_added_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
+            date_modified: chrono::DateTime::parse_from_rfc3339(&date_modified_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
+            is_favorite: get_bool(row, 15),
+            is_read: get_bool(row, 16),
+        },
+        citation: CitationInfo {
+            citation_count: get_opt_i64(row, 18),
+            citation_key: get_opt_text(row, 19),
+            extra_meta: extra_meta_str.and_then(|s| serde_json::from_str(&s).ok()),
+        },
     }
 }
 
