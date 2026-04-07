@@ -7,7 +7,7 @@ use super::search_bar::PdfSearchBar;
 use super::toolbar::PdfToolbar;
 use super::AnnCtxState;
 use crate::app::RenderChannel;
-use crate::state::app_state::{PdfTabManager, TabId, ViewerToolState};
+use crate::state::app_state::{PdfTabManager, ViewerToolState};
 use rotero_db::Database;
 
 #[component]
@@ -17,7 +17,6 @@ pub fn PdfViewer() -> Element {
     let render_ch = use_context::<RenderChannel>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let db = use_context::<Database>();
-    let mut is_loading = use_signal(|| false);
     use_context_provider::<AnnCtxState>(|| Signal::new(None));
 
     let mgr = tabs.read();
@@ -172,7 +171,6 @@ pub fn PdfViewer() -> Element {
     let render_zoom = tab.view.render_zoom;
     let rendered_count = tab.rendered_count();
     let has_more = rendered_count < page_count;
-    let batch_size = tab.view.page_batch_size;
     let show_thumbnails = tab.nav.show_thumbnails;
     let show_outline = tab.nav.show_outline && !tab.nav.outline.is_empty();
     let show_search = tab.search.visible;
@@ -347,39 +345,8 @@ pub fn PdfViewer() -> Element {
                             "#);
                         });
                     },
-                    onscroll: move |_| {
-                        if is_loading() { return; }
-                        let (start, has_more_now, tid) = {
-                            let mgr = tabs.read();
-                            if let Some(t) = mgr.active_tab() {
-                                let rendered = t.rendered_count();
-                                (rendered, rendered < t.page_count, t.id)
-                            } else { return; }
-                        };
-                        if !has_more_now { return; }
-
-                        is_loading.set(true);
-                        spawn(async move {
-                            let mut eval = document::eval(
-                                "(function() { let el = document.getElementById('pdf-pages-container'); \
-                                 if (!el) return 0.0; \
-                                 return (el.scrollHeight - el.scrollTop - el.clientHeight) / el.clientHeight; })()"
-                            );
-                            let remaining_viewports = eval.recv::<f64>().await.unwrap_or(0.0);
-                            if remaining_viewports > 2.0 {
-                                is_loading.set(false);
-                                return;
-                            }
-
-                            let render_tx = render_ch.sender();
-                            let count = batch_size;
-                            let data_dir = config.read().effective_library_path();
-                            let _ = crate::state::commands::render_more_pages(
-                                &render_tx, &mut tabs, tid, start, count, &data_dir,
-                            ).await;
-                            is_loading.set(false);
-                        });
-                    },
+                    // Pages are eagerly loaded in the background by open_pdf —
+                    // no scroll-triggered lazy loading needed.
 
                     {
                         let mgr = tabs.read();
@@ -405,7 +372,7 @@ pub fn PdfViewer() -> Element {
 
                     if has_more {
                         div { class: "pdf-load-more",
-                            if is_loading() { "Loading pages..." } else { "Scroll to load more pages..." }
+                            "Loading pages..."
                         }
                     }
                 }

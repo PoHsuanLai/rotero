@@ -225,14 +225,6 @@ impl PdfEngine {
 
             let base64_data = BASE64.encode(&img_bytes);
 
-            tracing::debug!(
-                page = i,
-                width,
-                height,
-                img_kb = img_bytes.len() / 1024,
-                "rendered page"
-            );
-
             pages.push(RenderedPage {
                 page_index: i,
                 base64_data,

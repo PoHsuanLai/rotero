@@ -45,6 +45,7 @@ pub async fn open_pdf(
         .ok()
         .and_then(|r| r.ok());
     if let Some((Some((meta, cached_pages)), text_data)) = cache_result {
+        let cached_count = cached_pages.len() as u32;
         tabs.with_mut(|mgr| {
             if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                 tab.page_count = meta.page_count;
@@ -57,6 +58,35 @@ pub async fn open_pdf(
             tabs.with_mut(|mgr| {
                 if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                     tab.render.text_data = text_data;
+                }
+            });
+        }
+        // Render any pages missing from cache in the background
+        if cached_count < meta.page_count {
+            let render_tx_bg = render_tx.clone();
+            let data_dir_bg = data_dir.to_path_buf();
+            let mut tabs_bg = *tabs;
+            let total = meta.page_count;
+            spawn(async move {
+                // Find which page indices are missing
+                let rendered_indices: std::collections::HashSet<u32> = tabs_bg
+                    .read()
+                    .tabs
+                    .iter()
+                    .find(|t| t.id == tab_id)
+                    .map(|t| t.render.rendered_pages.iter().map(|p| p.page_index).collect())
+                    .unwrap_or_default();
+                // Render missing pages in batches
+                let mut missing: Vec<u32> = (0..total).filter(|i| !rendered_indices.contains(i)).collect();
+                missing.sort();
+                for chunk in missing.chunks(batch_size as usize) {
+                    let start = chunk[0];
+                    let count = (chunk.last().unwrap() - start + 1) as u32;
+                    if render_more_pages(
+                        &render_tx_bg, &mut tabs_bg, tab_id, start, count, &data_dir_bg,
+                    ).await.is_err() {
+                        break;
+                    }
                 }
             });
         }
@@ -106,10 +136,12 @@ pub async fn open_pdf(
             })
             .unwrap_or_default()
     };
+    // Extract text for the initial batch
     let render_tx2 = render_tx.clone();
     let data_dir2 = data_dir.to_path_buf();
     let path2 = path.clone();
     let mut tabs2 = *tabs;
+    let paper_id2 = paper_id.clone();
     spawn(async move {
         let (text_tx, text_rx) = mpsc::channel();
         let _ = render_tx2.send(RenderRequest::ExtractText {
@@ -126,7 +158,7 @@ pub async fn open_pdf(
             });
 
             // Save fulltext to DB for FTS and MCP access
-            if let Some(ref pid) = paper_id {
+            if let Some(ref pid) = paper_id2 {
                 let fulltext: String = text_data
                     .values()
                     .flat_map(|td| td.segments.iter().map(|s| s.text.as_str()))
@@ -151,6 +183,27 @@ pub async fn open_pdf(
             });
         }
     });
+
+    // Eagerly render remaining pages in background batches
+    let rendered_so_far = batch_size.min(page_count);
+    if rendered_so_far < page_count {
+        let render_tx_bg = render_tx.clone();
+        let data_dir_bg = data_dir.to_path_buf();
+        let mut tabs_bg = *tabs;
+        spawn(async move {
+            let mut start = rendered_so_far;
+            while start < page_count {
+                let count = batch_size.min(page_count - start);
+                if render_more_pages(
+                    &render_tx_bg, &mut tabs_bg, tab_id, start, count, &data_dir_bg,
+                ).await.is_err() {
+                    break;
+                }
+                start += count;
+            }
+        });
+    }
+
     Ok(())
 }
 
