@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-latest
+            pdfium: pdfium-mac-arm64.tgz
+          - arch: x64
+            runner: macos-13
+            pdfium: pdfium-mac-x64.tgz
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Dioxus CLI
+        run: cargo install dioxus-cli --locked
+
+      - name: Download PDFium
+        run: |
+          mkdir -p lib
+          TMP=$(mktemp -d)
+          curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/${{ matrix.pdfium }}" -o "$TMP/pdfium.tgz"
+          tar -xzf "$TMP/pdfium.tgz" -C "$TMP"
+          cp "$TMP/lib/libpdfium.dylib" lib/libpdfium.dylib
+          rm -rf "$TMP"
+
+      - name: Bundle app
+        run: PDFIUM_DYNAMIC_LIB_PATH="$PWD/lib" dx bundle --release
+
+      - name: Create DMG
+        run: |
+          APP_PATH="target/dx/rotero/release/macos/Rotero.app"
+          # Copy PDFium into the app bundle so it's self-contained
+          cp lib/libpdfium.dylib "$APP_PATH/Contents/MacOS/"
+          # Fix the dylib rpath
+          install_name_tool -add_rpath @executable_path "$APP_PATH/Contents/MacOS/rotero" 2>/dev/null || true
+
+          DMG_NAME="Rotero-${{ github.ref_name }}-macos-${{ matrix.arch }}.dmg"
+          hdiutil create -volname "Rotero" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_NAME"
+          echo "DMG_NAME=$DMG_NAME" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dmg-macos-${{ matrix.arch }}
+          path: ${{ env.DMG_NAME }}
+
+  release:
+    name: Create Release
+    needs: [build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dmg-*
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: "*.dmg"
