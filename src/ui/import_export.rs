@@ -21,7 +21,7 @@ fn ImportButton() -> Element {
 
     rsx! {
         button {
-            class: "btn btn--ghost",
+            class: "btn btn--ghost btn--sm",
             onclick: move |_| {
                 let db = db.clone();
                 spawn(async move {
@@ -115,7 +115,8 @@ fn ImportButton() -> Element {
                     }
                 });
             },
-            "Import"
+            i { class: "bi bi-download" }
+            " Import"
         }
         if let Some(msg) = status.read().as_ref() {
             span { class: "import-status", "{msg}" }
@@ -130,7 +131,7 @@ fn ExportBibtexButton() -> Element {
 
     rsx! {
         button {
-            class: "btn btn--ghost",
+            class: "btn btn--ghost btn--sm",
             onclick: move |_| {
                 let papers = lib_state.read().papers.clone();
                 if papers.is_empty() {
@@ -148,7 +149,8 @@ fn ExportBibtexButton() -> Element {
                     }
                 }
             },
-            "Export"
+            i { class: "bi bi-upload" }
+            " Export"
         }
         if let Some(msg) = status.read().as_ref() {
             span { class: "import-status", "{msg}" }

@@ -877,7 +877,7 @@ fn GraphToggleButton() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let is_graph = lib_state.read().view == LibraryView::Graph;
 
-    let class = if is_graph { "btn btn--ghost-active" } else { "btn btn--secondary" };
+    let class = if is_graph { "btn btn--ghost-active btn--sm" } else { "btn btn--ghost btn--sm" };
 
     rsx! {
         button {
@@ -891,7 +891,8 @@ fn GraphToggleButton() -> Element {
                     };
                 });
             },
-            "Graph"
+            i { class: "bi bi-diagram-3" }
+            " Graph"
         }
     }
 }
