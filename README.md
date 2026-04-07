@@ -8,6 +8,9 @@
   <a href="https://github.com/PoHsuanLai/rotero/actions/workflows/ci.yml"><img src="https://github.com/PoHsuanLai/rotero/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/PoHsuanLai/rotero/releases/latest"><img src="https://img.shields.io/github/v/release/PoHsuanLai/rotero" alt="Release"></a>
   <a href="https://github.com/PoHsuanLai/rotero/blob/master/LICENSE"><img src="https://img.shields.io/github/license/PoHsuanLai/rotero" alt="License"></a>
+  <img src="https://img.shields.io/badge/rust-1.93+-orange?logo=rust" alt="Rust">
+  <img src="https://img.shields.io/badge/dioxus-0.7-blue" alt="Dioxus">
+  <img src="https://img.shields.io/badge/turso-0.6-teal" alt="Turso">
 </p>
 
 A fast, private, local-first reference manager built with Rust. Read, annotate, cite, and explore your papers — without the bloat.
