@@ -3,3 +3,6 @@
 website/node_modules/
 website/build/
 website/.svelte-kit/
+
+.claude/
+CLAUDE.md
