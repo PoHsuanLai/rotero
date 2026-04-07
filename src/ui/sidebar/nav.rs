@@ -105,14 +105,6 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                     },
                     i { class: "bi bi-circle" }
                 }
-                button {
-                    class: "sidebar-collapsed-btn",
-                    title: "Graph",
-                    onclick: move |_| {
-                        lib_state.with_mut(|s| s.view = LibraryView::Graph);
-                    },
-                    i { class: "bi bi-diagram-3" }
-                }
                 // Settings at bottom
                 div { class: "sidebar-spacer" }
                 crate::ui::settings::SettingsButton {}
@@ -178,13 +170,6 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                     icon: "copy",
                     active: view == LibraryView::Duplicates,
                     view: LibraryView::Duplicates,
-                }
-                SidebarItem {
-                    label: format!("Graph"),
-                    count: None,
-                    icon: "diagram-3",
-                    active: view == LibraryView::Graph,
-                    view: LibraryView::Graph,
                 }
             }
 

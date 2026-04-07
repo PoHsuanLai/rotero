@@ -1,4 +1,4 @@
-use dioxus::desktop::{use_global_shortcut, use_muda_event_handler};
+use dioxus::desktop::use_muda_event_handler;
 use dioxus::prelude::*;
 
 use crate::app::{DevicePixelRatio, RenderChannel, ShowSettings};
@@ -237,80 +237,16 @@ fn action_escape(
 
 // ── Component ─────────────────────────────────────────────────────────
 
-/// Registers global keyboard shortcuts and native menu event handlers.
+/// Handles keyboard shortcuts (window-scoped via onkeydown) and native menu events.
 #[component]
 pub fn GlobalKeyHandler() -> Element {
-    let show_settings = use_context::<Signal<ShowSettings>>();
     let lib_state = use_context::<Signal<LibraryState>>();
     let tabs = use_context::<Signal<PdfTabManager>>();
     let db = use_context::<Database>();
     let render_ch = use_context::<RenderChannel>();
     let config = use_context::<Signal<SyncConfig>>();
     let new_coll_editing = use_context::<Signal<Option<Option<String>>>>();
-    let undo_stack = use_context::<Signal<UndoStack>>();
-    let tools = use_context::<Signal<ViewerToolState>>();
     let dpr_sig = use_context::<Signal<DevicePixelRatio>>();
-
-    // ── Keyboard shortcuts ────────────────────────────────────────────
-
-    let _ = use_global_shortcut("CmdOrCtrl+,", move |_| {
-        action_open_settings(show_settings);
-    });
-
-    let _ = use_global_shortcut("CmdOrCtrl+O", move |_| {
-        action_open_pdf(tabs, lib_state, config, dpr_sig);
-    });
-
-    let db_import = db.clone();
-    let _ = use_global_shortcut("CmdOrCtrl+I", move |_| {
-        action_import_bibtex(db_import.clone(), lib_state);
-    });
-
-    let _ = use_global_shortcut("CmdOrCtrl+E", move |_| {
-        action_export_bibtex(lib_state);
-    });
-
-    let _ = use_global_shortcut("CmdOrCtrl+F", move |_| {
-        action_find(lib_state, tabs);
-    });
-
-    let _ = use_global_shortcut("CmdOrCtrl+L", move |_| {
-        action_focus_library_search(lib_state);
-    });
-
-    let _ = use_global_shortcut("CmdOrCtrl+W", move |_| {
-        action_close_tab(tabs, lib_state, render_ch, config);
-    });
-
-    let _ = use_global_shortcut("CmdOrCtrl+N", move |_| {
-        action_new_collection(lib_state, new_coll_editing);
-    });
-
-    let _ = use_global_shortcut("CmdOrCtrl+1", move |_| {
-        action_show_library(lib_state);
-    });
-
-    let _ = use_global_shortcut("CmdOrCtrl+[", move |_| {
-        action_prev_tab(tabs, lib_state);
-    });
-
-    let _ = use_global_shortcut("CmdOrCtrl+]", move |_| {
-        action_next_tab(tabs, lib_state);
-    });
-
-    let db_undo = db.clone();
-    let _ = use_global_shortcut("CmdOrCtrl+Z", move |_| {
-        action_undo(db_undo.clone(), tabs, undo_stack);
-    });
-
-    let db_redo = db.clone();
-    let _ = use_global_shortcut("CmdOrCtrl+Shift+Z", move |_| {
-        action_redo(db_redo.clone(), tabs, undo_stack);
-    });
-
-    let _ = use_global_shortcut("Escape", move |_| {
-        action_escape(show_settings, tabs, tools);
-    });
 
     // ── Native menu event handler ─────────────────────────────────────
 
@@ -327,4 +263,91 @@ pub fn GlobalKeyHandler() -> Element {
     });
 
     rsx! {}
+}
+
+/// Keyboard event handler for the root element. Call this from Layout's
+/// root div `onkeydown` to get window-scoped (not OS-global) shortcuts.
+pub fn handle_keydown(
+    event: Event<KeyboardData>,
+    show_settings: Signal<ShowSettings>,
+    lib_state: Signal<LibraryState>,
+    tabs: Signal<PdfTabManager>,
+    db: Database,
+    render_ch: RenderChannel,
+    config: Signal<SyncConfig>,
+    new_coll_editing: Signal<Option<Option<String>>>,
+    undo_stack: Signal<UndoStack>,
+    tools: Signal<ViewerToolState>,
+    dpr_sig: Signal<DevicePixelRatio>,
+) {
+    let key = event.key();
+    let modifiers = event.modifiers();
+    let cmd = modifiers.meta() || modifiers.ctrl();
+    let shift = modifiers.shift();
+
+    if cmd && !shift {
+        match key {
+            Key::Character(ref c) => match c.as_str() {
+                "," => {
+                    event.prevent_default();
+                    action_open_settings(show_settings);
+                }
+                "o" => {
+                    event.prevent_default();
+                    action_open_pdf(tabs, lib_state, config, dpr_sig);
+                }
+                "i" => {
+                    event.prevent_default();
+                    action_import_bibtex(db.clone(), lib_state);
+                }
+                "e" => {
+                    event.prevent_default();
+                    action_export_bibtex(lib_state);
+                }
+                "f" => {
+                    event.prevent_default();
+                    action_find(lib_state, tabs);
+                }
+                "l" => {
+                    event.prevent_default();
+                    action_focus_library_search(lib_state);
+                }
+                "w" => {
+                    event.prevent_default();
+                    action_close_tab(tabs, lib_state, render_ch, config);
+                }
+                "n" => {
+                    event.prevent_default();
+                    action_new_collection(lib_state, new_coll_editing);
+                }
+                "1" => {
+                    event.prevent_default();
+                    action_show_library(lib_state);
+                }
+                "[" => {
+                    event.prevent_default();
+                    action_prev_tab(tabs, lib_state);
+                }
+                "]" => {
+                    event.prevent_default();
+                    action_next_tab(tabs, lib_state);
+                }
+                "z" => {
+                    event.prevent_default();
+                    action_undo(db.clone(), tabs, undo_stack);
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    } else if cmd && shift {
+        if let Key::Character(ref c) = key {
+            if c.as_str() == "z" || c.as_str() == "Z" {
+                event.prevent_default();
+                action_redo(db.clone(), tabs, undo_stack);
+            }
+        }
+    } else if key == Key::Escape {
+        action_escape(show_settings, tabs, tools);
+    }
 }
