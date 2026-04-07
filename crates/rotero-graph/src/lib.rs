@@ -88,7 +88,7 @@ pub fn build_and_simulate(
                 label,
                 x: pos[0] as f64,
                 y: pos[1] as f64,
-                size: 6.0,
+                size: 3.5,
                 color,
                 is_read: paper.status.is_read,
                 is_favorite: paper.status.is_favorite,
