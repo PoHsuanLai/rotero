@@ -11,7 +11,7 @@ pub async fn open_pdf(
     tab_id: TabId,
     data_dir: &std::path::Path,
 ) -> Result<(), String> {
-    let (path, zoom, dpr, batch_size) = {
+    let (path, zoom, dpr, batch_size, paper_id) = {
         let mgr = tabs.read();
         let tab = mgr
             .tabs
@@ -23,6 +23,7 @@ pub async fn open_pdf(
             tab.view.zoom,
             tab.view.dpr,
             tab.view.page_batch_size,
+            tab.paper_id.clone(),
         )
     };
     let render_scale = zoom * dpr;
@@ -123,6 +124,26 @@ pub async fn open_pdf(
             std::thread::spawn(move || {
                 crate::cache::save_text(&cache_dir, &cache_path, &text_clone);
             });
+
+            // Save fulltext to DB for FTS and MCP access
+            if let Some(ref pid) = paper_id {
+                let fulltext: String = text_data
+                    .values()
+                    .flat_map(|td| td.segments.iter().map(|s| s.text.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("");
+                if !fulltext.is_empty() {
+                    #[cfg(feature = "desktop")]
+                    if let Some((conn, _)) = crate::init::database::SHARED_DB.get() {
+                        let pid = pid.clone();
+                        let conn = conn.clone();
+                        spawn(async move {
+                            let _ = rotero_db::papers::update_paper_fulltext(&conn, &pid, &fulltext).await;
+                        });
+                    }
+                }
+            }
+
             tabs2.with_mut(|mgr| {
                 if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                     tab.render.text_data = text_data;
@@ -141,16 +162,17 @@ pub async fn render_more_pages(
     count: u32,
     data_dir: &std::path::Path,
 ) -> Result<(), String> {
-    let (pdf_path, zoom, dpr) = {
+    let (pdf_path, render_scale) = {
         let mgr = tabs.read();
         let tab = mgr
             .tabs
             .iter()
             .find(|t| t.id == tab_id)
             .ok_or("Tab not found")?;
-        (tab.pdf_path.clone(), tab.view.zoom, tab.view.dpr)
+        // Use the same render_zoom as the initial batch so all pages
+        // are at the same resolution regardless of zoom changes.
+        (tab.pdf_path.clone(), tab.view.render_zoom)
     };
-    let render_scale = zoom * dpr;
     let (reply_tx, reply_rx) = mpsc::channel();
     render_tx
         .send(RenderRequest::RenderMorePages {
