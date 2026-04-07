@@ -21,7 +21,9 @@ pub fn ImportSection() -> Element {
                             onchange: move |evt| {
                                 let checked = evt.checked();
                                 config.with_mut(|c| c.auto_fetch_metadata = checked);
-                                let _ = config.read().save();
+                                if let Err(e) = config.read().save() {
+                                    tracing::error!("Failed to save config: {e}");
+                                }
                             },
                         }
                         span { class: "settings-toggle-track",
@@ -47,7 +49,9 @@ pub fn ImportSection() -> Element {
                                     class: "btn btn--sm btn--ghost",
                                     onclick: move |_| {
                                         config.with_mut(|c| c.sync.auto_export_bib_path = None);
-                                        let _ = config.read().save();
+                                        if let Err(e) = config.read().save() {
+                                    tracing::error!("Failed to save config: {e}");
+                                }
                                     },
                                     "Clear"
                                 }
@@ -66,7 +70,9 @@ pub fn ImportSection() -> Element {
                                             {
                                                 let path = file.path().to_string_lossy().to_string();
                                                 config.with_mut(|c| c.sync.auto_export_bib_path = Some(path));
-                                                let _ = config.read().save();
+                                                if let Err(e) = config.read().save() {
+                                    tracing::error!("Failed to save config: {e}");
+                                }
                                             }
                                         });
                                     },

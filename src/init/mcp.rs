@@ -7,10 +7,16 @@ pub static MCP_HTTP_PORT: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
 pub(crate) fn start_mcp_server() {
     let mcp_port = 21985u16; // connector is 21984
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().expect("Failed to create MCP runtime");
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                tracing::error!("Failed to create MCP runtime: {e}");
+                return;
+            }
+        };
         rt.block_on(async {
             let Some((conn, lib_path)) = SHARED_DB.get() else {
-                eprintln!("MCP: SHARED_DB not initialized");
+                tracing::error!("MCP: SHARED_DB not initialized");
                 return;
             };
             let mcp_db = rotero_mcp::Database::from_conn(conn.clone(), lib_path.clone());
@@ -32,11 +38,19 @@ pub(crate) fn start_mcp_server() {
 
             let app = axum::Router::new().fallback_service(service);
 
-            let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{mcp_port}"))
+            let listener = match tokio::net::TcpListener::bind(format!("127.0.0.1:{mcp_port}"))
                 .await
-                .expect("Failed to bind MCP port");
+            {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::error!("Failed to bind MCP port {mcp_port}: {e}");
+                    return;
+                }
+            };
             tracing::info!("MCP server listening on 127.0.0.1:{mcp_port}");
-            axum::serve(listener, app).await.unwrap();
+            if let Err(e) = axum::serve(listener, app).await {
+                tracing::error!("MCP server error: {e}");
+            }
         });
     });
 

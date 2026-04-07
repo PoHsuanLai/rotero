@@ -75,7 +75,7 @@ pub(crate) fn ExternalResults(results: Vec<rotero_models::Paper>, searching: boo
                                                 imported += 1;
                                             }
                                         }
-                                        eprintln!("Imported {imported} papers");
+                                        tracing::info!("Imported {imported} papers");
                                     });
                                 },
                                 if all_imported { "All Imported" } else { "Import All" }
@@ -158,7 +158,7 @@ pub(crate) fn ExternalResults(results: Vec<rotero_models::Paper>, searching: boo
                                                             paper.id = Some(id);
                                                             lib_state.with_mut(|s| s.papers.insert(0, paper));
                                                         }
-                                                        Err(e) => eprintln!("Failed to import: {e}"),
+                                                        Err(e) => tracing::error!("Failed to import: {e}"),
                                                     }
                                                 });
                                             },

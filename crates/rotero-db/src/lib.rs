@@ -77,7 +77,33 @@ impl Database {
     }
 
     pub fn resolve_pdf_path(&self, rel_path: &str) -> PathBuf {
-        self.papers_dir().join(rel_path)
+        let papers = self.papers_dir();
+        let joined = papers.join(rel_path);
+        // Prevent path traversal: if canonicalization shows the path escapes
+        // papers_dir, return a path that won't resolve to anything sensitive.
+        match (joined.canonicalize(), papers.canonicalize()) {
+            (Ok(canonical), Ok(papers_canonical)) if canonical.starts_with(&papers_canonical) => {
+                canonical
+            }
+            _ => {
+                // File may not exist yet (pre-import), so also check logically
+                // by normalizing away ".." components
+                let mut normalized = papers.clone();
+                for component in std::path::Path::new(rel_path).components() {
+                    match component {
+                        std::path::Component::Normal(c) => normalized.push(c),
+                        std::path::Component::ParentDir => {
+                            // Don't allow escaping papers dir
+                            if normalized != papers {
+                                normalized.pop();
+                            }
+                        }
+                        _ => {} // Skip CurDir, Prefix, RootDir
+                    }
+                }
+                normalized
+            }
+        }
     }
 
     /// Import a PDF into the library.

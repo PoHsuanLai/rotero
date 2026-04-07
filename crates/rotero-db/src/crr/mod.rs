@@ -78,6 +78,19 @@ const CRR_TABLES: &[(&str, &[&str])] = &[
     ("paper_tags", &["paper_id", "tag_id"]),
 ];
 
+/// Returns true if the table is a known CRR table and the column is valid for it.
+/// `col_name` of `"__sentinel"` is always valid for any known table.
+pub(crate) fn is_valid_crr_column(table_name: &str, col_name: &str) -> bool {
+    if col_name == "__sentinel" {
+        return CRR_TABLES.iter().any(|(t, _)| *t == table_name);
+    }
+    CRR_TABLES
+        .iter()
+        .find(|(t, _)| *t == table_name)
+        .map(|(_, cols)| cols.contains(&col_name))
+        .unwrap_or(false)
+}
+
 pub use merge::apply_changes;
 pub use schema::init_crr_tables;
 pub use state::{current_db_version, get_sync_state, next_db_version, set_sync_state, site_id};

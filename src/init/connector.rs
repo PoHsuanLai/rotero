@@ -20,12 +20,18 @@ pub(crate) fn start_connector(
         let lib_path = config.effective_library_path();
         let connector_tx = connector_tx.clone();
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    tracing::error!("Failed to create connector runtime: {e}");
+                    return;
+                }
+            };
             rt.block_on(async {
                 let (conn, _) = match SHARED_DB.get() {
                     Some(pair) => (pair.0.clone(), pair.1.clone()),
                     None => {
-                        eprintln!("Connector: SHARED_DB not initialized");
+                        tracing::error!("Connector: SHARED_DB not initialized");
                         return;
                     }
                 };
@@ -160,7 +166,7 @@ pub(crate) fn start_connector(
                 }
 
                 if let Err(e) = rotero_connector::start_server(state, port).await {
-                    eprintln!("Browser connector error: {e}");
+                    tracing::error!("Browser connector error: {e}");
                 }
             });
         });

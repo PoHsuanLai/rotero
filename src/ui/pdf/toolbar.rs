@@ -215,13 +215,13 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                                     pdf_path: pdf_path.clone(),
                                     reply: reply_tx,
                                 }).is_err() {
-                                    eprintln!("Failed to send GetPageDimensions request");
+                                    tracing::error!("Failed to send GetPageDimensions request");
                                     return;
                                 }
                                 let dims = match tokio::task::spawn_blocking(move || reply_rx.recv()).await {
                                     Ok(Ok(Ok(d))) => d,
                                     _ => {
-                                        eprintln!("Failed to get page dimensions");
+                                        tracing::error!("Failed to get page dimensions");
                                         return;
                                     }
                                 };
@@ -232,7 +232,7 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                                     &dims,
                                 ) {
                                     Ok(()) => tracing::info!("Exported annotated PDF to {:?}", output_path),
-                                    Err(e) => eprintln!("Failed to export annotated PDF: {e}"),
+                                    Err(e) => tracing::error!("Failed to export annotated PDF: {e}"),
                                 }
                             });
                         }

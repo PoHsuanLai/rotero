@@ -3,6 +3,13 @@ use scraper::{Html, Selector};
 use serde::Deserialize;
 
 pub async fn scrape_url(url: &str) -> Result<Paper, String> {
+    // Validate URL scheme to prevent SSRF (file://, internal networks, etc.)
+    let parsed = reqwest::Url::parse(url).map_err(|e| format!("Invalid URL: {e}"))?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        scheme => return Err(format!("Unsupported URL scheme: {scheme}")),
+    }
+
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()

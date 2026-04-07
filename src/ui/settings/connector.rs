@@ -22,7 +22,9 @@ pub fn ConnectorSection() -> Element {
                             onchange: move |evt| {
                                 let checked = evt.checked();
                                 config.with_mut(|c| c.connector.connector_enabled = checked);
-                                let _ = config.read().save();
+                                if let Err(e) = config.read().save() {
+                                    tracing::error!("Failed to save config: {e}");
+                                }
                             },
                         }
                         span { class: "settings-toggle-track",
@@ -45,7 +47,9 @@ pub fn ConnectorSection() -> Element {
                             onchange: move |evt| {
                                 if let Ok(p) = evt.value().parse::<u16>() {
                                     config.with_mut(|c| c.connector.connector_port = p);
-                                    let _ = config.read().save();
+                                    if let Err(e) = config.read().save() {
+                                    tracing::error!("Failed to save config: {e}");
+                                }
                                 }
                             },
                         }

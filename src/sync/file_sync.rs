@@ -54,7 +54,7 @@ impl FileSyncEngine {
             match serde_json::from_str(&content) {
                 Ok(state) => state,
                 Err(e) => {
-                    eprintln!("[sync] Failed to parse sync state at {}: {e}. Using defaults.", path.display());
+                    tracing::warn!("Failed to parse sync state at {}: {e}. Using defaults.", path.display());
                     SyncState::default()
                 }
             }

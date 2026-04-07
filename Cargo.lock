@@ -2310,7 +2310,7 @@ dependencies = [
 [[package]]
 name = "fdg"
 version = "1.0.0"
-source = "git+https://github.com/grantshandy/fdg#44f6c1bce649a67b5b19eb695b92e97a6e49cf2a"
+source = "git+https://github.com/grantshandy/fdg?rev=44f6c1b#44f6c1bce649a67b5b19eb695b92e97a6e49cf2a"
 dependencies = [
  "nalgebra",
  "num-traits",
@@ -6048,6 +6048,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tracing",
  "turso",
  "uuid",
 ]

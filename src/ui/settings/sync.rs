@@ -96,7 +96,9 @@ pub fn SyncSection() -> Element {
                             onchange: move |evt: Event<FormData>| {
                                 let val = evt.checked();
                                 config.with_mut(|c| c.sync.sync_enabled = val);
-                                let _ = config.read().save();
+                                if let Err(e) = config.read().save() {
+                                    tracing::error!("Failed to save config: {e}");
+                                }
                             },
                         }
                         span { class: "settings-toggle-track",
@@ -121,7 +123,9 @@ pub fn SyncSection() -> Element {
                                     SyncTransport::File
                                 };
                                 config.with_mut(|c| c.sync.sync_transport = transport);
-                                let _ = config.read().save();
+                                if let Err(e) = config.read().save() {
+                                    tracing::error!("Failed to save config: {e}");
+                                }
                             },
                             option { value: "cloudkit", "iCloud" }
                             option { value: "file", "Shared folder" }
@@ -143,12 +147,16 @@ pub fn SyncSection() -> Element {
                             if let Some(path) = picked {
                                 let path_str = path.to_string_lossy().to_string();
                                 config.with_mut(|c| c.sync.sync_folder_path = Some(path_str));
-                                let _ = config.read().save();
+                                if let Err(e) = config.read().save() {
+                                    tracing::error!("Failed to save config: {e}");
+                                }
                             }
                         },
                         on_clear: move |_| {
                             config.with_mut(|c| c.sync.sync_folder_path = None);
-                            let _ = config.read().save();
+                            if let Err(e) = config.read().save() {
+                                tracing::error!("Failed to save config: {e}");
+                            }
                         },
                     }
                     p { class: "settings-hint",

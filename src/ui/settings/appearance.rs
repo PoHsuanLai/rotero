@@ -28,7 +28,9 @@ pub fn AppearanceSection() -> Element {
                             onchange: move |evt| {
                                 let checked = evt.checked();
                                 config.with_mut(|c| c.ui.dark_mode = checked);
-                                let _ = config.read().save();
+                                if let Err(e) = config.read().save() {
+                                    tracing::error!("Failed to save config: {e}");
+                                }
                             },
                         }
                         span { class: "settings-toggle-track",
@@ -58,7 +60,9 @@ pub fn AppearanceSection() -> Element {
                                         onclick: move |_| {
                                             let scale = v2.clone();
                                             config.with_mut(|c| c.ui.ui_scale = scale);
-                                            let _ = config.read().save();
+                                            if let Err(e) = config.read().save() {
+                                    tracing::error!("Failed to save config: {e}");
+                                }
                                         },
                                         "{label}"
                                     }

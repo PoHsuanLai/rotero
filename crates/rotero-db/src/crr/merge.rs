@@ -1,5 +1,6 @@
 //! LWW merge logic for applying remote changes.
 
+use tracing;
 use turso::{Connection, Value};
 
 use super::helpers::{
@@ -18,6 +19,16 @@ pub async fn apply_changes(
     let _local_site = site_id(conn).await?;
 
     for change in changes {
+        if !super::is_valid_crr_column(&change.table_name, &change.col_name) {
+            tracing::warn!(
+                table = %change.table_name,
+                col = %change.col_name,
+                "Rejecting unknown table/column in sync changeset"
+            );
+            result.skipped += 1;
+            continue;
+        }
+
         let clock_table = format!("{}__crr_clock", change.table_name);
 
         if change.col_name == "__sentinel" {

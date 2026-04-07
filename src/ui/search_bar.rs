@@ -67,7 +67,7 @@ pub fn SearchBar() -> Element {
                             });
                         }
                         Err(e) => {
-                            eprintln!("External search error: {e}");
+                            tracing::error!("External search error: {e}");
                             lib_state.with_mut(|s| {
                                 s.search.external_searching = false;
                                 s.search.external_results = Some(Vec::new());
@@ -88,7 +88,7 @@ pub fn SearchBar() -> Element {
                                 }
                             }
                             Err(e) => {
-                                eprintln!("Full search enrichment error: {e}");
+                                tracing::error!("Full search enrichment error: {e}");
                             }
                         }
                     }

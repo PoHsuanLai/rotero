@@ -15,7 +15,7 @@ pub fn LoadLibraryData() -> Element {
         spawn(async move {
             let db_path = db.data_dir().join("rotero.db");
             if crate::sync::engine::check_external_modification(&db_path, None) {
-                eprintln!("Database was modified externally, reloading...");
+                tracing::info!("Database was modified externally, reloading...");
             }
 
             let conn = db.conn();

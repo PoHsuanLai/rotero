@@ -153,27 +153,86 @@ pub(crate) async fn zero_column_clocks(conn: &Connection, clock_table: &str, pk:
 /// Create a skeleton row with NOT NULL defaults; column-level changes fill actual values.
 pub(crate) async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str) {
     let now = chrono::Utc::now().to_rfc3339();
-    let sql = match table {
-        "papers" => format!(
-            "INSERT OR IGNORE INTO papers (id, title, authors, date_added, date_modified, is_favorite, is_read) \
-             VALUES (?1, '', '[]', '{now}', '{now}', 0, 0)"
-        ),
-        "collections" => {
-            format!("INSERT OR IGNORE INTO collections (id, name, position) VALUES (?1, '', 0)")
+    match table {
+        "papers" => {
+            let sql = "INSERT OR IGNORE INTO papers (id, title, authors, date_added, date_modified, is_favorite, is_read) \
+                        VALUES (?1, '', '[]', ?2, ?3, 0, 0)";
+            let _ = conn
+                .execute(
+                    sql,
+                    turso::params::Params::Positional(vec![
+                        Value::Text(pk.to_string()),
+                        Value::Text(now.clone()),
+                        Value::Text(now.clone()),
+                    ]),
+                )
+                .await;
+            return;
         }
-        "tags" => format!("INSERT OR IGNORE INTO tags (id, name) VALUES (?1, '')"),
-        "annotations" => format!(
-            "INSERT OR IGNORE INTO annotations (id, paper_id, page, ann_type, color, geometry, created_at, modified_at) \
-             VALUES (?1, '', 0, 'note', '#ffff00', '{{}}', '{now}', '{now}')"
-        ),
-        "notes" => format!(
-            "INSERT OR IGNORE INTO notes (id, paper_id, title, body, created_at, modified_at) \
-             VALUES (?1, '', '', '', '{now}', '{now}')"
-        ),
-        "saved_searches" => format!(
-            "INSERT OR IGNORE INTO saved_searches (id, name, query, created_at) \
-             VALUES (?1, '', '', '{now}')"
-        ),
+        "collections" => {
+            let sql = "INSERT OR IGNORE INTO collections (id, name, position) VALUES (?1, '', 0)";
+            let _ = conn
+                .execute(
+                    sql,
+                    turso::params::Params::Positional(vec![Value::Text(pk.to_string())]),
+                )
+                .await;
+            return;
+        }
+        "tags" => {
+            let sql = "INSERT OR IGNORE INTO tags (id, name) VALUES (?1, '')";
+            let _ = conn
+                .execute(
+                    sql,
+                    turso::params::Params::Positional(vec![Value::Text(pk.to_string())]),
+                )
+                .await;
+            return;
+        }
+        "annotations" => {
+            let sql = "INSERT OR IGNORE INTO annotations (id, paper_id, page, ann_type, color, geometry, created_at, modified_at) \
+                        VALUES (?1, '', 0, 'note', '#ffff00', '{}', ?2, ?3)";
+            let _ = conn
+                .execute(
+                    sql,
+                    turso::params::Params::Positional(vec![
+                        Value::Text(pk.to_string()),
+                        Value::Text(now.clone()),
+                        Value::Text(now.clone()),
+                    ]),
+                )
+                .await;
+            return;
+        }
+        "notes" => {
+            let sql = "INSERT OR IGNORE INTO notes (id, paper_id, title, body, created_at, modified_at) \
+                        VALUES (?1, '', '', '', ?2, ?3)";
+            let _ = conn
+                .execute(
+                    sql,
+                    turso::params::Params::Positional(vec![
+                        Value::Text(pk.to_string()),
+                        Value::Text(now.clone()),
+                        Value::Text(now.clone()),
+                    ]),
+                )
+                .await;
+            return;
+        }
+        "saved_searches" => {
+            let sql = "INSERT OR IGNORE INTO saved_searches (id, name, query, created_at) \
+                        VALUES (?1, '', '', ?2)";
+            let _ = conn
+                .execute(
+                    sql,
+                    turso::params::Params::Positional(vec![
+                        Value::Text(pk.to_string()),
+                        Value::Text(now.clone()),
+                    ]),
+                )
+                .await;
+            return;
+        }
         "paper_collections" => {
             // Junction table — pk is "paper_id:collection_id"
             let parts: Vec<&str> = pk.splitn(2, ':').collect();
@@ -209,12 +268,6 @@ pub(crate) async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str
         }
         _ => return,
     };
-    let _ = conn
-        .execute(
-            &sql,
-            turso::params::Params::Positional(vec![Value::Text(pk.to_string())]),
-        )
-        .await;
 }
 
 pub(crate) use super::state::site_id;

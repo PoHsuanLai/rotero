@@ -79,7 +79,9 @@ pub fn AgentSection() -> Element {
                             onclick: move |_| {
                                 let pid = pending_provider.read().clone();
                                 config.with_mut(|c| c.agent.agent_provider = pid.clone());
-                                let _ = config.read().save();
+                                if let Err(e) = config.read().save() {
+                                    tracing::error!("Failed to save config: {e}");
+                                }
                                 agent_channel.send(ChatRequest::SwitchAgent {
                                     provider_id: pid,
                                 });
@@ -161,7 +163,9 @@ pub fn AgentSection() -> Element {
                                                 config.with_mut(|c| {
                                                     c.agent.agent_api_keys.remove(&selected_env_var);
                                                 });
-                                                let _ = config.read().save();
+                                                if let Err(e) = config.read().save() {
+                                    tracing::error!("Failed to save config: {e}");
+                                }
                                             },
                                             "Clear"
                                         }
@@ -184,7 +188,9 @@ pub fn AgentSection() -> Element {
                                                     config.with_mut(|c| {
                                                         c.agent.agent_api_keys.insert(selected_env_var.clone(), val);
                                                     });
-                                                    let _ = config.read().save();
+                                                    if let Err(e) = config.read().save() {
+                                    tracing::error!("Failed to save config: {e}");
+                                }
                                                     api_key_input.set(String::new());
                                                     let pid = config.read().agent.agent_provider.clone();
                                                     agent_channel.send(ChatRequest::SwitchAgent {

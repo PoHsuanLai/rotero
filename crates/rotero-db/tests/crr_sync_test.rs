@@ -3,9 +3,7 @@
 //! Creates two separate databases (simulating two devices), makes changes
 //! on each, exports/imports changesets, and verifies the merge.
 
-use std::path::PathBuf;
-
-use rotero_db::{annotations, collections, crr, notes, papers, saved_searches, schema, tags};
+use rotero_db::{collections, crr, papers, schema};
 use rotero_models::Paper;
 
 async fn open_test_db(dir: &std::path::Path) -> rotero_db::turso::Connection {
@@ -147,7 +145,7 @@ async fn test_two_device_sync() {
     let papers_b = papers::list_papers(&conn_b).await.unwrap();
     assert_eq!(papers_b.len(), 1);
     assert_eq!(papers_b[0].title, "Shared Paper");
-    assert_eq!(papers_b[0].is_favorite, true);
+    assert_eq!(papers_b[0].status.is_favorite, true);
 
     // Verify B has the collection
     let colls_b = collections::list_collections(&conn_b).await.unwrap();
@@ -222,7 +220,7 @@ async fn test_conflict_resolution_lww() {
     // Export A's changes
     let changes_a = crr::changes_since(&conn_a, 0).await.unwrap();
     // Apply A's changes to B
-    let result = crr::apply_changes(&conn_b, &changes_a).await.unwrap();
+    let _result = crr::apply_changes(&conn_b, &changes_a).await.unwrap();
 
     // One of them should win deterministically (value comparison tie-break)
     let papers_b = papers::list_papers(&conn_b).await.unwrap();

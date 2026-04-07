@@ -84,6 +84,14 @@ just test-connector
 just test-save-paper
 ```
 
+## Performance
+
+Memory usage with 5 PDF tabs open (average of 5 runs, macOS):
+
+| | Rotero | Zotero 7 |
+|---|---|---|
+| Memory | ~220 MB | ~1.4 GB |
+
 ## Architecture
 
 Cargo workspace with 9 crates:

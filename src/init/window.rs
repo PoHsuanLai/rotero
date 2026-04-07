@@ -153,8 +153,19 @@ pub(crate) fn launch_desktop(config: &crate::sync::engine::SyncConfig) {
                 .with_custom_protocol("rotero-cache".to_string(), move |_webview_id, req| {
                     let uri = req.uri().to_string();
                     let path = uri.strip_prefix("rotero-cache://").unwrap_or(&uri);
-                    let file_path = data_dir.join("cache").join(path);
-                    let body = std::fs::read(&file_path).unwrap_or_default();
+                    // Strip leading slashes to prevent absolute path interpretation
+                    let path = path.trim_start_matches('/');
+                    let cache_dir = data_dir.join("cache");
+                    let file_path = cache_dir.join(path);
+
+                    // Prevent path traversal: canonicalize and verify the path is within cache_dir
+                    let body = match (file_path.canonicalize(), cache_dir.canonicalize()) {
+                        (Ok(canonical), Ok(cache_canonical)) if canonical.starts_with(&cache_canonical) => {
+                            std::fs::read(&canonical).unwrap_or_default()
+                        }
+                        _ => Vec::new(),
+                    };
+
                     let mime = if file_path.extension().and_then(|e| e.to_str()) == Some("png") {
                         "image/png"
                     } else {

@@ -70,7 +70,7 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
         let mut engine = match engine_result {
             Ok(e) => e,
             Err(e) => {
-                eprintln!("Failed to bind PDFium: {e}");
+                tracing::error!("Failed to bind PDFium: {e}");
                 return;
             }
         };

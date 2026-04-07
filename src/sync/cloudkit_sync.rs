@@ -306,7 +306,9 @@ impl CloudKitSyncEngine {
 
             let records_for_cb = records_clone.clone();
             let changed_block = block2::RcBlock::new(move |record: NonNull<CKRecord>| {
-                let retained = Retained::retain(record.as_ptr()).unwrap();
+                let Some(retained) = Retained::retain(record.as_ptr()) else {
+                    return;
+                };
                 records_for_cb
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -357,7 +359,7 @@ async fn read_i64_state(conn: &rotero_db::turso::Connection, key: &str) -> i64 {
         .await
         .and_then(|bytes| {
             if bytes.len() >= 8 {
-                Some(i64::from_le_bytes(bytes[..8].try_into().unwrap()))
+                bytes.get(..8).and_then(|b| b.try_into().ok()).map(i64::from_le_bytes)
             } else {
                 None
             }

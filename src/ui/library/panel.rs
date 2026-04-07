@@ -53,7 +53,7 @@ pub fn LibraryPanel() -> Element {
                             Ok(ids) => {
                                 lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
                             }
-                            Err(e) => eprintln!("Failed to load collection papers: {e}"),
+                            Err(e) => tracing::error!("Failed to load collection papers: {e}"),
                         }
                     });
                 }
@@ -64,7 +64,7 @@ pub fn LibraryPanel() -> Element {
                             Ok(ids) => {
                                 lib_state.with_mut(|s| s.filter.tag_paper_ids = Some(ids));
                             }
-                            Err(e) => eprintln!("Failed to load tag papers: {e}"),
+                            Err(e) => tracing::error!("Failed to load tag papers: {e}"),
                         }
                     });
                 }
@@ -75,7 +75,7 @@ pub fn LibraryPanel() -> Element {
                             Ok(groups) => {
                                 lib_state.with_mut(|s| s.filter.duplicate_groups = Some(groups));
                             }
-                            Err(e) => eprintln!("Failed to find duplicates: {e}"),
+                            Err(e) => tracing::error!("Failed to find duplicates: {e}"),
                         }
                     });
                 }
@@ -87,7 +87,7 @@ pub fn LibraryPanel() -> Element {
                                 Ok(papers) => {
                                     lib_state.with_mut(|s| s.search.results = Some(papers));
                                 }
-                                Err(e) => eprintln!("Failed to run saved search: {e}"),
+                                Err(e) => tracing::error!("Failed to run saved search: {e}"),
                             }
                         });
                     }
@@ -289,7 +289,7 @@ pub fn LibraryPanel() -> Element {
                                                 Some(id)
                                             }
                                             Err(e) => {
-                                                eprintln!("Failed to insert paper: {e}");
+                                                tracing::error!("Failed to insert paper: {e}");
                                                 None
                                             }
                                         };
@@ -316,7 +316,7 @@ pub fn LibraryPanel() -> Element {
                                             });
                                         }
                                     }
-                                    Err(e) => eprintln!("Failed to import {file_name}: {e}"),
+                                    Err(e) => tracing::error!("Failed to import {file_name}: {e}"),
                                 }
                             }
                         }

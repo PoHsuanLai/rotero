@@ -23,7 +23,10 @@ fn main() {
 
     #[cfg(feature = "desktop")]
     {
-        init::database::init_database(&config);
+        if let Err(e) = init::database::init_database(&config) {
+            tracing::error!("Failed to initialize database: {e}");
+            std::process::exit(1);
+        }
         init::connector::start_connector(&config);
         init::mcp::start_mcp_server();
         init::window::launch_desktop(&config);

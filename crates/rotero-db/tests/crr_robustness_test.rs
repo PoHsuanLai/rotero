@@ -128,7 +128,7 @@ async fn test_apply_same_changeset_twice_is_idempotent() {
     let papers_b = papers::list_papers(&conn_b).await.unwrap();
     assert_eq!(papers_b.len(), 1);
     assert_eq!(papers_b[0].title, "Idempotent Paper");
-    assert!(papers_b[0].is_favorite);
+    assert!(papers_b[0].status.is_favorite);
 }
 
 // ── Out-of-order changeset application ──────────────────────────
@@ -176,7 +176,7 @@ async fn test_sequential_changesets_from_same_device() {
     let papers_b = papers::list_papers(&conn_b).await.unwrap();
     assert_eq!(papers_b.len(), 1);
     assert_eq!(papers_b[0].title, "Step 2");
-    assert!(papers_b[0].is_favorite);
+    assert!(papers_b[0].status.is_favorite);
 }
 
 // ── Multiple columns edited independently ───────────────────────
@@ -204,10 +204,10 @@ async fn test_different_columns_merge_independently() {
     let papers_a = papers::list_papers(&conn_a).await.unwrap();
     let papers_b = papers::list_papers(&conn_b).await.unwrap();
 
-    assert!(papers_a[0].is_favorite, "A should have favorite from A");
-    assert!(papers_a[0].is_read, "A should have read from B");
-    assert!(papers_b[0].is_favorite, "B should have favorite from A");
-    assert!(papers_b[0].is_read, "B should have read from B");
+    assert!(papers_a[0].status.is_favorite, "A should have favorite from A");
+    assert!(papers_a[0].status.is_read, "A should have read from B");
+    assert!(papers_b[0].status.is_favorite, "B should have favorite from A");
+    assert!(papers_b[0].status.is_read, "B should have read from B");
 }
 
 // ── Convergence: both devices end up identical ──────────────────
@@ -245,10 +245,10 @@ async fn test_bidirectional_sync_converges() {
 
     assert_eq!(pa[0].title, pb[0].title, "Titles should converge");
     assert_eq!(
-        pa[0].is_favorite, pb[0].is_favorite,
+        pa[0].status.is_favorite, pb[0].status.is_favorite,
         "Favorites should converge"
     );
-    assert_eq!(pa[0].is_read, pb[0].is_read, "Read status should converge");
+    assert_eq!(pa[0].status.is_read, pb[0].status.is_read, "Read status should converge");
 }
 
 // ── Junction tables ─────────────────────────────────────────────
@@ -465,14 +465,14 @@ async fn test_three_device_convergence() {
 
     assert_eq!(pa[0].title, pb[0].title);
     assert_eq!(pb[0].title, pc[0].title);
-    assert_eq!(pa[0].is_favorite, pb[0].is_favorite);
-    assert_eq!(pa[0].is_read, pb[0].is_read);
-    assert_eq!(pb[0].is_favorite, pc[0].is_favorite);
-    assert_eq!(pb[0].is_read, pc[0].is_read);
+    assert_eq!(pa[0].status.is_favorite, pb[0].status.is_favorite);
+    assert_eq!(pa[0].status.is_read, pb[0].status.is_read);
+    assert_eq!(pb[0].status.is_favorite, pc[0].status.is_favorite);
+    assert_eq!(pb[0].status.is_read, pc[0].status.is_read);
 
     // All should have favorite=true and read=true
-    assert!(pa[0].is_favorite);
-    assert!(pa[0].is_read);
+    assert!(pa[0].status.is_favorite);
+    assert!(pa[0].status.is_read);
 }
 
 // ── Saved search sync ───────────────────────────────────────────
@@ -615,7 +615,7 @@ async fn test_column_before_sentinel_out_of_order() {
         "Paper should be created from out-of-order columns"
     );
     assert_eq!(papers[0].title, "Out of Order Paper");
-    assert!(papers[0].is_favorite);
+    assert!(papers[0].status.is_favorite);
 }
 
 #[tokio::test]

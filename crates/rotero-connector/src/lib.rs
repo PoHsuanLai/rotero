@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use axum::{Router, routing::get, routing::post};
 use tower_http::cors::{Any, CorsLayer};
+use axum::http::Method;
 
 use handlers::{CollectionInfo, TagInfo};
 use rotero_models::Paper;
@@ -23,9 +24,12 @@ pub struct ConnectorState {
 pub const CONNECTOR_PORT: u16 = 21984;
 
 pub fn router(state: Arc<ConnectorState>) -> Router {
+    // allow_origin(Any) is required because browser extension origins are
+    // opaque (chrome-extension://<id>) and vary per install. The server is
+    // bound to 127.0.0.1 so only local processes can connect.
     let cors = CorsLayer::new()
         .allow_origin(Any)
-        .allow_methods(Any)
+        .allow_methods([Method::GET, Method::POST])
         .allow_headers(Any);
 
     Router::new()
