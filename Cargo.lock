@@ -6133,7 +6133,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "which 8.0.2",
 ]
 
 [[package]]

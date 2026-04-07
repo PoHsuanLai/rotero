@@ -1,19 +1,23 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub(crate) const NODE_VERSION: &str = "v22.16.0";
+const NODE_VERSION: &str = "v22.16.0";
 
+/// Find node binary: check PATH first, then local cache, then download.
 pub(crate) fn find_or_install_node() -> Result<PathBuf, String> {
+    // 1. Check PATH
     if let Ok(path) = which::which("node") {
         return Ok(path);
     }
 
+    // 2. Check local cache
     let node_dir = node_cache_dir();
     let node_bin = node_binary_path(&node_dir);
     if node_bin.exists() {
         return Ok(node_bin);
     }
 
+    // 3. Download
     tracing::info!("Node.js not found, downloading {NODE_VERSION}...");
     download_node(&node_dir)?;
 
@@ -33,7 +37,7 @@ pub(crate) fn find_npm() -> Result<PathBuf, String> {
     if npm_bin.exists() {
         return Ok(npm_bin);
     }
-    Err("npm not found. Install Node.js or use the AI Agent settings to auto-download.".into())
+    Err("npm not found".into())
 }
 
 fn node_cache_dir() -> PathBuf {
@@ -80,10 +84,13 @@ fn download_node(node_dir: &PathBuf) -> Result<(), String> {
         .map_err(|e| format!("Failed to download Node.js: {e}"))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Download failed: {stderr}"));
+        return Err(format!(
+            "curl failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
 
+    // Extract
     if ext == "zip" {
         let output = Command::new("tar")
             .args([
@@ -95,7 +102,7 @@ fn download_node(node_dir: &PathBuf) -> Result<(), String> {
             .output()
             .map_err(|e| format!("Failed to extract: {e}"))?;
         if !output.status.success() {
-            return Err("Failed to extract Node.js archive".into());
+            return Err("Failed to extract zip".into());
         }
     } else {
         let output = Command::new("tar")
@@ -109,13 +116,11 @@ fn download_node(node_dir: &PathBuf) -> Result<(), String> {
             .output()
             .map_err(|e| format!("Failed to extract: {e}"))?;
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Failed to extract Node.js: {stderr}"));
+            return Err("Failed to extract tarball".into());
         }
     }
 
     let _ = std::fs::remove_file(&tmp_archive);
-
     tracing::info!("Node.js {NODE_VERSION} installed to {}", node_dir.display());
     Ok(())
 }
@@ -125,20 +130,14 @@ fn node_platform() -> (&'static str, &'static str, &'static str) {
         "darwin"
     } else if cfg!(target_os = "linux") {
         "linux"
-    } else if cfg!(target_os = "windows") {
-        "win"
     } else {
-        "linux" // fallback
+        "win"
     };
 
-    let arch = if cfg!(target_arch = "x86_64") {
-        "x64"
-    } else if cfg!(target_arch = "aarch64") {
+    let arch = if cfg!(target_arch = "aarch64") {
         "arm64"
-    } else if cfg!(target_arch = "arm") {
-        "armv7l"
     } else {
-        "x64" // fallback
+        "x64"
     };
 
     let ext = if cfg!(target_os = "windows") {

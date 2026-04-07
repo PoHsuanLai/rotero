@@ -1,4 +1,3 @@
-mod node;
 mod server;
 mod translator;
 
@@ -15,8 +14,6 @@ pub enum TranslateError {
     ServerNotRunning,
     #[error("No results found")]
     NoResults,
-    #[error("Node.js not found: {0}")]
-    NodeNotFound(String),
     #[error("Setup error: {0}")]
     Setup(String),
     #[error("Translation error: {0}")]

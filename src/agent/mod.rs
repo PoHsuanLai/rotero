@@ -1,7 +1,7 @@
 mod connection;
 mod helpers;
 mod install;
-mod node;
+pub(crate) mod node;
 mod session;
 pub mod types;
 

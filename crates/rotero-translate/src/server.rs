@@ -3,7 +3,6 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
 use crate::TranslateError;
-use crate::node;
 use crate::translator::ZoteroItem;
 
 /// Manages a Zotero translation-server subprocess.
@@ -11,12 +10,15 @@ pub struct TranslationServer {
     port: u16,
     child: Mutex<Option<Child>>,
     server_dir: PathBuf,
+    node_bin: PathBuf,
+    npm_bin: PathBuf,
 }
 
 impl TranslationServer {
     /// Create a new translation server manager.
+    /// `node_bin` and `npm_bin` are resolved by the caller (e.g. via auto-download).
     /// Call `ensure_running()` before making requests.
-    pub fn new(port: u16) -> Self {
+    pub fn new(port: u16, node_bin: PathBuf, npm_bin: PathBuf) -> Self {
         let base = directories::BaseDirs::new()
             .map(|d| d.data_dir().to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
@@ -26,6 +28,8 @@ impl TranslationServer {
             port,
             child: Mutex::new(None),
             server_dir,
+            node_bin,
+            npm_bin,
         }
     }
 
@@ -180,10 +184,9 @@ ItemSaver.prototype.saveItems = async function (jsonItems, attachmentCallback, i
     }
 
     fn npm_install(&self) -> Result<(), TranslateError> {
-        let npm = node::find_npm()?;
         tracing::info!("Running npm install for translation-server...");
 
-        let output = Command::new(&npm)
+        let output = Command::new(&self.npm_bin)
             .args(["install", "--production"])
             .current_dir(&self.server_dir)
             .stdout(Stdio::piped())
@@ -201,7 +204,6 @@ ItemSaver.prototype.saveItems = async function (jsonItems, attachmentCallback, i
     }
 
     fn start(&self) -> Result<(), TranslateError> {
-        let node_bin = node::find_or_install_node()?;
         let entry = self.server_dir.join("src").join("server.js");
 
         if !entry.exists() {
@@ -214,13 +216,13 @@ ItemSaver.prototype.saveItems = async function (jsonItems, attachmentCallback, i
         tracing::info!(
             "Starting translation-server on port {} (node: {})",
             self.port,
-            node_bin.display()
+            self.node_bin.display()
         );
 
         // Use NODE_CONFIG env var to override port (config npm module convention)
         let node_config = format!(r#"{{"port":{}}}"#, self.port);
 
-        let child = Command::new(&node_bin)
+        let child = Command::new(&self.node_bin)
             .arg(&entry)
             .env("NODE_CONFIG", &node_config)
             .stdout(Stdio::null())

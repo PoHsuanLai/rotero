@@ -153,7 +153,21 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                 {
                     let state_clone = state.clone();
                     tokio::spawn(async move {
-                        let ts = rotero_translate::TranslationServer::new(1969);
+                        let node_bin = match crate::agent::node::find_or_install_node() {
+                            Ok(p) => p,
+                            Err(e) => {
+                                tracing::warn!("Cannot start translation server: {e}");
+                                return;
+                            }
+                        };
+                        let npm_bin = match crate::agent::node::find_npm() {
+                            Ok(p) => p,
+                            Err(e) => {
+                                tracing::warn!("Cannot start translation server: {e}");
+                                return;
+                            }
+                        };
+                        let ts = rotero_translate::TranslationServer::new(1969, node_bin, npm_bin);
                         match ts.ensure_running().await {
                             Ok(()) => {
                                 tracing::info!("Zotero translation server started");
