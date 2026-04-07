@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::state::app_state::PdfTabManager;
 use crate::sync::engine::SyncConfig;
 
 const ZOOM_OPTIONS: &[(f32, &str)] = &[
@@ -48,8 +49,10 @@ fn update_config(config: &mut Signal<SyncConfig>, f: impl FnOnce(&mut SyncConfig
 #[component]
 pub fn PdfViewerSection() -> Element {
     let mut config = use_context::<Signal<SyncConfig>>();
+    let mut tabs = use_context::<Signal<PdfTabManager>>();
     let current_zoom = config.read().default_zoom;
     let current_batch = config.read().page_batch_size;
+    let current_resident = config.read().max_resident_tabs;
     let current_color = config.read().selection_color.clone();
     let current_format = config.read().render_format.clone();
     let current_quality = config.read().render_quality;
@@ -124,6 +127,27 @@ pub fn PdfViewerSection() -> Element {
                         for (val, label) in BATCH_OPTIONS.iter() {
                             option { value: "{val}", "{label}" }
                         }
+                    }
+                }
+            }
+
+            // Cached tabs in memory
+            div { class: "settings-field",
+                span { class: "settings-field-label", "Tabs cached in memory" }
+                div { class: "settings-field-control",
+                    input {
+                        r#type: "number",
+                        class: "input settings-input",
+                        value: "{current_resident}",
+                        min: "1",
+                        max: "50",
+                        onchange: move |evt| {
+                            if let Ok(v) = evt.value().parse::<u32>() {
+                                let v = v.clamp(1, 50);
+                                update_config(&mut config, |c| c.max_resident_tabs = v);
+                                tabs.with_mut(|m| m.set_max_resident(v));
+                            }
+                        },
                     }
                 }
             }

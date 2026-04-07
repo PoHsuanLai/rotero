@@ -67,7 +67,11 @@ pub fn App() -> Element {
     let db_generation: DbGeneration = use_context_provider(|| Signal::new(0u64));
 
     // Provide global state to all components
-    use_context_provider(|| Signal::new(PdfTabManager::default()));
+    use_context_provider(|| {
+        let mut mgr = PdfTabManager::default();
+        mgr.set_max_resident(config.read().max_resident_tabs);
+        Signal::new(mgr)
+    });
     use_context_provider(|| {
         let cfg = config.read();
         Signal::new(ViewerToolState {

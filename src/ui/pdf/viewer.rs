@@ -442,6 +442,7 @@ pub fn PdfViewer() -> Element {
 
             // Annotation context menu (shared between page overlays and panel)
             AnnotationContextMenu {}
+
         }
     }
 }

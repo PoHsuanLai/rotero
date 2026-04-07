@@ -60,38 +60,53 @@ pub fn PdfTabBar() -> Element {
                             },
                             onclick: move |_| {
                                 if is_active { return; }
-                                // Save scroll position before switching
+
+                                let old_tab_id = tabs.read().active_tab_id;
+                                let _ = document::eval(
+                                    "window.__roteroScrollSave = (function() { \
+                                        let el = document.getElementById('pdf-pages-container'); \
+                                        return el ? el.scrollTop : 0; \
+                                    })()"
+                                );
+
+                                // Switch tab immediately — no awaits
+                                tabs.with_mut(|m| m.switch_to(tab_id));
+
+                                // Save old tab's scroll in a separate task (don't block restore)
+                                if let Some(old_id) = old_tab_id {
+                                    spawn(async move {
+                                        let mut eval = document::eval("window.__roteroScrollSave || 0");
+                                        if let Ok(scroll) = eval.recv::<f64>().await {
+                                            tabs.with_mut(|m| {
+                                                if let Some(t) = m.tabs.iter_mut().find(|t| t.id == old_id) {
+                                                    t.view.scroll_top = scroll;
+                                                }
+                                            });
+                                        }
+                                    });
+                                }
+
+                                // Restore scroll + reload in a separate task
                                 spawn(async move {
-                                    let mut eval = document::eval(
-                                        "let el = document.getElementById('pdf-pages-container'); el ? el.scrollTop : 0"
+                                    let scroll_top = tabs.read().active_tab().map(|t| t.view.scroll_top).unwrap_or(0.0);
+                                    let js = format!(
+                                        "setTimeout(() => {{ let el = document.getElementById('pdf-pages-container'); if (el) el.scrollTop = {}; }}, 30)",
+                                        scroll_top
                                     );
-                                    if let Ok(scroll) = eval.recv::<f64>().await {
-                                        tabs.with_mut(|m| {
-                                            if let Some(t) = m.active_tab_mut() {
-                                                t.view.scroll_top = scroll;
-                                            }
-                                        });
-                                    }
-                                    tabs.with_mut(|m| m.switch_to(tab_id));
-                                    // Re-render if suspended
+                                    let _ = document::eval(&js);
+
+                                    // Reload pages from cache if tab was suspended
                                     let needs = tabs.read().active_tab().map(|t| t.needs_render()).unwrap_or(false);
                                     if needs {
+                                        tabs.with_mut(|m| m.tab_mut().is_loading = true);
                                         let render_tx = render_ch.sender();
                                         let cfg = config.read();
                                         let cfg_dir = cfg.effective_library_path();
                                         let cfg_q = cfg.render_quality;
                                         let cfg_fmt = RenderFormat::from_str(&cfg.render_format);
                                         drop(cfg);
-                                        tabs.with_mut(|m| m.tab_mut().is_loading = true);
                                         let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &cfg_dir, cfg_q, cfg_fmt).await;
                                     }
-                                    // Restore scroll
-                                    let scroll_top = tabs.read().active_tab().map(|t| t.view.scroll_top).unwrap_or(0.0);
-                                    let js = format!(
-                                        "setTimeout(() => {{ let el = document.getElementById('pdf-pages-container'); if (el) el.scrollTop = {}; }}, 50)",
-                                        scroll_top
-                                    );
-                                    let _ = document::eval(&js);
                                 });
                             },
                             span { class: "pdf-tab-title", "{display_title}" }

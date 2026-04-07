@@ -81,6 +81,11 @@ pub struct SyncConfig {
     #[serde(default)]
     pub sync_transport: SyncTransport,
 
+    /// Number of PDF tabs to keep rendered in memory for fast switching.
+    /// Tabs beyond this limit are suspended (pages cleared) to save memory.
+    #[serde(default = "default_max_resident_tabs")]
+    pub max_resident_tabs: u32,
+
     /// Selected AI agent provider id.
     #[serde(default = "default_agent_provider")]
     pub agent_provider: String,
@@ -90,6 +95,9 @@ pub struct SyncConfig {
     pub agent_api_keys: std::collections::HashMap<String, String>,
 }
 
+fn default_max_resident_tabs() -> u32 {
+    3
+}
 fn default_agent_provider() -> String {
     "claude".to_string()
 }
@@ -145,6 +153,7 @@ impl Default for SyncConfig {
             sync_enabled: false,
             sync_folder_path: None,
             sync_transport: SyncTransport::default(),
+            max_resident_tabs: default_max_resident_tabs(),
             agent_provider: default_agent_provider(),
             agent_api_keys: std::collections::HashMap::new(),
         }

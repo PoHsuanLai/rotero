@@ -30,6 +30,7 @@ pub(crate) fn PdfPageWithOverlay(
     let mgr = tabs.read();
     let tab = mgr.tab();
     let paper_id = tab.paper_id.clone().unwrap_or_default();
+    let pdf_path_for_cache = tab.pdf_path.clone();
     let page_annotations: Vec<Annotation> = tab
         .annotations
         .iter()
@@ -85,12 +86,21 @@ pub(crate) fn PdfPageWithOverlay(
             class: "pdf-page-wrapper",
             style: "cursor: {cursor}; zoom: {css_zoom};",
 
-            img {
-                class: "pdf-page-img",
-                src: "data:{mime};base64,{base64_data}",
-                width: "{width}",
-                height: "{height}",
-                draggable: "false",
+            {
+                // Use file:// URL from disk cache if available (short string, instant diff).
+                // Fall back to inline base64 data URL for pages not yet cached.
+                let data_dir = config.read().effective_library_path();
+                let src = crate::cache::page_file_url(&data_dir, &pdf_path_for_cache, page_index, mime)
+                    .unwrap_or_else(|| format!("data:{mime};base64,{base64_data}"));
+                rsx! {
+                    img {
+                        class: "pdf-page-img",
+                        src: "{src}",
+                        width: "{width}",
+                        height: "{height}",
+                        draggable: "false",
+                    }
+                }
             }
 
             div {

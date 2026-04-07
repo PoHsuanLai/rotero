@@ -145,6 +145,7 @@ pub(crate) fn launch_desktop(config: &crate::sync::engine::SyncConfig) {
         .with_min_inner_size(LogicalSize::new(600.0, 400.0))
         .with_theme(None); // follow system light/dark mode
 
+    let data_dir = config.effective_library_path();
     dioxus::LaunchBuilder::new()
         .with_cfg(
             dioxus::desktop::Config::default()
@@ -155,6 +156,23 @@ pub(crate) fn launch_desktop(config: &crate::sync::engine::SyncConfig) {
                     (15, 23, 42, 255) // slate-900 for dark mode
                 } else {
                     (255, 255, 255, 255) // white for light mode
+                })
+                .with_custom_protocol("rotero-cache".to_string(), move |_webview_id, req| {
+                    // Serves cached page images via rotero-cache:///{hash}/pages/{n}.ext
+                    let uri = req.uri().to_string();
+                    // On macOS, wry delivers the URI as "rotero-cache://hash/pages/0.png"
+                    let path = uri.strip_prefix("rotero-cache://").unwrap_or(&uri);
+                    let file_path = data_dir.join("cache").join(path);
+                    let body = std::fs::read(&file_path).unwrap_or_default();
+                    let mime = if file_path.extension().and_then(|e| e.to_str()) == Some("png") {
+                        "image/png"
+                    } else {
+                        "image/jpeg"
+                    };
+                    dioxus::desktop::wry::http::Response::builder()
+                        .header("Content-Type", mime)
+                        .body(std::borrow::Cow::Owned(body))
+                        .unwrap()
                 }),
         )
         .launch(crate::app::App);

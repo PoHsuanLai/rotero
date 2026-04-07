@@ -29,7 +29,24 @@ pub async fn open_pdf(
         )
     };
     let render_scale = zoom * dpr;
-    if let Some((meta, cached_pages)) = crate::cache::load_cached(data_dir, &path, render_scale) {
+    // Load cache on a blocking thread to avoid stalling the UI.
+    let cache_dir = data_dir.to_path_buf();
+    let cache_path = path.clone();
+    type CacheResult = (
+        Option<(crate::cache::CacheMeta, Vec<crate::state::app_state::RenderedPageData>)>,
+        Option<std::collections::HashMap<u32, rotero_pdf::PageTextData>>,
+    );
+    let (cache_tx, cache_rx) = mpsc::channel::<CacheResult>();
+    std::thread::spawn(move || {
+        let result = crate::cache::load_cached(&cache_dir, &cache_path, render_scale);
+        let text = crate::cache::load_cached_text(&cache_dir, &cache_path);
+        let _ = cache_tx.send((result, text));
+    });
+    let cache_result = tokio::task::spawn_blocking(move || cache_rx.recv())
+        .await
+        .ok()
+        .and_then(|r| r.ok());
+    if let Some((Some((meta, cached_pages)), text_data)) = cache_result {
         tabs.with_mut(|mgr| {
             if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                 tab.page_count = meta.page_count;
@@ -38,7 +55,7 @@ pub async fn open_pdf(
                 tab.is_loading = false;
             }
         });
-        if let Some(text_data) = crate::cache::load_cached_text(data_dir, &path) {
+        if let Some(text_data) = text_data {
             tabs.with_mut(|mgr| {
                 if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                     tab.render.text_data = text_data;

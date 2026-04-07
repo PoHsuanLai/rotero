@@ -42,6 +42,53 @@ fn ext_for_mime(mime: &str) -> &str {
     if mime == "image/png" { "png" } else { "jpg" }
 }
 
+/// Extract (width, height) from PNG or JPEG image bytes by reading the header.
+fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    // PNG: bytes 16-19 = width, 20-23 = height (in IHDR chunk)
+    if bytes.len() > 24 && bytes.starts_with(b"\x89PNG") {
+        let w = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
+        let h = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
+        return Some((w, h));
+    }
+    // JPEG: scan for SOF0/SOF2 marker (0xFF 0xC0 or 0xFF 0xC2)
+    if bytes.len() > 2 && bytes[0] == 0xFF && bytes[1] == 0xD8 {
+        let mut i = 2;
+        while i + 9 < bytes.len() {
+            if bytes[i] != 0xFF {
+                i += 1;
+                continue;
+            }
+            let marker = bytes[i + 1];
+            if marker == 0xC0 || marker == 0xC2 {
+                let h = u16::from_be_bytes([bytes[i + 5], bytes[i + 6]]) as u32;
+                let w = u16::from_be_bytes([bytes[i + 7], bytes[i + 8]]) as u32;
+                return Some((w, h));
+            }
+            // Skip marker segment
+            if i + 3 < bytes.len() {
+                let len = u16::from_be_bytes([bytes[i + 2], bytes[i + 3]]) as usize;
+                i += 2 + len;
+            } else {
+                break;
+            }
+        }
+    }
+    None
+}
+
+/// Get a rotero-cache:// URL for a cached page image, if it exists on disk.
+/// The URL is served by a custom WebView protocol handler registered at launch.
+pub fn page_file_url(data_dir: &Path, pdf_path: &str, page_index: u32, mime: &str) -> Option<String> {
+    let hash = simple_hash(pdf_path);
+    let ext = ext_for_mime(mime);
+    let file_path = data_dir.join("cache").join(&hash).join("pages").join(format!("{page_index}.{ext}"));
+    if file_path.exists() {
+        Some(format!("rotero-cache://{hash}/pages/{page_index}.{ext}"))
+    } else {
+        None
+    }
+}
+
 /// Get the cache directory for a PDF.
 fn cache_dir(data_dir: &Path, pdf_path: &str) -> PathBuf {
     // Use a hash of the PDF path as the cache key
@@ -96,9 +143,19 @@ pub fn load_cached(
             Ok(b) => b,
             Err(_) => continue, // Skip missing pages — they'll be lazy-loaded on scroll
         };
+        let (mut w, mut h) = meta.page_dims.get(i as usize).copied().unwrap_or((0, 0));
+        // Recover dimensions from image header if metadata was corrupted by a race condition
+        if w == 0 || h == 0 {
+            if let Some((iw, ih)) = image_dimensions(&bytes) {
+                w = iw;
+                h = ih;
+            }
+        }
+        if w == 0 || h == 0 {
+            continue; // Can't display without dimensions
+        }
         let base64_data =
             base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
-        let (w, h) = meta.page_dims.get(i as usize).copied().unwrap_or((0, 0));
         pages.push(RenderedPageData {
             page_index: i,
             base64_data: std::sync::Arc::new(base64_data),
@@ -161,7 +218,9 @@ pub fn save_pages(
         }
     }
 
-    // Load existing metadata to merge page_dims (don't clobber previously cached pages)
+    // Re-read metadata right before writing to minimise the race window with
+    // concurrent save threads. Any page_dims entry that is already non-zero is
+    // preserved (not overwritten with (0,0) from resize).
     let mtime = pdf_mtime(pdf_path);
     let mut page_dims: Vec<(u32, u32)> = fs::read_to_string(dir.join("meta.json"))
         .ok()
@@ -177,6 +236,20 @@ pub fn save_pages(
             page_dims.resize(idx + 1, (0, 0));
         }
         page_dims[idx] = (page.width, page.height);
+    }
+
+    // Fill any remaining (0,0) gaps by probing page files on disk.
+    // This recovers dimensions lost due to race conditions between
+    // concurrent save_pages threads.
+    for (i, dims) in page_dims.iter_mut().enumerate() {
+        if *dims == (0, 0) {
+            let img_path = pages_dir.join(format!("{i}.{ext}"));
+            if let Ok(bytes) = fs::read(&img_path) {
+                if let Some(sz) = image_dimensions(&bytes) {
+                    *dims = sz;
+                }
+            }
+        }
     }
 
     let meta = CacheMeta {

@@ -116,20 +116,33 @@ impl PdfTab {
         self.render.rendered_pages.len() as u32
     }
 
-    /// Mark tab as suspended. Rendered pages are kept in memory so they
-    /// don't need to be re-loaded from cache (which can lose pages due to
-    /// race conditions with async cache writes).
+    /// Suspend the tab: clear heavy render data to free memory, but keep
+    /// thumbnails and text data (small) so they don't need re-extraction.
     pub fn suspend(&mut self) {
         self.is_suspended = true;
+        self.render.rendered_pages.clear();
     }
 }
 
 /// Manages all open PDF tabs.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct PdfTabManager {
     pub tabs: Vec<PdfTab>,
     pub active_tab_id: Option<TabId>,
     next_id: u64,
+    /// Max tabs to keep rendered in memory (from settings).
+    max_resident: u32,
+}
+
+impl Default for PdfTabManager {
+    fn default() -> Self {
+        Self {
+            tabs: Vec::new(),
+            active_tab_id: None,
+            next_id: 0,
+            max_resident: 3,
+        }
+    }
 }
 
 impl PdfTabManager {
@@ -168,17 +181,35 @@ impl PdfTabManager {
         self.active_tab_mut().expect("no active tab")
     }
 
-    /// Switch to a tab, suspending the previous one.
+    /// Update the max resident tabs setting.
+    pub fn set_max_resident(&mut self, max_resident: u32) {
+        self.max_resident = max_resident;
+    }
+
+    /// Switch to a tab. Keeps up to `max_resident` tabs' rendered pages in
+    /// memory for fast switching; tabs beyond the limit are suspended.
     pub fn switch_to(&mut self, tab_id: TabId) {
-        if let Some(old_id) = self.active_tab_id
-            && old_id != tab_id
-            && let Some(old_tab) = self.tabs.iter_mut().find(|t| t.id == old_id)
-        {
-            old_tab.suspend();
-        }
         self.active_tab_id = Some(tab_id);
         if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
             tab.is_suspended = false;
+        }
+
+        // Suspend oldest tabs beyond the memory limit
+        let resident: Vec<TabId> = self
+            .tabs
+            .iter()
+            .filter(|t| t.id != tab_id && !t.render.rendered_pages.is_empty())
+            .map(|t| t.id)
+            .collect();
+
+        let limit = self.max_resident.max(1) as usize;
+        if resident.len() >= limit {
+            let to_suspend = resident.len() - (limit - 1);
+            for &id in resident.iter().take(to_suspend) {
+                if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == id) {
+                    tab.suspend();
+                }
+            }
         }
     }
 
