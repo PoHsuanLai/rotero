@@ -131,7 +131,7 @@ pub(crate) fn PdfPageWithOverlay(
                                 probe.remove();
 
                                 for (let span of spans) {{
-                                    if (span.textContent.length <= 1) continue;
+                                    if (span.textContent.trimEnd().length <= 1) continue;
 
                                     let targetW = parseFloat(span.dataset.targetW);
                                     let fontSize = parseFloat(span.style.fontSize);
@@ -146,7 +146,7 @@ pub(crate) fn PdfPageWithOverlay(
                                     }}
 
                                     ctx.font = fontStyle + ' ' + fontWeight + ' ' + scaledFontSize + 'px ' + fontFamily;
-                                    let measured = ctx.measureText(span.textContent).width;
+                                    let measured = ctx.measureText(span.textContent.trimEnd()).width;
 
                                     let transform = '';
                                     if (minFs > 1) {{
@@ -163,7 +163,7 @@ pub(crate) fn PdfPageWithOverlay(
                                 layer.addEventListener('copy', function(evt) {{
                                     let sel = document.getSelection();
                                     if (sel) {{
-                                        let text = sel.toString().normalize('NFC').replace(/\0/g, '');
+                                        let text = sel.toString().normalize('NFC').replace(/\0/g, '').trim();
                                         evt.clipboardData.setData('text/plain', text);
                                         evt.preventDefault();
                                     }}

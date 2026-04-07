@@ -16,7 +16,9 @@ pub(crate) fn start_mcp_server() {
                 return;
             };
             let mcp_db = rotero_mcp::Database::from_conn(conn.clone(), lib_path.clone());
-            let pdf_available = rotero_pdf::PdfEngine::new(None).is_ok();
+            // Disable PDF extraction in embedded mode — pdfium can crash the HTTP server.
+            // The agent can still access paper metadata, annotations, and notes.
+            let pdf_available = false;
             let mcp_server = rotero_mcp::RoteroMcp::new(mcp_db, pdf_available);
 
             let config = rmcp::transport::StreamableHttpServerConfig::default()

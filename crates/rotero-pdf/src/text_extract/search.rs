@@ -106,10 +106,7 @@ pub fn search_in_text_data(text_data: &[PageTextData], query: &str) -> Vec<Searc
             let mut concat = String::new();
             let mut seg_ranges: Vec<(usize, usize)> = Vec::new();
 
-            for (i, seg) in line.iter().enumerate() {
-                if i > 0 {
-                    concat.push(' ');
-                }
+            for seg in line.iter() {
                 let start = concat.len();
                 concat.push_str(&seg.text);
                 seg_ranges.push((start, concat.len()));

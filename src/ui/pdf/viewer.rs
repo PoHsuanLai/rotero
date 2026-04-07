@@ -194,19 +194,11 @@ pub fn PdfViewer() -> Element {
                 match key {
                     Key::Character(ref c) if c == "+" || c == "=" => {
                         let new_zoom = (zoom + 0.3_f32).min(5.0);
-                        let render_tx = render_ch.sender();
-                        let data_dir = config.read().effective_library_path();
-                        spawn(async move {
-                            let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, &data_dir).await;
-                        });
+                        crate::state::commands::set_zoom(&mut tabs, tab_id, new_zoom);
                     }
                     Key::Character(ref c) if c == "-" => {
                         let new_zoom = (zoom - 0.3_f32).max(0.5);
-                        let render_tx = render_ch.sender();
-                        let data_dir = config.read().effective_library_path();
-                        spawn(async move {
-                            let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, &data_dir).await;
-                        });
+                        crate::state::commands::set_zoom(&mut tabs, tab_id, new_zoom);
                     }
                     Key::PageDown => {
                         spawn(async move {

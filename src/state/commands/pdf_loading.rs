@@ -204,44 +204,17 @@ pub async fn render_more_pages(
     Ok(())
 }
 
-pub async fn set_zoom(
-    render_tx: &mpsc::Sender<RenderRequest>,
+/// Update the zoom level for a tab. Only changes the view state —
+/// CSS `zoom` on the page wrapper handles the visual scaling, so
+/// no re-rendering is needed.
+pub fn set_zoom(
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     new_zoom: f32,
-    _data_dir: &std::path::Path,
-) -> Result<(), String> {
-    let (pdf_path, page_count, dpr) = {
-        let mgr = tabs.read();
-        let tab = mgr
-            .tabs
-            .iter()
-            .find(|t| t.id == tab_id)
-            .ok_or("Tab not found")?;
-        (tab.pdf_path.clone(), tab.rendered_count(), tab.view.dpr)
-    };
-    let render_scale = new_zoom * dpr;
+) {
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
             tab.view.zoom = new_zoom;
         }
     });
-    let (reply_tx, reply_rx) = mpsc::channel();
-    render_tx
-        .send(RenderRequest::SetZoom {
-            pdf_path,
-            page_count,
-            new_zoom: render_scale,
-            reply: reply_tx,
-        })
-        .map_err(|e| e.to_string())?;
-    let pages = recv_reply(reply_rx).await?;
-    tabs.with_mut(|mgr| {
-        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
-            tab.view.render_zoom = render_scale;
-            tab.render.rendered_pages = pages;
-            tab.render.text_data.clear();
-        }
-    });
-    Ok(())
 }

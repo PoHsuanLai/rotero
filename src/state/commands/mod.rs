@@ -31,12 +31,6 @@ pub enum RenderRequest {
         zoom: f32,
         reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
     },
-    SetZoom {
-        pdf_path: String,
-        page_count: u32,
-        new_zoom: f32,
-        reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
-    },
     ExtractText {
         pdf_path: String,
         page_dims: Vec<(u32, u32, u32)>,
@@ -114,23 +108,6 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     let result = (|| {
                         let rendered = engine
                             .render_pages(&pdf_path, start, count, zoom)
-                            .map_err(|e| e.to_string())?;
-                        Ok(rendered
-                            .into_iter()
-                            .map(|r| r.into())
-                            .collect::<Vec<RenderedPageData>>())
-                    })();
-                    let _ = reply.send(result);
-                }
-                RenderRequest::SetZoom {
-                    pdf_path,
-                    page_count,
-                    new_zoom,
-                    reply,
-                } => {
-                    let result = (|| {
-                        let rendered = engine
-                            .render_pages(&pdf_path, 0, page_count, new_zoom)
                             .map_err(|e| e.to_string())?;
                         Ok(rendered
                             .into_iter()

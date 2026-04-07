@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::state::app_state::RenderedPageData;
 
 /// Current text extraction version. Bump to invalidate cached text data.
-const TEXT_VERSION: u32 = 3;
+const TEXT_VERSION: u32 = 4;
 
 /// Metadata stored alongside cached pages.
 #[derive(Debug, Serialize, Deserialize)]

@@ -136,7 +136,7 @@ pub async fn precache_pdf(
                 .values()
                 .flat_map(|td| td.segments.iter().map(|s| s.text.as_str()))
                 .collect::<Vec<_>>()
-                .join(" ");
+                .join("");
             if !fulltext.is_empty() {
                 let _ = rotero_db::papers::update_paper_fulltext(conn, pid, &fulltext).await;
             }

@@ -189,6 +189,14 @@ fn extract_page_text_from_doc(
 
         if c.is_whitespace() {
             run.flush(&mut segments, scale_x, scale_y, page_height_pts);
+            // Append trailing space to the last emitted segment so the
+            // browser includes word separators when selecting/copying text
+            // from the virtual text layer.
+            if let Some(last) = segments.last_mut() {
+                if !last.text.ends_with(' ') {
+                    last.text.push(' ');
+                }
+            }
             run.reset_bounds();
             continue;
         }

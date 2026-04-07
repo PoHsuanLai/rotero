@@ -247,11 +247,7 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 class: "btn btn--ghost btn--sm toolbar-zoom-btn",
                 onclick: move |_| {
                     let new_zoom = (zoom - 0.3_f32).max(0.5);
-                    let render_tx = render_ch.sender();
-                    let data_dir = config.read().effective_library_path();
-                    spawn(async move {
-                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, &data_dir).await;
-                    });
+                    crate::state::commands::set_zoom(&mut tabs, tab_id, new_zoom);
                 },
                 span { class: "bi bi-zoom-out" }
             }
@@ -260,11 +256,7 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 class: "btn btn--ghost btn--sm toolbar-zoom-btn",
                 onclick: move |_| {
                     let new_zoom = (zoom + 0.3_f32).min(5.0);
-                    let render_tx = render_ch.sender();
-                    let data_dir = config.read().effective_library_path();
-                    spawn(async move {
-                        let _ = crate::state::commands::set_zoom(&render_tx, &mut tabs, tab_id, new_zoom, &data_dir).await;
-                    });
+                    crate::state::commands::set_zoom(&mut tabs, tab_id, new_zoom);
                 },
                 span { class: "bi bi-zoom-in" }
             }
