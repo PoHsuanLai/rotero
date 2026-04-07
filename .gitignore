@@ -1,3 +1,5 @@
 /target
 /lib
-website/
+website/node_modules/
+website/build/
+website/.svelte-kit/
