@@ -9,7 +9,7 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let mut tools = use_context::<Signal<ViewerToolState>>();
     let render_ch = use_context::<RenderChannel>();
-    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+    let _config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let db = use_context::<Database>();
     let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
     let zoom_percent = (zoom * 100.0 / 1.5) as u32;

@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::sync::mpsc;
 
+use super::LoopResult;
 use super::connection::RawAcpConnection;
 use super::helpers::{
     agent_working_dir, build_mcp_servers_json, extract_auth_methods, extract_models_event,
@@ -9,7 +10,6 @@ use super::helpers::{
 };
 use super::install::ensure_agent_installed;
 use super::types::{AgentProvider, ChatEvent, ChatRequest, PastSession};
-use super::LoopResult;
 
 pub(crate) fn connect_and_run(
     provider: &AgentProvider,
@@ -156,7 +156,10 @@ pub(crate) fn connect_and_run(
 
                 loop {
                     match req_rx.try_recv() {
-                        Ok(ChatRequest::PermissionResponse { request_id, option_id }) => {
+                        Ok(ChatRequest::PermissionResponse {
+                            request_id,
+                            option_id,
+                        }) => {
                             let response = serde_json::json!({
                                 "jsonrpc": "2.0",
                                 "id": request_id,
@@ -183,9 +186,7 @@ pub(crate) fn connect_and_run(
                             break;
                         }
                         Ok(line) => {
-                            if let Ok(v) =
-                                serde_json::from_str::<serde_json::Value>(line.trim())
-                            {
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) {
                                 if v.get("id").and_then(|i| i.as_u64()) == Some(prompt_id) {
                                     if v.get("error").is_some() {
                                         let _ = evt_tx.send(ChatEvent::Error(format!(
@@ -200,7 +201,8 @@ pub(crate) fn connect_and_run(
                                     == Some("session/request_permission")
                                 {
                                     if let Some(req_id) = v.get("id") {
-                                        let tool_title = v.pointer("/params/toolCall/title")
+                                        let tool_title = v
+                                            .pointer("/params/toolCall/title")
                                             .and_then(|t| t.as_str())
                                             .unwrap_or("Tool call")
                                             .to_string();
@@ -212,9 +214,13 @@ pub(crate) fn connect_and_run(
                                         });
                                     }
                                 } else {
-                                    let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+                                    let method =
+                                        v.get("method").and_then(|m| m.as_str()).unwrap_or("");
                                     let has_id = v.get("id").is_some();
-                                    if !has_id || method == "session/update" || method == "sessionUpdate" {
+                                    if !has_id
+                                        || method == "session/update"
+                                        || method == "sessionUpdate"
+                                    {
                                         handle_notification(evt_tx, &v);
                                     } else {
                                         tracing::warn!("ACP: unhandled agent request: {method}");
@@ -229,7 +235,6 @@ pub(crate) fn connect_and_run(
                             }
                         }
                     }
-
                 }
             }
             Ok(ChatRequest::Cancel) => {
@@ -238,7 +243,10 @@ pub(crate) fn connect_and_run(
                     serde_json::json!({ "sessionId": session_id }),
                 );
             }
-            Ok(ChatRequest::PermissionResponse { request_id, option_id }) => {
+            Ok(ChatRequest::PermissionResponse {
+                request_id,
+                option_id,
+            }) => {
                 let response = serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": request_id,
@@ -247,9 +255,13 @@ pub(crate) fn connect_and_run(
                 let _ = conn.write_message(&response);
             }
             Ok(ChatRequest::ListSessions) => {
-                match conn.send_request("session/list", serde_json::json!({
-                    "cwd": agent_working_dir().to_string_lossy(),
-                }), None) {
+                match conn.send_request(
+                    "session/list",
+                    serde_json::json!({
+                        "cwd": agent_working_dir().to_string_lossy(),
+                    }),
+                    None,
+                ) {
                     Ok(result) => {
                         let sessions = result
                             .get("sessions")
@@ -282,8 +294,7 @@ pub(crate) fn connect_and_run(
                         let _ = evt_tx.send(ChatEvent::SessionList(sessions));
                     }
                     Err(e) => {
-                        let _ = evt_tx
-                            .send(ChatEvent::Error(format!("List sessions failed: {e}")));
+                        let _ = evt_tx.send(ChatEvent::Error(format!("List sessions failed: {e}")));
                     }
                 }
             }
@@ -312,8 +323,7 @@ pub(crate) fn connect_and_run(
                         let _ = evt_tx.send(ChatEvent::SessionCreated);
                     }
                     Err(e) => {
-                        let _ = evt_tx
-                            .send(ChatEvent::Error(format!("Load session failed: {e}")));
+                        let _ = evt_tx.send(ChatEvent::Error(format!("Load session failed: {e}")));
                     }
                 }
             }
@@ -367,39 +377,41 @@ pub(crate) fn connect_and_run(
             Err(mpsc::TryRecvError::Empty) => {
                 while let Some(line) = conn.try_read_line() {
                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) {
-                        if let Some(auth_id) = pending_auth_id {
-                            if v.get("id").and_then(|i| i.as_u64()) == Some(auth_id) {
-                                pending_auth_id = None;
-                                if v.get("error").is_some() {
-                                    let _ = evt_tx.send(ChatEvent::Error(format!(
-                                        "Auth failed: {}",
-                                        v["error"]
-                                    )));
-                                } else {
-                                    tracing::info!("ACP: auth completed, creating session...");
-                                    let session_params = serde_json::json!({
-                                        "cwd": agent_working_dir().to_string_lossy(),
-                                        "mcpServers": build_mcp_servers_json(),
-                                    });
-                                    match conn.send_request("session/new", session_params, Some(evt_tx)) {
-                                        Ok(r) => {
-                                            if let Some(sid) = r.get("sessionId").and_then(|v| v.as_str()) {
-                                                session_id = sid.to_string();
-                                            }
-                                            let _ = evt_tx.send(ChatEvent::SessionCreated);
+                        if let Some(auth_id) = pending_auth_id
+                            && v.get("id").and_then(|i| i.as_u64()) == Some(auth_id)
+                        {
+                            pending_auth_id = None;
+                            if v.get("error").is_some() {
+                                let _ = evt_tx
+                                    .send(ChatEvent::Error(format!("Auth failed: {}", v["error"])));
+                            } else {
+                                tracing::info!("ACP: auth completed, creating session...");
+                                let session_params = serde_json::json!({
+                                    "cwd": agent_working_dir().to_string_lossy(),
+                                    "mcpServers": build_mcp_servers_json(),
+                                });
+                                match conn.send_request("session/new", session_params, Some(evt_tx))
+                                {
+                                    Ok(r) => {
+                                        if let Some(sid) =
+                                            r.get("sessionId").and_then(|v| v.as_str())
+                                        {
+                                            session_id = sid.to_string();
                                         }
-                                        Err(e) if is_auth_error(&e) => {
-                                            let _ = evt_tx.send(ChatEvent::AuthRequired {
-                                                provider_name: provider.name.to_string(),
-                                            });
-                                        }
-                                        Err(e) => {
-                                            let _ = evt_tx.send(ChatEvent::Error(format!("Session failed: {e}")));
-                                        }
+                                        let _ = evt_tx.send(ChatEvent::SessionCreated);
+                                    }
+                                    Err(e) if is_auth_error(&e) => {
+                                        let _ = evt_tx.send(ChatEvent::AuthRequired {
+                                            provider_name: provider.name.to_string(),
+                                        });
+                                    }
+                                    Err(e) => {
+                                        let _ = evt_tx
+                                            .send(ChatEvent::Error(format!("Session failed: {e}")));
                                     }
                                 }
-                                continue;
                             }
+                            continue;
                         }
                         if v.get("method").and_then(|m| m.as_str())
                             == Some("session/request_permission")
@@ -418,14 +430,14 @@ pub(crate) fn connect_and_run(
                         handle_notification(evt_tx, &v);
                     }
                 }
-                if let (Some(_), Some(start)) = (pending_auth_id, pending_auth_start) {
-                    if start.elapsed() > AUTH_TIMEOUT {
-                        pending_auth_id = None;
-                        pending_auth_start = None;
-                        let _ = evt_tx.send(ChatEvent::Error(
-                            "Sign in timed out. Try again from Settings > AI Agent.".into(),
-                        ));
-                    }
+                if let (Some(_), Some(start)) = (pending_auth_id, pending_auth_start)
+                    && start.elapsed() > AUTH_TIMEOUT
+                {
+                    pending_auth_id = None;
+                    pending_auth_start = None;
+                    let _ = evt_tx.send(ChatEvent::Error(
+                        "Sign in timed out. Try again from Settings > AI Agent.".into(),
+                    ));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }

@@ -4,8 +4,8 @@ pub mod font;
 pub mod search;
 pub mod segments;
 
-use std::sync::Arc;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// A single text segment with its position in pixel coordinates.
 #[derive(Debug, Clone, Serialize, Deserialize)]

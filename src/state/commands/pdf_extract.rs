@@ -2,7 +2,7 @@ use std::sync::mpsc;
 
 use dioxus::prelude::*;
 
-use super::{recv_reply, RenderRequest};
+use super::{RenderRequest, recv_reply};
 use crate::state::app_state::LibraryState;
 
 pub async fn extract_and_fetch_metadata(

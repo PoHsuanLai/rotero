@@ -99,10 +99,7 @@ pub fn App() -> Element {
         use_context_provider(|| Signal::new(ChatState::default()));
     let (agent_tx, agent_rx) = use_hook(|| {
         let (req_tx, evt_rx) = crate::agent::spawn_agent_thread();
-        (
-            Signal::new(Some(req_tx)),
-            Signal::new(Some(evt_rx)),
-        )
+        (Signal::new(Some(req_tx)), Signal::new(Some(evt_rx)))
     });
     let agent_channel: AgentChannel = use_context_provider(|| AgentChannel { inner: agent_tx });
     let _ = agent_channel;
@@ -110,7 +107,9 @@ pub fn App() -> Element {
     use_future(move || {
         let mut rx_sig = agent_rx;
         async move {
-            let Some(mut rx) = rx_sig.write().take() else { return; };
+            let Some(mut rx) = rx_sig.write().take() else {
+                return;
+            };
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 while let Ok(event) = rx.try_recv() {

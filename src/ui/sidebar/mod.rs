@@ -5,8 +5,8 @@ pub mod tags;
 
 pub use nav::Sidebar;
 
-use dioxus::prelude::*;
 use crate::state::app_state::{LibraryState, LibraryView};
+use dioxus::prelude::*;
 
 pub(super) type TagContextMenu = (String, String, Option<String>, f64, f64);
 

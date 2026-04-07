@@ -19,7 +19,8 @@ pub(crate) fn init_database(config: &crate::sync::engine::SyncConfig) -> Result<
             .build()
             .await
             .map_err(|e| format!("Failed to open database: {e}"))?;
-        let conn = db.connect()
+        let conn = db
+            .connect()
             .map_err(|e| format!("Failed to connect to database: {e}"))?;
         rotero_db::schema::initialize_db(&conn)
             .await

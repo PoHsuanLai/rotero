@@ -8,7 +8,10 @@ use super::TagContextMenu;
 /// Own component so signal reads are tracked correctly
 /// (CollapsibleSection children don't re-render when context signals change).
 #[component]
-pub(crate) fn TagSection(tags: Vec<rotero_models::Tag>, ctx_menu: Signal<Option<TagContextMenu>>) -> Element {
+pub(crate) fn TagSection(
+    tags: Vec<rotero_models::Tag>,
+    ctx_menu: Signal<Option<TagContextMenu>>,
+) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
     let mut drag_paper = use_context::<Signal<DragPaper>>();

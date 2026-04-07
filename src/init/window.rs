@@ -160,7 +160,9 @@ pub(crate) fn launch_desktop(config: &crate::sync::engine::SyncConfig) {
 
                     // Prevent path traversal: canonicalize and verify the path is within cache_dir
                     let body = match (file_path.canonicalize(), cache_dir.canonicalize()) {
-                        (Ok(canonical), Ok(cache_canonical)) if canonical.starts_with(&cache_canonical) => {
+                        (Ok(canonical), Ok(cache_canonical))
+                            if canonical.starts_with(&cache_canonical) =>
+                        {
                             std::fs::read(&canonical).unwrap_or_default()
                         }
                         _ => Vec::new(),

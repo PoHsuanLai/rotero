@@ -157,9 +157,7 @@ pub fn GraphView() -> Element {
     // Never-resolving promise keeps the eval channel open for dioxus.send() messages from JS
     use_hook(move || {
         spawn(async move {
-            let mut eval = document::eval(
-                "new Promise(() => {})",
-            );
+            let mut eval = document::eval("new Promise(() => {})");
             while let Ok(msg) = eval.recv::<String>().await {
                 if let Ok(event) = serde_json::from_str::<GraphEvent>(&msg) {
                     match event.event_type.as_str() {
@@ -174,32 +172,36 @@ pub fn GraphView() -> Element {
                                 .papers
                                 .iter()
                                 .find(|p| p.id.as_deref() == Some(event.id.as_str()))
+                                && let Some(ref pdf_path) = paper.links.pdf_path
                             {
-                                if let Some(ref pdf_path) = paper.links.pdf_path {
-                                    let abs_path = db
-                                        .resolve_pdf_path(pdf_path)
-                                        .to_string_lossy()
-                                        .to_string();
-                                    let title = paper.title.clone();
-                                    let pid = event.id.clone();
-                                    drop(state);
-                                    let cfg = config.read();
-                                    let dpr_val = dpr.read().0;
-                                    tabs.with_mut(|m| {
-                                        m.open_or_switch(
-                                            pid.clone(),
-                                            abs_path,
-                                            title,
-                                            cfg.pdf.default_zoom,
-                                            cfg.pdf.page_batch_size,
-                                            dpr_val,
-                                        )
-                                    });
-                                    lib_state.with_mut(|s| { s.touch_paper(&pid); s.view = LibraryView::PdfViewer; });
-                                    let db_touch = db.clone();
-                                    let pid_touch = pid;
-                                    spawn(async move { let _ = rotero_db::papers::touch_paper(db_touch.conn(), &pid_touch).await; });
-                                }
+                                let abs_path =
+                                    db.resolve_pdf_path(pdf_path).to_string_lossy().to_string();
+                                let title = paper.title.clone();
+                                let pid = event.id.clone();
+                                drop(state);
+                                let cfg = config.read();
+                                let dpr_val = dpr.read().0;
+                                tabs.with_mut(|m| {
+                                    m.open_or_switch(
+                                        pid.clone(),
+                                        abs_path,
+                                        title,
+                                        cfg.pdf.default_zoom,
+                                        cfg.pdf.page_batch_size,
+                                        dpr_val,
+                                    )
+                                });
+                                lib_state.with_mut(|s| {
+                                    s.touch_paper(&pid);
+                                    s.view = LibraryView::PdfViewer;
+                                });
+                                let db_touch = db.clone();
+                                let pid_touch = pid;
+                                spawn(async move {
+                                    let _ =
+                                        rotero_db::papers::touch_paper(db_touch.conn(), &pid_touch)
+                                            .await;
+                                });
                             }
                         }
                         _ => {}

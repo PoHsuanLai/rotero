@@ -108,10 +108,10 @@ pub async fn find_oa_pdf(doi: Option<&str>, title: &str) -> Result<Option<String
     // Try DOI lookup first — exact match
     if let Some(doi) = doi {
         let url = format!("{OPENALEX_API}/https://doi.org/{doi}");
-        if let Ok(work) = fetch_work(&url).await {
-            if let Some(oa_url) = work.open_access.and_then(|oa| oa.oa_url) {
-                return Ok(Some(oa_url));
-            }
+        if let Ok(work) = fetch_work(&url).await
+            && let Some(oa_url) = work.open_access.and_then(|oa| oa.oa_url)
+        {
+            return Ok(Some(oa_url));
         }
     }
 
@@ -259,7 +259,11 @@ fn work_to_paper(work: OpenAlexWork, doi: &str) -> Result<Paper, String> {
         title,
         authors,
         year: work.publication_year,
-        doi: if doi.is_empty() { None } else { Some(doi.to_string()) },
+        doi: if doi.is_empty() {
+            None
+        } else {
+            Some(doi.to_string())
+        },
         abstract_text,
         publication: Publication {
             journal,

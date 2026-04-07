@@ -35,10 +35,10 @@ pub fn build_and_simulate(
     // Build paper -> first tag color lookup
     let mut paper_tag_color: HashMap<&str, String> = HashMap::new();
     for (paper_id, tag_id) in paper_tag_pairs {
-        if !paper_tag_color.contains_key(paper_id.as_str()) {
-            if let Some(&color) = tag_colors.get(tag_id.as_str()) {
-                paper_tag_color.insert(paper_id.as_str(), color.to_string());
-            }
+        if !paper_tag_color.contains_key(paper_id.as_str())
+            && let Some(&color) = tag_colors.get(tag_id.as_str())
+        {
+            paper_tag_color.insert(paper_id.as_str(), color.to_string());
         }
     }
 

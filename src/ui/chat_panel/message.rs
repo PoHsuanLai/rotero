@@ -1,6 +1,8 @@
 use dioxus::prelude::*;
 
-use crate::agent::types::{ChatMessage, ChatRequest, ChatRole, ChatState, MessageContent, ToolStatus};
+use crate::agent::types::{
+    ChatMessage, ChatRequest, ChatRole, ChatState, MessageContent, ToolStatus,
+};
 use crate::ui::chat_panel::AgentChannel;
 
 #[component]

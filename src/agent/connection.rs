@@ -38,7 +38,9 @@ impl RawAcpConnection {
             cmd.process_group(0);
         }
 
-        let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn node: {e}"))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn node: {e}"))?;
         let stdout = child.stdout.take().ok_or("No stdout")?;
 
         let (line_tx, line_rx) = mpsc::channel();

@@ -14,10 +14,7 @@ pub fn export_bibtex(papers: &[Paper]) -> String {
 
         let mut fields: Vec<String> = Vec::new();
 
-        fields.push(format!(
-            "  title = {{{}}}",
-            sanitize_bibtex(&paper.title)
-        ));
+        fields.push(format!("  title = {{{}}}", sanitize_bibtex(&paper.title)));
 
         if !paper.authors.is_empty() {
             let authors_str = paper.authors.join(" and ");
@@ -67,11 +64,10 @@ pub fn export_bibtex(papers: &[Paper]) -> String {
     output
 }
 
-
 fn sanitize_bibtex(s: &str) -> String {
     // Remove all braces — they're unreliable from metadata sources
     // and the outer `{...}` wrapper already protects the value
-    s.replace('{', "").replace('}', "")
+    s.replace(['{', '}'], "")
 }
 
 /// Format: `lastnameYeartitleword` (e.g., `eysenbach2019attention`).

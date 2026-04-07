@@ -78,7 +78,7 @@ impl Default for ConnectorConfig {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct FileSyncConfig {
     #[serde(default)]
     pub sync_enabled: bool,
@@ -93,18 +93,6 @@ pub struct FileSyncConfig {
     /// Path for auto-exported .bib file (Better BibTeX). None = disabled.
     #[serde(default)]
     pub auto_export_bib_path: Option<String>,
-}
-
-impl Default for FileSyncConfig {
-    fn default() -> Self {
-        Self {
-            sync_enabled: false,
-            sync_folder_path: None,
-            sync_transport: SyncTransport::default(),
-            library_path: None,
-            auto_export_bib_path: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

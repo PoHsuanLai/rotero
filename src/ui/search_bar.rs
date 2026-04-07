@@ -81,10 +81,10 @@ pub fn SearchBar() -> Element {
                         }
                         match provider.search_full(&query, 20).await {
                             Ok(metas) => {
-                                let papers: Vec<_> =
-                                    metas;
+                                let papers: Vec<_> = metas;
                                 if lib_state.read().search.query == query {
-                                    lib_state.with_mut(|s| s.search.external_results = Some(papers));
+                                    lib_state
+                                        .with_mut(|s| s.search.external_results = Some(papers));
                                 }
                             }
                             Err(e) => {

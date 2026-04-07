@@ -48,7 +48,7 @@ pub struct CitationInfo {
     pub extra_meta: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Paper {
     pub id: Option<String>,
     pub title: String,
@@ -60,23 +60,6 @@ pub struct Paper {
     pub links: PaperLinks,
     pub status: LibraryStatus,
     pub citation: CitationInfo,
-}
-
-impl Default for Paper {
-    fn default() -> Self {
-        Self {
-            id: None,
-            title: String::new(),
-            authors: Vec::new(),
-            year: None,
-            doi: None,
-            abstract_text: None,
-            publication: Publication::default(),
-            links: PaperLinks::default(),
-            status: LibraryStatus::default(),
-            citation: CitationInfo::default(),
-        }
-    }
 }
 
 impl Paper {

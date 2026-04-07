@@ -1,11 +1,11 @@
 use dioxus::prelude::*;
 
+use super::AnnCtxState;
 use super::annotation_panel::{AnnotationContextMenu, AnnotationPanel};
 use super::navigation::{OutlinePanel, ThumbnailSidebar};
 use super::page_overlay::PdfPageWithOverlay;
 use super::search_bar::PdfSearchBar;
 use super::toolbar::PdfToolbar;
-use super::AnnCtxState;
 use crate::app::RenderChannel;
 use crate::state::app_state::{PdfTabManager, ViewerToolState};
 use rotero_db::Database;
@@ -46,11 +46,9 @@ pub fn PdfViewer() -> Element {
         let data_dir = config.read().effective_library_path();
         let db = db.clone();
         spawn(async move {
-            if crate::state::commands::open_pdf(
-                &render_tx, &mut tabs, tid, &data_dir,
-            )
-            .await
-            .is_ok()
+            if crate::state::commands::open_pdf(&render_tx, &mut tabs, tid, &data_dir)
+                .await
+                .is_ok()
             {
                 let paper_id = tabs.read().active_tab().and_then(|t| t.paper_id.clone());
                 if let Some(ref pid) = paper_id {

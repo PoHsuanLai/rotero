@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub(crate) const NODE_VERSION: &str = "v22.16.0";
@@ -43,7 +43,7 @@ fn node_cache_dir() -> PathBuf {
     base.join("com.rotero.Rotero").join("node")
 }
 
-fn node_binary_path(node_dir: &PathBuf) -> PathBuf {
+fn node_binary_path(node_dir: &Path) -> PathBuf {
     if cfg!(windows) {
         node_dir.join("node.exe")
     } else {
@@ -51,7 +51,7 @@ fn node_binary_path(node_dir: &PathBuf) -> PathBuf {
     }
 }
 
-fn npm_binary_path(node_dir: &PathBuf) -> PathBuf {
+fn npm_binary_path(node_dir: &Path) -> PathBuf {
     if cfg!(windows) {
         node_dir.join("npm.cmd")
     } else {
@@ -83,7 +83,12 @@ fn download_node(node_dir: &PathBuf) -> Result<(), String> {
 
     if ext == "zip" {
         let output = Command::new("tar")
-            .args(["-xf", &tmp_archive.to_string_lossy(), "-C", &node_dir.to_string_lossy()])
+            .args([
+                "-xf",
+                &tmp_archive.to_string_lossy(),
+                "-C",
+                &node_dir.to_string_lossy(),
+            ])
             .output()
             .map_err(|e| format!("Failed to extract: {e}"))?;
         if !output.status.success() {

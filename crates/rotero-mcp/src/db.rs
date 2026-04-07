@@ -33,6 +33,7 @@ impl Database {
     }
 
     /// Create from an existing connection (for embedding in the main app).
+    #[allow(dead_code)] // public API for embedding
     pub fn from_conn(conn: Connection, data_dir: std::path::PathBuf) -> Self {
         Self { conn, data_dir }
     }

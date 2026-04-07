@@ -25,7 +25,10 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
     let unread_count = papers.iter().filter(|p| !p.status.is_read).count();
     let recent_count = total.min(20);
 
-    let mut recent_papers: Vec<_> = papers.iter().filter(|p| p.links.pdf_path.is_some()).collect();
+    let mut recent_papers: Vec<_> = papers
+        .iter()
+        .filter(|p| p.links.pdf_path.is_some())
+        .collect();
     recent_papers.sort_by(|a, b| b.status.date_modified.cmp(&a.status.date_modified));
     let recent_opened: Vec<_> = recent_papers.into_iter().take(5).collect();
 

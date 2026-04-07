@@ -359,7 +359,10 @@ async fn read_i64_state(conn: &rotero_db::turso::Connection, key: &str) -> i64 {
         .await
         .and_then(|bytes| {
             if bytes.len() >= 8 {
-                bytes.get(..8).and_then(|b| b.try_into().ok()).map(i64::from_le_bytes)
+                bytes
+                    .get(..8)
+                    .and_then(|b| b.try_into().ok())
+                    .map(i64::from_le_bytes)
             } else {
                 None
             }

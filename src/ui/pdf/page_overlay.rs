@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 
-use super::{hex_to_rgba, AnnCtxState};
+use super::{AnnCtxState, hex_to_rgba};
 use crate::state::app_state::{
     AnnotationContextInfo, AnnotationMode, PdfTabManager, TabId, ViewerToolState,
 };
@@ -42,8 +42,7 @@ pub(crate) fn PdfPageWithOverlay(
         .text_data
         .get(&page_index)
         .map(|td| td.segments.clone())
-        .unwrap_or_default()
-        .into();
+        .unwrap_or_default();
     let search_bounds: Vec<(f64, f64, f64, f64)> = tab
         .search
         .matches

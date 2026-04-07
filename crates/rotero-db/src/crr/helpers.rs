@@ -167,7 +167,6 @@ pub(crate) async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str
                     ]),
                 )
                 .await;
-            return;
         }
         "collections" => {
             let sql = "INSERT OR IGNORE INTO collections (id, name, position) VALUES (?1, '', 0)";
@@ -177,7 +176,6 @@ pub(crate) async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str
                     turso::params::Params::Positional(vec![Value::Text(pk.to_string())]),
                 )
                 .await;
-            return;
         }
         "tags" => {
             let sql = "INSERT OR IGNORE INTO tags (id, name) VALUES (?1, '')";
@@ -187,7 +185,6 @@ pub(crate) async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str
                     turso::params::Params::Positional(vec![Value::Text(pk.to_string())]),
                 )
                 .await;
-            return;
         }
         "annotations" => {
             let sql = "INSERT OR IGNORE INTO annotations (id, paper_id, page, ann_type, color, geometry, created_at, modified_at) \
@@ -202,7 +199,6 @@ pub(crate) async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str
                     ]),
                 )
                 .await;
-            return;
         }
         "notes" => {
             let sql = "INSERT OR IGNORE INTO notes (id, paper_id, title, body, created_at, modified_at) \
@@ -217,7 +213,6 @@ pub(crate) async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str
                     ]),
                 )
                 .await;
-            return;
         }
         "saved_searches" => {
             let sql = "INSERT OR IGNORE INTO saved_searches (id, name, query, created_at) \
@@ -231,7 +226,6 @@ pub(crate) async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str
                     ]),
                 )
                 .await;
-            return;
         }
         "paper_collections" => {
             // Junction table — pk is "paper_id:collection_id"
@@ -248,7 +242,6 @@ pub(crate) async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str
                     )
                     .await;
             }
-            return;
         }
         "paper_tags" => {
             let parts: Vec<&str> = pk.splitn(2, ':').collect();
@@ -264,10 +257,9 @@ pub(crate) async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str
                     )
                     .await;
             }
-            return;
         }
-        _ => return,
-    };
+        _ => {}
+    }
 }
 
 pub(crate) use super::state::site_id;

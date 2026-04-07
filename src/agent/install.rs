@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::node::find_npm;
@@ -45,7 +45,7 @@ pub(crate) fn ensure_agent_installed(provider: &AgentProvider) -> Result<PathBuf
     resolve_bin_entry(&pkg_root)
 }
 
-pub(crate) fn resolve_bin_entry(pkg_root: &PathBuf) -> Result<PathBuf, String> {
+pub(crate) fn resolve_bin_entry(pkg_root: &Path) -> Result<PathBuf, String> {
     let pkg_json = pkg_root.join("package.json");
     let content =
         std::fs::read_to_string(&pkg_json).map_err(|e| format!("Can't read package.json: {e}"))?;
@@ -80,7 +80,11 @@ pub(crate) fn find_mcp_binary() -> Option<PathBuf> {
     }
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for dir in [&manifest_dir, &manifest_dir.join(".."), &manifest_dir.join("../..")]  {
+    for dir in [
+        &manifest_dir,
+        &manifest_dir.join(".."),
+        &manifest_dir.join("../.."),
+    ] {
         for profile in ["release", "debug"] {
             let candidate = dir.join("target").join(profile).join("rotero-mcp");
             if candidate.exists() {

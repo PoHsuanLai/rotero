@@ -3,9 +3,9 @@ pub mod scrape;
 
 use std::sync::Arc;
 
+use axum::http::Method;
 use axum::{Router, routing::get, routing::post};
 use tower_http::cors::{Any, CorsLayer};
-use axum::http::Method;
 
 use handlers::{CollectionInfo, TagInfo};
 use rotero_models::Paper;

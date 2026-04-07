@@ -1,14 +1,14 @@
-pub mod types;
 mod connection;
 mod helpers;
 mod install;
 mod node;
 mod session;
+pub mod types;
 
 use std::sync::mpsc;
 
 use session::connect_and_run;
-use types::{ChatEvent, ChatRequest, AGENT_PROVIDERS};
+use types::{AGENT_PROVIDERS, ChatEvent, ChatRequest};
 
 pub(crate) enum LoopResult {
     SwitchAgent(String),

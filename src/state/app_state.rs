@@ -395,7 +395,11 @@ impl LibraryState {
     }
 
     pub fn touch_paper(&mut self, paper_id: &str) {
-        if let Some(p) = self.papers.iter_mut().find(|p| p.id.as_deref() == Some(paper_id)) {
+        if let Some(p) = self
+            .papers
+            .iter_mut()
+            .find(|p| p.id.as_deref() == Some(paper_id))
+        {
             p.status.date_modified = chrono::Utc::now();
         }
     }

@@ -48,7 +48,12 @@ pub fn SyncSection() -> Element {
     let enabled = config.read().sync.sync_enabled;
     let transport = config.read().sync.sync_transport.clone();
     let is_cloudkit = transport == SyncTransport::CloudKit;
-    let folder = config.read().sync.sync_folder_path.clone().unwrap_or_default();
+    let folder = config
+        .read()
+        .sync
+        .sync_folder_path
+        .clone()
+        .unwrap_or_default();
     let has_folder = !folder.is_empty();
 
     rsx! {

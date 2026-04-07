@@ -1,11 +1,9 @@
 use std::path::PathBuf;
 use std::sync::mpsc;
 
-use super::install::{find_mcp_binary, find_pdfium_path};
-use super::types::{
-    AgentAuthMethod, AgentModel, ChatEvent, ChatRequest, SlashCommand, ToolStatus,
-};
 use super::LoopResult;
+use super::install::{find_mcp_binary, find_pdfium_path};
+use super::types::{AgentAuthMethod, AgentModel, ChatEvent, ChatRequest, SlashCommand, ToolStatus};
 
 pub(crate) fn agent_working_dir() -> PathBuf {
     directories::BaseDirs::new()
@@ -162,7 +160,11 @@ pub(crate) fn handle_notification(
                                         })
                                 })
                                 .collect();
-                            if texts.is_empty() { None } else { Some(texts.join("\n")) }
+                            if texts.is_empty() {
+                                None
+                            } else {
+                                Some(texts.join("\n"))
+                            }
                         });
                     let _ = evt_tx.send(ChatEvent::ToolCallUpdated { id, status, output });
                 }
@@ -225,8 +227,14 @@ pub(crate) fn extract_permission_options(v: &serde_json::Value) -> Vec<(String, 
         .map(|arr| {
             arr.iter()
                 .map(|opt| {
-                    let id = opt.get("optionId").and_then(|v| v.as_str()).unwrap_or("default").to_string();
-                    let label = opt.get("label").and_then(|v| v.as_str())
+                    let id = opt
+                        .get("optionId")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("default")
+                        .to_string();
+                    let label = opt
+                        .get("label")
+                        .and_then(|v| v.as_str())
                         .or_else(|| opt.get("name").and_then(|v| v.as_str()))
                         .unwrap_or(&id)
                         .to_string();
@@ -256,10 +264,19 @@ pub(crate) fn first_allow_option_id(v: &serde_json::Value) -> String {
 
 pub(crate) fn strip_protocol_tags(text: &str) -> String {
     let tag_patterns = [
-        "command-name", "command-message", "command-args",
-        "local-command-stdout", "local-command-stderr", "local-command-caveat",
-        "system-reminder", "task-notification", "task-id", "tool-use-id",
-        "output-file", "status", "summary",
+        "command-name",
+        "command-message",
+        "command-args",
+        "local-command-stdout",
+        "local-command-stderr",
+        "local-command-caveat",
+        "system-reminder",
+        "task-notification",
+        "task-id",
+        "tool-use-id",
+        "output-file",
+        "status",
+        "summary",
         "rotero-context",
     ];
 
@@ -269,7 +286,11 @@ pub(crate) fn strip_protocol_tags(text: &str) -> String {
         let close = format!("</{tag}>");
         while let Some(start) = result.find(&open) {
             if let Some(end) = result[start..].find(&close) {
-                result = format!("{}{}", &result[..start], &result[start + end + close.len()..]);
+                result = format!(
+                    "{}{}",
+                    &result[..start],
+                    &result[start + end + close.len()..]
+                );
             } else if let Some(end) = result[start..].find('>') {
                 result = format!("{}{}", &result[..start], &result[start + end + 1..]);
             } else {
@@ -288,9 +309,21 @@ pub(crate) fn extract_models_event(models: &serde_json::Value) -> ChatEvent {
         .map(|arr| {
             arr.iter()
                 .map(|m| AgentModel {
-                    id: m.get("modelId").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    name: m.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    description: m.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    id: m
+                        .get("modelId")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    name: m
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    description: m
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                 })
                 .collect()
         })
@@ -302,7 +335,10 @@ pub(crate) fn extract_models_event(models: &serde_json::Value) -> ChatEvent {
         .unwrap_or("default")
         .to_string();
 
-    ChatEvent::ModelsAvailable { models: available, current }
+    ChatEvent::ModelsAvailable {
+        models: available,
+        current,
+    }
 }
 
 pub(crate) fn extract_auth_methods(init_result: &serde_json::Value) -> Vec<AgentAuthMethod> {

@@ -58,10 +58,7 @@ fn parse_arxiv_entries(xml: &str) -> Result<Vec<Paper>, String> {
 
 /// Fetch metadata from the arXiv API using an arXiv ID (e.g. "1802.06070").
 pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<Paper, String> {
-    let url = format!(
-        "{ARXIV_API}?id_list={}",
-        urlencoding::encode(arxiv_id)
-    );
+    let url = format!("{ARXIV_API}?id_list={}", urlencoding::encode(arxiv_id));
 
     let client = crate::shared_client();
     let resp = client

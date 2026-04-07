@@ -82,6 +82,7 @@ impl ScrapedFields {
 }
 
 /// Extracts scholarly metadata from HTML meta tags and JSON-LD.
+#[allow(clippy::field_reassign_with_default)] // fields computed incrementally from HTML
 pub fn extract_from_html(html: &str) -> Paper {
     let doc = Html::parse_document(html);
     let mut meta = ScrapedFields::default();

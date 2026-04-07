@@ -67,9 +67,11 @@ pub fn LoadLibraryData() -> Element {
                                     )
                                     .await;
                                     lib_state.with_mut(|s| {
-                                        if let Some(p) = s.papers.iter_mut().find(|p| {
-                                            p.id.as_deref() == Some(paper_id.as_str())
-                                        }) {
+                                        if let Some(p) = s
+                                            .papers
+                                            .iter_mut()
+                                            .find(|p| p.id.as_deref() == Some(paper_id.as_str()))
+                                        {
                                             p.citation.citation_count = Some(count);
                                         }
                                     });
@@ -130,9 +132,11 @@ pub fn LoadLibraryData() -> Element {
                         {
                             let pid = paper_id.clone();
                             lib_state.with_mut(|s| {
-                                if let Some(p) = s.papers.iter_mut().find(|p| {
-                                    p.id.as_deref() == Some(pid.as_str())
-                                }) {
+                                if let Some(p) = s
+                                    .papers
+                                    .iter_mut()
+                                    .find(|p| p.id.as_deref() == Some(pid.as_str()))
+                                {
                                     p.citation.citation_key = Some(key.clone());
                                 }
                             });

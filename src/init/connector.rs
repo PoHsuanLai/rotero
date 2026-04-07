@@ -10,9 +10,7 @@ pub static CONNECTOR_NOTIFY: std::sync::OnceLock<
 > = std::sync::OnceLock::new();
 
 #[cfg(feature = "desktop")]
-pub(crate) fn start_connector(
-    config: &crate::sync::engine::SyncConfig,
-) {
+pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
     let (connector_tx, connector_rx) = tokio::sync::watch::channel(());
 
     if config.connector.connector_enabled {

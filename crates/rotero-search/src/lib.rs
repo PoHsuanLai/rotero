@@ -48,11 +48,7 @@ impl SearchProvider {
 
     /// Full search with complete metadata (authors, abstract, etc.).
     /// For OpenAlex this uses the slower but richer search endpoint.
-    pub async fn search_full(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> Result<Vec<Paper>, String> {
+    pub async fn search_full(&self, query: &str, limit: usize) -> Result<Vec<Paper>, String> {
         match self {
             Self::OpenAlex => openalex::search_papers(query, limit).await,
             Self::ArXiv => arxiv::search_papers(query, limit).await,

@@ -7,7 +7,11 @@ pub fn ChatToggleButton() -> Element {
     let mut chat_state = use_context::<Signal<ChatState>>();
     let is_open = chat_state.read().panel_open;
 
-    let class = if is_open { "btn btn--ghost-active btn--sm" } else { "btn btn--ghost btn--sm" };
+    let class = if is_open {
+        "btn btn--ghost-active btn--sm"
+    } else {
+        "btn btn--ghost btn--sm"
+    };
 
     rsx! {
         button {

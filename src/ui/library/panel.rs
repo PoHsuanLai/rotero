@@ -1,11 +1,11 @@
 use dioxus::prelude::*;
 use dioxus_elements::HasFileData;
 
+use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTabManager};
 use crate::ui::chat_panel::ChatToggleButton;
 use crate::ui::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use crate::ui::import_export::ImportExportButtons;
 use crate::ui::search_bar::SearchBar;
-use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTabManager};
 use rotero_db::Database;
 
 use super::add_paper::{AddPaperButtons, AddPaperDOIInput};
@@ -420,11 +420,10 @@ pub fn LibraryPanel() -> Element {
                                                         if let Some(best) = best {
                                                             let keep_id = best.id.clone().unwrap_or_default();
                                                             for p in group {
-                                                                if let Some(ref id) = p.id {
-                                                                    if *id != keep_id {
+                                                                if let Some(ref id) = p.id
+                                                                    && *id != keep_id {
                                                                         let _ = rotero_db::papers::merge_papers(db.conn(), &keep_id, id).await;
                                                                     }
-                                                                }
                                                             }
                                                         }
                                                     }
@@ -953,7 +952,11 @@ fn GraphToggleButton() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let is_graph = lib_state.read().view == LibraryView::Graph;
 
-    let class = if is_graph { "btn btn--ghost-active btn--sm" } else { "btn btn--ghost btn--sm" };
+    let class = if is_graph {
+        "btn btn--ghost-active btn--sm"
+    } else {
+        "btn btn--ghost btn--sm"
+    };
 
     rsx! {
         button {

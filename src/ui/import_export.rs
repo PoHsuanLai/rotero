@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use dioxus::prelude::*;
 
@@ -19,8 +19,15 @@ pub struct OaPending {
 #[derive(Clone, PartialEq)]
 pub enum OaState {
     Prompt(Vec<OaPending>),
-    Downloading { done: usize, total: usize, downloaded: usize },
-    Done { downloaded: usize, total: usize },
+    Downloading {
+        done: usize,
+        total: usize,
+        downloaded: usize,
+    },
+    Done {
+        downloaded: usize,
+        total: usize,
+    },
 }
 
 #[derive(Clone)]
@@ -108,8 +115,8 @@ fn ImportButton() -> Element {
 
                                                 if let (Some(bib_dir), Some(rel_pdf)) = (&bib_dir, &source_pdf) {
                                                     let pdf_abs = bib_dir.join(rel_pdf);
-                                                    if pdf_abs.exists() {
-                                                        if let Ok(rel_path) = db.import_pdf(
+                                                    if pdf_abs.exists()
+                                                        && let Ok(rel_path) = db.import_pdf(
                                                             pdf_abs.to_str().unwrap_or_default(),
                                                             Some(paper.title.as_str()),
                                                             paper.authors.first().map(|a| a.as_str()),
@@ -119,7 +126,6 @@ fn ImportButton() -> Element {
                                                             paper.links.pdf_path = Some(rel_path);
                                                             pdfs_found += 1;
                                                         }
-                                                    }
                                                 }
 
                                                 if paper.links.pdf_path.is_none() {
@@ -217,15 +223,15 @@ fn OaPromptDialog(papers: Vec<OaPending>) -> Element {
                                     oa_state.set(Some(OaState::Downloading { done: i + 1, total, downloaded }));
                                     if let Ok(Some(pdf_url)) = crate::metadata::openalex::find_oa_pdf(p.doi.as_deref(), &p.title).await {
                                         if cancelled.load(Ordering::Relaxed) { break; }
-                                        if let Ok(resp) = reqwest::get(&pdf_url).await {
-                                            if resp.status().is_success() {
+                                        if let Ok(resp) = reqwest::get(&pdf_url).await
+                                            && resp.status().is_success() {
                                                 let is_pdf = resp.headers()
                                                     .get(reqwest::header::CONTENT_TYPE)
                                                     .and_then(|v| v.to_str().ok())
                                                     .is_none_or(|ct| !ct.contains("text/html"));
-                                                if let Ok(bytes) = resp.bytes().await {
-                                                    if is_pdf && bytes.starts_with(b"%PDF") {
-                                                        if let Ok(rel_path) = db.import_pdf_bytes(
+                                                if let Ok(bytes) = resp.bytes().await
+                                                    && is_pdf && bytes.starts_with(b"%PDF")
+                                                        && let Ok(rel_path) = db.import_pdf_bytes(
                                                             &bytes,
                                                             &p.title,
                                                             p.first_author.as_deref(),
@@ -240,10 +246,7 @@ fn OaPromptDialog(papers: Vec<OaPending>) -> Element {
                                                             });
                                                             downloaded += 1;
                                                         }
-                                                    }
-                                                }
                                             }
-                                        }
                                     }
                                 }
                                 oa_state.set(Some(OaState::Done { downloaded, total }));
@@ -265,7 +268,11 @@ fn OaProgressBanner(
     cancel_flag: Signal<Option<Arc<AtomicBool>>>,
 ) -> Element {
     let mut oa_state = use_context::<Signal<Option<OaState>>>();
-    let pct = if total > 0 { done as f64 / total as f64 * 100.0 } else { 0.0 };
+    let pct = if total > 0 {
+        done as f64 / total as f64 * 100.0
+    } else {
+        0.0
+    };
 
     rsx! {
         div { class: "oa-banner",

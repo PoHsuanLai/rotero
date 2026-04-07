@@ -7,13 +7,11 @@ use rmcp::handler::server::tool::ToolRouter;
 
 use crate::db::Database;
 
-pub use params::*;
-
 #[derive(Clone)]
 pub struct RoteroMcp {
     db: Database,
     /// Whether pdfium is available (checked at startup).
+    #[allow(dead_code)] // stored for future use gating PDF tools
     pdf_available: bool,
     tool_router: ToolRouter<Self>,
 }
-

@@ -19,7 +19,6 @@ const BATCH_OPTIONS: &[(u32, &str)] = &[
     (20, "20 pages"),
 ];
 
-
 const SELECTION_COLORS: &[(&str, &str)] = &[
     ("#ffff00", "Yellow"),
     ("#ff6b6b", "Red"),

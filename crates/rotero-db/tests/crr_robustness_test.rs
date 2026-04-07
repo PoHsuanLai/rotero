@@ -204,9 +204,15 @@ async fn test_different_columns_merge_independently() {
     let papers_a = papers::list_papers(&conn_a).await.unwrap();
     let papers_b = papers::list_papers(&conn_b).await.unwrap();
 
-    assert!(papers_a[0].status.is_favorite, "A should have favorite from A");
+    assert!(
+        papers_a[0].status.is_favorite,
+        "A should have favorite from A"
+    );
     assert!(papers_a[0].status.is_read, "A should have read from B");
-    assert!(papers_b[0].status.is_favorite, "B should have favorite from A");
+    assert!(
+        papers_b[0].status.is_favorite,
+        "B should have favorite from A"
+    );
     assert!(papers_b[0].status.is_read, "B should have read from B");
 }
 
@@ -248,7 +254,10 @@ async fn test_bidirectional_sync_converges() {
         pa[0].status.is_favorite, pb[0].status.is_favorite,
         "Favorites should converge"
     );
-    assert_eq!(pa[0].status.is_read, pb[0].status.is_read, "Read status should converge");
+    assert_eq!(
+        pa[0].status.is_read, pb[0].status.is_read,
+        "Read status should converge"
+    );
 }
 
 // ── Junction tables ─────────────────────────────────────────────

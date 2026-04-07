@@ -2,9 +2,9 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
+use crate::TranslateError;
 use crate::node;
 use crate::translator::ZoteroItem;
-use crate::TranslateError;
 
 /// Manages a Zotero translation-server subprocess.
 pub struct TranslationServer {
@@ -47,7 +47,11 @@ impl TranslationServer {
         for i in 0..120 {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             if self.is_healthy().await {
-                tracing::info!("Translation server ready on port {} (took ~{}s)", self.port, i / 2);
+                tracing::info!(
+                    "Translation server ready on port {} (took ~{}s)",
+                    self.port,
+                    i / 2
+                );
                 return Ok(());
             }
         }
@@ -167,8 +171,9 @@ ItemSaver.prototype.saveItems = async function (jsonItems, attachmentCallback, i
 "#;
 
         let patched = content.clone() + patch;
-        std::fs::write(&file, patched)
-            .map_err(|e| TranslateError::Setup(format!("Failed to patch translate_item.js: {e}")))?;
+        std::fs::write(&file, patched).map_err(|e| {
+            TranslateError::Setup(format!("Failed to patch translate_item.js: {e}"))
+        })?;
 
         tracing::info!("Patched translation-server to preserve attachment URLs");
         Ok(())
@@ -273,10 +278,7 @@ ItemSaver.prototype.saveItems = async function (jsonItems, attachmentCallback, i
                 let multi: serde_json::Value = serde_json::from_str(&body)
                     .map_err(|e| TranslateError::Translation(e.to_string()))?;
 
-                let session = multi
-                    .get("session")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let session = multi.get("session").and_then(|v| v.as_str()).unwrap_or("");
                 let items_map = multi
                     .get("items")
                     .and_then(|v| v.as_object())

@@ -100,19 +100,18 @@ async fn fetch_from_sources_arxiv(arxiv_id: &str) -> Option<Paper> {
 }
 
 fn extract_arxiv_id(paper: &Paper) -> Option<String> {
-    if let Some(ref url) = paper.links.url {
-        if let Some(pos) = url
+    if let Some(ref url) = paper.links.url
+        && let Some(pos) = url
             .find("arxiv.org/abs/")
             .or_else(|| url.find("arxiv.org/pdf/"))
-        {
-            let after = &url[pos + 14..];
-            let id: String = after
-                .chars()
-                .take_while(|c| c.is_ascii_digit() || *c == '.')
-                .collect();
-            if id.contains('.') && !id.is_empty() {
-                return Some(id);
-            }
+    {
+        let after = &url[pos + 14..];
+        let id: String = after
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '.')
+            .collect();
+        if id.contains('.') && !id.is_empty() {
+            return Some(id);
         }
     }
     if let Some(ref doi) = paper.doi

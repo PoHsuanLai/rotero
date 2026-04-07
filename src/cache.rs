@@ -78,10 +78,19 @@ fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
 
 /// Get a rotero-cache:// URL for a cached page image, if it exists on disk.
 /// The URL is served by a custom WebView protocol handler registered at launch.
-pub fn page_file_url(data_dir: &Path, pdf_path: &str, page_index: u32, mime: &str) -> Option<String> {
+pub fn page_file_url(
+    data_dir: &Path,
+    pdf_path: &str,
+    page_index: u32,
+    mime: &str,
+) -> Option<String> {
     let hash = simple_hash(pdf_path);
     let ext = ext_for_mime(mime);
-    let file_path = data_dir.join("cache").join(&hash).join("pages").join(format!("{page_index}.{ext}"));
+    let file_path = data_dir
+        .join("cache")
+        .join(&hash)
+        .join("pages")
+        .join(format!("{page_index}.{ext}"));
     if file_path.exists() {
         Some(format!("rotero-cache://{hash}/pages/{page_index}.{ext}"))
     } else {
@@ -145,11 +154,11 @@ pub fn load_cached(
         };
         let (mut w, mut h) = meta.page_dims.get(i as usize).copied().unwrap_or((0, 0));
         // Recover dimensions from image header if metadata was corrupted by a race condition
-        if w == 0 || h == 0 {
-            if let Some((iw, ih)) = image_dimensions(&bytes) {
-                w = iw;
-                h = ih;
-            }
+        if (w == 0 || h == 0)
+            && let Some((iw, ih)) = image_dimensions(&bytes)
+        {
+            w = iw;
+            h = ih;
         }
         if w == 0 || h == 0 {
             continue; // Can't display without dimensions
@@ -244,10 +253,10 @@ pub fn save_pages(
     for (i, dims) in page_dims.iter_mut().enumerate() {
         if *dims == (0, 0) {
             let img_path = pages_dir.join(format!("{i}.{ext}"));
-            if let Ok(bytes) = fs::read(&img_path) {
-                if let Some(sz) = image_dimensions(&bytes) {
-                    *dims = sz;
-                }
+            if let Ok(bytes) = fs::read(&img_path)
+                && let Some(sz) = image_dimensions(&bytes)
+            {
+                *dims = sz;
             }
         }
     }
@@ -264,7 +273,6 @@ pub fn save_pages(
         let _ = fs::write(dir.join("meta.json"), json);
     }
 }
-
 
 /// Save extracted text to cache.
 pub fn save_text(data_dir: &Path, pdf_path: &str, text_data: &HashMap<u32, PageTextData>) {

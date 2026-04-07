@@ -1,6 +1,8 @@
 use dioxus::prelude::*;
 
-use crate::agent::types::{AgentStatus, ChatEvent, ChatMessage, ChatRole, ChatState, MessageContent};
+use crate::agent::types::{
+    AgentStatus, ChatEvent, ChatMessage, ChatRole, ChatState, MessageContent,
+};
 
 pub fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
     match event {
@@ -14,7 +16,11 @@ pub fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
                 s.active_provider_id = provider_id;
             });
         }
-        ChatEvent::Connected { auth_methods, provider_id, supports_list_sessions } => {
+        ChatEvent::Connected {
+            auth_methods,
+            provider_id,
+            supports_list_sessions,
+        } => {
             chat_state.with_mut(|s| {
                 s.status = AgentStatus::Connecting;
                 s.auth_methods = auth_methods;
@@ -40,15 +46,15 @@ pub fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
         ChatEvent::TextDelta(text) => {
             chat_state.with_mut(|s| {
                 s.status = AgentStatus::Streaming;
-                if let Some(last) = s.messages.last_mut() {
-                    if last.role == ChatRole::Assistant {
-                        if let Some(MessageContent::Text(t)) = last.content.last_mut() {
-                            t.push_str(&text);
-                        } else {
-                            last.content.push(MessageContent::Text(text));
-                        }
-                        return;
+                if let Some(last) = s.messages.last_mut()
+                    && last.role == ChatRole::Assistant
+                {
+                    if let Some(MessageContent::Text(t)) = last.content.last_mut() {
+                        t.push_str(&text);
+                    } else {
+                        last.content.push(MessageContent::Text(text));
                     }
+                    return;
                 }
                 s.messages.push(ChatMessage {
                     role: ChatRole::Assistant,
@@ -87,14 +93,13 @@ pub fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
                             output: tool_output,
                             ..
                         } = content
+                            && *tool_id == id
                         {
-                            if *tool_id == id {
-                                *tool_status = status.clone();
-                                if output.is_some() {
-                                    *tool_output = output.clone();
-                                }
-                                break;
+                            *tool_status = status.clone();
+                            if output.is_some() {
+                                *tool_output = output.clone();
                             }
+                            break;
                         }
                     }
                 }
@@ -105,10 +110,14 @@ pub fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
                 s.status = AgentStatus::Idle;
                 for msg in &mut s.messages {
                     for content in &mut msg.content {
-                        if let MessageContent::ToolUse { status, .. } = content {
-                            if matches!(status, crate::agent::types::ToolStatus::Pending | crate::agent::types::ToolStatus::InProgress) {
-                                *status = crate::agent::types::ToolStatus::Completed;
-                            }
+                        if let MessageContent::ToolUse { status, .. } = content
+                            && matches!(
+                                status,
+                                crate::agent::types::ToolStatus::Pending
+                                    | crate::agent::types::ToolStatus::InProgress
+                            )
+                        {
+                            *status = crate::agent::types::ToolStatus::Completed;
                         }
                     }
                 }
@@ -141,7 +150,11 @@ pub fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
                 });
             });
         }
-        ChatEvent::PermissionRequest { request_id, tool_title, options } => {
+        ChatEvent::PermissionRequest {
+            request_id,
+            tool_title,
+            options,
+        } => {
             chat_state.with_mut(|s| {
                 if s.messages.last().map(|m| &m.role) != Some(&ChatRole::Assistant) {
                     s.messages.push(ChatMessage {

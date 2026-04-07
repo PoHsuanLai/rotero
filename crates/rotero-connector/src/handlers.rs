@@ -123,7 +123,9 @@ pub async fn scrape(
         if let Some(ref ts) = *ts_guard {
             match ts.translate_web(&req.url).await {
                 Ok(items) => {
-                    if let Some(item) = items.iter().find(|i| i.item_type != "note" && i.item_type != "attachment" && !i.title.is_empty()) {
+                    if let Some(item) = items.iter().find(|i| {
+                        i.item_type != "note" && i.item_type != "attachment" && !i.title.is_empty()
+                    }) {
                         let pdf_url = item.pdf_url();
                         if let Some(p) = item.clone().into_paper() {
                             return Json(ScrapeResponse {
@@ -146,10 +148,16 @@ pub async fn scrape(
                             });
                         }
                     }
-                    tracing::debug!("Translation server returned no usable results for {}, falling back", req.url);
+                    tracing::debug!(
+                        "Translation server returned no usable results for {}, falling back",
+                        req.url
+                    );
                 }
                 Err(e) => {
-                    tracing::debug!("Translation server error for {}: {e}, falling back", req.url);
+                    tracing::debug!(
+                        "Translation server error for {}: {e}, falling back",
+                        req.url
+                    );
                 }
             }
         }

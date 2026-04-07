@@ -100,24 +100,25 @@ pub fn import_bibtex(input: &str) -> Result<Vec<ImportedPaper>, String> {
         papers.push(ImportedPaper {
             source_pdf,
             paper: Paper {
-            title,
-            authors,
-            year,
-            doi,
-            abstract_text,
-            publication: Publication {
-                journal,
-                volume,
-                issue,
-                pages,
-                publisher,
-            },
-            links: PaperLinks {
-                url,
+                title,
+                authors,
+                year,
+                doi,
+                abstract_text,
+                publication: Publication {
+                    journal,
+                    volume,
+                    issue,
+                    pages,
+                    publisher,
+                },
+                links: PaperLinks {
+                    url,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
-            ..Default::default()
-        }});
+        });
     }
 
     Ok(papers)

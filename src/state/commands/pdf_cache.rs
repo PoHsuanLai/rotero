@@ -1,8 +1,8 @@
 use std::sync::mpsc;
 
-use dioxus::prelude::*;
-use super::{recv_reply, RenderRequest};
+use super::{RenderRequest, recv_reply};
 use crate::state::app_state::{PdfTabManager, TabId};
+use dioxus::prelude::*;
 
 const MAX_RESIDENT_THUMBS: usize = 50;
 

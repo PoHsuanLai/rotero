@@ -63,11 +63,10 @@ pub(crate) fn ExternalResults(results: Vec<rotero_models::Paper>, searching: boo
                                     spawn(async move {
                                         let mut imported = 0;
                                         for paper in papers {
-                                            if let Some(ref doi) = paper.doi {
-                                                if !doi.is_empty() && existing.contains(doi) {
+                                            if let Some(ref doi) = paper.doi
+                                                && !doi.is_empty() && existing.contains(doi) {
                                                     continue;
                                                 }
-                                            }
                                             if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
                                                 let mut paper = paper;
                                                 paper.id = Some(id);

@@ -2,7 +2,7 @@ use std::sync::mpsc;
 
 use dioxus::prelude::*;
 
-use super::{recv_reply, RenderRequest};
+use super::{RenderRequest, recv_reply};
 use crate::state::app_state::{PdfTabManager, TabId};
 
 pub async fn open_pdf(
@@ -30,7 +30,10 @@ pub async fn open_pdf(
     let cache_dir = data_dir.to_path_buf();
     let cache_path = path.clone();
     type CacheResult = (
-        Option<(crate::cache::CacheMeta, Vec<crate::state::app_state::RenderedPageData>)>,
+        Option<(
+            crate::cache::CacheMeta,
+            Vec<crate::state::app_state::RenderedPageData>,
+        )>,
         Option<std::collections::HashMap<u32, rotero_pdf::PageTextData>>,
     );
     let (cache_tx, cache_rx) = mpsc::channel::<CacheResult>();
@@ -71,16 +74,32 @@ pub async fn open_pdf(
                     .tabs
                     .iter()
                     .find(|t| t.id == tab_id)
-                    .map(|t| t.render.rendered_pages.iter().map(|p| p.page_index).collect())
+                    .map(|t| {
+                        t.render
+                            .rendered_pages
+                            .iter()
+                            .map(|p| p.page_index)
+                            .collect()
+                    })
                     .unwrap_or_default();
-                let mut missing: Vec<u32> = (0..total).filter(|i| !rendered_indices.contains(i)).collect();
+                let mut missing: Vec<u32> = (0..total)
+                    .filter(|i| !rendered_indices.contains(i))
+                    .collect();
                 missing.sort();
                 for chunk in missing.chunks(batch_size as usize) {
                     let start = chunk[0];
-                    let count = (chunk.last().unwrap() - start + 1) as u32;
+                    let count = chunk.last().unwrap() - start + 1;
                     if render_more_pages(
-                        &render_tx_bg, &mut tabs_bg, tab_id, start, count, &data_dir_bg,
-                    ).await.is_err() {
+                        &render_tx_bg,
+                        &mut tabs_bg,
+                        tab_id,
+                        start,
+                        count,
+                        &data_dir_bg,
+                    )
+                    .await
+                    .is_err()
+                    {
                         break;
                     }
                 }
@@ -164,7 +183,9 @@ pub async fn open_pdf(
                         let pid = pid.clone();
                         let conn = conn.clone();
                         spawn(async move {
-                            let _ = rotero_db::papers::update_paper_fulltext(&conn, &pid, &fulltext).await;
+                            let _ =
+                                rotero_db::papers::update_paper_fulltext(&conn, &pid, &fulltext)
+                                    .await;
                         });
                     }
                 }
@@ -188,8 +209,16 @@ pub async fn open_pdf(
             while start < page_count {
                 let count = batch_size.min(page_count - start);
                 if render_more_pages(
-                    &render_tx_bg, &mut tabs_bg, tab_id, start, count, &data_dir_bg,
-                ).await.is_err() {
+                    &render_tx_bg,
+                    &mut tabs_bg,
+                    tab_id,
+                    start,
+                    count,
+                    &data_dir_bg,
+                )
+                .await
+                .is_err()
+                {
                     break;
                 }
                 start += count;
@@ -270,11 +299,7 @@ pub async fn render_more_pages(
     Ok(())
 }
 
-pub fn set_zoom(
-    tabs: &mut Signal<PdfTabManager>,
-    tab_id: TabId,
-    new_zoom: f32,
-) {
+pub fn set_zoom(tabs: &mut Signal<PdfTabManager>, tab_id: TabId, new_zoom: f32) {
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
             tab.view.zoom = new_zoom;

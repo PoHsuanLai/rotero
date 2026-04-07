@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::agent::types::{AgentStatus, ChatRequest, ChatState, AGENT_PROVIDERS};
+use crate::agent::types::{AGENT_PROVIDERS, AgentStatus, ChatRequest, ChatState};
 use crate::sync::engine::SyncConfig;
 use crate::ui::chat_panel::AgentChannel;
 

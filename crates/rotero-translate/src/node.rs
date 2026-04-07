@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::TranslateError;
@@ -51,7 +51,7 @@ fn node_cache_dir() -> PathBuf {
     base.join("com.rotero.Rotero").join("node")
 }
 
-fn node_binary_path(node_dir: &PathBuf) -> PathBuf {
+fn node_binary_path(node_dir: &Path) -> PathBuf {
     if cfg!(windows) {
         node_dir.join("node.exe")
     } else {
@@ -59,7 +59,7 @@ fn node_binary_path(node_dir: &PathBuf) -> PathBuf {
     }
 }
 
-fn npm_binary_path(node_dir: &PathBuf) -> PathBuf {
+fn npm_binary_path(node_dir: &Path) -> PathBuf {
     if cfg!(windows) {
         node_dir.join("npm.cmd")
     } else {

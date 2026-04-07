@@ -4,9 +4,9 @@ use pdfium_render::prelude::*;
 
 use crate::PdfError;
 
-use super::font::{detect_font_style, detect_font_weight, pdf_font_to_css};
-use super::TextSegment;
 use super::PageTextData;
+use super::TextSegment;
+use super::font::{detect_font_style, detect_font_weight, pdf_font_to_css};
 
 /// Coordinates are returned in pixel space matching `img_width`/`img_height`.
 /// PDF coordinates (origin bottom-left) are converted to screen coordinates (origin top-left).
@@ -183,10 +183,10 @@ fn extract_page_text_from_doc(
             run.flush(&mut segments, scale_x, scale_y, page_height_pts);
             // Append trailing space so the browser includes word separators
             // when selecting/copying text from the virtual text layer.
-            if let Some(last) = segments.last_mut() {
-                if !last.text.ends_with(' ') {
-                    last.text.push(' ');
-                }
+            if let Some(last) = segments.last_mut()
+                && !last.text.ends_with(' ')
+            {
+                last.text.push(' ');
             }
             run.reset_bounds();
             continue;

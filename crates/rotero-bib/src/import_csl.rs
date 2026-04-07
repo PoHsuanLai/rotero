@@ -96,10 +96,10 @@ impl CslItem {
 
         let year = self.issued.and_then(|d| {
             // Try date-parts first: [[year, month, day]]
-            if let Some(parts) = d.date_parts.first() {
-                if let Some(y) = parts.first() {
-                    return y.as_i64().map(|v| v as i32);
-                }
+            if let Some(parts) = d.date_parts.first()
+                && let Some(y) = parts.first()
+            {
+                return y.as_i64().map(|v| v as i32);
             }
             // Fallback: parse raw date string
             d.raw

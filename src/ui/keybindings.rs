@@ -64,16 +64,17 @@ fn action_import_bibtex(db: Database, mut lib_state: Signal<LibraryState>) {
 
                     if let (Some(bib_dir), Some(rel_pdf)) = (&bib_dir, &source_pdf) {
                         let pdf_abs = bib_dir.join(rel_pdf);
-                        if pdf_abs.exists() {
-                            if let Ok(rel_path) = db.import_pdf(
+                        if pdf_abs.exists()
+                            && let Ok(rel_path) = db.import_pdf(
                                 pdf_abs.to_str().unwrap_or_default(),
                                 Some(paper.title.as_str()),
                                 paper.authors.first().map(|a| a.as_str()),
                                 paper.year,
-                            ) {
-                                let _ = rotero_db::papers::update_pdf_path(db.conn(), &id, &rel_path).await;
-                                paper.links.pdf_path = Some(rel_path);
-                            }
+                            )
+                        {
+                            let _ =
+                                rotero_db::papers::update_pdf_path(db.conn(), &id, &rel_path).await;
+                            paper.links.pdf_path = Some(rel_path);
                         }
                     }
 
@@ -151,10 +152,8 @@ fn action_close_tab(
             let cfg_dir = config.read().effective_library_path();
             tabs.with_mut(|m| m.tab_mut().is_loading = true);
             spawn(async move {
-                let _ = crate::state::commands::open_pdf(
-                    &render_tx, &mut tabs, new_id, &cfg_dir,
-                )
-                .await;
+                let _ =
+                    crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &cfg_dir).await;
             });
         }
     }
@@ -274,6 +273,7 @@ pub fn GlobalKeyHandler() -> Element {
 }
 
 /// Keyboard event handler called from Layout's root div onkeydown.
+#[allow(clippy::too_many_arguments)]
 pub fn handle_keydown(
     event: Event<KeyboardData>,
     show_settings: Signal<ShowSettings>,
@@ -293,8 +293,8 @@ pub fn handle_keydown(
     let shift = modifiers.shift();
 
     if cmd && !shift {
-        match key {
-            Key::Character(ref c) => match c.as_str() {
+        if let Key::Character(ref c) = key {
+            match c.as_str() {
                 "," => {
                     event.prevent_default();
                     action_open_settings(show_settings);
@@ -344,15 +344,14 @@ pub fn handle_keydown(
                     action_undo(db.clone(), tabs, undo_stack);
                 }
                 _ => {}
-            },
-            _ => {}
+            }
         }
     } else if cmd && shift {
-        if let Key::Character(ref c) = key {
-            if c.as_str() == "z" || c.as_str() == "Z" {
-                event.prevent_default();
-                action_redo(db.clone(), tabs, undo_stack);
-            }
+        if let Key::Character(ref c) = key
+            && (c.as_str() == "z" || c.as_str() == "Z")
+        {
+            event.prevent_default();
+            action_redo(db.clone(), tabs, undo_stack);
         }
     } else if key == Key::Escape {
         action_escape(show_settings, tabs, tools);

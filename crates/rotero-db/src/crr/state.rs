@@ -7,12 +7,11 @@ pub async fn site_id(conn: &Connection) -> Result<Vec<u8>, turso::Error> {
     let mut rows = conn
         .query("SELECT site_id FROM crr_site_id LIMIT 1", ())
         .await?;
-    if let Some(row) = rows.next().await? {
-        if let Ok(val) = row.get_value(0) {
-            if let Some(blob) = val.as_blob() {
-                return Ok(blob.to_vec());
-            }
-        }
+    if let Some(row) = rows.next().await?
+        && let Ok(val) = row.get_value(0)
+        && let Some(blob) = val.as_blob()
+    {
+        return Ok(blob.to_vec());
     }
     // Fallback: create if migration didn't run
     conn.execute(

@@ -145,7 +145,11 @@ fn s2_to_paper(paper: S2Paper, doi: &str) -> Result<Paper, String> {
         title,
         authors,
         year: paper.year,
-        doi: if doi.is_empty() { None } else { Some(doi.to_string()) },
+        doi: if doi.is_empty() {
+            None
+        } else {
+            Some(doi.to_string())
+        },
         abstract_text: paper.abstract_text,
         publication: Publication {
             journal,

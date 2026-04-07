@@ -21,7 +21,7 @@ pub(super) fn err(msg: impl std::fmt::Display) -> rmcp::ErrorData {
 }
 
 pub(super) fn json_result<T: Serialize>(value: &T) -> Result<CallToolResult, rmcp::ErrorData> {
-    let text = serde_json::to_string_pretty(value).map_err(|e| err(e))?;
+    let text = serde_json::to_string_pretty(value).map_err(err)?;
     Ok(CallToolResult::success(vec![Content::text(text)]))
 }
 
@@ -32,11 +32,7 @@ impl RoteroMcp {
         &self,
         Parameters(params): Parameters<SearchPapersParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let mut papers = self
-            .db
-            .search_papers(&params.query)
-            .await
-            .map_err(|e| err(e))?;
+        let mut papers = self.db.search_papers(&params.query).await.map_err(err)?;
         let limit = params.limit.unwrap_or(20).min(50) as usize;
         papers.truncate(limit);
         json_result(&papers)
@@ -51,7 +47,7 @@ impl RoteroMcp {
             .db
             .get_paper_by_id(&params.paper_id)
             .await
-            .map_err(|e| err(e))?;
+            .map_err(err)?;
         match paper {
             Some(p) => json_result(&p),
             None => Ok(CallToolResult::success(vec![Content::text(format!(
@@ -68,12 +64,8 @@ impl RoteroMcp {
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let offset = params.offset.unwrap_or(0);
         let limit = params.limit.unwrap_or(20).min(100);
-        let total = self.db.count_papers().await.map_err(|e| err(e))?;
-        let papers = self
-            .db
-            .list_papers(offset, limit)
-            .await
-            .map_err(|e| err(e))?;
+        let total = self.db.count_papers().await.map_err(err)?;
+        let papers = self.db.list_papers(offset, limit).await.map_err(err)?;
 
         #[derive(Serialize)]
         struct ListResult {
@@ -99,7 +91,7 @@ impl RoteroMcp {
             .db
             .list_annotations_for_paper(&params.paper_id)
             .await
-            .map_err(|e| err(e))?;
+            .map_err(err)?;
         json_result(&anns)
     }
 
@@ -112,19 +104,19 @@ impl RoteroMcp {
             .db
             .list_notes_for_paper(&params.paper_id)
             .await
-            .map_err(|e| err(e))?;
+            .map_err(err)?;
         json_result(&notes)
     }
 
     #[tool(description = "List all collections in the library (hierarchical)")]
     async fn list_collections(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        let colls = self.db.list_collections().await.map_err(|e| err(e))?;
+        let colls = self.db.list_collections().await.map_err(err)?;
         json_result(&colls)
     }
 
     #[tool(description = "List all tags in the library")]
     async fn list_tags(&self) -> Result<CallToolResult, rmcp::ErrorData> {
-        let tags = self.db.list_tags().await.map_err(|e| err(e))?;
+        let tags = self.db.list_tags().await.map_err(err)?;
         json_result(&tags)
     }
 
@@ -137,10 +129,10 @@ impl RoteroMcp {
             .db
             .list_paper_ids_in_collection(&params.collection_id)
             .await
-            .map_err(|e| err(e))?;
+            .map_err(err)?;
         let mut papers = Vec::new();
         for id in ids {
-            if let Some(p) = self.db.get_paper_by_id(&id).await.map_err(|e| err(e))? {
+            if let Some(p) = self.db.get_paper_by_id(&id).await.map_err(err)? {
                 papers.push(p);
             }
         }
@@ -156,35 +148,52 @@ impl RoteroMcp {
             .db
             .list_paper_ids_by_tag(&params.tag_id)
             .await
-            .map_err(|e| err(e))?;
+            .map_err(err)?;
         let mut papers = Vec::new();
         for id in ids {
-            if let Some(p) = self.db.get_paper_by_id(&id).await.map_err(|e| err(e))? {
+            if let Some(p) = self.db.get_paper_by_id(&id).await.map_err(err)? {
                 papers.push(p);
             }
         }
         json_result(&papers)
     }
 
-    #[tool(description = "Extract plain text from a paper's PDF. Returns the full text (from database or cache).")]
+    #[tool(
+        description = "Extract plain text from a paper's PDF. Returns the full text (from database or cache)."
+    )]
     async fn extract_pdf_text(
         &self,
         Parameters(params): Parameters<ExtractPdfTextParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         // 1. Try fulltext column in DB
-        let fulltext = self.db.get_paper_fulltext(&params.paper_id).await.map_err(|e| err(e))?;
-        if let Some(text) = fulltext {
-            if !text.is_empty() {
-                return Ok(CallToolResult::success(vec![Content::text(text)]));
-            }
+        let fulltext = self
+            .db
+            .get_paper_fulltext(&params.paper_id)
+            .await
+            .map_err(err)?;
+        if let Some(text) = fulltext
+            && !text.is_empty()
+        {
+            return Ok(CallToolResult::success(vec![Content::text(text)]));
         }
 
         // 2. Fall back to cached text files on disk
-        let paper = self.db.get_paper_by_id(&params.paper_id).await.map_err(|e| err(e))?
+        let paper = self
+            .db
+            .get_paper_by_id(&params.paper_id)
+            .await
+            .map_err(err)?
             .ok_or_else(|| err(format!("No paper found with ID {}", params.paper_id)))?;
-        let pdf_path = paper.links.pdf_path.as_ref()
+        let pdf_path = paper
+            .links
+            .pdf_path
+            .as_ref()
             .ok_or_else(|| err("Paper has no PDF file"))?;
-        let abs_path = self.db.resolve_pdf_path(pdf_path).to_string_lossy().to_string();
+        let abs_path = self
+            .db
+            .resolve_pdf_path(pdf_path)
+            .to_string_lossy()
+            .to_string();
 
         let cache_key = {
             use std::hash::{Hash, Hasher};
@@ -192,31 +201,39 @@ impl RoteroMcp {
             abs_path.hash(&mut hasher);
             format!("{:016x}", hasher.finish())
         };
-        let text_cache = self.db.data_dir().join("cache").join(&cache_key).join("text.json");
+        let text_cache = self
+            .db
+            .data_dir()
+            .join("cache")
+            .join(&cache_key)
+            .join("text.json");
 
-        if text_cache.exists() {
-            if let Ok(text_str) = std::fs::read_to_string(&text_cache) {
-                if let Ok(cached) = serde_json::from_str::<Vec<serde_json::Value>>(&text_str) {
-                    let text: String = cached.iter()
-                        .filter_map(|entry| {
-                            let segments = entry.get("segments")?.as_array()?;
-                            let page_text: String = segments.iter()
-                                .filter_map(|seg| seg.get("text").and_then(|t| t.as_str()))
-                                .collect::<Vec<_>>()
-                                .join("");
-                            Some(page_text)
-                        })
+        if text_cache.exists()
+            && let Ok(text_str) = std::fs::read_to_string(&text_cache)
+            && let Ok(cached) = serde_json::from_str::<Vec<serde_json::Value>>(&text_str)
+        {
+            let text: String = cached
+                .iter()
+                .filter_map(|entry| {
+                    let segments = entry.get("segments")?.as_array()?;
+                    let page_text: String = segments
+                        .iter()
+                        .filter_map(|seg| seg.get("text").and_then(|t| t.as_str()))
                         .collect::<Vec<_>>()
-                        .join("\n\n");
+                        .join("");
+                    Some(page_text)
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n");
 
-                    if !text.is_empty() {
-                        return Ok(CallToolResult::success(vec![Content::text(text)]));
-                    }
-                }
+            if !text.is_empty() {
+                return Ok(CallToolResult::success(vec![Content::text(text)]));
             }
         }
 
-        Err(err("No extracted text available. Open the paper in the PDF viewer first."))
+        Err(err(
+            "No extracted text available. Open the paper in the PDF viewer first.",
+        ))
     }
 
     #[tool(description = "Add a note to a paper")]
@@ -228,7 +245,7 @@ impl RoteroMcp {
             .db
             .insert_note(&params.paper_id, &params.title, &params.body)
             .await
-            .map_err(|e| err(e))?;
+            .map_err(err)?;
         json_result(&serde_json::json!({ "note_id": id, "success": true }))
     }
 
@@ -240,7 +257,7 @@ impl RoteroMcp {
         self.db
             .update_note(&params.note_id, &params.title, &params.body)
             .await
-            .map_err(|e| err(e))?;
+            .map_err(err)?;
         json_result(&serde_json::json!({ "success": true }))
     }
 
@@ -253,11 +270,11 @@ impl RoteroMcp {
             .db
             .get_or_create_tag(&params.tag_name, params.color.as_deref())
             .await
-            .map_err(|e| err(e))?;
+            .map_err(err)?;
         self.db
             .add_tag_to_paper(&params.paper_id, &tag_id)
             .await
-            .map_err(|e| err(e))?;
+            .map_err(err)?;
         json_result(&serde_json::json!({ "tag_id": tag_id, "success": true }))
     }
 
@@ -269,7 +286,7 @@ impl RoteroMcp {
         self.db
             .set_read(&params.paper_id, params.is_read)
             .await
-            .map_err(|e| err(e))?;
+            .map_err(err)?;
         json_result(&serde_json::json!({ "success": true }))
     }
 
@@ -281,22 +298,25 @@ impl RoteroMcp {
         self.db
             .set_favorite(&params.paper_id, params.is_favorite)
             .await
-            .map_err(|e| err(e))?;
+            .map_err(err)?;
         json_result(&serde_json::json!({ "success": true }))
     }
 
-    #[tool(description = "Get papers related to a specific paper via shared tags, authors, collections, or journal. Returns relationship type, strength, and connected paper details.")]
+    #[tool(
+        description = "Get papers related to a specific paper via shared tags, authors, collections, or journal. Returns relationship type, strength, and connected paper details."
+    )]
     async fn get_paper_relationships(
         &self,
         Parameters(params): Parameters<GetPaperRelationshipsParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let papers = self.db.list_all_papers().await.map_err(|e| err(e))?;
-        let tags = self.db.list_tags().await.map_err(|e| err(e))?;
-        let paper_tags = self.db.list_all_paper_tags().await.map_err(|e| err(e))?;
-        let paper_colls = self.db.list_all_paper_collections().await.map_err(|e| err(e))?;
+        let papers = self.db.list_all_papers().await.map_err(err)?;
+        let tags = self.db.list_tags().await.map_err(err)?;
+        let paper_tags = self.db.list_all_paper_tags().await.map_err(err)?;
+        let paper_colls = self.db.list_all_paper_collections().await.map_err(err)?;
 
         let filter = rotero_graph::data::GraphFilter::default();
-        let edges = rotero_graph::edges::compute_edges(&papers, &tags, &paper_tags, &paper_colls, &filter);
+        let edges =
+            rotero_graph::edges::compute_edges(&papers, &tags, &paper_tags, &paper_colls, &filter);
 
         let paper_map: std::collections::HashMap<&str, &rotero_models::Paper> = papers
             .iter()
@@ -335,19 +355,22 @@ impl RoteroMcp {
         }
     }
 
-    #[tool(description = "Get the full paper relationship graph showing how all papers in the library are connected via shared tags, authors, collections, and journals. Returns nodes (papers) and edges (relationships with types and weights).")]
+    #[tool(
+        description = "Get the full paper relationship graph showing how all papers in the library are connected via shared tags, authors, collections, and journals. Returns nodes (papers) and edges (relationships with types and weights)."
+    )]
     async fn get_library_graph(
         &self,
         Parameters(params): Parameters<GetLibraryGraphParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let papers = self.db.list_all_papers().await.map_err(|e| err(e))?;
-        let tags = self.db.list_tags().await.map_err(|e| err(e))?;
-        let paper_tags = self.db.list_all_paper_tags().await.map_err(|e| err(e))?;
-        let paper_colls = self.db.list_all_paper_collections().await.map_err(|e| err(e))?;
+        let papers = self.db.list_all_papers().await.map_err(err)?;
+        let tags = self.db.list_tags().await.map_err(err)?;
+        let paper_tags = self.db.list_all_paper_tags().await.map_err(err)?;
+        let paper_colls = self.db.list_all_paper_collections().await.map_err(err)?;
 
         let max_edges = params.max_edges.unwrap_or(100).min(500) as usize;
         let filter = rotero_graph::data::GraphFilter::default();
-        let mut edges = rotero_graph::edges::compute_edges(&papers, &tags, &paper_tags, &paper_colls, &filter);
+        let mut edges =
+            rotero_graph::edges::compute_edges(&papers, &tags, &paper_tags, &paper_colls, &filter);
         edges.truncate(max_edges);
 
         // Collect node IDs that appear in edges
@@ -427,13 +450,13 @@ impl ServerHandler for RoteroMcp {
         let uri = request.uri.as_str();
         if uri == "rotero://library/stats" {
             let stats = LibraryStats {
-                total_papers: self.db.count_papers().await.map_err(|e| err(e))?,
-                total_collections: self.db.count_collections().await.map_err(|e| err(e))?,
-                total_tags: self.db.count_tags().await.map_err(|e| err(e))?,
-                unread_count: self.db.count_unread().await.map_err(|e| err(e))?,
-                favorites_count: self.db.count_favorites().await.map_err(|e| err(e))?,
+                total_papers: self.db.count_papers().await.map_err(err)?,
+                total_collections: self.db.count_collections().await.map_err(err)?,
+                total_tags: self.db.count_tags().await.map_err(err)?,
+                unread_count: self.db.count_unread().await.map_err(err)?,
+                favorites_count: self.db.count_favorites().await.map_err(err)?,
             };
-            let json = serde_json::to_string_pretty(&stats).map_err(|e| err(e))?;
+            let json = serde_json::to_string_pretty(&stats).map_err(err)?;
             Ok(ReadResourceResult::new(vec![ResourceContents::text(
                 json, uri,
             )]))
@@ -496,13 +519,13 @@ impl ServerHandler for RoteroMcp {
                     .db
                     .get_paper_by_id(paper_id)
                     .await
-                    .map_err(|e| err(e))?
+                    .map_err(err)?
                     .ok_or_else(|| err(format!("No paper found with ID {paper_id}")))?;
                 let anns = self
                     .db
                     .list_annotations_for_paper(paper_id)
                     .await
-                    .map_err(|e| err(e))?;
+                    .map_err(err)?;
 
                 let mut prompt = format!(
                     "Please summarize the following paper:\n\n\
@@ -543,7 +566,7 @@ impl ServerHandler for RoteroMcp {
                         rmcp::ErrorData::invalid_params("Missing topic argument", None)
                     })?;
 
-                let papers = self.db.search_papers(topic).await.map_err(|e| err(e))?;
+                let papers = self.db.search_papers(topic).await.map_err(err)?;
 
                 let mut prompt = format!(
                     "Conduct a literature review on '{topic}' based on the following papers from my library:\n\n"

@@ -1,9 +1,9 @@
 use dioxus::prelude::*;
 
-use crate::ui::chat_panel::ResizeHandle;
-use crate::ui::components::context_menu::{ContextMenu, ContextMenuItem};
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
 use crate::sync::engine::SyncConfig;
+use crate::ui::chat_panel::ResizeHandle;
+use crate::ui::components::context_menu::{ContextMenu, ContextMenuItem};
 use rotero_db::Database;
 
 use super::fields::{AddToCollectionSelect, TagEditor};

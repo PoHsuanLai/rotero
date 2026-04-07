@@ -7,8 +7,8 @@ use super::helpers::{
     compare_json_values, create_skeleton_row, get_clock_entry, get_col_ver, json_to_turso_value,
     read_column_value, site_id, zero_column_clocks,
 };
-use super::{ChangeRow, MergeResult};
 use super::next_db_version;
+use super::{ChangeRow, MergeResult};
 
 /// Apply remote changes with LWW merge semantics.
 pub async fn apply_changes(

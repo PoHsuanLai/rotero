@@ -5,12 +5,14 @@ mod toggle;
 
 use dioxus::prelude::*;
 
-use crate::agent::types::{ChatRequest, ChatState, AgentStatus, ChatMessage, ChatRole, MessageContent};
+use crate::agent::types::{
+    AgentStatus, ChatMessage, ChatRequest, ChatRole, ChatState, MessageContent,
+};
 use crate::state::app_state::{LibraryState, PdfTabManager};
 
 pub use panel::ChatPanel;
-pub use toggle::ChatToggleButton;
 pub use resize_handle::ResizeHandle;
+pub use toggle::ChatToggleButton;
 
 #[derive(Clone, Copy)]
 pub struct AgentChannel {
@@ -38,7 +40,10 @@ fn get_active_paper_id(lib_state: &LibraryState, tab_mgr: &PdfTabManager) -> Opt
 
 fn build_paper_context(lib_state: &LibraryState, tab_mgr: &PdfTabManager) -> Option<String> {
     let paper_id = get_active_paper_id(lib_state, tab_mgr)?;
-    let paper = lib_state.papers.iter().find(|p| p.id.as_deref() == Some(paper_id.as_str()))?;
+    let paper = lib_state
+        .papers
+        .iter()
+        .find(|p| p.id.as_deref() == Some(paper_id.as_str()))?;
 
     Some(format!(
         "<rotero-context>\nI'm currently looking at this paper in my library:\n\
@@ -53,10 +58,7 @@ fn build_paper_context(lib_state: &LibraryState, tab_mgr: &PdfTabManager) -> Opt
     ))
 }
 
-fn get_context_paper_title(
-    lib_state: &LibraryState,
-    tab_mgr: &PdfTabManager,
-) -> Option<String> {
+fn get_context_paper_title(lib_state: &LibraryState, tab_mgr: &PdfTabManager) -> Option<String> {
     let paper_id = get_active_paper_id(lib_state, tab_mgr)?;
     lib_state
         .papers

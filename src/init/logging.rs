@@ -25,7 +25,10 @@ pub(crate) fn init_logging() {
                         .unwrap(),
                 )
                 .try_init();
-            tracing::warn!("Failed to create log file at {}: {e}, logging to stderr", log_path.display());
+            tracing::warn!(
+                "Failed to create log file at {}: {e}, logging to stderr",
+                log_path.display()
+            );
         }
     }
 }

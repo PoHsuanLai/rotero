@@ -105,9 +105,7 @@ impl ZoteroItem {
             return None;
         }
 
-        let non_empty = |s: String| -> Option<String> {
-            if s.is_empty() { None } else { Some(s) }
-        };
+        let non_empty = |s: String| -> Option<String> { if s.is_empty() { None } else { Some(s) } };
 
         let authors: Vec<String> = self
             .creators
@@ -128,7 +126,11 @@ impl ZoteroItem {
         Some(rotero_models::Paper {
             title: self.title,
             authors,
-            year: if self.date.is_empty() { None } else { extract_year(&self.date) },
+            year: if self.date.is_empty() {
+                None
+            } else {
+                extract_year(&self.date)
+            },
             doi: non_empty(self.doi),
             abstract_text: non_empty(self.abstract_note),
             publication: rotero_models::Publication {
@@ -151,12 +153,11 @@ fn extract_year(s: &str) -> Option<i32> {
     let bytes = s.as_bytes();
     let mut i = 0;
     while i + 4 <= bytes.len() {
-        if bytes[i].is_ascii_digit() {
-            if let Ok(year) = s[i..i + 4].parse::<i32>() {
-                if (1900..=2100).contains(&year) {
-                    return Some(year);
-                }
-            }
+        if bytes[i].is_ascii_digit()
+            && let Ok(year) = s[i..i + 4].parse::<i32>()
+            && (1900..=2100).contains(&year)
+        {
+            return Some(year);
         }
         i += 1;
     }

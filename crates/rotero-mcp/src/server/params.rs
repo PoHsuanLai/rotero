@@ -43,6 +43,7 @@ pub struct TagIdParams {
 pub struct ExtractPdfTextParams {
     pub paper_id: String,
     /// Page numbers to extract (0-indexed). If omitted, extracts first 10 pages.
+    #[allow(dead_code)] // exposed in MCP JSON schema, not yet used server-side
     pub pages: Option<Vec<u32>>,
 }
 

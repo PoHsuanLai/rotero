@@ -3,9 +3,9 @@ use dioxus::prelude::*;
 use crate::agent::types::{AgentStatus, ChatRequest, ChatState};
 use crate::state::app_state::{LibraryState, PdfTabManager};
 
-use super::{do_send, get_context_paper_title, AgentChannel};
 use super::message::ChatMessageBubble;
 use super::resize_handle::ResizeHandle;
+use super::{AgentChannel, do_send, get_context_paper_title};
 
 #[component]
 pub fn ChatPanel() -> Element {
@@ -19,7 +19,8 @@ pub fn ChatPanel() -> Element {
 
     use_effect(move || {
         spawn(async {
-            let _ = dioxus::document::eval(r#"
+            let _ = dioxus::document::eval(
+                r#"
                 (function() {
                     let el = document.querySelector('.chat-messages');
                     if (!el || el._autoScroll) return;
@@ -28,7 +29,8 @@ pub fn ChatPanel() -> Element {
                         el.scrollTop = el.scrollHeight;
                     }).observe(el, { childList: true, subtree: true, characterData: true });
                 })()
-            "#);
+            "#,
+            );
         });
     });
     let paper_title = get_context_paper_title(&lib_state.read(), &tab_mgr.read());
@@ -198,17 +200,13 @@ pub fn ChatPanel() -> Element {
                     for cmd in filtered_commands.iter() {
                         {
                             let name = cmd.name.clone();
-                            let hint = cmd.hint.clone().unwrap_or_default();
+                            let _hint = cmd.hint.clone().unwrap_or_default();
                             rsx! {
                                 button {
                                     key: "{name}",
                                     class: "chat-command-item",
                                     onclick: move |_| {
-                                        let text = if hint.is_empty() {
-                                            format!("/{name} ")
-                                        } else {
-                                            format!("/{name} ")
-                                        };
+                                        let text = format!("/{name} ");
                                         chat_state.with_mut(|s| {
                                             s.input_text = text;
                                             s.show_command_picker = false;

@@ -48,6 +48,7 @@ pub enum AgentStatus {
     ToolCall(String),
     NeedsAuth,
     Error(String),
+    #[allow(dead_code)]
     NotInstalled,
 }
 
@@ -167,6 +168,7 @@ pub enum ChatRequest {
     SwitchAgent {
         provider_id: String,
     },
+    #[allow(dead_code)]
     Shutdown,
 }
 
