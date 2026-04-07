@@ -21,9 +21,7 @@ A fast, private, local-first reference manager built with Rust. Read, annotate, 
 </p>
 
 ## Why Rotero
-
-- **Native Rust, no Electron** — Single binary, starts instantly, stays light
-- **742 Zotero web translators** — One-click import from Google Scholar, arXiv, PubMed, and 40+ academic sites
+- **Zotero web translators compatible** — One-click import from Google Scholar, arXiv, PubMed, and 40+ academic sites
 - **Citation graph** — Interactive visualization of how your papers connect
 - **AI research assistant** — Chat with your papers via ACP — use your Claude subscription, no API costs
 - **CRR sync** — Custom conflict-free replicated relations for multi-device sync
