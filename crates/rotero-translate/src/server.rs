@@ -57,7 +57,6 @@ impl TranslationServer {
         ))
     }
 
-    /// Check if the server is responding.
     async fn is_healthy(&self) -> bool {
         let url = format!("http://127.0.0.1:{}/", self.port);
         reqwest::Client::new()
@@ -68,7 +67,6 @@ impl TranslationServer {
             .is_ok()
     }
 
-    /// Clone and install translation-server from GitHub.
     async fn install(&self) -> Result<(), TranslateError> {
         let server_js = self.server_dir.join("src").join("server.js");
         if server_js.exists() {
@@ -197,7 +195,6 @@ ItemSaver.prototype.saveItems = async function (jsonItems, attachmentCallback, i
         Ok(())
     }
 
-    /// Start the translation-server subprocess.
     fn start(&self) -> Result<(), TranslateError> {
         let node_bin = node::find_or_install_node()?;
         let entry = self.server_dir.join("src").join("server.js");
@@ -231,7 +228,6 @@ ItemSaver.prototype.saveItems = async function (jsonItems, attachmentCallback, i
         Ok(())
     }
 
-    /// Stop the server if running.
     pub fn stop(&self) {
         let mut guard = self.child.lock().unwrap();
         if let Some(ref mut child) = *guard {

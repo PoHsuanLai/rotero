@@ -6,7 +6,6 @@ use dioxus::prelude::*;
 use crate::state::app_state::LibraryState;
 use rotero_db::Database;
 
-/// Papers that need OA PDF fetching after import.
 #[derive(Clone, PartialEq)]
 pub struct OaPending {
     pub id: String,
@@ -16,18 +15,14 @@ pub struct OaPending {
     pub year: Option<i32>,
 }
 
-/// State for the OA download flow. Stored as context so it persists across view switches.
+/// OA download flow state, persisted as context across view switches.
 #[derive(Clone, PartialEq)]
 pub enum OaState {
-    /// Show prompt dialog: "N papers without PDFs — download?"
     Prompt(Vec<OaPending>),
-    /// Downloading in background (non-blocking banner)
     Downloading { done: usize, total: usize, downloaded: usize },
-    /// Finished (dismissable banner)
     Done { downloaded: usize, total: usize },
 }
 
-/// Cancel flag for OA downloads. Stored as context.
 #[derive(Clone)]
 pub struct OaCancelFlag(pub Signal<Option<Arc<AtomicBool>>>);
 
@@ -41,7 +36,6 @@ pub fn ImportExportButtons() -> Element {
     }
 }
 
-/// Renders the OA prompt dialog and progress/done banner.
 /// Must be rendered in a component that stays mounted across view switches (e.g. Layout).
 #[component]
 pub fn OaOverlay() -> Element {
@@ -49,11 +43,9 @@ pub fn OaOverlay() -> Element {
     let cancel_flag = use_context::<OaCancelFlag>();
 
     rsx! {
-        // Prompt dialog (modal — only for the initial yes/no)
         if let Some(OaState::Prompt(ref papers)) = oa_state() {
             OaPromptDialog { papers: papers.clone() }
         }
-        // Progress/done banner (non-blocking)
         match oa_state() {
             Some(OaState::Downloading { done, total, downloaded }) => rsx! {
                 OaProgressBanner { done, total, downloaded, cancel_flag: cancel_flag.0 }
@@ -173,7 +165,6 @@ fn ImportButton() -> Element {
     }
 }
 
-/// Modal dialog for the initial "Download OA PDFs?" prompt.
 #[component]
 fn OaPromptDialog(papers: Vec<OaPending>) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
@@ -266,7 +257,6 @@ fn OaPromptDialog(papers: Vec<OaPending>) -> Element {
     }
 }
 
-/// Non-blocking progress banner shown during OA download.
 #[component]
 fn OaProgressBanner(
     done: usize,
@@ -304,7 +294,6 @@ fn OaProgressBanner(
     }
 }
 
-/// Non-blocking done banner.
 #[component]
 fn OaDoneBanner(downloaded: usize, total: usize) -> Element {
     let mut oa_state = use_context::<Signal<Option<OaState>>>();

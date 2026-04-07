@@ -1,6 +1,5 @@
 use dioxus::prelude::*;
 
-/// A ghost-style icon button with a styled tooltip.
 #[component]
 pub fn IconButton(
     icon: String,

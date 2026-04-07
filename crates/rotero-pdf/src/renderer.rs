@@ -3,7 +3,6 @@ use image::codecs::png::PngEncoder;
 use pdfium_render::prelude::*;
 use thiserror::Error;
 
-/// Encode an image as PNG, returning raw bytes.
 fn encode_png(image: &image::DynamicImage, buf: &mut Vec<u8>) -> Result<(), image::ImageError> {
     buf.clear();
     let encoder = PngEncoder::new(buf);
@@ -35,15 +34,10 @@ pub enum PdfError {
     WriteError(String),
 }
 
-/// Holds the PDFium bindings and provides PDF operations.
-///
-/// Caches the most recently used PDF file bytes in memory so that repeated operations
-/// on the same document (render pages, extract text, thumbnails, etc.) avoid redundant
-/// disk I/O. The cached bytes are used with `load_pdf_from_byte_vec` which is significantly
-/// faster than `load_pdf_from_file` for repeated access.
+/// Caches the most recently used PDF file bytes to avoid redundant disk I/O
+/// across repeated operations on the same document.
 pub struct PdfEngine {
     pdfium: Pdfium,
-    /// Cached (path, mtime, file_bytes) for the most recently opened PDF.
     cached_bytes: Option<(String, u64, Vec<u8>)>,
 }
 
@@ -61,13 +55,10 @@ pub struct RenderedPage {
 }
 
 impl PdfEngine {
-    /// Access the underlying Pdfium bindings (for text extraction, etc.)
     pub fn pdfium(&self) -> &Pdfium {
         &self.pdfium
     }
 
-    /// Create a new PdfEngine by binding to a statically linked PDFium library.
-    /// Use this on platforms where dynamic loading isn't available (iOS, Android).
     #[cfg(feature = "static")]
     pub fn new_static() -> Result<Self, PdfError> {
         let bindings = Pdfium::bind_to_statically_linked_library()
@@ -78,12 +69,7 @@ impl PdfEngine {
         })
     }
 
-    /// Create a new PdfEngine by dynamically binding to the PDFium library.
-    ///
-    /// Resolution order:
-    /// 1. Explicit `lib_path` argument
-    /// 2. `PDFIUM_DYNAMIC_LIB_PATH` env var (directory containing the library)
-    /// 3. System library search paths
+    /// Resolution order: explicit `lib_path`, then `PDFIUM_DYNAMIC_LIB_PATH` env var, then system paths.
     #[cfg(not(feature = "static"))]
     pub fn new(lib_path: Option<&str>) -> Result<Self, PdfError> {
         let bindings = if let Some(path) = lib_path {
@@ -102,8 +88,6 @@ impl PdfEngine {
         })
     }
 
-    /// Get cached file bytes for a PDF, reading from disk only if the file changed
-    /// or is a different path than what's cached.
     fn get_pdf_bytes(&mut self, pdf_path: &str) -> Result<Vec<u8>, PdfError> {
         let mtime = file_mtime(pdf_path);
         if let Some((ref cached_path, cached_mtime, ref bytes)) = self.cached_bytes
@@ -115,11 +99,9 @@ impl PdfEngine {
         let bytes = std::fs::read(pdf_path)
             .map_err(|e| PdfError::RenderError(format!("Failed to read {pdf_path}: {e}")))?;
         self.cached_bytes = Some((pdf_path.to_string(), mtime, bytes));
-        // Return a clone from the cache — avoids the previous double-clone on store.
         Ok(self.cached_bytes.as_ref().unwrap().2.clone())
     }
 
-    /// Open a PDF document from the byte cache (avoids repeated disk reads).
     fn open_document(
         &mut self,
         pdf_path: &str,
@@ -128,7 +110,6 @@ impl PdfEngine {
         Ok(self.pdfium.load_pdf_from_byte_vec(bytes, None)?)
     }
 
-    /// Load a PDF and return basic info (page count, path).
     pub fn load_document(&mut self, pdf_path: &str) -> Result<PdfDocumentInfo, PdfError> {
         let document = self.open_document(pdf_path)?;
         Ok(PdfDocumentInfo {
@@ -137,8 +118,7 @@ impl PdfEngine {
         })
     }
 
-    /// Render a single page to a base64-encoded PNG string.
-    /// `scale` controls the zoom level (1.0 = 72 DPI, 2.0 = 144 DPI, etc.)
+    /// `scale`: zoom level (1.0 = 72 DPI, 2.0 = 144 DPI, etc.)
     pub fn render_page(
         &mut self,
         pdf_path: &str,
@@ -186,7 +166,6 @@ impl PdfEngine {
         })
     }
 
-    /// Render multiple pages as base64-encoded PNGs.
     pub fn render_pages(
         &mut self,
         pdf_path: &str,
@@ -237,7 +216,6 @@ impl PdfEngine {
         Ok(pages)
     }
 
-    /// Render a range of pages as small PNG thumbnails (fixed max width).
     pub fn render_thumbnails_range(
         &mut self,
         pdf_path: &str,
@@ -289,7 +267,6 @@ impl PdfEngine {
         Ok(thumbs)
     }
 
-    /// Extract the document outline/bookmarks.
     pub fn extract_outline(&mut self, pdf_path: &str) -> Result<Vec<BookmarkEntry>, PdfError> {
         let document = self.open_document(pdf_path)?;
         let bookmarks = document.bookmarks();
@@ -319,7 +296,7 @@ impl PdfEngine {
         Ok(entries)
     }
 
-    /// Get page dimensions (in points) for all pages without rendering.
+    /// Returns (width_pts, height_pts) for all pages without rendering.
     pub fn get_page_dimensions(&mut self, pdf_path: &str) -> Result<Vec<(f32, f32)>, PdfError> {
         let document = self.open_document(pdf_path)?;
         let page_count = document.pages().len() as u32;
@@ -336,14 +313,10 @@ impl PdfEngine {
         Ok(dims)
     }
 
-    /// Drop the cached PDF file bytes to free memory.
-    /// Call this after completing a batch of operations on the same PDF.
     pub fn clear_byte_cache(&mut self) {
         self.cached_bytes = None;
     }
 
-    /// Extract annotations from the PDF that Rotero can display.
-    /// Returns annotations in PDF-point coordinates.
     pub fn extract_annotations(
         &mut self,
         pdf_path: &str,
@@ -408,7 +381,6 @@ impl PdfEngine {
     }
 }
 
-/// An annotation extracted from a PDF file, in PDF-point coordinates.
 #[derive(Debug, Clone)]
 pub struct ExtractedAnnotation {
     pub page: u32,
@@ -421,7 +393,6 @@ pub struct ExtractedAnnotation {
     pub page_height_pts: f32,
 }
 
-/// A bookmark/outline entry from the PDF.
 #[derive(Debug, Clone)]
 pub struct BookmarkEntry {
     pub title: String,

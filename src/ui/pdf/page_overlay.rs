@@ -87,8 +87,6 @@ pub(crate) fn PdfPageWithOverlay(
             style: "cursor: {cursor}; zoom: {css_zoom};",
 
             {
-                // Use file:// URL from disk cache if available (short string, instant diff).
-                // Fall back to inline base64 data URL for pages not yet cached.
                 let data_dir = config.read().effective_library_path();
                 let src = crate::cache::page_file_url(&data_dir, &pdf_path_for_cache, page_index, mime)
                     .unwrap_or_else(|| format!("data:{mime};base64,{base64_data}"));
@@ -504,7 +502,6 @@ fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> Element {
             div { key: "ann-{ann_id}", style: "position: absolute; left: {x}px; top: {y}px; width: {w}px; height: {h}px; border-bottom: 2px solid {color}; pointer-events: auto; z-index: 3;", oncontextmenu: on_context }
         },
         AnnotationType::Ink => {
-            // Build SVG path from stored points
             let points = ann
                 .geometry
                 .get("points")

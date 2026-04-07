@@ -62,7 +62,6 @@ pub fn TagEditor(paper_id: String) -> Element {
                         spawn(async move {
                             if let Ok(tag_id) = rotero_db::tags::get_or_create_tag(db.conn(), &tag_name, None).await {
                                 let _ = rotero_db::tags::add_tag_to_paper(db.conn(), &pid, &tag_id).await;
-                                // Reload tags
                                 if let Ok(tags) = rotero_db::tags::list_tags(db.conn()).await {
                                     lib_state.with_mut(|s| s.tags = tags);
                                 }

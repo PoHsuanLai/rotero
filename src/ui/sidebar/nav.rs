@@ -20,38 +20,25 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
     let view = state.view.clone();
     let papers = &state.papers;
 
-    // Compute counts for smart filters
     let total = papers.len();
     let favorites_count = papers.iter().filter(|p| p.status.is_favorite).count();
     let unread_count = papers.iter().filter(|p| !p.status.is_read).count();
     let recent_count = total.min(20);
 
-    // Recently opened (last 5 papers viewed — tracked by date_modified)
     let mut recent_papers: Vec<_> = papers.iter().filter(|p| p.links.pdf_path.is_some()).collect();
     recent_papers.sort_by(|a, b| b.status.date_modified.cmp(&a.status.date_modified));
     let recent_opened: Vec<_> = recent_papers.into_iter().take(5).collect();
 
-    // Collection context menu state: (collection_id, name, x, y)
     let mut coll_ctx = use_signal(|| None::<(String, String, f64, f64)>);
-
-    // Tag context menu state: (tag_id, tag_name, tag_color, x, y)
     let mut tag_ctx = use_signal(|| None::<TagContextMenu>);
-
-    // Recently opened context menu state: (paper_id, x, y)
     let mut recent_ctx = use_signal(|| None::<(String, f64, f64)>);
 
-    // New collection inline edit state: None = not editing, Some(parent_id) = creating under parent
-    // Some(None) = top-level, Some(Some(id)) = subcollection
+    // None = not editing, Some(None) = top-level, Some(Some(id)) = subcollection
     let new_coll_editing: Signal<Option<Option<String>>> = use_context();
 
-    // Drag-and-drop state for collection reparenting
     let mut drag_coll: Signal<Option<String>> =
         use_context_provider(|| Signal::new(None::<String>));
-
-    // Drag paper from library
     let mut drag_paper = use_context::<Signal<DragPaper>>();
-
-    // Track which drop target is being hovered during drag (e.g. "coll-5", "tag-3")
     let _drop_hover: Signal<Option<String>> = use_context_provider(|| Signal::new(None::<String>));
 
     let db_for_ctx = db.clone();
@@ -65,14 +52,12 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
     if collapsed {
         return rsx! {
             div { class: "{sidebar_class}",
-                // Expand button
                 button {
                     class: "sidebar-collapsed-btn",
                     title: "Expand sidebar",
                     onclick: move |_| on_toggle.call(()),
                     i { class: "bi bi-layout-sidebar-inset" }
                 }
-                // Icon-only nav
                 button {
                     class: "sidebar-collapsed-btn",
                     title: "All Papers",
@@ -105,7 +90,6 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                     },
                     i { class: "bi bi-circle" }
                 }
-                // Settings at bottom
                 div { class: "sidebar-spacer" }
                 crate::ui::settings::SettingsButton {}
             }
@@ -114,7 +98,6 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
 
     rsx! {
         div { class: "{sidebar_class}",
-            // Brand + collapse
             div { class: "sidebar-header",
                 h2 {
                     class: "sidebar-brand",
@@ -131,10 +114,8 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                 }
             }
 
-            // Quick actions
             OpenPdfButton {}
 
-            // Smart filters
             CollapsibleSection { title: "Library", initially_open: true,
                 SidebarItem {
                     label: format!("All Papers"),
@@ -173,7 +154,6 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                 }
             }
 
-            // Recently opened
             if !recent_opened.is_empty() {
                 CollapsibleSection { title: "Recent", initially_open: true,
                     for paper in recent_opened.iter() {
@@ -231,18 +211,15 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                 }
             }
 
-            // Collections
             CollapsibleSection { title: "Collections", initially_open: true,
                 action: rsx! { NewCollectionButton {} },
                 CollectionTree { collections: state.collections.clone(), parent_id: None, depth: 0, ctx_menu: coll_ctx }
                 if state.collections.is_empty() && new_coll_editing().is_none() {
                     p { class: "sidebar-empty", "No collections" }
                 }
-                // Inline new-collection row at top level
                 if new_coll_editing() == Some(None) {
                     NewCollectionRow { parent_id: None, depth: 0 }
                 }
-                // Drop zone for un-nesting: drag a subcollection here to make it top-level
                 if drag_coll().is_some() {
                     {
                         let db_unnest = db.clone();
@@ -277,10 +254,8 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                 }
             }
 
-            // Tags
             TagSection { tags: state.tags.clone(), ctx_menu: tag_ctx }
 
-            // Saved Searches
             if !state.saved_searches.is_empty() {
                 CollapsibleSection { title: "Saved Searches", initially_open: true,
                     for search in state.saved_searches.iter() {
@@ -330,11 +305,9 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                 }
             }
 
-            // Spacer + Settings
             div { class: "sidebar-spacer" }
             crate::ui::settings::SettingsButton {}
 
-            // Collection context menu
             if let Some((coll_id, coll_name, mx, my)) = coll_ctx() {
                 {
                     let mut new_coll_editing: Signal<Option<Option<String>>> = use_context();
@@ -345,7 +318,6 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
 
                     rsx! {
                         if renaming() {
-                            // Inline rename input
                             ContextMenu {
                                 x: mx,
                                 y: my,
@@ -444,7 +416,6 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                 }
             }
 
-            // Tag context menu
             if let Some((tag_id, tag_name, _tag_color, mx, my)) = tag_ctx() {
                 {
                     let db_rename = db_for_ctx.clone();
@@ -521,7 +492,6 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                     },
                                 }
 
-                                // Color swatches
                                 div { class: "context-menu-item",
                                     i { class: "context-menu-icon bi bi-palette" }
                                     span { class: "context-menu-label", "Color" }
@@ -600,7 +570,6 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                 }
             }
 
-            // Recently opened context menu
             if let Some((paper_id, mx, my)) = recent_ctx() {
                 ContextMenu {
                     x: mx,

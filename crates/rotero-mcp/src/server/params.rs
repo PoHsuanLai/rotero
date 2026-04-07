@@ -13,7 +13,6 @@ pub struct SearchPapersParams {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct GetPaperParams {
-    /// Paper ID
     pub paper_id: String,
 }
 
@@ -27,25 +26,21 @@ pub struct ListPapersParams {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct PaperIdParams {
-    /// Paper ID
     pub paper_id: String,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct CollectionIdParams {
-    /// Collection ID
     pub collection_id: String,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct TagIdParams {
-    /// Tag ID
     pub tag_id: String,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct ExtractPdfTextParams {
-    /// Paper ID
     pub paper_id: String,
     /// Page numbers to extract (0-indexed). If omitted, extracts first 10 pages.
     pub pages: Option<Vec<u32>>,
@@ -53,27 +48,20 @@ pub struct ExtractPdfTextParams {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct AddNoteParams {
-    /// Paper ID to add note to
     pub paper_id: String,
-    /// Note title
     pub title: String,
-    /// Note body text
     pub body: String,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct UpdateNoteParams {
-    /// Note ID to update
     pub note_id: String,
-    /// New title
     pub title: String,
-    /// New body text
     pub body: String,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct AddTagToPaperParams {
-    /// Paper ID
     pub paper_id: String,
     /// Tag name (will be created if it doesn't exist)
     pub tag_name: String,
@@ -83,23 +71,18 @@ pub struct AddTagToPaperParams {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct SetPaperReadParams {
-    /// Paper ID
     pub paper_id: String,
-    /// Whether the paper is read
     pub is_read: bool,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct SetPaperFavoriteParams {
-    /// Paper ID
     pub paper_id: String,
-    /// Whether the paper is a favorite
     pub is_favorite: bool,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct GetPaperRelationshipsParams {
-    /// Paper ID to find relationships for
     pub paper_id: String,
 }
 

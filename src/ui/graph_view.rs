@@ -4,7 +4,6 @@ use rotero_graph::{GraphData, GraphFilter};
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
 use rotero_db::Database;
 
-/// Graph event sent from JS canvas via dioxus.send().
 #[derive(serde::Deserialize)]
 struct GraphEvent {
     #[serde(rename = "type")]
@@ -12,7 +11,6 @@ struct GraphEvent {
     id: String,
 }
 
-/// Which edge type to display — only one at a time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EdgeMode {
     Tags,
@@ -71,7 +69,6 @@ pub fn GraphView() -> Element {
     let mut search_query = use_signal(String::new);
     let mut initialized = use_signal(|| false);
 
-    // Compute graph data when papers or edge mode changes
     let db2 = db.clone();
     use_effect(move || {
         let mode = edge_mode();
@@ -102,7 +99,6 @@ pub fn GraphView() -> Element {
                 200,
             );
 
-            // Attach full metadata for tooltips
             for node in &mut data.nodes {
                 if let Some(paper) = papers
                     .iter()
@@ -117,7 +113,6 @@ pub fn GraphView() -> Element {
         });
     });
 
-    // Initialize canvas and push data when ready
     use_effect(move || {
         if let Some(ref json) = *graph_json.read() {
             let json = json.clone();
@@ -135,7 +130,6 @@ pub fn GraphView() -> Element {
         }
     });
 
-    // Handle search highlighting
     use_effect(move || {
         let query = search_query().to_lowercase();
         let state = lib_state.read();
@@ -160,11 +154,10 @@ pub fn GraphView() -> Element {
         }
     });
 
-    // Listen for click events from JS — uses a never-resolving promise to keep the channel open
+    // Never-resolving promise keeps the eval channel open for dioxus.send() messages from JS
     use_hook(move || {
         spawn(async move {
             let mut eval = document::eval(
-                // Keep eval alive without polling — waits forever so dioxus.send() can deliver messages
                 "new Promise(() => {})",
             );
             while let Ok(msg) = eval.recv::<String>().await {
@@ -221,9 +214,7 @@ pub fn GraphView() -> Element {
 
     rsx! {
         div { class: "graph-view",
-            // Toolbar
             div { class: "graph-toolbar",
-                // Edge mode tabs
                 div { class: "graph-mode-tabs",
                     for mode in ALL_MODES {
                         button {
@@ -261,7 +252,6 @@ pub fn GraphView() -> Element {
             if paper_count == 0 {
                 div { class: "graph-empty", "No papers in library" }
             } else {
-                // Canvas container
                 div { class: "graph-canvas-wrap",
                     canvas { id: "graph-canvas" }
                     div { id: "graph-tooltip", class: "graph-tooltip" }
@@ -271,7 +261,6 @@ pub fn GraphView() -> Element {
     }
 }
 
-/// Build JSON data string with full metadata for tooltips.
 fn build_js_data(data: &GraphData, papers: &[rotero_models::Paper]) -> String {
     #[derive(serde::Serialize)]
     struct JsNode {

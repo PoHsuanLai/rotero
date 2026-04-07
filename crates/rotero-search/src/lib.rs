@@ -60,7 +60,6 @@ impl SearchProvider {
         }
     }
 
-    /// Fetch full metadata by DOI.
     pub async fn fetch_by_doi(&self, doi: &str) -> Result<Paper, String> {
         match self {
             Self::OpenAlex => openalex::fetch_by_doi(doi).await,

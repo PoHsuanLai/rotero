@@ -33,7 +33,6 @@ pub fn ImportSection() -> Element {
 
             p { class: "settings-hint", "When enabled, Rotero fetches paper metadata from CrossRef after importing a PDF." }
 
-            // Better BibTeX auto-export
             div { class: "settings-field",
                 span { class: "settings-field-label", "Auto-export .bib file" }
                 div { class: "settings-field-control",

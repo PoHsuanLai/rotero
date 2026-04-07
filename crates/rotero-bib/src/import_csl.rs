@@ -1,10 +1,7 @@
 use rotero_models::{Paper, PaperLinks, Publication};
 use serde::Deserialize;
 
-/// Parse a CSL-JSON string into a list of Papers.
-///
 /// CSL-JSON is the standard JSON format used by Zotero, Mendeley, and others.
-/// The input should be a JSON array of CSL item objects.
 pub fn import_csl_json(input: &str) -> Result<Vec<Paper>, String> {
     let items: Vec<CslItem> =
         serde_json::from_str(input).map_err(|e| format!("Failed to parse CSL-JSON: {e}"))?;

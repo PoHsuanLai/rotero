@@ -7,7 +7,6 @@ use rotero_models::Paper;
 
 use crate::export::export_bibtex;
 
-/// Available citation styles for the UI.
 pub const AVAILABLE_STYLES: &[(&str, ArchivedStyle)] = &[
     ("APA 7th", ArchivedStyle::AmericanPsychologicalAssociation),
     ("Chicago Author-Date", ArchivedStyle::ChicagoAuthorDate),
@@ -31,7 +30,6 @@ pub const AVAILABLE_STYLES: &[(&str, ArchivedStyle)] = &[
     ("Elsevier Harvard", ArchivedStyle::ElsevierHarvard),
 ];
 
-/// Format a bibliography for the given papers using the specified style.
 /// Converts Papers → BibTeX string → hayagriva Library → formatted output.
 pub fn format_bibliography(papers: &[Paper], style: ArchivedStyle) -> Result<String, String> {
     let csl_style = match style.get() {
@@ -41,7 +39,6 @@ pub fn format_bibliography(papers: &[Paper], style: ArchivedStyle) -> Result<Str
 
     let locales = archive::locales();
 
-    // Convert papers to BibTeX, then parse into hayagriva entries
     let bibtex = export_bibtex(papers);
     let library = hayagriva::io::from_biblatex_str(&bibtex)
         .map_err(|errs| format!("BibTeX conversion errors: {:?}", errs))?;
@@ -80,7 +77,6 @@ pub fn format_bibliography(papers: &[Paper], style: ArchivedStyle) -> Result<Str
     Ok(output)
 }
 
-/// Format a single citation for one paper.
 pub fn format_citation(paper: &Paper, style: ArchivedStyle) -> Result<String, String> {
     format_bibliography(std::slice::from_ref(paper), style)
 }

@@ -11,8 +11,6 @@ pub use data::{EdgeType, GraphData, GraphEdge, GraphFilter, GraphNode};
 pub use edges::MergedEdge;
 
 /// Build the full graph and run force simulation.
-///
-/// Returns positioned nodes and edges ready for rendering.
 pub fn build_and_simulate(
     papers: &[Paper],
     tags: &[Tag],
@@ -29,7 +27,6 @@ pub fn build_and_simulate(
         filter,
     );
 
-    // Build tag color lookup
     let tag_colors: HashMap<&str, &str> = tags
         .iter()
         .filter_map(|t| Some((t.id.as_deref()?, t.color.as_deref()?)))
@@ -66,7 +63,6 @@ pub fn build_and_simulate(
         }
     }
 
-    // Run force simulation
     let mut graph = fdg::init_force_graph_uniform::<f32, 2, String, f32>(source_graph, 50.0);
 
     if iterations > 0 {
@@ -74,7 +70,6 @@ pub fn build_and_simulate(
         Center.apply(&mut graph);
     }
 
-    // Extract positioned nodes
     let nodes: Vec<GraphNode> = papers
         .iter()
         .filter_map(|paper| {

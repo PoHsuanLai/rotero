@@ -9,7 +9,6 @@ pub(crate) fn ExternalResults(results: Vec<rotero_models::Paper>, searching: boo
     let db = use_context::<Database>();
     let source_label = lib_state.read().search.source.label();
 
-    // Collect DOIs already in the library for duplicate detection
     let existing_dois: std::collections::HashSet<String> = lib_state
         .read()
         .papers
@@ -47,7 +46,6 @@ pub(crate) fn ExternalResults(results: Vec<rotero_models::Paper>, searching: boo
                     let db_banner = db.clone();
 
                     rsx! {
-                        // Banner
                         div { class: "external-results-banner",
                             span { "{results.len()} results from {source_label}" }
                             button {
@@ -65,7 +63,6 @@ pub(crate) fn ExternalResults(results: Vec<rotero_models::Paper>, searching: boo
                                     spawn(async move {
                                         let mut imported = 0;
                                         for paper in papers {
-                                            // Skip papers with DOIs we already have
                                             if let Some(ref doi) = paper.doi {
                                                 if !doi.is_empty() && existing.contains(doi) {
                                                     continue;
@@ -178,10 +175,8 @@ pub(crate) fn ExternalResults(results: Vec<rotero_models::Paper>, searching: boo
     }
 }
 
-/// If a paper has a DOI but missing authors (e.g. from autocomplete),
-/// try to fetch full metadata before inserting.
+/// If a paper has a DOI but missing authors, fetch full metadata before inserting.
 async fn enrich_before_import(paper: rotero_models::Paper) -> rotero_models::Paper {
-    // Only enrich if we have a DOI but are missing basic fields
     let needs_enrichment =
         paper.authors.is_empty() && paper.doi.as_ref().is_some_and(|d| !d.is_empty());
     if !needs_enrichment {
@@ -189,7 +184,6 @@ async fn enrich_before_import(paper: rotero_models::Paper) -> rotero_models::Pap
     }
 
     let doi = paper.doi.as_deref().unwrap_or_default();
-    // Try OpenAlex full endpoint first (fastest), then CrossRef
     if let Ok(enriched) = crate::metadata::openalex::fetch_by_doi(doi).await {
         return enriched;
     }

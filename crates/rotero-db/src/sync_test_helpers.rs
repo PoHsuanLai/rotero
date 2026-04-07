@@ -1,10 +1,9 @@
-//! Test helpers for simulating multi-device sync without the full FileSyncEngine.
+//! Test helpers for simulating multi-device sync.
 
 use std::path::PathBuf;
 
 use crate::crr::{self, ChangeRow};
 
-/// Minimal sync engine for integration tests.
 pub struct TestSyncEngine {
     dir: PathBuf,
     site_id: Vec<u8>,
@@ -19,7 +18,7 @@ impl TestSyncEngine {
         self.site_id.iter().map(|b| format!("{b:02x}")).collect()
     }
 
-    /// Export changes to a JSON file in the test dir. Returns count exported.
+    /// Export changes to a JSON file. Returns count exported.
     pub async fn export_changes(&self, conn: &turso::Connection) -> usize {
         let state_path = self.dir.join(format!("{}_state.json", self.site_hex()));
         let last_ver: i64 = std::fs::read_to_string(&state_path)

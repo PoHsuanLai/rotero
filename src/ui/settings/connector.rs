@@ -12,7 +12,6 @@ pub fn ConnectorSection() -> Element {
         div { class: "settings-section",
             h4 { class: "settings-section-title", "Browser Connector" }
 
-            // Enabled toggle
             div { class: "settings-field",
                 span { class: "settings-field-label", "Enabled" }
                 div { class: "settings-field-control",
@@ -33,7 +32,6 @@ pub fn ConnectorSection() -> Element {
                 }
             }
 
-            // Port (only when enabled)
             if enabled {
                 div { class: "settings-field",
                     span { class: "settings-field-label", "Port" }

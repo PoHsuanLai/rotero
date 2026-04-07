@@ -25,8 +25,6 @@ pub(super) fn json_result<T: Serialize>(value: &T) -> Result<CallToolResult, rmc
     Ok(CallToolResult::success(vec![Content::text(text)]))
 }
 
-// -- Tool implementations ----------------------------------------------------
-
 #[rmcp::tool_router]
 impl RoteroMcp {
     #[tool(description = "Search papers in the library by title, authors, abstract, or full text")]
@@ -387,8 +385,6 @@ impl RoteroMcp {
         })
     }
 }
-
-// -- ServerHandler implementation --------------------------------------------
 
 #[tool_handler]
 impl ServerHandler for RoteroMcp {

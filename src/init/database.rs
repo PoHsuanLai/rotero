@@ -1,9 +1,7 @@
-/// Shared DB connection — initialized once, used by both connector and UI.
 #[cfg(feature = "desktop")]
 pub static SHARED_DB: std::sync::OnceLock<(rotero_db::turso::Connection, std::path::PathBuf)> =
     std::sync::OnceLock::new();
 
-/// Initialize the shared database connection and run migrations.
 #[cfg(feature = "desktop")]
 pub(crate) fn init_database(config: &crate::sync::engine::SyncConfig) {
     let lib_path = config.effective_library_path();

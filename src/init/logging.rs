@@ -1,4 +1,3 @@
-/// Initialize tracing — logs to ~/rotero-debug.log
 pub(crate) fn init_logging() {
     let log_path = std::env::var("HOME")
         .map(std::path::PathBuf::from)

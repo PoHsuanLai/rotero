@@ -4,15 +4,11 @@ use rotero_connector::ConnectorState;
 
 use super::database::SHARED_DB;
 
-/// Watch channel receiver — the connector sends a notification when data changes.
-/// The UI awaits this instead of polling.
 #[cfg(feature = "desktop")]
 pub static CONNECTOR_NOTIFY: std::sync::OnceLock<
     std::sync::Mutex<tokio::sync::watch::Receiver<()>>,
 > = std::sync::OnceLock::new();
 
-/// Start the browser connector server in the background.
-/// Returns the watch sender/receiver pair for data-change notifications.
 #[cfg(feature = "desktop")]
 pub(crate) fn start_connector(
     config: &crate::sync::engine::SyncConfig,
@@ -26,7 +22,6 @@ pub(crate) fn start_connector(
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
             rt.block_on(async {
-                // Use the shared DB connection
                 let (conn, _) = match SHARED_DB.get() {
                     Some(pair) => (pair.0.clone(), pair.1.clone()),
                     None => {
@@ -35,7 +30,6 @@ pub(crate) fn start_connector(
                     }
                 };
 
-                // Clone connections for each callback
                 let conn_collections = conn.clone();
                 let conn_tags = conn.clone();
                 let conn_save = conn.clone();
@@ -65,7 +59,6 @@ pub(crate) fn start_connector(
                                             let _ = connector_tx.send(());
                                             tracing::info!("Connector saved paper id={}: {}", paper_id, paper.title);
 
-                                            // Download PDF in background
                                             let paper_id_enrich = paper_id.clone();
                                             if let Some(pdf_url) = pdf_url {
                                                 let conn_pdf = conn.clone();
@@ -89,7 +82,6 @@ pub(crate) fn start_connector(
                                                 });
                                             }
 
-                                            // Enrich metadata in background
                                             let conn_enrich = conn.clone();
                                             let connector_tx_enrich = connector_tx.clone();
                                             tokio::spawn(async move {
@@ -111,7 +103,6 @@ pub(crate) fn start_connector(
                     })),
                     on_get_collections: Some(Box::new(move || {
                         let conn = conn_collections.clone();
-                        // Block on async in sync callback context
                         tokio::task::block_in_place(|| {
                             tokio::runtime::Handle::current().block_on(async {
                                 match rotero_db::collections::list_collections(&conn).await {
@@ -152,7 +143,6 @@ pub(crate) fn start_connector(
                     translation_server: tokio::sync::RwLock::new(None),
                 });
 
-                // Start translation server in background (don't block connector)
                 {
                     let state_clone = state.clone();
                     tokio::spawn(async move {
@@ -176,11 +166,9 @@ pub(crate) fn start_connector(
         });
     }
 
-    // Store the watch receiver so the Dioxus app can await notifications
     CONNECTOR_NOTIFY.get_or_init(|| std::sync::Mutex::new(connector_rx));
 }
 
-/// Download a PDF from a URL and import it into the library.
 pub async fn download_and_import_pdf(
     conn: &rotero_db::turso::Connection,
     lib_path: &std::path::Path,
@@ -206,7 +194,6 @@ pub async fn download_and_import_pdf(
         return Err(format!("PDF download returned HTTP {}", resp.status()));
     }
 
-    // Save to a temp file first
     let papers_dir = lib_path.join("papers");
     let tmp_dir = papers_dir.join(".tmp");
     std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("Failed to create temp dir: {e}"))?;
@@ -217,14 +204,12 @@ pub async fn download_and_import_pdf(
         .await
         .map_err(|e| format!("Failed to read PDF bytes: {e}"))?;
 
-    // Verify it looks like a PDF
     if bytes.len() < 5 || &bytes[..5] != b"%PDF-" {
         return Err("Downloaded file is not a valid PDF".to_string());
     }
 
     std::fs::write(&tmp_file, &bytes).map_err(|e| format!("Failed to write temp PDF: {e}"))?;
 
-    // Build clean filename and import
     let first_author = paper.authors.first().map(|s| s.as_str());
     let subfolder = match paper.year {
         Some(y) => y.to_string(),
@@ -233,7 +218,6 @@ pub async fn download_and_import_pdf(
     let abs_dir = papers_dir.join(&subfolder);
     std::fs::create_dir_all(&abs_dir).map_err(|e| format!("Failed to create folder: {e}"))?;
 
-    // Build filename: "Title - Author.pdf"
     let clean_title = paper
         .title
         .chars()
@@ -256,7 +240,6 @@ pub async fn download_and_import_pdf(
         None => format!("{clean_title}.pdf"),
     };
 
-    // Handle collisions
     let mut final_name = dest_name.clone();
     let mut dest = abs_dir.join(&final_name);
     let mut counter = 1;
@@ -275,7 +258,6 @@ pub async fn download_and_import_pdf(
 
     let rel_path = format!("{subfolder}/{final_name}");
 
-    // Update the paper's pdf_path in the DB
     rotero_db::papers::update_pdf_path(conn, paper_id, &rel_path)
         .await
         .map_err(|e| format!("Failed to update pdf_path: {e}"))?;

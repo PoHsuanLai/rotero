@@ -10,7 +10,6 @@ pub fn AgentSection() -> Element {
     let chat_state = use_context::<Signal<ChatState>>();
     let agent_channel = use_context::<AgentChannel>();
 
-    // Local selection state — only committed on Save
     let mut pending_provider = use_signal(|| config.read().agent.agent_provider.clone());
     let saved_provider = config.read().agent.agent_provider.clone();
     let connected_provider = chat_state.read().active_provider_id.clone();
@@ -27,7 +26,6 @@ pub fn AgentSection() -> Element {
         div { class: "settings-section",
             h4 { class: "settings-section-title", "AI Agent" }
 
-            // Provider cards
             div { class: "agent-provider-grid",
                 for provider in AGENT_PROVIDERS.iter() {
                     {
@@ -72,7 +70,6 @@ pub fn AgentSection() -> Element {
                 }
             }
 
-            // Save button
             if has_unsaved {
                 div { class: "settings-field",
                     span { class: "settings-field-label", "" }
@@ -93,7 +90,6 @@ pub fn AgentSection() -> Element {
                 }
             }
 
-            // Auth — single dropdown with all methods, action changes based on selection
             if !auth_methods.is_empty() && *pending_provider.read() == connected_provider {
                 {
                     let sel_idx = *selected_method.read();
@@ -153,7 +149,6 @@ pub fn AgentSection() -> Element {
                                 }
                             }
                         }
-                        // API key input shown below when an API key method is selected
                         if selected_is_api_key {
                             div { class: "settings-field",
                                 span { class: "settings-field-label", "" }

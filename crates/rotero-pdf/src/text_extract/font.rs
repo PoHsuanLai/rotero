@@ -1,6 +1,5 @@
 //! Font detection and CSS mapping for PDF text extraction.
 
-/// Detect CSS font-weight from the PDF font name.
 pub fn detect_font_weight(name: &str) -> &'static str {
     let lower = name.to_lowercase();
     if lower.contains("bold") || lower.contains("-bd") || lower.contains("demi") {
@@ -16,7 +15,6 @@ pub fn detect_font_weight(name: &str) -> &'static str {
     }
 }
 
-/// Detect CSS font-style from the PDF font name and italic flag.
 pub fn detect_font_style(name: &str, is_italic_flag: bool) -> &'static str {
     if is_italic_flag {
         return "italic";
@@ -33,11 +31,9 @@ pub fn detect_font_style(name: &str, is_italic_flag: bool) -> &'static str {
     }
 }
 
-/// Map a PDF font name to a CSS font-family string.
 pub fn pdf_font_to_css(name: &str, is_serif: bool) -> String {
     let lower = name.to_lowercase();
 
-    // Common PDF font name patterns
     if lower.contains("times") || lower.contains("palatino") || lower.contains("garamond") {
         return format!("\"{name}\", serif");
     }
@@ -50,6 +46,7 @@ pub fn pdf_font_to_css(name: &str, is_serif: bool) -> String {
     if lower.contains("symbol") || lower.contains("zapf") {
         return format!("\"{name}\", symbol");
     }
+    // Computer Modern (LaTeX) — serif
     if lower.contains("cmbx")
         || lower.contains("cmr")
         || lower.contains("cmmi")
@@ -57,11 +54,9 @@ pub fn pdf_font_to_css(name: &str, is_serif: bool) -> String {
         || lower.contains("cmex")
         || lower.contains("cmti")
     {
-        // Computer Modern (LaTeX) — serif
         return format!("\"{name}\", serif");
     }
 
-    // Fall back to font descriptor flags
     if is_serif {
         format!("\"{name}\", serif")
     } else {

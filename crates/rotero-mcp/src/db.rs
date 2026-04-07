@@ -49,10 +49,6 @@ impl Database {
         self.papers_dir().join(rel_path)
     }
 
-    // -----------------------------------------------------------------------
-    // Papers
-    // -----------------------------------------------------------------------
-
     pub async fn search_papers(&self, query: &str) -> Result<Vec<Paper>, turso::Error> {
         match self.search_papers_fts(query).await {
             Ok(results) => Ok(results),
@@ -156,10 +152,6 @@ impl Database {
         Ok(())
     }
 
-    // -----------------------------------------------------------------------
-    // Annotations
-    // -----------------------------------------------------------------------
-
     pub async fn list_annotations_for_paper(
         &self,
         paper_id: &str,
@@ -177,10 +169,6 @@ impl Database {
         }
         Ok(anns)
     }
-
-    // -----------------------------------------------------------------------
-    // Notes
-    // -----------------------------------------------------------------------
 
     pub async fn list_notes_for_paper(&self, paper_id: &str) -> Result<Vec<Note>, turso::Error> {
         let mut rows = self
@@ -236,10 +224,6 @@ impl Database {
         Ok(())
     }
 
-    // -----------------------------------------------------------------------
-    // Collections
-    // -----------------------------------------------------------------------
-
     pub async fn list_collections(&self) -> Result<Vec<Collection>, turso::Error> {
         let mut rows = self.conn.query(queries::COLLECTION_LIST, ()).await?;
         let mut colls = Vec::new();
@@ -290,10 +274,6 @@ impl Database {
         }
         Ok(ids)
     }
-
-    // -----------------------------------------------------------------------
-    // Tags
-    // -----------------------------------------------------------------------
 
     pub async fn list_tags(&self) -> Result<Vec<Tag>, turso::Error> {
         let mut rows = self.conn.query(queries::TAG_LIST, ()).await?;
@@ -399,10 +379,6 @@ impl Database {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Graph / Relationships
-    // -----------------------------------------------------------------------
-
     pub async fn list_all_paper_tags(&self) -> Result<Vec<(String, String)>, turso::Error> {
         let mut rows = self
             .conn
@@ -444,10 +420,6 @@ impl Database {
         Ok(papers)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Row parsing helpers
-// ---------------------------------------------------------------------------
 
 fn get_text(row: &turso::Row, idx: usize) -> String {
     row.get_value(idx)

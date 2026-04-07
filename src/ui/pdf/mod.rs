@@ -15,7 +15,6 @@ use crate::state::app_state::AnnotationContextInfo;
 
 pub(crate) type AnnCtxState = Signal<Option<AnnotationContextInfo>>;
 
-/// Convert a hex color like "#ff0000" to "rgba(r, g, b, alpha)".
 pub(crate) fn hex_to_rgba(hex: &str, alpha: f32) -> String {
     let hex = hex.trim_start_matches('#');
     if hex.len() >= 6 {

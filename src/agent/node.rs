@@ -1,24 +1,19 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-/// The Node.js version to download if not found on system.
 pub(crate) const NODE_VERSION: &str = "v22.16.0";
 
-/// Find node in PATH, or download and cache it.
 pub(crate) fn find_or_install_node() -> Result<PathBuf, String> {
-    // 1. Check PATH
     if let Ok(path) = which::which("node") {
         return Ok(path);
     }
 
-    // 2. Check our local cache
     let node_dir = node_cache_dir();
     let node_bin = node_binary_path(&node_dir);
     if node_bin.exists() {
         return Ok(node_bin);
     }
 
-    // 3. Download
     tracing::info!("Node.js not found, downloading {NODE_VERSION}...");
     download_node(&node_dir)?;
 
@@ -29,7 +24,6 @@ pub(crate) fn find_or_install_node() -> Result<PathBuf, String> {
     }
 }
 
-/// Also need npm for installing agent packages.
 pub(crate) fn find_npm() -> Result<PathBuf, String> {
     if let Ok(path) = which::which("npm") {
         return Ok(path);
@@ -76,7 +70,6 @@ fn download_node(node_dir: &PathBuf) -> Result<(), String> {
 
     tracing::info!("Downloading Node.js from {url}");
 
-    // Download to temp file
     let tmp_archive = node_dir.join(&archive_name);
     let output = Command::new("curl")
         .args(["-fsSL", "-o", &tmp_archive.to_string_lossy(), &url])
@@ -88,9 +81,7 @@ fn download_node(node_dir: &PathBuf) -> Result<(), String> {
         return Err(format!("Download failed: {stderr}"));
     }
 
-    // Extract
     if ext == "zip" {
-        // Windows: unzip
         let output = Command::new("tar")
             .args(["-xf", &tmp_archive.to_string_lossy(), "-C", &node_dir.to_string_lossy()])
             .output()
@@ -99,7 +90,6 @@ fn download_node(node_dir: &PathBuf) -> Result<(), String> {
             return Err("Failed to extract Node.js archive".into());
         }
     } else {
-        // Unix: tar.xz
         let output = Command::new("tar")
             .args([
                 "-xf",
@@ -116,7 +106,6 @@ fn download_node(node_dir: &PathBuf) -> Result<(), String> {
         }
     }
 
-    // Clean up archive
     let _ = std::fs::remove_file(&tmp_archive);
 
     tracing::info!("Node.js {NODE_VERSION} installed to {}", node_dir.display());

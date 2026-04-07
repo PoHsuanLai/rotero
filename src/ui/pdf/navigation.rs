@@ -23,7 +23,6 @@ pub(crate) fn ThumbnailSidebar() -> Element {
                 if is_loading_thumbs() { return; }
                 is_loading_thumbs.set(true);
                 spawn(async move {
-                    // Estimate which thumbnail is visible from scroll position
                     let mut eval = document::eval(
                         "(function() { let el = document.querySelector('.thumbnail-sidebar'); \
                          if (!el) return 0.0; \
@@ -63,7 +62,6 @@ pub(crate) fn ThumbnailSidebar() -> Element {
                         }
                     }
                 } else {
-                    // Placeholder for unloaded thumbnail
                     div {
                         key: "thumb-{page_idx}", class: "thumbnail-item thumbnail-placeholder",
                         style: "width: 120px; height: 160px; background: var(--bg-secondary, #e0e0e0);",

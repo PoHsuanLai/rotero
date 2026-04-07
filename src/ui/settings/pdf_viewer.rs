@@ -29,9 +29,7 @@ const SELECTION_COLORS: &[(&str, &str)] = &[
     ("#ff922b", "Orange"),
 ];
 
-/// Helper: mutate config, save, and return.
-/// Avoids the AlreadyBorrowed panic from calling config.read().save()
-/// right after config.with_mut() in the same handler.
+/// Avoids AlreadyBorrowed panic from config.read().save() right after config.with_mut().
 fn update_config(config: &mut Signal<SyncConfig>, f: impl FnOnce(&mut SyncConfig)) {
     config.with_mut(|c| {
         f(c);
@@ -52,7 +50,6 @@ pub fn PdfViewerSection() -> Element {
         div { class: "settings-section",
             h4 { class: "settings-section-title", "PDF Viewer" }
 
-            // Default zoom
             div { class: "settings-field",
                 span { class: "settings-field-label", "Default zoom" }
                 div { class: "settings-field-control",
@@ -71,7 +68,6 @@ pub fn PdfViewerSection() -> Element {
                 }
             }
 
-            // Default annotation color
             div { class: "settings-field",
                 span { class: "settings-field-label", "Selection color" }
                 div { class: "settings-field-control",
@@ -102,7 +98,6 @@ pub fn PdfViewerSection() -> Element {
                 }
             }
 
-            // Page batch size
             div { class: "settings-field",
                 span { class: "settings-field-label", "Pages to preload" }
                 div { class: "settings-field-control",
@@ -121,7 +116,6 @@ pub fn PdfViewerSection() -> Element {
                 }
             }
 
-            // Cached tabs in memory
             div { class: "settings-field",
                 span { class: "settings-field-label", "Tabs cached in memory" }
                 div { class: "settings-field-control",

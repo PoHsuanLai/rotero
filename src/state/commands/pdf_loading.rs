@@ -27,7 +27,6 @@ pub async fn open_pdf(
         )
     };
     let render_scale = zoom * dpr;
-    // Load cache on a blocking thread to avoid stalling the UI.
     let cache_dir = data_dir.to_path_buf();
     let cache_path = path.clone();
     type CacheResult = (
@@ -61,14 +60,12 @@ pub async fn open_pdf(
                 }
             });
         }
-        // Render any pages missing from cache in the background
         if cached_count < meta.page_count {
             let render_tx_bg = render_tx.clone();
             let data_dir_bg = data_dir.to_path_buf();
             let mut tabs_bg = *tabs;
             let total = meta.page_count;
             spawn(async move {
-                // Find which page indices are missing
                 let rendered_indices: std::collections::HashSet<u32> = tabs_bg
                     .read()
                     .tabs
@@ -76,7 +73,6 @@ pub async fn open_pdf(
                     .find(|t| t.id == tab_id)
                     .map(|t| t.render.rendered_pages.iter().map(|p| p.page_index).collect())
                     .unwrap_or_default();
-                // Render missing pages in batches
                 let mut missing: Vec<u32> = (0..total).filter(|i| !rendered_indices.contains(i)).collect();
                 missing.sort();
                 for chunk in missing.chunks(batch_size as usize) {
@@ -136,7 +132,6 @@ pub async fn open_pdf(
             })
             .unwrap_or_default()
     };
-    // Extract text for the initial batch
     let render_tx2 = render_tx.clone();
     let data_dir2 = data_dir.to_path_buf();
     let path2 = path.clone();
@@ -157,7 +152,6 @@ pub async fn open_pdf(
                 crate::cache::save_text(&cache_dir, &cache_path, &text_clone);
             });
 
-            // Save fulltext to DB for FTS and MCP access
             if let Some(ref pid) = paper_id2 {
                 let fulltext: String = text_data
                     .values()
@@ -184,7 +178,6 @@ pub async fn open_pdf(
         }
     });
 
-    // Eagerly render remaining pages in background batches
     let rendered_so_far = batch_size.min(page_count);
     if rendered_so_far < page_count {
         let render_tx_bg = render_tx.clone();
@@ -222,8 +215,6 @@ pub async fn render_more_pages(
             .iter()
             .find(|t| t.id == tab_id)
             .ok_or("Tab not found")?;
-        // Use the same render_zoom as the initial batch so all pages
-        // are at the same resolution regardless of zoom changes.
         (tab.pdf_path.clone(), tab.view.render_zoom)
     };
     let (reply_tx, reply_rx) = mpsc::channel();
@@ -279,9 +270,6 @@ pub async fn render_more_pages(
     Ok(())
 }
 
-/// Update the zoom level for a tab. Only changes the view state —
-/// CSS `zoom` on the page wrapper handles the visual scaling, so
-/// no re-rendering is needed.
 pub fn set_zoom(
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,

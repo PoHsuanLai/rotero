@@ -2,7 +2,6 @@ use turso::Connection;
 
 use crate::queries;
 
-/// Fetch all (paper_id, tag_id) pairs from the paper_tags junction table.
 pub async fn list_all_paper_tags(conn: &Connection) -> Result<Vec<(String, String)>, turso::Error> {
     let mut rows = conn.query(queries::GRAPH_ALL_PAPER_TAGS, ()).await?;
     let mut pairs = Vec::new();
@@ -14,7 +13,6 @@ pub async fn list_all_paper_tags(conn: &Connection) -> Result<Vec<(String, Strin
     Ok(pairs)
 }
 
-/// Fetch all (paper_id, collection_id) pairs from the paper_collections junction table.
 pub async fn list_all_paper_collections(
     conn: &Connection,
 ) -> Result<Vec<(String, String)>, turso::Error> {

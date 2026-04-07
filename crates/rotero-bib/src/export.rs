@@ -2,8 +2,6 @@ use std::fmt::Write;
 
 use rotero_models::Paper;
 
-/// Export a list of Papers to BibTeX format.
-/// Uses stored citation_key if available, otherwise generates one.
 pub fn export_bibtex(papers: &[Paper]) -> String {
     let mut output = String::new();
 
@@ -14,7 +12,6 @@ pub fn export_bibtex(papers: &[Paper]) -> String {
         };
         let _ = writeln!(output, "@article{{{key},");
 
-        // Collect fields, then write them — last field must not have trailing comma
         let mut fields: Vec<String> = Vec::new();
 
         fields.push(format!(
@@ -62,7 +59,6 @@ pub fn export_bibtex(papers: &[Paper]) -> String {
         // Skip abstract — not needed for citation formatting and often contains
         // characters (unbalanced braces, HTML tags) that break BibTeX parsing
 
-        // Join with commas — no trailing comma before closing brace
         output.push_str(&fields.join(",\n"));
         output.push('\n');
         output.push_str("}\n\n");
@@ -72,23 +68,18 @@ pub fn export_bibtex(papers: &[Paper]) -> String {
 }
 
 
-/// Sanitize a string for use inside BibTeX `{...}` delimiters.
-/// Strips unbalanced braces that would break the parser.
 fn sanitize_bibtex(s: &str) -> String {
     // Remove all braces — they're unreliable from metadata sources
     // and the outer `{...}` wrapper already protects the value
     s.replace('{', "").replace('}', "")
 }
 
-/// Generate a citation key from paper metadata.
-/// Format: `lastnameYear` (e.g., `eysenbach2019`, `smith2023`).
-/// Uses first author's last name + year. Falls back gracefully for missing data.
+/// Format: `lastnameYeartitleword` (e.g., `eysenbach2019attention`).
 pub fn generate_cite_key(paper: &Paper) -> String {
     let author_part = paper
         .authors
         .first()
         .map(|a| {
-            // Extract last name: take last word, lowercase, keep only ascii alphanumeric
             a.split_whitespace()
                 .last()
                 .unwrap_or("unknown")
@@ -143,8 +134,6 @@ pub fn generate_cite_key(paper: &Paper) -> String {
     format!("{author_part}{year_part}{title_word}")
 }
 
-/// Generate a unique citation key, appending a/b/c/... if the base key conflicts
-/// with existing keys.
 pub fn generate_unique_cite_key(paper: &Paper, existing_keys: &[String]) -> String {
     let base = generate_cite_key(paper);
 
@@ -152,7 +141,6 @@ pub fn generate_unique_cite_key(paper: &Paper, existing_keys: &[String]) -> Stri
         return base;
     }
 
-    // Append suffix: a, b, c, ...
     for suffix in b'a'..=b'z' {
         let candidate = format!("{base}{}", suffix as char);
         if !existing_keys.contains(&candidate) {

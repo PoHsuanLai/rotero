@@ -37,7 +37,6 @@ pub fn Layout() -> Element {
     #[cfg(not(feature = "desktop"))]
     let key_handler = rsx! {};
 
-    // Gather context for the window-scoped keyboard handler
     #[cfg(feature = "desktop")]
     let onkeydown_handler = {
         use crate::app::{DevicePixelRatio, RenderChannel, ShowSettings};

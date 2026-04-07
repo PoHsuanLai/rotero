@@ -34,18 +34,14 @@ pub fn PaperDetail() -> Element {
         paper.authors.join(", ")
     };
 
-    // DOI context menu state: (doi_string, x, y)
     let mut doi_ctx = use_signal(|| None::<(String, f64, f64)>);
 
-    // Hooks for citation key editing (must be unconditional)
     let mut editing_key = use_signal(|| false);
     let mut edit_key_value = use_signal(|| paper.citation.citation_key.clone().unwrap_or_default());
     let mut copied_hint = use_signal(|| false);
 
-    // Hook for Open Access PDF download status (must be unconditional)
     let mut oa_status = use_signal(|| None::<String>);
 
-    // Reset OA status when selected paper changes
     let _ = use_memo(move || {
         let _ = lib_state.read().selected_paper_id.clone();
         oa_status.set(None);
@@ -55,7 +51,6 @@ pub fn PaperDetail() -> Element {
         div { class: "paper-detail",
             ResizeHandle { target: "detail" }
 
-            // Close button
             div { class: "detail-header",
                 h3 { class: "detail-heading", "Details" }
                 button {
@@ -67,19 +62,16 @@ pub fn PaperDetail() -> Element {
                 }
             }
 
-            // Title
             div { class: "detail-field",
                 label { class: "detail-label", "Title" }
                 div { class: "detail-value detail-value--title", "{paper.title}" }
             }
 
-            // Authors
             div { class: "detail-field",
                 label { class: "detail-label", "Authors" }
                 div { class: "detail-value", "{authors_display}" }
             }
 
-            // Year
             if let Some(year) = paper.year {
                 div { class: "detail-field",
                     label { class: "detail-label", "Year" }
@@ -87,7 +79,6 @@ pub fn PaperDetail() -> Element {
                 }
             }
 
-            // Citation count
             if let Some(count) = paper.citation.citation_count {
                 div { class: "detail-field",
                     label { class: "detail-label", "Citations" }
@@ -95,7 +86,6 @@ pub fn PaperDetail() -> Element {
                 }
             }
 
-            // Citation key
             if let Some(ref cite_key) = paper.citation.citation_key {
                 {
                     let key_for_copy = cite_key.clone();
@@ -199,7 +189,6 @@ pub fn PaperDetail() -> Element {
                 }
             }
 
-            // Journal
             if let Some(ref journal) = paper.publication.journal {
                 div { class: "detail-field",
                     label { class: "detail-label", "Journal" }
@@ -207,7 +196,6 @@ pub fn PaperDetail() -> Element {
                 }
             }
 
-            // DOI
             if let Some(ref doi) = paper.doi {
                 {
                     let doi_for_ctx = doi.clone();
@@ -227,7 +215,6 @@ pub fn PaperDetail() -> Element {
                 }
             }
 
-            // Abstract
             if let Some(ref abstract_text) = paper.abstract_text {
                 div { class: "detail-field",
                     label { class: "detail-label", "Abstract" }
@@ -235,27 +222,22 @@ pub fn PaperDetail() -> Element {
                 }
             }
 
-            // Add to collection
             div { class: "detail-field",
                 label { class: "detail-label", "Collection" }
                 AddToCollectionSelect { paper_id: paper_id.clone() }
             }
 
-            // Tags
             div { class: "detail-field",
                 label { class: "detail-label", "Tags" }
                 TagEditor { paper_id: paper_id.clone() }
             }
 
-            // Citation button
             div { class: "detail-cite-section",
                 crate::ui::citation_dialog::CitationDialog {}
             }
 
-            // Notes section
             NotesSection { paper_id: paper_id.clone() }
 
-            // Open / Delete buttons
             div { class: "detail-delete-section",
                 div { class: "detail-actions",
                     if paper.links.pdf_path.is_some() {
@@ -283,7 +265,6 @@ pub fn PaperDetail() -> Element {
                             }
                         }
                     }
-                    // Find Open Access PDF (when no PDF attached)
                     if paper.links.pdf_path.is_none() {
                         {
                             let doi_for_oa = paper.doi.clone();
@@ -309,7 +290,7 @@ pub fn PaperDetail() -> Element {
                                                     oa_status.set(Some("Downloading...".to_string()));
                                                     match reqwest::get(&pdf_url).await {
                                                         Ok(resp) if resp.status().is_success() => {
-                                                            // Check content type — some URLs return HTML instead of PDF
+                                                            // Some URLs return HTML instead of PDF
                                                             let is_pdf = resp.headers()
                                                                 .get(reqwest::header::CONTENT_TYPE)
                                                                 .and_then(|v| v.to_str().ok())
@@ -379,7 +360,6 @@ pub fn PaperDetail() -> Element {
                 }
             }
 
-            // DOI context menu
             if let Some((doi_str, mx, my)) = doi_ctx() {
                 {
                     let doi_copy = doi_str.clone();

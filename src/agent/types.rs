@@ -16,7 +16,6 @@ pub enum MessageContent {
         output: Option<String>,
     },
     Error(String),
-    /// Permission request shown as inline buttons.
     Permission {
         request_id: serde_json::Value,
         tool_title: String,
@@ -47,21 +46,17 @@ pub enum AgentStatus {
     Connecting,
     Streaming,
     ToolCall(String),
-    /// Needs sign-in before use — not an error, just informational.
     NeedsAuth,
     Error(String),
     NotInstalled,
 }
 
-/// A known ACP agent provider.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgentProvider {
     pub id: &'static str,
     pub name: &'static str,
     pub description: &'static str,
-    /// npm package name to install.
     pub npm_package: &'static str,
-    /// Extra args to pass after the entry point.
     pub extra_args: &'static [&'static str],
 }
 
@@ -96,7 +91,6 @@ pub const AGENT_PROVIDERS: &[AgentProvider] = &[
     },
 ];
 
-/// A slash command exposed by the agent.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SlashCommand {
     pub name: String,
@@ -104,7 +98,6 @@ pub struct SlashCommand {
     pub hint: Option<String>,
 }
 
-/// An available model from the agent.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgentModel {
     pub id: String,
@@ -112,7 +105,6 @@ pub struct AgentModel {
     pub description: String,
 }
 
-/// A past session that can be resumed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PastSession {
     pub session_id: String,
@@ -121,7 +113,6 @@ pub struct PastSession {
     pub updated_at: Option<String>,
 }
 
-/// Auth method advertised by the agent during initialization.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgentAuthMethod {
     pub id: String,
@@ -129,7 +120,6 @@ pub struct AgentAuthMethod {
     pub description: Option<String>,
     pub terminal_command: Option<String>,
     pub terminal_args: Vec<String>,
-    /// True if this is an API key method (needs env var, not browser).
     pub is_api_key: bool,
     /// The env var name for API key methods (e.g. "GEMINI_API_KEY").
     pub api_key_env_var: Option<String>,
@@ -147,17 +137,12 @@ pub struct ChatState {
     pub past_sessions: Vec<PastSession>,
     pub show_session_browser: bool,
     pub auth_methods: Vec<AgentAuthMethod>,
-    /// The provider id that is actually connected right now.
     pub active_provider_id: String,
-    /// Whether the connected agent supports listing past sessions.
     pub supports_list_sessions: bool,
-    /// Available models for the current provider.
     pub available_models: Vec<AgentModel>,
-    /// Currently selected model id.
     pub current_model: String,
 }
 
-/// Messages sent from UI -> agent thread.
 pub enum ChatRequest {
     SendMessage {
         prompt: String,
@@ -185,10 +170,8 @@ pub enum ChatRequest {
     Shutdown,
 }
 
-/// Events sent from agent thread -> UI.
 #[derive(Debug)]
 pub enum ChatEvent {
-    /// Agent is switching — sent immediately before teardown for instant UI feedback.
     Switching {
         provider_id: String,
     },
@@ -204,11 +187,10 @@ pub enum ChatEvent {
         id: String,
         title: String,
     },
-    /// Agent asks for permission to run a tool.
     PermissionRequest {
         request_id: serde_json::Value,
         tool_title: String,
-        options: Vec<(String, String)>, // (optionId, label)
+        options: Vec<(String, String)>,
     },
     ToolCallUpdated {
         id: String,
@@ -222,7 +204,6 @@ pub enum ChatEvent {
         current: String,
     },
     SessionList(Vec<PastSession>),
-    /// Auth needed — informational, not an error.
     AuthRequired {
         provider_name: String,
     },

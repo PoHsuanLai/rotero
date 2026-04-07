@@ -1,7 +1,6 @@
 use biblib::{CitationParser, RisParser};
 use rotero_models::{Paper, PaperLinks, Publication};
 
-/// Parse an RIS format string into a list of Papers using biblib.
 pub fn import_ris(input: &str) -> Result<Vec<Paper>, String> {
     let parser = RisParser::new();
     let citations = parser

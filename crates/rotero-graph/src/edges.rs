@@ -23,7 +23,6 @@ pub struct MergedEdge {
     pub weight: f32,
 }
 
-/// Compute all edges between papers based on shared attributes.
 pub fn compute_edges(
     papers: &[Paper],
     tags: &[Tag],
@@ -119,7 +118,6 @@ pub fn compute_edges(
     merge_edges(raw_edges, filter.max_edges_per_node)
 }
 
-/// Generate pairwise edges for a group of papers sharing an attribute.
 fn add_pairwise_edges(
     edges: &mut Vec<RawEdge>,
     paper_ids: &[&str],
@@ -171,14 +169,12 @@ fn merge_edges(raw: Vec<RawEdge>, max_per_node: usize) -> Vec<MergedEdge> {
 
     let mut edges: Vec<MergedEdge> = map.into_values().collect();
 
-    // Sort by weight descending for capping
     edges.sort_by(|a, b| {
         b.weight
             .partial_cmp(&a.weight)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    // Cap edges per node
     let mut node_edge_count: HashMap<String, usize> = HashMap::new();
     edges.retain(|e| {
         let src_count = node_edge_count.entry(e.source.clone()).or_insert(0);

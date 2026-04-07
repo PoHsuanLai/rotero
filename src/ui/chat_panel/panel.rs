@@ -17,7 +17,6 @@ pub fn ChatPanel() -> Element {
     let status = chat_state.read().status.clone();
     let messages = chat_state.read().messages.clone();
 
-    // Auto-scroll: set up a MutationObserver once to scroll on any DOM change
     use_effect(move || {
         spawn(async {
             let _ = dioxus::document::eval(r#"
@@ -63,7 +62,6 @@ pub fn ChatPanel() -> Element {
         AgentStatus::Connecting | AgentStatus::Streaming | AgentStatus::ToolCall(_)
     );
 
-    // Filter commands based on input text after /
     let input_text = chat_state.read().input_text.clone();
     let filtered_commands: Vec<_> = if show_commands {
         let query = input_text.strip_prefix('/').unwrap_or("").to_lowercase();
@@ -80,7 +78,6 @@ pub fn ChatPanel() -> Element {
         div { class: "chat-panel",
             ResizeHandle { target: "chat" }
 
-            // Header
             div { class: "chat-header",
                 div { class: "chat-header-left",
                     span { class: "chat-title", "{provider_name}" }
@@ -91,7 +88,6 @@ pub fn ChatPanel() -> Element {
                     }
                 }
                 div { class: "chat-header-right",
-                    // New chat button
                     button {
                         class: "chat-header-btn",
                         title: "New chat",
@@ -103,7 +99,6 @@ pub fn ChatPanel() -> Element {
                         },
                         i { class: "bi bi-plus-lg" }
                     }
-                    // Past sessions button (only if agent supports it)
                     if chat_state.read().supports_list_sessions {
                         button {
                             class: "chat-header-btn",
@@ -114,7 +109,6 @@ pub fn ChatPanel() -> Element {
                             i { class: "bi bi-clock" }
                         }
                     }
-                    // Close button
                     button {
                         class: "chat-close",
                         onclick: move |_| {
@@ -125,7 +119,6 @@ pub fn ChatPanel() -> Element {
                 }
             }
 
-            // Session browser overlay
             if show_sessions {
                 div { class: "chat-session-browser",
                     div { class: "chat-session-header",
@@ -176,7 +169,6 @@ pub fn ChatPanel() -> Element {
                 }
             }
 
-            // Messages
             div {
                 class: "chat-messages",
                 if messages.is_empty() && !show_sessions {
@@ -195,14 +187,12 @@ pub fn ChatPanel() -> Element {
                 }
             }
 
-            // Paper context badge
             if has_context {
                 div { class: "chat-context-badge",
                     span { class: "chat-context-text", "Discussing: {paper_title_display}" }
                 }
             }
 
-            // Slash command picker
             if show_commands && !filtered_commands.is_empty() {
                 div { class: "chat-command-picker",
                     for cmd in filtered_commands.iter() {
@@ -233,7 +223,6 @@ pub fn ChatPanel() -> Element {
                 }
             }
 
-            // Model selector + Input area
             if !available_models.is_empty() {
                 div { class: "chat-input-meta",
                     select {
@@ -265,7 +254,6 @@ pub fn ChatPanel() -> Element {
                         let val = e.value();
                         chat_state.with_mut(|s| {
                             s.input_text = val.clone();
-                            // Show command picker when typing /
                             s.show_command_picker = val.starts_with('/') && !val.contains(' ');
                         });
                     },

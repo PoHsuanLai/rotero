@@ -1,4 +1,3 @@
-/// Build the native menu bar.
 #[cfg(feature = "desktop")]
 pub(crate) fn build_menu_bar() -> dioxus::desktop::muda::Menu {
     use dioxus::desktop::muda::{
@@ -8,7 +7,6 @@ pub(crate) fn build_menu_bar() -> dioxus::desktop::muda::Menu {
 
     let menu = Menu::new();
 
-    // File
     let file_menu = Submenu::new("File", true);
     file_menu
         .append_items(&[
@@ -41,7 +39,6 @@ pub(crate) fn build_menu_bar() -> dioxus::desktop::muda::Menu {
         ])
         .unwrap();
 
-    // Edit — required for Cmd+C/V/X to work in WebView text inputs
     let edit_menu = Submenu::new("Edit", true);
     edit_menu
         .append_items(&[
@@ -63,7 +60,6 @@ pub(crate) fn build_menu_bar() -> dioxus::desktop::muda::Menu {
         ])
         .unwrap();
 
-    // View
     let view_menu = Submenu::new("View", true);
     view_menu
         .append_items(&[
@@ -85,7 +81,6 @@ pub(crate) fn build_menu_bar() -> dioxus::desktop::muda::Menu {
         ])
         .unwrap();
 
-    // Window
     let window_menu = Submenu::new("Window", true);
     window_menu
         .append_items(&[
@@ -105,7 +100,6 @@ pub(crate) fn build_menu_bar() -> dioxus::desktop::muda::Menu {
     menu.append_items(&[&file_menu, &edit_menu, &view_menu, &window_menu])
         .unwrap();
 
-    // Debug-only Help menu with dev tools
     if cfg!(debug_assertions) {
         let help_menu = Submenu::new("Help", true);
         help_menu
@@ -131,7 +125,6 @@ pub(crate) fn build_menu_bar() -> dioxus::desktop::muda::Menu {
     menu
 }
 
-/// Launch the Dioxus desktop app with window configuration.
 #[cfg(feature = "desktop")]
 pub(crate) fn launch_desktop(config: &crate::sync::engine::SyncConfig) {
     use dioxus::desktop::tao::dpi::LogicalSize;
@@ -143,7 +136,7 @@ pub(crate) fn launch_desktop(config: &crate::sync::engine::SyncConfig) {
         .with_title("Rotero")
         .with_inner_size(LogicalSize::new(1200.0, 800.0))
         .with_min_inner_size(LogicalSize::new(600.0, 400.0))
-        .with_theme(None); // follow system light/dark mode
+        .with_theme(None);
 
     let data_dir = config.effective_library_path();
     dioxus::LaunchBuilder::new()
@@ -153,14 +146,12 @@ pub(crate) fn launch_desktop(config: &crate::sync::engine::SyncConfig) {
                 .with_window(window)
                 .with_menu(menu)
                 .with_background_color(if config.ui.dark_mode {
-                    (15, 23, 42, 255) // slate-900 for dark mode
+                    (15, 23, 42, 255) // slate-900
                 } else {
-                    (255, 255, 255, 255) // white for light mode
+                    (255, 255, 255, 255)
                 })
                 .with_custom_protocol("rotero-cache".to_string(), move |_webview_id, req| {
-                    // Serves cached page images via rotero-cache:///{hash}/pages/{n}.ext
                     let uri = req.uri().to_string();
-                    // On macOS, wry delivers the URI as "rotero-cache://hash/pages/0.png"
                     let path = uri.strip_prefix("rotero-cache://").unwrap_or(&uri);
                     let file_path = data_dir.join("cache").join(path);
                     let body = std::fs::read(&file_path).unwrap_or_default();

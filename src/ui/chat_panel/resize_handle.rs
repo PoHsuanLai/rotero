@@ -1,6 +1,5 @@
 use dioxus::prelude::*;
 
-/// Drag-resize handle for sidebars.
 #[component]
 pub fn ResizeHandle(target: String) -> Element {
     let handle_class = format!("{target}-resize-handle");

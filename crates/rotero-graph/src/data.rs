@@ -13,7 +13,6 @@ pub struct GraphNode {
     pub is_favorite: bool,
 }
 
-/// Type of relationship between two papers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EdgeType {
@@ -23,7 +22,6 @@ pub enum EdgeType {
     Journal,
 }
 
-/// An edge connecting two papers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphEdge {
     pub source: String,
@@ -33,14 +31,12 @@ pub struct GraphEdge {
     pub weight: f32,
 }
 
-/// Complete graph data ready for rendering.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphData {
     pub nodes: Vec<GraphNode>,
     pub links: Vec<GraphEdge>,
 }
 
-/// Filter settings for graph construction.
 #[derive(Debug, Clone)]
 pub struct GraphFilter {
     pub show_tag_edges: bool,

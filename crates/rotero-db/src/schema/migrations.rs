@@ -1,4 +1,4 @@
-//! All migration logic for the database schema.
+//! Schema migration logic.
 
 use turso::Connection;
 
@@ -9,10 +9,7 @@ pub(super) const SCHEMA_VERSION: i64 = 9;
 pub async fn initialize_db(conn: &Connection) -> Result<(), turso::Error> {
     conn.execute_batch(CREATE_TABLES).await?;
 
-    // Run migrations for existing databases
     run_migrations(conn).await?;
-
-    // Ensure CRR clock tables exist (idempotent)
     crate::crr::init_crr_tables(conn).await?;
 
     Ok(())
@@ -22,7 +19,7 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
     let current_version = get_schema_version(conn).await;
 
     if current_version < 1 {
-        // Fresh database — create FTS index and set the version
+        // Fresh database
         let _ = conn.execute(CREATE_FTS_INDEX, ()).await;
         conn.execute(
             "INSERT INTO schema_version (version) VALUES (?1)",
@@ -32,7 +29,6 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
         return Ok(());
     }
 
-    // Migration from v1 to v2: add is_favorite and is_read columns
     if current_version < 2 {
         let _ = conn
             .execute(
@@ -48,14 +44,12 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
             .await;
     }
 
-    // Migration to v3: add fulltext column for PDF content search
     if current_version < 3 {
         let _ = conn
             .execute("ALTER TABLE papers ADD COLUMN fulltext TEXT", ())
             .await;
     }
 
-    // Migration to v4: add citation_count column + saved_searches table
     if current_version < 4 {
         let _ = conn
             .execute("ALTER TABLE papers ADD COLUMN citation_count INTEGER", ())
@@ -73,19 +67,16 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
             .await;
     }
 
-    // Migration to v5: add FTS index for full-text search
     if current_version < 5 {
         let _ = conn.execute(CREATE_FTS_INDEX, ()).await;
     }
 
-    // Migration to v6: add citation_key column for Better BibTeX
     if current_version < 6 {
         let _ = conn
             .execute("ALTER TABLE papers ADD COLUMN citation_key TEXT", ())
             .await;
     }
 
-    // Migration to v7: backfill NULL tag colors with palette colors
     if current_version < 7 {
         const PALETTE: &[&str] = &[
             "#6b7085", "#7c6b85", "#6b8580", "#857a6b", "#6b7a85", "#856b7a", "#6b856e", "#85706b",
@@ -114,22 +105,19 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
         }
     }
 
-    // Ensure citation_count column exists (may have been missed if v4 migration partially ran)
+    // Idempotent: ensure columns exist even if earlier migrations partially ran
     let _ = conn
         .execute("ALTER TABLE papers ADD COLUMN citation_count INTEGER", ())
         .await;
 
-    // Ensure pdf_url column exists
     let _ = conn
         .execute("ALTER TABLE papers ADD COLUMN pdf_url TEXT", ())
         .await;
 
-    // Migration to v8: convert INTEGER PRIMARY KEY to TEXT PRIMARY KEY (String UUIDs)
     if current_version < 8 {
         migrate_to_text_ids(conn).await?;
     }
 
-    // Migration to v9: add pdf_url column
     if current_version < 9 {
         let _ = conn
             .execute("ALTER TABLE papers ADD COLUMN pdf_url TEXT", ())
@@ -144,10 +132,8 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
     Ok(())
 }
 
-/// Migrate all tables from INTEGER PRIMARY KEY to TEXT PRIMARY KEY.
-/// Generates random UUIDs for existing rows using hex(randomblob(16)).
+/// Migrate all tables from INTEGER to TEXT primary keys (UUIDs).
 async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
-    // Create CRR metadata tables
     let _ = conn
         .execute(
             "CREATE TABLE IF NOT EXISTS crr_site_id (site_id BLOB PRIMARY KEY)",
@@ -164,7 +150,6 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
         .execute("INSERT INTO crr_db_version (version) VALUES (0)", ())
         .await;
 
-    // Generate and insert this device's site UUID
     let _ = conn
         .execute(
             "INSERT OR IGNORE INTO crr_site_id (site_id) VALUES (randomblob(16))",
@@ -172,7 +157,6 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
         )
         .await;
 
-    // --- papers ---
     let _ = conn
         .execute(
             "CREATE TABLE _id_map_papers AS SELECT id AS old_id, lower(hex(randomblob(16))) AS new_id FROM papers",
@@ -216,7 +200,6 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
         )
         .await;
 
-    // --- collections ---
     let _ = conn
         .execute(
             "CREATE TABLE _id_map_collections AS SELECT id AS old_id, lower(hex(randomblob(16))) AS new_id FROM collections",
@@ -245,7 +228,6 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
         )
         .await;
 
-    // --- tags ---
     let _ = conn
         .execute(
             "CREATE TABLE _id_map_tags AS SELECT id AS old_id, lower(hex(randomblob(16))) AS new_id FROM tags",
@@ -271,7 +253,6 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
         )
         .await;
 
-    // --- annotations ---
     let _ = conn
         .execute(
             "CREATE TABLE _id_map_annotations AS SELECT id AS old_id, lower(hex(randomblob(16))) AS new_id FROM annotations",
@@ -305,7 +286,6 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
         )
         .await;
 
-    // --- notes ---
     let _ = conn
         .execute(
             "CREATE TABLE _id_map_notes AS SELECT id AS old_id, lower(hex(randomblob(16))) AS new_id FROM notes",
@@ -336,7 +316,6 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
         )
         .await;
 
-    // --- saved_searches ---
     let _ = conn
         .execute(
             "CREATE TABLE _id_map_saved_searches AS SELECT id AS old_id, lower(hex(randomblob(16))) AS new_id FROM saved_searches",
@@ -363,7 +342,6 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
         )
         .await;
 
-    // --- paper_collections (junction table) ---
     let _ = conn
         .execute(
             "CREATE TABLE paper_collections_new (
@@ -385,7 +363,6 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
         )
         .await;
 
-    // --- paper_tags (junction table) ---
     let _ = conn
         .execute(
             "CREATE TABLE paper_tags_new (
@@ -407,21 +384,18 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
         )
         .await;
 
-    // --- Drop old tables and rename new ones ---
-    // Drop FTS index first (it references old papers table)
+    // Drop FTS index first (references old papers table)
     let _ = conn
         .execute("DROP INDEX IF EXISTS idx_papers_fts", ())
         .await;
 
-    // Drop junction tables first (they reference the main tables)
+    // Drop in dependency order: junctions, then FK dependents, then main tables
     let _ = conn
         .execute("DROP TABLE IF EXISTS paper_collections", ())
         .await;
     let _ = conn.execute("DROP TABLE IF EXISTS paper_tags", ()).await;
-    // Drop tables that reference papers
     let _ = conn.execute("DROP TABLE IF EXISTS annotations", ()).await;
     let _ = conn.execute("DROP TABLE IF EXISTS notes", ()).await;
-    // Drop main tables
     let _ = conn.execute("DROP TABLE IF EXISTS papers", ()).await;
     let _ = conn.execute("DROP TABLE IF EXISTS collections", ()).await;
     let _ = conn.execute("DROP TABLE IF EXISTS tags", ()).await;
@@ -429,7 +403,6 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
         .execute("DROP TABLE IF EXISTS saved_searches", ())
         .await;
 
-    // Rename new tables
     let _ = conn
         .execute("ALTER TABLE papers_new RENAME TO papers", ())
         .await;
@@ -461,7 +434,6 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
         .execute("ALTER TABLE paper_tags_new RENAME TO paper_tags", ())
         .await;
 
-    // Drop mapping tables
     let _ = conn
         .execute("DROP TABLE IF EXISTS _id_map_papers", ())
         .await;
@@ -477,7 +449,6 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
         .execute("DROP TABLE IF EXISTS _id_map_saved_searches", ())
         .await;
 
-    // Rebuild FTS index on the new papers table
     let _ = conn.execute(CREATE_FTS_INDEX, ()).await;
 
     Ok(())

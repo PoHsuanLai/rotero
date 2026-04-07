@@ -1,10 +1,8 @@
 use dioxus::prelude::*;
 
-/// A positioned context menu that appears on right-click.
 #[component]
 pub fn ContextMenu(x: f64, y: f64, on_close: EventHandler<()>, children: Element) -> Element {
     rsx! {
-        // Invisible backdrop to catch clicks outside
         div {
             class: "context-menu-backdrop",
             onclick: move |_| on_close.call(()),
@@ -22,7 +20,6 @@ pub fn ContextMenu(x: f64, y: f64, on_close: EventHandler<()>, children: Element
     }
 }
 
-/// A single item in the context menu.
 #[component]
 pub fn ContextMenuItem(
     label: String,
@@ -58,7 +55,6 @@ pub fn ContextMenuItem(
     }
 }
 
-/// A separator line in the context menu.
 #[component]
 pub fn ContextMenuSeparator() -> Element {
     rsx! {

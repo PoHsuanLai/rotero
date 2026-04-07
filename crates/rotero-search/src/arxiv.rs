@@ -2,7 +2,6 @@ use rotero_models::{Paper, PaperLinks, Publication};
 
 const ARXIV_API: &str = "https://export.arxiv.org/api/query";
 
-/// Search arXiv by query and return up to `limit` results.
 pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, String> {
     let url = format!(
         "{ARXIV_API}?search_query=all:{}&start=0&max_results={limit}",

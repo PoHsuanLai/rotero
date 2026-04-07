@@ -7,7 +7,6 @@ pub fn NotesSection(paper_id: String) -> Element {
     let db = use_context::<Database>();
     let mut notes = use_signal(Vec::new);
 
-    // Load notes for this paper
     {
         let db = db.clone();
         let pid = paper_id.clone();

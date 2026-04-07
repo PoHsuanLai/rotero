@@ -35,7 +35,6 @@ pub fn LibraryPanel() -> Element {
         }
     });
 
-    // Load collection/tag paper IDs when switching views
     {
         let db_coll = db.clone();
         use_effect(move || {
@@ -168,7 +167,6 @@ pub fn LibraryPanel() -> Element {
         }
     };
 
-    // Duplicate groups for merge UI
     let duplicate_groups = if matches!(state.view, LibraryView::Duplicates) {
         state.filter.duplicate_groups.clone()
     } else {
@@ -208,13 +206,9 @@ pub fn LibraryPanel() -> Element {
 
     let paper_count = filtered.len();
 
-    // Context menu state: (paper_id, x, y)
     let mut ctx_menu = use_signal(|| None::<(String, f64, f64)>);
-
-    // Paper drag state (shared with sidebar for drop onto collections/tags)
     let mut drag_paper = use_context::<Signal<DragPaper>>();
 
-    // Install compact drag ghost for library cards and sidebar items
     use_effect(|| {
         document::eval(
             r#"
@@ -242,11 +236,9 @@ pub fn LibraryPanel() -> Element {
         );
     });
 
-    // Shared signals for AddPaperButtons / AddPaperDOIInput
     let _doi_show: Signal<bool> = use_context_provider(|| Signal::new(false));
     let _doi_err: Signal<Option<String>> = use_context_provider(|| Signal::new(None));
 
-    // Drag and drop state
     let mut drag_over = use_signal(|| false);
     let drop_class = if drag_over() {
         "library-view library-view--dragover"
@@ -301,7 +293,6 @@ pub fn LibraryPanel() -> Element {
                                                 None
                                             }
                                         };
-                                        // Pre-cache in background
                                         let full_path = db.resolve_pdf_path(&rel_path).to_string_lossy().to_string();
                                         let render_tx = render_ch.sender();
                                         let cfg = config.read();
@@ -317,7 +308,6 @@ pub fn LibraryPanel() -> Element {
                                         spawn(async move {
                                             crate::state::commands::precache_pdf(&render_tx, &full_path, &data_dir, zoom, paper_id, Some(db_for_cache.conn())).await;
                                         });
-                                        // Extract metadata (DOI + CrossRef) in background
                                         if let Some(pid) = paper_id2 {
                                             spawn(async move {
                                                 crate::state::commands::extract_and_fetch_metadata(
@@ -334,7 +324,6 @@ pub fn LibraryPanel() -> Element {
                 }
             },
 
-            // Drop zone overlay
             if drag_over() {
                 div { class: "library-drop-overlay",
                     div { class: "library-drop-zone",
@@ -344,7 +333,6 @@ pub fn LibraryPanel() -> Element {
                 }
             }
 
-            // Header
             div { class: "library-header",
                 div { class: "library-header-left",
                     h2 { class: "library-title", "{view_title}" }
@@ -359,10 +347,8 @@ pub fn LibraryPanel() -> Element {
             }
             AddPaperDOIInput {}
 
-            // Search bar
             SearchBar {}
 
-            // External search results (when searching OpenAlex/arXiv/Semantic Scholar)
             if is_external {
                 ExternalResults {
                     results: external_results.clone().unwrap_or_default(),
@@ -370,7 +356,6 @@ pub fn LibraryPanel() -> Element {
                 }
             }
 
-            // Paper list (hidden when external search is active)
             if !is_external {
             div { class: "library-list",
                 if filtered.is_empty() {
@@ -402,7 +387,6 @@ pub fn LibraryPanel() -> Element {
                         }
                     }
                 } else if let Some(ref groups) = duplicate_groups {
-                    // "Merge All" button at the top
                     if !groups.is_empty() {
                         {
                             let group_count_label = if groups.len() == 1 {
@@ -423,7 +407,6 @@ pub fn LibraryPanel() -> Element {
                                                 let groups = all_groups.clone();
                                                 spawn(async move {
                                                     for group in &groups {
-                                                        // Pick the paper with the most fields
                                                         let best = group.iter().max_by_key(|p| {
                                                             let mut c = 0i32;
                                                             if p.doi.is_some() { c += 1; }
@@ -466,7 +449,6 @@ pub fn LibraryPanel() -> Element {
                             }
                         }
                     }
-                    // Duplicate groups with merge buttons
                     for (gi, group) in groups.iter().enumerate() {
                         {
                             let group_key = format!("dup-group-{gi}");
@@ -642,15 +624,12 @@ pub fn LibraryPanel() -> Element {
                                         drag_paper.set(DragPaper(Some(pid_drag.clone())));
                                     },
                                     ondragend: move |evt: Event<DragData>| {
-                                        // Delay clearing so ondrop on the target fires first
-                                        // drop_effect is "none" when dropped outside any valid target
                                         let _ = evt;
                                         spawn(async move {
                                             drag_paper.set(DragPaper(None));
                                         });
                                     },
                                     onmouseup: move |evt: Event<MouseData>| {
-                                        // Only select if this wasn't a drag operation
                                         if drag_paper().0.is_none()
                                             && evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
                                                 let pid = pid_sel.clone();
@@ -665,14 +644,12 @@ pub fn LibraryPanel() -> Element {
                                         ctx_menu.set(Some((pid_ctx.clone(), coords.x, coords.y)));
                                     },
 
-                                    // Left: read indicator
                                     div { class: "library-card-indicator",
                                         if !is_read {
                                             div { class: "library-unread-dot" }
                                         }
                                     }
 
-                                    // Center: paper info
                                     div { class: "library-card-body",
                                         div { class: "library-card-title", "{title}" }
                                         div { class: "library-card-meta",
@@ -692,9 +669,7 @@ pub fn LibraryPanel() -> Element {
                                         }
                                     }
 
-                                    // Right: actions
                                     div { class: "library-card-actions",
-                                        // Favorite toggle
                                         button {
                                             class: if is_fav { "library-fav-btn library-fav-btn--active" } else { "library-fav-btn" },
                                             title: if is_fav { "Unfavorite" } else { "Favorite" },
@@ -719,7 +694,6 @@ pub fn LibraryPanel() -> Element {
                                             i { class: if is_fav { "bi bi-star-fill" } else { "bi bi-star" } }
                                         }
 
-                                        // View PDF
                                         if has_pdf {
                                             button {
                                                 class: "btn btn--ghost",
@@ -748,7 +722,6 @@ pub fn LibraryPanel() -> Element {
             }
             } // end if !is_external
 
-            // Paper context menu
             if let Some((menu_paper_id, mx, my)) = ctx_menu() {
                 {
                     let state = lib_state.read();
@@ -819,7 +792,6 @@ pub fn LibraryPanel() -> Element {
                                                                 &pdf_url,
                                                             ).await {
                                                                 Ok(()) => {
-                                                                    // Refresh library to show PDF
                                                                     if let Ok(papers) = rotero_db::papers::list_papers(conn).await {
                                                                         lib_state.with_mut(|s| s.papers = papers);
                                                                     }
@@ -891,7 +863,6 @@ pub fn LibraryPanel() -> Element {
                                             lib_state.with_mut(|s| {
                                                 s.selected_paper_id = Some(pid.clone());
                                             });
-                                            // Focus the tag editor input after the detail panel renders
                                             document::eval("setTimeout(() => { let el = document.getElementById('tag-editor-input'); if (el) el.focus(); }, 100)");
                                         }
                                     },
@@ -916,7 +887,6 @@ pub fn LibraryPanel() -> Element {
                                     }
                                 }
 
-                                // Remove from collection (only when viewing a collection)
                                 if let LibraryView::Collection(ref coll_id) = lib_state.read().view.clone() {
                                     {
                                         let db_remove = db.clone();

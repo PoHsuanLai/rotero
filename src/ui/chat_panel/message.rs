@@ -110,7 +110,6 @@ pub(crate) fn ChatMessageBubble(message: ChatMessage) -> Element {
     }
 }
 
-/// Renders markdown text as HTML.
 #[component]
 fn MarkdownBlock(text: String) -> Element {
     let html = md_to_html(&text);

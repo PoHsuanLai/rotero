@@ -22,7 +22,6 @@ pub fn CitationDialog() -> Element {
                 disabled: selected_paper.is_none(),
                 onclick: move |_| {
                     show.set(true);
-                    // Generate citation on open
                     let state = lib_state.read();
                     if let Some(paper) = state.selected_paper() {
                         let idx = selected_style_idx();
@@ -59,7 +58,6 @@ pub fn CitationDialog() -> Element {
                     }
                 }
 
-                // Style picker
                 div { class: "citation-style-picker",
                     label { class: "detail-label", "Citation Style" }
                     select {
@@ -68,7 +66,6 @@ pub fn CitationDialog() -> Element {
                         onchange: move |evt| {
                             if let Ok(idx) = evt.value().parse::<usize>() {
                                 selected_style_idx.set(idx);
-                                // Regenerate
                                 let state = lib_state.read();
                                 if let Some(paper) = state.selected_paper() {
                                     let (_, style) = styles[idx];
@@ -88,7 +85,6 @@ pub fn CitationDialog() -> Element {
                     }
                 }
 
-                // Preview
                 div { class: "citation-preview",
                     if let Some(ref err) = *error_msg.read() {
                         div { class: "error-message", "{err}" }
@@ -97,7 +93,6 @@ pub fn CitationDialog() -> Element {
                     }
                 }
 
-                // Copy button — flips to "Copied!" checkmark briefly
                 div { class: "citation-actions",
                     button {
                         class: if copied() { "btn btn--copied" } else { "btn btn--primary" },

@@ -92,7 +92,6 @@ pub struct ZoteroTag {
 impl ZoteroItem {
     /// Get the PDF download URL from attachments (populated by patched translation-server).
     pub fn pdf_url(&self) -> Option<String> {
-        // First: check attachments from the translator
         for att in &self.attachments {
             if att.mime_type == "application/pdf" && !att.url.is_empty() {
                 return Some(att.url.clone());
@@ -101,7 +100,6 @@ impl ZoteroItem {
         None
     }
 
-    /// Convert to a rotero Paper model.
     pub fn into_paper(self) -> Option<rotero_models::Paper> {
         if self.title.is_empty() || self.item_type == "note" || self.item_type == "attachment" {
             return None;

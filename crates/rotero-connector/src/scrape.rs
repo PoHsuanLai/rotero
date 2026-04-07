@@ -2,7 +2,6 @@ use rotero_models::{Paper, PaperLinks, Publication};
 use scraper::{Html, Selector};
 use serde::Deserialize;
 
-/// Fetch a URL and extract scholarly metadata from its HTML, returning a Paper directly.
 pub async fn scrape_url(url: &str) -> Result<Paper, String> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
@@ -34,7 +33,6 @@ pub async fn scrape_url(url: &str) -> Result<Paper, String> {
     Ok(paper)
 }
 
-/// Intermediate struct used only during HTML parsing to accumulate scraped fields.
 #[derive(Debug, Default)]
 struct ScrapedFields {
     title: Option<String>,
@@ -76,12 +74,11 @@ impl ScrapedFields {
     }
 }
 
-/// Extract metadata from an HTML string using meta tags and JSON-LD.
+/// Extracts scholarly metadata from HTML meta tags and JSON-LD.
 pub fn extract_from_html(html: &str) -> Paper {
     let doc = Html::parse_document(html);
     let mut meta = ScrapedFields::default();
 
-    // --- DOI ---
     meta.doi = get_meta(
         &doc,
         &[
@@ -100,7 +97,6 @@ pub fn extract_from_html(html: &str) -> Paper {
             meta.doi = Some(dc);
         }
     }
-    // Clean doi.org prefix
     if let Some(ref mut doi) = meta.doi {
         if let Some(stripped) = doi.strip_prefix("https://doi.org/") {
             *doi = stripped.to_string();
@@ -109,7 +105,6 @@ pub fn extract_from_html(html: &str) -> Paper {
         }
     }
 
-    // --- Title ---
     meta.title = get_meta(
         &doc,
         &[
@@ -121,7 +116,6 @@ pub fn extract_from_html(html: &str) -> Paper {
         ],
     );
 
-    // --- Authors ---
     meta.authors = get_all_meta(
         &doc,
         &[
@@ -132,10 +126,8 @@ pub fn extract_from_html(html: &str) -> Paper {
         ],
     );
 
-    // --- PDF URL ---
     meta.pdf_url = get_meta(&doc, &[("name", "citation_pdf_url")]);
 
-    // --- Journal ---
     meta.journal = get_meta(
         &doc,
         &[
@@ -146,7 +138,6 @@ pub fn extract_from_html(html: &str) -> Paper {
         ],
     );
 
-    // --- Year ---
     let date_str = get_meta(
         &doc,
         &[
@@ -163,7 +154,6 @@ pub fn extract_from_html(html: &str) -> Paper {
         meta.year = Some(year);
     }
 
-    // --- Volume / Issue / Pages ---
     meta.volume = get_meta(&doc, &[("name", "citation_volume")]);
     meta.issue = get_meta(&doc, &[("name", "citation_issue")]);
     let first_page = get_meta(&doc, &[("name", "citation_firstpage")]);
@@ -175,7 +165,6 @@ pub fn extract_from_html(html: &str) -> Paper {
         });
     }
 
-    // --- Publisher ---
     meta.publisher = get_meta(
         &doc,
         &[
@@ -185,7 +174,6 @@ pub fn extract_from_html(html: &str) -> Paper {
         ],
     );
 
-    // --- Abstract ---
     meta.abstract_text = get_meta(
         &doc,
         &[
@@ -197,7 +185,6 @@ pub fn extract_from_html(html: &str) -> Paper {
         ],
     );
 
-    // --- JSON-LD structured data ---
     extract_jsonld(&doc, &mut meta);
 
     meta.into_paper()
@@ -239,7 +226,6 @@ fn get_all_meta(doc: &Html, attrs: &[(&str, &str)]) -> Vec<String> {
 }
 
 fn extract_year(s: &str) -> Option<i32> {
-    // Look for a 4-digit year in the string
     let bytes = s.as_bytes();
     let mut i = 0;
     while i + 4 <= bytes.len() {
@@ -315,7 +301,6 @@ fn extract_jsonld(doc: &Html, meta: &mut ScrapedFields) {
         };
 
         for item_val in items {
-            // Check @type
             let type_val = item_val.get("@type");
             let is_scholarly = match type_val {
                 Some(serde_json::Value::String(s)) => scholarly_types.contains(&s.as_str()),

@@ -2,7 +2,6 @@
 //!
 //! Uses the private CloudKit database with a custom zone "RoteroSync".
 //! Each changeset batch is stored as a CKRecord of type "Changeset".
-//! Incremental sync uses CKServerChangeToken.
 
 use rotero_db::crr::{self, ChangeRow};
 
@@ -19,7 +18,6 @@ const CONTAINER_ID: &str = "iCloud.com.rotero.Rotero";
 const ZONE_NAME: &str = "RoteroSync";
 const RECORD_TYPE: &str = "Changeset";
 
-/// CloudKit-based sync engine.
 pub struct CloudKitSyncEngine {
     site_id: Vec<u8>,
     zone_id: Retained<CKRecordZoneID>,
@@ -28,7 +26,6 @@ pub struct CloudKitSyncEngine {
 }
 
 impl CloudKitSyncEngine {
-    /// Create a new CloudKit sync engine. Requires iCloud to be available.
     pub fn new(site_id: Vec<u8>) -> Result<Self, String> {
         // SAFETY: CloudKit ObjC API calls are safe when:
         // 1. NSString::from_str creates valid autoreleased strings
@@ -59,7 +56,6 @@ impl CloudKitSyncEngine {
         self.site_id.iter().map(|b| format!("{b:02x}")).collect()
     }
 
-    /// Ensure the custom record zone exists.
     async fn ensure_zone(&mut self) -> Result<(), String> {
         if self.zone_created {
             return Ok(());
@@ -104,12 +100,11 @@ impl CloudKitSyncEngine {
         Ok(())
     }
 
-    /// Export local changes to CloudKit. Returns count of changes pushed.
+    /// Returns count of changes pushed.
     pub async fn export_changes(
         &mut self,
         conn: &rotero_db::turso::Connection,
     ) -> Result<usize, String> {
-        // Read last exported version from sync state
         let last_ver = read_i64_state(conn, "cloudkit_last_exported_ver").await;
 
         let changes = crr::changes_since(conn, last_ver)
@@ -126,10 +121,8 @@ impl CloudKitSyncEngine {
             .await
             .map_err(|e| format!("Failed to read db_version: {e}"))?;
 
-        // Serialize changeset
         let payload = serde_json::to_vec(&changes).map_err(|e| format!("Serialize failed: {e}"))?;
 
-        // Create CKRecord
         let record_name = format!("{}_{:08}_{:08}", self.site_id_hex(), last_ver, current_ver,);
 
         // SAFETY: ObjC CloudKit record creation and save operation — standard CKRecord
@@ -144,7 +137,6 @@ impl CloudKitSyncEngine {
             let record =
                 CKRecord::initWithRecordType_recordID(CKRecord::alloc(), &record_type, &record_id);
 
-            // Set fields
             let payload_data = NSData::with_bytes(&payload);
             let payload_val: &ProtocolObject<dyn CKRecordValue> =
                 ProtocolObject::from_ref(&*payload_data);
@@ -165,28 +157,24 @@ impl CloudKitSyncEngine {
             let to_val: &ProtocolObject<dyn CKRecordValue> = ProtocolObject::from_ref(&*to_num);
             record.setObject_forKey(Some(to_val), &NSString::from_str("toVersion"));
 
-            // Save via CKModifyRecordsOperation
             self.save_records(&[record]).await?;
         }
 
-        // Update sync state
         let count = changes.len();
         write_i64_state(conn, "cloudkit_last_exported_ver", current_ver).await;
         Ok(count)
     }
 
-    /// Import remote changes from CloudKit. Returns count of changes applied.
+    /// Returns count of changes applied.
     pub async fn import_changes(
         &mut self,
         conn: &rotero_db::turso::Connection,
     ) -> Result<usize, String> {
         self.ensure_zone().await?;
 
-        // Load server change token
         let token_bytes = crr::get_sync_state(conn, "cloudkit_server_token").await;
         let token = token_bytes.as_deref().and_then(deserialize_server_token);
 
-        // Fetch zone changes
         let (records, new_token) = self.fetch_zone_changes(token.as_deref()).await?;
 
         let my_hex = self.site_id_hex();
@@ -196,7 +184,6 @@ impl CloudKitSyncEngine {
             // SAFETY: Reading CKRecord fields via ObjC message send — objectForKey returns
             // autoreleased NSData/NSString. Retained::retain on non-null pointers is valid.
             unsafe {
-                // Extract siteId
                 let site_obj = record.objectForKey(&NSString::from_str("siteId"));
                 let Some(site_obj) = site_obj else { continue };
                 let site_data: *const NSData = msg_send![&*site_obj, self];
@@ -206,12 +193,10 @@ impl CloudKitSyncEngine {
                 let site_bytes = (*site_data).to_vec();
                 let site_hex: String = site_bytes.iter().map(|b| format!("{b:02x}")).collect();
 
-                // Skip our own records
                 if site_hex == my_hex {
                     continue;
                 }
 
-                // Extract payload
                 let payload_obj = record.objectForKey(&NSString::from_str("payload"));
                 let Some(payload_obj) = payload_obj else {
                     continue;
@@ -237,7 +222,6 @@ impl CloudKitSyncEngine {
             }
         }
 
-        // Save new server token
         if let Some(ref token) = new_token {
             if let Some(bytes) = serialize_server_token(token) {
                 let _ = crr::set_sync_state(conn, "cloudkit_server_token", &bytes).await;
@@ -247,7 +231,6 @@ impl CloudKitSyncEngine {
         Ok(total_applied)
     }
 
-    /// Save CKRecords via CKModifyRecordsOperation.
     async fn save_records(&self, records: &[Retained<CKRecord>]) -> Result<(), String> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let tx = Cell::new(Some(tx));
@@ -284,8 +267,6 @@ impl CloudKitSyncEngine {
             .map_err(|_| "Save records channel closed".to_string())?
     }
 
-    /// Fetch zone changes since a given server token.
-    /// Returns (records, new_server_token).
     async fn fetch_zone_changes(
         &self,
         token: Option<&CKServerChangeToken>,
@@ -304,7 +285,6 @@ impl CloudKitSyncEngine {
         // SAFETY: CKFetchRecordZoneChangesOperation — ObjC fetch operation is thread-safe.
         // Callback blocks capture Arc<Mutex<Vec>> and Cell<Option<Sender>> safely.
         unsafe {
-            // Configure zone options using NSDictionary
             let config = CKFetchRecordZoneChangesConfiguration::init(
                 CKFetchRecordZoneChangesConfiguration::alloc(),
             );
@@ -314,7 +294,6 @@ impl CloudKitSyncEngine {
 
             let zone_ids = NSArray::from_retained_slice(&[self.zone_id.clone()]);
 
-            // Build configurations dictionary
             let keys: Vec<&CKRecordZoneID> = vec![&*self.zone_id];
             let values: Vec<&CKFetchRecordZoneChangesConfiguration> = vec![&*config];
             let config_dict = NSDictionary::from_slices(&keys, &values);
@@ -325,7 +304,6 @@ impl CloudKitSyncEngine {
                 Some(&config_dict),
             );
 
-            // Record changed callback
             let records_for_cb = records_clone.clone();
             let changed_block = block2::RcBlock::new(move |record: NonNull<CKRecord>| {
                 let retained = Retained::retain(record.as_ptr()).unwrap();
@@ -337,7 +315,6 @@ impl CloudKitSyncEngine {
             #[allow(deprecated)]
             op.setRecordChangedBlock(Some(&changed_block));
 
-            // Per-zone fetch completion callback
             let completion_block = block2::RcBlock::new(
                 move |_zone_id: NonNull<CKRecordZoneID>,
                       token: *mut CKServerChangeToken,
@@ -374,8 +351,6 @@ impl CloudKitSyncEngine {
         Ok((fetched_records, new_token))
     }
 }
-
-// ── Helper functions ────────────────────────────────────────────
 
 async fn read_i64_state(conn: &rotero_db::turso::Connection, key: &str) -> i64 {
     crr::get_sync_state(conn, key)

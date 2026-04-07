@@ -1,4 +1,4 @@
-//! Database schema: table definitions and migrations.
+//! Table definitions and migrations.
 
 pub mod migrations;
 pub mod tables;

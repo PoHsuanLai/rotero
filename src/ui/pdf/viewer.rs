@@ -30,7 +30,6 @@ pub fn PdfViewer() -> Element {
     let needs_render = tab.is_loading && tab.render.rendered_pages.is_empty();
     let is_initial_loading = needs_render;
 
-    // Trigger render for tabs that need it (newly created or resumed)
     use_effect(move || {
         let needs = tabs
             .read()
@@ -53,7 +52,6 @@ pub fn PdfViewer() -> Element {
             .await
             .is_ok()
             {
-                // Load annotations if paper_id is set
                 let paper_id = tabs.read().active_tab().and_then(|t| t.paper_id.clone());
                 if let Some(ref pid) = paper_id {
                     let mut anns =
@@ -61,7 +59,6 @@ pub fn PdfViewer() -> Element {
                             .await
                             .unwrap_or_default();
 
-                    // Extract annotations embedded in the PDF and import any new ones
                     let pdf_path = tabs.read().tab().pdf_path.clone();
                     let rendered_pages: Vec<(u32, u32)> = tabs
                         .read()
@@ -100,7 +97,6 @@ pub fn PdfViewer() -> Element {
                                             .get("y")
                                             .and_then(|v| v.as_f64())
                                             .unwrap_or(0.0);
-                                        // Get rendered dims for this page to convert extracted coords
                                         let (rw, rh) = rendered_pages
                                             .get(ext.page as usize)
                                             .copied()
@@ -118,7 +114,6 @@ pub fn PdfViewer() -> Element {
                                     continue;
                                 }
 
-                                // Convert PDF points to pixel coords
                                 let (rw, rh) = rendered_pages
                                     .get(ext.page as usize)
                                     .copied()
@@ -236,9 +231,7 @@ pub fn PdfViewer() -> Element {
                             t.search.visible = !t.search.visible;
                         });
                     }
-                    Key::Escape => {
-                        // Handled by global shortcut in keybindings.rs
-                    }
+                    Key::Escape => {}
                     _ => {}
                 }
             },
@@ -263,13 +256,10 @@ pub fn PdfViewer() -> Element {
                     }
                 }
 
-                // Scrollable page area
                 div {
                     class: "pdf-pages",
                     id: "pdf-pages-container",
                     onmounted: move |_| {
-                        // Install drag-to-pan for mouse (middle-click or space+drag)
-                        // and touch (two-finger pan) on the scroll container.
                         spawn(async move {
                             let _ = document::eval(r#"
                             (function() {
@@ -345,9 +335,6 @@ pub fn PdfViewer() -> Element {
                             "#);
                         });
                     },
-                    // Pages are eagerly loaded in the background by open_pdf —
-                    // no scroll-triggered lazy loading needed.
-
                     {
                         let mgr = tabs.read();
                         let tab = mgr.tab();
@@ -382,7 +369,6 @@ pub fn PdfViewer() -> Element {
                 }
             }
 
-            // Annotation context menu (shared between page overlays and panel)
             AnnotationContextMenu {}
 
         }

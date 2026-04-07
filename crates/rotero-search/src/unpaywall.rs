@@ -15,7 +15,6 @@ struct OaLocation {
 }
 
 /// Check Unpaywall for an open-access PDF URL for the given DOI.
-/// Returns Some(url) if a PDF is available, None otherwise.
 pub async fn fetch_oa_url(doi: &str) -> Result<Option<String>, String> {
     let url = format!("{UNPAYWALL_API}/{doi}?email={EMAIL}");
 

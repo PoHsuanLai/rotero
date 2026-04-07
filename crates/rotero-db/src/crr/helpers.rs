@@ -1,9 +1,8 @@
-//! Internal helper functions shared across CRR submodules.
+//! Shared helpers for CRR submodules.
 
 use turso::{Connection, Value};
 
-/// Get (col_ver, site_id) for a specific (pk, col_name) in a clock table.
-/// Returns (0, empty) if not found.
+/// Returns (col_ver, site_id) for a clock entry, or (0, empty) if not found.
 pub(crate) async fn get_clock_entry(
     conn: &Connection,
     clock_table: &str,
@@ -42,7 +41,7 @@ pub(crate) async fn get_clock_entry(
     }
 }
 
-/// Get the col_ver for a specific (pk, col_name) in a clock table. Returns 0 if not found.
+/// Returns col_ver for a clock entry, or 0 if not found.
 pub(crate) async fn get_col_ver(
     conn: &Connection,
     clock_table: &str,
@@ -74,7 +73,6 @@ pub(crate) async fn get_col_ver(
     }
 }
 
-/// Read a single column value from a data table row.
 pub(crate) async fn read_column_value(
     conn: &Connection,
     table: &str,
@@ -100,7 +98,6 @@ pub(crate) async fn read_column_value(
     }
 }
 
-/// Convert a turso Value to serde_json::Value.
 pub(crate) fn turso_value_to_json(val: Option<&turso::Value>) -> serde_json::Value {
     match val {
         Some(turso::Value::Text(s)) => serde_json::Value::String(s.clone()),
@@ -113,7 +110,6 @@ pub(crate) fn turso_value_to_json(val: Option<&turso::Value>) -> serde_json::Val
     }
 }
 
-/// Convert a serde_json::Value back to a turso Value.
 pub(crate) fn json_to_turso_value(val: &serde_json::Value) -> Value {
     match val {
         serde_json::Value::String(s) => Value::Text(s.clone()),
@@ -132,7 +128,7 @@ pub(crate) fn json_to_turso_value(val: &serde_json::Value) -> Value {
     }
 }
 
-/// Deterministic comparison of JSON values for tie-breaking.
+/// Deterministic JSON comparison for LWW tie-breaking.
 pub(crate) fn compare_json_values(
     a: &serde_json::Value,
     b: &serde_json::Value,
@@ -142,8 +138,7 @@ pub(crate) fn compare_json_values(
     a_str.cmp(&b_str)
 }
 
-/// Zero all non-sentinel column clocks for a row. Used during resurrection
-/// so that any incoming column values (col_ver >= 1) automatically win.
+/// Zero non-sentinel clocks so incoming values (col_ver >= 1) win on resurrect.
 pub(crate) async fn zero_column_clocks(conn: &Connection, clock_table: &str, pk: &str) {
     let sql =
         format!("UPDATE {clock_table} SET col_ver = 0 WHERE pk = ?1 AND col_name != '__sentinel'");
@@ -155,9 +150,7 @@ pub(crate) async fn zero_column_clocks(conn: &Connection, clock_table: &str, pk:
         .await;
 }
 
-/// Create a skeleton row in a data table with defaults for NOT NULL columns.
-/// This is needed when applying a remote INSERT — we create the row first,
-/// then column-level changes fill in the actual values.
+/// Create a skeleton row with NOT NULL defaults; column-level changes fill actual values.
 pub(crate) async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str) {
     let now = chrono::Utc::now().to_rfc3339();
     let sql = match table {
@@ -224,10 +217,9 @@ pub(crate) async fn create_skeleton_row(conn: &Connection, table: &str, pk: &str
         .await;
 }
 
-/// Re-export site_id from state module for internal use.
 pub(crate) use super::state::site_id;
 
-/// Simple base64 encoding for blob values.
+/// Hex-encode blob values (misnamed but kept for compatibility).
 fn base64_encode(bytes: &[u8]) -> String {
     use std::fmt::Write;
     let mut s = String::with_capacity(bytes.len() * 4 / 3 + 4);

@@ -3,7 +3,6 @@ use dioxus::prelude::*;
 use crate::state::app_state::LibraryState;
 use rotero_db::Database;
 
-/// Background sync loop: periodically exports/imports changesets if sync is enabled.
 #[component]
 pub fn SyncLoop() -> Element {
     let db = use_context::<Database>();
@@ -49,7 +48,6 @@ pub fn SyncLoop() -> Element {
                                 0
                             }
                         };
-                        // Sync PDF files
                         let papers_dir = db.papers_dir();
                         let papers = lib_state.read().papers.clone();
                         for paper in &papers {

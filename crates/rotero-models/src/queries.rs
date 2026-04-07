@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// Papers
-// ---------------------------------------------------------------------------
-
 pub const PAPER_SELECT_COLS: &str = "id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key, pdf_url";
 
 pub const PAPER_INSERT: &str = "\
@@ -64,10 +60,6 @@ pub const PAPER_LIST_CITATION_KEYS: &str =
 
 pub const PAPER_SELECT_PDF_URL: &str = "SELECT id, pdf_url FROM papers WHERE pdf_url IS NOT NULL";
 
-// ---------------------------------------------------------------------------
-// Collections
-// ---------------------------------------------------------------------------
-
 pub const COLLECTION_INSERT: &str =
     "INSERT INTO collections (id, name, parent_id, position) VALUES (?1, ?2, ?3, ?4)";
 
@@ -85,10 +77,6 @@ pub const COLLECTION_ADD_PAPER: &str =
 pub const COLLECTION_REMOVE_PAPER: &str =
     "DELETE FROM paper_collections WHERE paper_id = ?1 AND collection_id = ?2";
 
-// ---------------------------------------------------------------------------
-// Tags
-// ---------------------------------------------------------------------------
-
 pub const TAG_FIND_BY_NAME: &str = "SELECT id FROM tags WHERE name = ?1";
 pub const TAG_INSERT: &str = "INSERT INTO tags (id, name, color) VALUES (?1, ?2, ?3)";
 pub const TAG_LIST: &str = "SELECT id, name, color FROM tags ORDER BY name";
@@ -99,10 +87,6 @@ pub const TAG_UPDATE_COLOR: &str = "UPDATE tags SET color = ?1 WHERE id = ?2";
 pub const TAG_LIST_NULL_COLOR: &str = "SELECT id, name FROM tags WHERE color IS NULL";
 pub const TAG_PAPER_IDS: &str = "SELECT paper_id FROM paper_tags WHERE tag_id = ?1";
 pub const TAG_DELETE: &str = "DELETE FROM tags WHERE id = ?1";
-
-// ---------------------------------------------------------------------------
-// Annotations
-// ---------------------------------------------------------------------------
 
 pub const ANNOTATION_INSERT: &str = "\
     INSERT INTO annotations (id, paper_id, page, ann_type, color, content, geometry, created_at, modified_at) \
@@ -118,10 +102,6 @@ pub const ANNOTATION_UPDATE_COLOR: &str =
     "UPDATE annotations SET color = ?1, modified_at = ?2 WHERE id = ?3";
 pub const ANNOTATION_DELETE: &str = "DELETE FROM annotations WHERE id = ?1";
 
-// ---------------------------------------------------------------------------
-// Notes
-// ---------------------------------------------------------------------------
-
 pub const NOTE_INSERT: &str = "\
     INSERT INTO notes (id, paper_id, title, body, created_at, modified_at) \
     VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
@@ -134,10 +114,6 @@ pub const NOTE_UPDATE: &str =
     "UPDATE notes SET title = ?1, body = ?2, modified_at = ?3 WHERE id = ?4";
 pub const NOTE_DELETE: &str = "DELETE FROM notes WHERE id = ?1";
 
-// ---------------------------------------------------------------------------
-// Saved Searches
-// ---------------------------------------------------------------------------
-
 pub const SAVED_SEARCH_INSERT: &str =
     "INSERT INTO saved_searches (id, name, query, created_at) VALUES (?1, ?2, ?3, ?4)";
 
@@ -147,21 +123,9 @@ pub const SAVED_SEARCH_LIST: &str = "\
 pub const SAVED_SEARCH_DELETE: &str = "DELETE FROM saved_searches WHERE id = ?1";
 pub const SAVED_SEARCH_RENAME: &str = "UPDATE saved_searches SET name = ?1 WHERE id = ?2";
 
-// ---------------------------------------------------------------------------
-// Graph
-// ---------------------------------------------------------------------------
-
 pub const GRAPH_ALL_PAPER_TAGS: &str = "SELECT paper_id, tag_id FROM paper_tags";
 pub const GRAPH_ALL_PAPER_COLLECTIONS: &str =
     "SELECT paper_id, collection_id FROM paper_collections";
-
-// ---------------------------------------------------------------------------
-// Common
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// MCP / stats queries
-// ---------------------------------------------------------------------------
 
 pub const PAPER_GET_BY_ID: &str = "SELECT {COLS} FROM papers WHERE id = ?1";
 

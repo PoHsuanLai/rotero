@@ -18,7 +18,6 @@ pub fn AppearanceSection() -> Element {
         div { class: "settings-section",
             h4 { class: "settings-section-title", "Appearance" }
 
-            // Dark mode toggle
             div { class: "settings-field",
                 span { class: "settings-field-label", "Dark mode" }
                 div { class: "settings-field-control",
@@ -39,7 +38,6 @@ pub fn AppearanceSection() -> Element {
                 }
             }
 
-            // UI density
             div { class: "settings-field",
                 span { class: "settings-field-label", "UI density" }
                 div { class: "settings-field-control",

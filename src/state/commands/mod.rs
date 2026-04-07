@@ -13,10 +13,8 @@ use rotero_pdf::PageTextData;
 
 use super::app_state::RenderedPageData;
 
-/// Result type for PDF text/metadata extraction.
 pub type PdfExtractResult = (Vec<(u32, String)>, rotero_pdf::PdfDocMetadata);
 
-/// A request to the PDF render thread.
 pub enum RenderRequest {
     OpenPdf {
         pdf_path: String,
@@ -61,7 +59,6 @@ pub enum RenderRequest {
     },
 }
 
-/// Spawn a dedicated thread that owns the PdfEngine and processes render requests.
 pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
     let (tx, rx) = mpsc::channel::<RenderRequest>();
 

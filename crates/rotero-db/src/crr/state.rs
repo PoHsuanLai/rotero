@@ -1,8 +1,8 @@
-//! Sync state persistence — site ID, db version, and sync state key-value store.
+//! Sync state: site ID, db version counter, and key-value store.
 
 use turso::{Connection, Value};
 
-/// Get this device's 16-byte site UUID. Creates one if it doesn't exist.
+/// Get this device's 16-byte site UUID, creating one if needed.
 pub async fn site_id(conn: &Connection) -> Result<Vec<u8>, turso::Error> {
     let mut rows = conn
         .query("SELECT site_id FROM crr_site_id LIMIT 1", ())
@@ -14,7 +14,7 @@ pub async fn site_id(conn: &Connection) -> Result<Vec<u8>, turso::Error> {
             }
         }
     }
-    // Should have been created in migration, but create if missing
+    // Fallback: create if migration didn't run
     conn.execute(
         "INSERT OR IGNORE INTO crr_site_id (site_id) VALUES (randomblob(16))",
         (),
@@ -31,7 +31,7 @@ pub async fn site_id(conn: &Connection) -> Result<Vec<u8>, turso::Error> {
     Ok(val.as_blob().cloned().unwrap_or_default())
 }
 
-/// Get and increment the global db_version counter.
+/// Atomically increment and return the global db_version.
 pub async fn next_db_version(conn: &Connection) -> Result<i64, turso::Error> {
     conn.execute("UPDATE crr_db_version SET version = version + 1", ())
         .await?;
@@ -45,7 +45,7 @@ pub async fn next_db_version(conn: &Connection) -> Result<i64, turso::Error> {
     Ok(row.get_value(0)?.as_integer().copied().unwrap_or(1))
 }
 
-/// Get the current db_version without incrementing.
+/// Read the current db_version without incrementing.
 pub async fn current_db_version(conn: &Connection) -> Result<i64, turso::Error> {
     let mut rows = conn
         .query("SELECT version FROM crr_db_version LIMIT 1", ())
@@ -57,7 +57,6 @@ pub async fn current_db_version(conn: &Connection) -> Result<i64, turso::Error> 
     Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0))
 }
 
-/// Get a value from the sync state table.
 pub async fn get_sync_state(conn: &Connection, key: &str) -> Option<Vec<u8>> {
     let result = conn
         .query(
@@ -77,7 +76,6 @@ pub async fn get_sync_state(conn: &Connection, key: &str) -> Option<Vec<u8>> {
     }
 }
 
-/// Set a value in the sync state table.
 pub async fn set_sync_state(
     conn: &Connection,
     key: &str,

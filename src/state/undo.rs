@@ -4,7 +4,6 @@ use rotero_models::Annotation;
 use crate::state::app_state::PdfTabManager;
 use rotero_db::Database;
 
-/// A forward annotation action (what was done).
 #[derive(Debug, Clone)]
 pub enum UndoAction {
     Create(Annotation),
@@ -28,20 +27,17 @@ pub struct UndoStack {
 }
 
 impl UndoStack {
-    /// Record a new action. Clears the redo stack.
     pub fn push(&mut self, action: UndoAction) {
         self.undo.push(action);
         self.redo.clear();
     }
 
-    /// Pop the last action to undo. Caller must reverse it, then we move it to redo.
     pub fn pop_undo(&mut self) -> Option<UndoAction> {
         let action = self.undo.pop()?;
         self.redo.push(action.clone());
         Some(action)
     }
 
-    /// Pop the last undone action to redo. Caller must re-apply it, then we move it to undo.
     pub fn pop_redo(&mut self) -> Option<UndoAction> {
         let action = self.redo.pop()?;
         self.undo.push(action.clone());
@@ -56,26 +52,22 @@ impl UndoStack {
         !self.redo.is_empty()
     }
 
-    /// After a re-insert gives us a new DB id, patch the annotation id
-    /// in the last entry of the given stack so future undo/redo uses the correct id.
+    /// Re-insert gives a new DB id; patch it so future undo/redo uses the correct id.
     fn patch_last_ann_id(stack: &mut [UndoAction], new_id: String) {
         if let Some(UndoAction::Create(ann) | UndoAction::Delete(ann)) = stack.last_mut() {
             ann.id = Some(new_id);
         }
     }
 
-    /// After undo re-inserts (reverse of Delete), patch the redo stack entry.
     pub fn patch_last_redo_id(&mut self, new_id: String) {
         Self::patch_last_ann_id(&mut self.redo, new_id);
     }
 
-    /// After redo re-inserts (forward of Create), patch the undo stack entry.
     pub fn patch_last_undo_id(&mut self, new_id: String) {
         Self::patch_last_ann_id(&mut self.undo, new_id);
     }
 }
 
-/// Reverse an action (for undo).
 pub async fn reverse_action(
     db: Database,
     tabs: &mut Signal<PdfTabManager>,
@@ -98,7 +90,6 @@ pub async fn reverse_action(
             if let Ok(id) = rotero_db::annotations::insert_annotation(db.conn(), ann).await {
                 let mut ann = ann.clone();
                 ann.id = Some(id.clone());
-                // Patch the redo stack so future redo uses the new id
                 undo_stack.with_mut(|s| s.patch_last_redo_id(id));
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {
@@ -149,7 +140,6 @@ pub async fn reverse_action(
     }
 }
 
-/// Re-apply an action (for redo).
 pub async fn forward_action(
     db: Database,
     tabs: &mut Signal<PdfTabManager>,
@@ -161,7 +151,6 @@ pub async fn forward_action(
             if let Ok(id) = rotero_db::annotations::insert_annotation(db.conn(), ann).await {
                 let mut ann = ann.clone();
                 ann.id = Some(id.clone());
-                // Patch the undo stack so future undo uses the new id
                 undo_stack.with_mut(|s| s.patch_last_undo_id(id));
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {

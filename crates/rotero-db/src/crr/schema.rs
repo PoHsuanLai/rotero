@@ -1,12 +1,11 @@
-//! CRR table initialization and CREATE TABLE statements.
+//! CRR table initialization.
 
 use turso::Connection;
 
 use super::CRR_TABLES;
 
-/// Create CRR metadata tables and clock tables for all CRR-enabled tables (idempotent).
+/// Create CRR metadata and clock tables (idempotent).
 pub async fn init_crr_tables(conn: &Connection) -> Result<(), turso::Error> {
-    // Metadata tables
     conn.execute(
         "CREATE TABLE IF NOT EXISTS crr_site_id (site_id BLOB PRIMARY KEY)",
         (),
@@ -17,7 +16,6 @@ pub async fn init_crr_tables(conn: &Connection) -> Result<(), turso::Error> {
         (),
     )
     .await?;
-    // Ensure there's a row in crr_db_version
     let mut rows = conn
         .query("SELECT version FROM crr_db_version LIMIT 1", ())
         .await?;
@@ -25,7 +23,6 @@ pub async fn init_crr_tables(conn: &Connection) -> Result<(), turso::Error> {
         conn.execute("INSERT INTO crr_db_version (version) VALUES (0)", ())
             .await?;
     }
-    // Ensure there's a site_id
     let mut rows = conn
         .query("SELECT site_id FROM crr_site_id LIMIT 1", ())
         .await?;
@@ -37,7 +34,7 @@ pub async fn init_crr_tables(conn: &Connection) -> Result<(), turso::Error> {
         .await?;
     }
 
-    // Sync state table (for persisting transport-specific state like CloudKit server tokens)
+    // Transport-specific state (e.g. CloudKit server tokens)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS crr_sync_state (
             key   TEXT PRIMARY KEY,
@@ -47,7 +44,6 @@ pub async fn init_crr_tables(conn: &Connection) -> Result<(), turso::Error> {
     )
     .await?;
 
-    // Clock tables
     for (table, _) in CRR_TABLES {
         let sql = format!(
             "CREATE TABLE IF NOT EXISTS {table}__crr_clock (

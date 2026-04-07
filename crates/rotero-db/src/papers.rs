@@ -138,7 +138,6 @@ pub async fn list_papers(conn: &Connection) -> Result<Vec<Paper>, turso::Error> 
     list_papers_paginated(conn, 0, 500).await
 }
 
-/// Load papers with pagination support.
 pub async fn list_papers_paginated(
     conn: &Connection,
     offset: u32,
@@ -161,7 +160,6 @@ pub async fn list_papers_paginated(
     Ok(papers)
 }
 
-/// Return total number of papers in the library.
 pub async fn count_papers(conn: &Connection) -> Result<u32, turso::Error> {
     let mut rows = conn.query(queries::PAPER_COUNT, ()).await?;
     let row = rows
@@ -172,7 +170,7 @@ pub async fn count_papers(conn: &Connection) -> Result<u32, turso::Error> {
 }
 
 pub async fn search_papers(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
-    // Try FTS first, fall back to LIKE if FTS is unavailable or query fails
+    // FTS first, fall back to LIKE if unavailable
     match search_papers_fts(conn, query).await {
         Ok(results) => Ok(results),
         Err(_) => search_papers_like(conn, query).await,
@@ -220,7 +218,6 @@ pub async fn set_read(conn: &Connection, id: &str, read: bool) -> Result<(), tur
     Ok(())
 }
 
-/// Store extracted PDF body text for full-text search.
 pub async fn update_paper_fulltext(
     conn: &Connection,
     id: &str,
@@ -237,7 +234,6 @@ pub async fn update_paper_fulltext(
     Ok(())
 }
 
-/// Update all metadata fields for an existing paper.
 pub async fn update_paper_metadata(
     conn: &Connection,
     id: &str,
@@ -433,19 +429,17 @@ fn row_to_paper(row: &turso::Row) -> Paper {
     }
 }
 
-/// Find duplicate papers grouped by DOI or normalized title.
-/// Returns groups of 2+ papers that share the same DOI or similar title.
+/// Returns groups of 2+ papers that share the same DOI or normalized title.
 pub async fn find_duplicates(conn: &Connection) -> Result<Vec<Vec<Paper>>, turso::Error> {
     let mut groups: Vec<Vec<Paper>> = Vec::new();
 
-    // Group 1: exact DOI duplicates
+    // Exact DOI duplicates
     let doi_sql = queries::PAPER_FIND_DOI_DUPLICATES.replace("{COLS}", queries::PAPER_SELECT_COLS);
     let mut rows = conn.query(&doi_sql, ()).await?;
     let mut doi_papers: Vec<Paper> = Vec::new();
     while let Some(row) = rows.next().await? {
         doi_papers.push(row_to_paper(&row));
     }
-    // Group by DOI
     let mut current_doi = String::new();
     let mut current_group: Vec<Paper> = Vec::new();
     for paper in doi_papers {
@@ -460,7 +454,7 @@ pub async fn find_duplicates(conn: &Connection) -> Result<Vec<Vec<Paper>>, turso
         groups.push(current_group);
     }
 
-    // Group 2: normalized title duplicates (excluding papers already found by DOI)
+    // Normalized title duplicates (excluding papers already found by DOI)
     let doi_ids: std::collections::HashSet<String> = groups
         .iter()
         .flatten()
@@ -499,13 +493,12 @@ fn normalize_title(title: &str) -> String {
         .join(" ")
 }
 
-/// Merge two papers: transfer associations from `delete_id` to `keep_id`, then delete.
+/// Transfer associations from `delete_id` to `keep_id`, then delete the duplicate.
 pub async fn merge_papers(
     conn: &Connection,
     keep_id: &str,
     delete_id: &str,
 ) -> Result<(), turso::Error> {
-    // Transfer collection memberships
     conn.execute(
         queries::PAPER_MERGE_COLLECTIONS,
         [
@@ -514,7 +507,6 @@ pub async fn merge_papers(
         ],
     )
     .await?;
-    // Transfer tag assignments
     conn.execute(
         queries::PAPER_MERGE_TAGS,
         [
@@ -523,12 +515,10 @@ pub async fn merge_papers(
         ],
     )
     .await?;
-    // Delete the duplicate
     delete_paper(conn, delete_id).await?;
     Ok(())
 }
 
-/// Update citation count for a paper.
 /// Return (id, doi) pairs for papers that have a DOI but no citation count yet.
 pub async fn list_papers_needing_citations(
     conn: &Connection,
@@ -561,7 +551,6 @@ pub async fn update_citation_count(
     Ok(())
 }
 
-/// Update the citation key for a paper.
 pub async fn update_citation_key(
     conn: &Connection,
     id: &str,
@@ -579,7 +568,7 @@ pub async fn update_citation_key(
     Ok(())
 }
 
-/// Return (id, title, authors_json, year) for papers that need a citation key generated.
+/// Return (id, title, authors, year) for papers missing a citation key.
 pub async fn list_papers_needing_citation_keys(
     conn: &Connection,
 ) -> Result<Vec<(String, String, Vec<String>, Option<i32>)>, turso::Error> {
@@ -610,7 +599,7 @@ pub async fn list_papers_needing_citation_keys(
     Ok(out)
 }
 
-/// List all existing citation keys (for deduplication).
+/// List all existing citation keys (for dedup when generating new ones).
 pub async fn list_citation_keys(conn: &Connection) -> Result<Vec<String>, turso::Error> {
     let mut rows = conn.query(queries::PAPER_LIST_CITATION_KEYS, ()).await?;
     let mut keys = Vec::new();

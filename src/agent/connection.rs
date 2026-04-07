@@ -7,11 +7,8 @@ use super::helpers::{first_allow_option_id, handle_notification};
 use super::node::find_or_install_node;
 use super::types::ChatEvent;
 
-/// A raw JSON-RPC connection over stdio to an ACP agent subprocess.
-/// Uses a background reader thread to avoid blocking on pipe reads.
 pub(crate) struct RawAcpConnection {
     pub(crate) child: Child,
-    /// Lines received from the agent subprocess (non-blocking).
     pub(crate) incoming: mpsc::Receiver<String>,
     pub(crate) next_id: u64,
 }
@@ -24,7 +21,6 @@ impl RawAcpConnection {
         for arg in extra_args {
             cmd.arg(arg);
         }
-        // Pass any stored API keys as env vars
         let config = crate::sync::engine::SyncConfig::load();
         for (key, val) in &config.agent.agent_api_keys {
             if !val.is_empty() {
@@ -36,7 +32,6 @@ impl RawAcpConnection {
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
 
-        // Create new process group so we can kill all children on cleanup
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -46,7 +41,6 @@ impl RawAcpConnection {
         let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn node: {e}"))?;
         let stdout = child.stdout.take().ok_or("No stdout")?;
 
-        // Spawn a background thread to read lines from stdout without blocking
         let (line_tx, line_rx) = mpsc::channel();
         std::thread::Builder::new()
             .name("acp-reader".into())
@@ -55,10 +49,10 @@ impl RawAcpConnection {
                 loop {
                     let mut line = String::new();
                     match reader.read_line(&mut line) {
-                        Ok(0) => break, // EOF
+                        Ok(0) => break,
                         Ok(_) => {
                             if line_tx.send(line).is_err() {
-                                break; // receiver dropped
+                                break;
                             }
                         }
                         Err(_) => break,
@@ -92,7 +86,6 @@ impl RawAcpConnection {
 
         self.write_message(&msg)?;
 
-        // Read lines until we get the response with matching id.
         loop {
             let line = self
                 .incoming
@@ -102,7 +95,6 @@ impl RawAcpConnection {
             let v: serde_json::Value =
                 serde_json::from_str(line.trim()).map_err(|e| format!("Parse error: {e}"))?;
 
-            // Check if this is our response
             if v.get("id").and_then(|i| i.as_u64()) == Some(id) {
                 if let Some(error) = v.get("error") {
                     return Err(format!("RPC error: {error}"));
@@ -113,7 +105,6 @@ impl RawAcpConnection {
                     .ok_or("No result in response".into());
             }
 
-            // Auto-respond to request_permission
             if v.get("method").and_then(|m| m.as_str()) == Some("session/request_permission") {
                 if let Some(req_id) = v.get("id") {
                     let option_id = first_allow_option_id(&v);
@@ -127,7 +118,6 @@ impl RawAcpConnection {
                 continue;
             }
 
-            // Forward notifications to event handler if available
             if let Some(tx) = evt_tx {
                 handle_notification(tx, &v);
             }
@@ -160,21 +150,17 @@ impl RawAcpConnection {
         self.write_message(&msg)
     }
 
-    /// Non-blocking read of a line from the agent.
     pub(crate) fn try_read_line(&mut self) -> Option<String> {
         self.incoming.try_recv().ok()
     }
 
     pub(crate) fn kill(&mut self) {
-        // Kill the entire process group to clean up node + any children
         #[cfg(unix)]
         {
             let pid = self.child.id();
             unsafe {
-                // Kill process group (negative pid)
                 libc::kill(-(pid as i32), libc::SIGTERM);
             }
-            // Give it a moment to exit gracefully
             std::thread::sleep(std::time::Duration::from_millis(100));
             unsafe {
                 libc::kill(-(pid as i32), libc::SIGKILL);

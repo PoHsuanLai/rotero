@@ -72,7 +72,6 @@ pub(crate) fn resolve_bin_entry(pkg_root: &PathBuf) -> Result<PathBuf, String> {
 }
 
 pub(crate) fn find_mcp_binary() -> Option<PathBuf> {
-    // 1. Next to the running binary (production)
     if let Ok(exe) = std::env::current_exe() {
         let sibling = exe.with_file_name("rotero-mcp");
         if sibling.exists() {
@@ -80,7 +79,6 @@ pub(crate) fn find_mcp_binary() -> Option<PathBuf> {
         }
     }
 
-    // 2. In the workspace target dir (development — handles worktrees)
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     for dir in [&manifest_dir, &manifest_dir.join(".."), &manifest_dir.join("../..")]  {
         for profile in ["release", "debug"] {
@@ -91,7 +89,6 @@ pub(crate) fn find_mcp_binary() -> Option<PathBuf> {
         }
     }
 
-    // 3. In PATH
     which::which("rotero-mcp").ok()
 }
 

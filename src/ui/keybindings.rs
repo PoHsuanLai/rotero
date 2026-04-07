@@ -9,10 +9,6 @@ use crate::state::undo::{UndoStack, forward_action, reverse_action};
 use crate::sync::engine::SyncConfig;
 use rotero_db::Database;
 
-// ── Action functions ──────────────────────────────────────────────────
-// Each action is a plain function so both keyboard shortcuts and menu
-// events can call the same logic without duplication.
-
 fn action_open_settings(mut show_settings: Signal<ShowSettings>) {
     show_settings.set(ShowSettings(true));
 }
@@ -251,8 +247,6 @@ fn action_escape(
     }
 }
 
-// ── Component ─────────────────────────────────────────────────────────
-
 /// Handles keyboard shortcuts (window-scoped via onkeydown) and native menu events.
 #[component]
 pub fn GlobalKeyHandler() -> Element {
@@ -263,8 +257,6 @@ pub fn GlobalKeyHandler() -> Element {
     let config = use_context::<Signal<SyncConfig>>();
     let new_coll_editing = use_context::<Signal<Option<Option<String>>>>();
     let dpr_sig = use_context::<Signal<DevicePixelRatio>>();
-
-    // ── Native menu event handler ─────────────────────────────────────
 
     let db_menu = db.clone();
     let _ = use_muda_event_handler(move |event| match event.id().0.as_str() {
@@ -281,8 +273,7 @@ pub fn GlobalKeyHandler() -> Element {
     rsx! {}
 }
 
-/// Keyboard event handler for the root element. Call this from Layout's
-/// root div `onkeydown` to get window-scoped (not OS-global) shortcuts.
+/// Keyboard event handler called from Layout's root div onkeydown.
 pub fn handle_keydown(
     event: Event<KeyboardData>,
     show_settings: Signal<ShowSettings>,

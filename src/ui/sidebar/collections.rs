@@ -4,7 +4,6 @@ use crate::state::app_state::{DragPaper, LibraryState, LibraryView};
 use rotero_db::Database;
 use rotero_models::Collection;
 
-/// Renders a nested collection tree recursively.
 #[component]
 pub(crate) fn CollectionTree(
     collections: Vec<Collection>,
@@ -50,7 +49,6 @@ pub(crate) fn CollectionTree(
                 let collections_clone = collections.clone();
                 let creating_under_this = new_coll_editing() == Some(Some(coll_id.clone()));
 
-                // Icon: open folder if active, filled folder if has children, outline if empty
                 let folder_icon = if is_active {
                     "bi bi-folder2-open"
                 } else if has_children {
@@ -87,7 +85,6 @@ pub(crate) fn CollectionTree(
                         style: "padding-left: {indent + 8}px;",
                         draggable: "true",
                         onmouseup: move |evt: Event<MouseData>| {
-                            // Only navigate if this wasn't a drag operation
                             if drag_coll().is_none()
                                 && evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
                                     lib_state.with_mut(|s| s.view = LibraryView::Collection(cid_click.clone()));
@@ -120,7 +117,6 @@ pub(crate) fn CollectionTree(
                             drop_hover.set(None);
                             if let Some(dragged_id) = drag_coll() {
                                 if dragged_id != cid_drop {
-                                    // Reparent dragged collection under this one
                                     let db = db_for_drop.clone();
                                     let target = cid_drop.clone();
                                     spawn(async move {
@@ -137,12 +133,10 @@ pub(crate) fn CollectionTree(
                                 }
                                 drag_coll.set(None);
                             } else if let Some(paper_id) = drag_paper().0.clone() {
-                                // Add paper to this collection
                                 let db = db_for_paper_drop.clone();
                                 let target = cid_drop.clone();
                                 spawn(async move {
                                     if let Ok(()) = rotero_db::collections::add_paper_to_collection(db.conn(), &paper_id, &target).await {
-                                        // Refresh only if currently viewing this collection
                                         let current_view = lib_state.read().view.clone();
                                         if current_view == LibraryView::Collection(target.clone())
                                             && let Ok(ids) = rotero_db::collections::list_paper_ids_in_collection(db.conn(), &target).await {
@@ -159,7 +153,6 @@ pub(crate) fn CollectionTree(
                         i { class: "sidebar-collection-icon {folder_icon}" }
                         span { class: "sidebar-collection-name", "{coll_name}" }
                     }
-                    // Render children (recursive)
                     if has_children || creating_under_this {
                         CollectionTree {
                             collections: collections_clone,
@@ -168,7 +161,6 @@ pub(crate) fn CollectionTree(
                             ctx_menu: coll_ctx,
                         }
                     }
-                    // Inline new subcollection row
                     if creating_under_this {
                         NewCollectionRow { parent_id: Some(cid_newrow), depth: depth + 1 }
                     }
@@ -178,8 +170,6 @@ pub(crate) fn CollectionTree(
     }
 }
 
-/// The "+" button in the Collections section header.
-/// If a collection is currently selected, creates under it; otherwise top-level.
 #[component]
 pub(crate) fn NewCollectionButton() -> Element {
     let mut editing = use_context::<Signal<Option<Option<String>>>>();
@@ -189,7 +179,6 @@ pub(crate) fn NewCollectionButton() -> Element {
         button {
             class: "sidebar-add-btn",
             onclick: move |_| {
-                // If viewing a collection, create subcollection; otherwise top-level
                 let parent = match &lib_state.read().view {
                     LibraryView::Collection(id) => Some(id.clone()),
                     _ => None,
@@ -201,7 +190,6 @@ pub(crate) fn NewCollectionButton() -> Element {
     }
 }
 
-/// An inline editable row that looks like a regular collection item.
 #[component]
 pub(crate) fn NewCollectionRow(parent_id: Option<String>, depth: u32) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();

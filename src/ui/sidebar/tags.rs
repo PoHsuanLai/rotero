@@ -5,8 +5,7 @@ use rotero_db::Database;
 
 use super::TagContextMenu;
 
-/// Self-contained tag section with collapsibility and drag-drop support.
-/// Needs to be its own component so signal reads are properly tracked
+/// Own component so signal reads are tracked correctly
 /// (CollapsibleSection children don't re-render when context signals change).
 #[component]
 pub(crate) fn TagSection(tags: Vec<rotero_models::Tag>, ctx_menu: Signal<Option<TagContextMenu>>) -> Element {

@@ -15,8 +15,6 @@ struct AnnotationGeometry {
     page_height: f32,
 }
 
-/// Write annotations into a PDF file, saving to `output_path`.
-///
 /// `page_dimensions` provides (width_pts, height_pts) per 0-indexed page,
 /// as returned by `PdfEngine::get_page_dimensions()`.
 pub fn write_annotations(
@@ -61,7 +59,6 @@ pub fn write_annotations(
             continue;
         }
 
-        // Append to existing /Annots array or create new one
         let page_obj = doc
             .get_object_mut(page_id)
             .map_err(|e| PdfError::WriteError(format!("Cannot get page object: {e}")))?;
@@ -69,20 +66,17 @@ pub fn write_annotations(
         if let Object::Dictionary(dict) = page_obj {
             match dict.get(b"Annots") {
                 Ok(Object::Reference(annots_ref)) => {
-                    // /Annots is an indirect reference — resolve and append
                     let annots_ref = *annots_ref;
                     if let Ok(Object::Array(arr)) = doc.get_object_mut(annots_ref) {
                         arr.extend(ann_refs);
                     }
                 }
                 Ok(Object::Array(_)) => {
-                    // /Annots is a direct array — append in place
                     if let Ok(Object::Array(arr)) = dict.get_mut(b"Annots") {
                         arr.extend(ann_refs);
                     }
                 }
                 _ => {
-                    // No /Annots — create new array
                     dict.set("Annots", Object::Array(ann_refs));
                 }
             }
@@ -253,7 +247,6 @@ fn build_annotation_dict(ann: &Annotation, rect: &[f32; 4]) -> Object {
             {
                 dict.set("Contents", pdf_string(content));
             }
-            // Default appearance string for FreeText
             let da = "0 0 0 rg /Helvetica 12 Tf".to_string();
             dict.set("DA", pdf_string(&da));
         }

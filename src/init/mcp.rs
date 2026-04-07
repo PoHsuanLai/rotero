@@ -1,10 +1,8 @@
 use super::database::SHARED_DB;
 
-/// MCP HTTP server port — set when the embedded MCP server starts.
 #[cfg(feature = "desktop")]
 pub static MCP_HTTP_PORT: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
 
-/// Start the embedded MCP server over HTTP (shares DB connection with the app).
 #[cfg(feature = "desktop")]
 pub(crate) fn start_mcp_server() {
     let mcp_port = 21985u16; // connector is 21984
@@ -16,8 +14,7 @@ pub(crate) fn start_mcp_server() {
                 return;
             };
             let mcp_db = rotero_mcp::Database::from_conn(conn.clone(), lib_path.clone());
-            // Disable PDF extraction in embedded mode — pdfium can crash the HTTP server.
-            // The agent can still access paper metadata, annotations, and notes.
+            // Disable PDF extraction in embedded mode — pdfium can crash the HTTP server
             let pdf_available = false;
             let mcp_server = rotero_mcp::RoteroMcp::new(mcp_db, pdf_available);
 

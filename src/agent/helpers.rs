@@ -7,17 +7,13 @@ use super::types::{
 };
 use super::LoopResult;
 
-/// Get the app's data directory as the agent working directory.
-/// This is where papers and the database live.
 pub(crate) fn agent_working_dir() -> PathBuf {
     directories::BaseDirs::new()
         .map(|d| d.data_dir().join("com.rotero.Rotero"))
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
 }
 
-/// Build the JSON array of MCP servers to attach to any session.
 pub(crate) fn build_mcp_servers_json() -> serde_json::Value {
-    // Use the embedded HTTP MCP server if available
     #[cfg(feature = "desktop")]
     if let Some(&port) = crate::MCP_HTTP_PORT.get() {
         let url = format!("http://127.0.0.1:{port}/mcp");
@@ -30,7 +26,6 @@ pub(crate) fn build_mcp_servers_json() -> serde_json::Value {
         }]);
     }
 
-    // Fallback: try stdio binary (for standalone/development use)
     let mcp_binary = find_mcp_binary();
     let pdfium_path = find_pdfium_path();
 
@@ -52,7 +47,6 @@ pub(crate) fn build_mcp_servers_json() -> serde_json::Value {
     }
 }
 
-/// Check if an RPC error indicates authentication is needed.
 pub(crate) fn is_auth_error(err: &str) -> bool {
     let lower = err.to_lowercase();
     lower.contains("authentication required")
@@ -150,7 +144,6 @@ pub(crate) fn handle_notification(
                         Some("failed") => ToolStatus::Failed,
                         _ => return,
                     };
-                    // Extract text output from content array
                     let output = update
                         .get("content")
                         .and_then(|c| c.as_array())
@@ -158,7 +151,6 @@ pub(crate) fn handle_notification(
                             let texts: Vec<String> = arr
                                 .iter()
                                 .filter_map(|item| {
-                                    // Content blocks or text items
                                     item.get("text")
                                         .and_then(|t| t.as_str())
                                         .map(String::from)
@@ -206,33 +198,26 @@ pub(crate) fn handle_notification(
             }
         }
         "session/requestPermission" => {
-            // Auto-allow all tool calls for now
-            // The agent sends this as a request (has an id), we need to respond
             if let Some(id) = v.get("id") {
                 tracing::debug!("ACP: auto-allowing permission request {id}");
-                // We can't respond here easily since we don't have &mut conn
-                // TODO: handle permission requests properly
             }
         }
         _ => {}
     }
 }
 
-/// Map known auth method IDs to env var names.
 pub(crate) fn api_key_env_for_method(method_id: &str) -> Option<String> {
     match method_id {
         "gemini-api-key" => Some("GEMINI_API_KEY".into()),
         "codex-api-key" | "openai-api-key" => Some("OPENAI_API_KEY".into()),
         "codex_api_key" => Some("CODEX_API_KEY".into()),
         id if id.contains("api-key") || id.contains("api_key") => {
-            // Best-effort: uppercase the ID and replace dashes
             Some(id.to_uppercase().replace('-', "_"))
         }
         _ => None,
     }
 }
 
-/// Extract permission options from a request.
 pub(crate) fn extract_permission_options(v: &serde_json::Value) -> Vec<(String, String)> {
     v.get("params")
         .and_then(|p| p.get("options"))
@@ -252,7 +237,6 @@ pub(crate) fn extract_permission_options(v: &serde_json::Value) -> Vec<(String, 
         .unwrap_or_else(|| vec![("default".into(), "Allow".into())])
 }
 
-/// Extract the first allow-type option ID from a permission request.
 pub(crate) fn first_allow_option_id(v: &serde_json::Value) -> String {
     v.get("params")
         .and_then(|p| p.get("options"))
@@ -270,9 +254,7 @@ pub(crate) fn first_allow_option_id(v: &serde_json::Value) -> String {
         .to_string()
 }
 
-/// Strip internal protocol XML tags from agent messages.
 pub(crate) fn strip_protocol_tags(text: &str) -> String {
-    // These tags are Claude Code internal protocol, not user-visible content
     let tag_patterns = [
         "command-name", "command-message", "command-args",
         "local-command-stdout", "local-command-stderr", "local-command-caveat",
@@ -283,15 +265,12 @@ pub(crate) fn strip_protocol_tags(text: &str) -> String {
 
     let mut result = text.to_string();
     for tag in &tag_patterns {
-        // Remove <tag>...</tag> and <tag ...> and </tag>
         let open = format!("<{tag}");
         let close = format!("</{tag}>");
-        // Remove full tags with content
         while let Some(start) = result.find(&open) {
             if let Some(end) = result[start..].find(&close) {
                 result = format!("{}{}", &result[..start], &result[start + end + close.len()..]);
             } else if let Some(end) = result[start..].find('>') {
-                // Self-closing or unclosed tag — remove just the tag
                 result = format!("{}{}", &result[..start], &result[start + end + 1..]);
             } else {
                 break;

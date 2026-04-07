@@ -1,4 +1,4 @@
-//! CREATE TABLE SQL statements.
+//! CREATE TABLE statements for all core tables.
 
 pub const CREATE_TABLES: &str = "
 CREATE TABLE IF NOT EXISTS schema_version (

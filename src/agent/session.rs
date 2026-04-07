@@ -44,7 +44,6 @@ pub(crate) fn connect_and_run(
         }
     };
 
-    // Initialize
     let init_params = serde_json::json!({
         "protocolVersion": 1,
         "clientCapabilities": {
@@ -81,7 +80,6 @@ pub(crate) fn connect_and_run(
         supports_list_sessions: supports_list,
     });
 
-    // Create session with MCP
     let mcp_servers = build_mcp_servers_json();
 
     let session_params = serde_json::json!({
@@ -100,7 +98,6 @@ pub(crate) fn connect_and_run(
             tracing::info!("ACP: session created: {session_id}");
             let _ = evt_tx.send(ChatEvent::SessionCreated);
 
-            // Extract available models
             if let Some(models) = r.get("models") {
                 let _ = evt_tx.send(extract_models_event(models));
             }
@@ -117,19 +114,16 @@ pub(crate) fn connect_and_run(
         }
     };
 
-    // Drain any notifications that arrived during init/session setup
     while let Some(line) = conn.try_read_line() {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) {
             handle_notification(evt_tx, &v);
         }
     }
 
-    // Main message loop
     let mut pending_auth_id: Option<u64> = None;
     let mut pending_auth_start: Option<std::time::Instant> = None;
     const AUTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
     let result = loop {
-        // Check for UI requests
         match req_rx.try_recv() {
             Ok(ChatRequest::SendMessage {
                 prompt,
@@ -145,7 +139,6 @@ pub(crate) fn connect_and_run(
                     "prompt": [{ "type": "text", "text": full_prompt }],
                 });
 
-                // Send prompt request (non-blocking write)
                 let prompt_id = conn.next_id;
                 conn.next_id += 1;
                 let msg = serde_json::json!({
@@ -161,11 +154,7 @@ pub(crate) fn connect_and_run(
                     let _ = stdin.flush();
                 }
 
-                // Read responses until we get the prompt result.
-                // Use try_recv in a loop so we can also check for UI requests
-                // (permission responses, cancel) without blocking.
                 loop {
-                    // First check for pending UI requests (permission responses)
                     match req_rx.try_recv() {
                         Ok(ChatRequest::PermissionResponse { request_id, option_id }) => {
                             let response = serde_json::json!({
@@ -184,7 +173,6 @@ pub(crate) fn connect_and_run(
                         _ => {}
                     }
 
-                    // Try to read a line from the agent (non-blocking)
                     match conn.incoming.try_recv() {
                         Err(mpsc::TryRecvError::Empty) => {
                             std::thread::sleep(std::time::Duration::from_millis(10));
@@ -199,7 +187,6 @@ pub(crate) fn connect_and_run(
                                 serde_json::from_str::<serde_json::Value>(line.trim())
                             {
                                 if v.get("id").and_then(|i| i.as_u64()) == Some(prompt_id) {
-                                    // Prompt completed
                                     if v.get("error").is_some() {
                                         let _ = evt_tx.send(ChatEvent::Error(format!(
                                             "Prompt error: {}",
@@ -213,7 +200,6 @@ pub(crate) fn connect_and_run(
                                     == Some("session/request_permission")
                                 {
                                     if let Some(req_id) = v.get("id") {
-                                        // Send to UI for user decision
                                         let tool_title = v.pointer("/params/toolCall/title")
                                             .and_then(|t| t.as_str())
                                             .unwrap_or("Tool call")
@@ -320,7 +306,6 @@ pub(crate) fn connect_and_run(
                 });
                 match conn.send_request("session/load", params, Some(evt_tx)) {
                     Ok(result) => {
-                        // Update session_id to the loaded one
                         if let Some(sid) = result.get("sessionId").and_then(|v| v.as_str()) {
                             session_id = sid.to_string();
                         }
@@ -353,9 +338,8 @@ pub(crate) fn connect_and_run(
                 }
             }
             Ok(ChatRequest::Authenticate { method_id }) => {
-                // Send authenticate request non-blocking — the response
-                // may take a long time (browser OAuth flow). We send the
-                // request and handle the response in the idle loop.
+                // Auth response may take a long time (browser OAuth flow);
+                // handle it in the idle loop below.
                 let auth_id = conn.next_id;
                 conn.next_id += 1;
                 let msg = serde_json::json!({
@@ -370,7 +354,6 @@ pub(crate) fn connect_and_run(
                     let _ = evt_tx.send(ChatEvent::Switching {
                         provider_id: provider.id.to_string(),
                     });
-                    // Track that we're waiting for an auth response
                     pending_auth_id = Some(auth_id);
                     pending_auth_start = Some(std::time::Instant::now());
                 }
@@ -382,10 +365,8 @@ pub(crate) fn connect_and_run(
                 break LoopResult::Shutdown;
             }
             Err(mpsc::TryRecvError::Empty) => {
-                // Drain any async notifications / pending auth responses
                 while let Some(line) = conn.try_read_line() {
                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) {
-                        // Check if this is a pending auth response
                         if let Some(auth_id) = pending_auth_id {
                             if v.get("id").and_then(|i| i.as_u64()) == Some(auth_id) {
                                 pending_auth_id = None;
@@ -396,7 +377,6 @@ pub(crate) fn connect_and_run(
                                     )));
                                 } else {
                                     tracing::info!("ACP: auth completed, creating session...");
-                                    // Retry session creation after auth
                                     let session_params = serde_json::json!({
                                         "cwd": agent_working_dir().to_string_lossy(),
                                         "mcpServers": build_mcp_servers_json(),
@@ -421,7 +401,6 @@ pub(crate) fn connect_and_run(
                                 continue;
                             }
                         }
-                        // Handle requestPermission during auth
                         if v.get("method").and_then(|m| m.as_str())
                             == Some("session/request_permission")
                         {
@@ -439,7 +418,6 @@ pub(crate) fn connect_and_run(
                         handle_notification(evt_tx, &v);
                     }
                 }
-                // Check for auth timeout
                 if let (Some(_), Some(start)) = (pending_auth_id, pending_auth_start) {
                     if start.elapsed() > AUTH_TIMEOUT {
                         pending_auth_id = None;

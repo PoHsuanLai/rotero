@@ -3,8 +3,6 @@ use dioxus::prelude::*;
 use crate::app::DbGeneration;
 use crate::sync::engine::{SyncConfig, SyncTransport};
 
-/// Reusable path picker row for settings.
-/// Shows the current path with Change/Reset buttons.
 #[component]
 fn PathField(
     label: &'static str,
@@ -57,7 +55,6 @@ pub fn SyncSection() -> Element {
         div { class: "settings-section",
             h4 { class: "settings-section-title", "Library & Sync" }
 
-            // Library location
             PathField {
                 label: "Library location",
                 path: current_path,
@@ -89,7 +86,6 @@ pub fn SyncSection() -> Element {
             }
             p { class: "settings-hint", "Where your papers and database are stored." }
 
-            // Sync toggle
             div { class: "settings-field",
                 span { class: "settings-field-label", "Sync across devices" }
                 div { class: "settings-field-control",
@@ -111,7 +107,6 @@ pub fn SyncSection() -> Element {
             }
 
             if enabled {
-                // Transport selector
                 div { class: "settings-field",
                     span { class: "settings-field-label", "Method" }
                     div { class: "settings-field-control",
@@ -139,7 +134,6 @@ pub fn SyncSection() -> Element {
                         "Syncs via your iCloud account. No setup needed."
                     }
                 } else {
-                    // File-based — sync folder picker (same style as library path)
                     PathField {
                         label: "Sync folder",
                         path: if has_folder { folder } else { "Not set".to_string() },

@@ -1,20 +1,19 @@
-//! Text search functions for finding matches in extracted text data.
+//! Text search within extracted text data.
 
 use serde::{Deserialize, Serialize};
 
 use super::{PageTextData, TextSegment};
 
-/// A search match with its location.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchMatch {
     pub page_index: u32,
-    /// Bounding rectangles for the match (x, y, width, height in pixels).
+    /// Bounding rectangles (x, y, width, height in pixels).
     pub bounds: Vec<(f64, f64, f64, f64)>,
     pub matched_text: String,
 }
 
 /// Group segments into lines by y-proximity, sorted left-to-right within each line.
-/// Returns indices into the original segments vec rather than references.
+/// Returns indices into the original segments vec.
 pub fn group_into_lines(segments: &[TextSegment]) -> Vec<Vec<usize>> {
     if segments.is_empty() {
         return Vec::new();
@@ -59,7 +58,6 @@ pub fn group_into_lines(segments: &[TextSegment]) -> Vec<Vec<usize>> {
     lines
 }
 
-/// Internal helper: group segments into lines returning references (used by search).
 fn group_into_lines_ref(segments: &[TextSegment]) -> Vec<Vec<&TextSegment>> {
     if segments.is_empty() {
         return Vec::new();
@@ -88,7 +86,6 @@ fn group_into_lines_ref(segments: &[TextSegment]) -> Vec<Vec<&TextSegment>> {
     lines
 }
 
-/// Search for text across all pages using already-extracted text data.
 /// Concatenates same-line segments so multi-word queries match across word boundaries.
 pub fn search_in_text_data(text_data: &[PageTextData], query: &str) -> Vec<SearchMatch> {
     if query.is_empty() {
@@ -102,7 +99,6 @@ pub fn search_in_text_data(text_data: &[PageTextData], query: &str) -> Vec<Searc
         let lines = group_into_lines_ref(&page_data.segments);
 
         for line in &lines {
-            // Build concatenated line text with space separators
             let mut concat = String::new();
             let mut seg_ranges: Vec<(usize, usize)> = Vec::new();
 
@@ -118,7 +114,6 @@ pub fn search_in_text_data(text_data: &[PageTextData], query: &str) -> Vec<Searc
                 let abs_pos = search_start + pos;
                 let match_end = abs_pos + query_lower.len();
 
-                // Merge overlapping segment bounds into one continuous rect
                 let mut min_x = f64::MAX;
                 let mut min_y = f64::MAX;
                 let mut max_right = f64::MIN;

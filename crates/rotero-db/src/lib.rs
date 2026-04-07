@@ -11,7 +11,7 @@ pub mod tags;
 
 pub use rotero_models::queries;
 
-// Re-export turso types so the app crate doesn't need a direct turso dependency.
+// Re-export so the app crate doesn't need a direct turso dependency.
 pub use turso;
 
 use std::path::{Path, PathBuf};
@@ -32,13 +32,10 @@ impl PartialEq for Database {
 
 impl Database {
     /// Open (or create) the database at the given library directory.
-    /// The caller is responsible for determining the directory
-    /// (e.g. from SyncConfig::effective_library_path).
     pub async fn open(data_dir: PathBuf) -> Result<Self, String> {
         std::fs::create_dir_all(&data_dir)
             .map_err(|e| format!("Failed to create data dir: {e}"))?;
 
-        // Create papers/ root and unsorted/
         let papers_dir = data_dir.join("papers");
         std::fs::create_dir_all(papers_dir.join("unsorted"))
             .map_err(|e| format!("Failed to create papers dir: {e}"))?;
@@ -75,20 +72,16 @@ impl Database {
         &self.data_dir
     }
 
-    /// Root directory for all paper PDFs.
     pub fn papers_dir(&self) -> PathBuf {
         self.data_dir.join("papers")
     }
 
-    /// Resolve a relative pdf_path to an absolute path.
     pub fn resolve_pdf_path(&self, rel_path: &str) -> PathBuf {
         self.papers_dir().join(rel_path)
     }
 
-    /// Import a PDF into the library with a clean, browsable path.
-    ///
-    /// Layout: `papers/{year}/{Title} - {FirstAuthor}.pdf`
-    /// Falls back to `papers/unsorted/{original_filename}.pdf` if no metadata.
+    /// Import a PDF into the library.
+    /// Layout: `papers/{year}/{Title} - {FirstAuthor}.pdf`, falling back to `papers/unsorted/`.
     pub fn import_pdf(
         &self,
         source_path: &str,
@@ -98,10 +91,8 @@ impl Database {
     ) -> Result<String, String> {
         let source = Path::new(source_path);
 
-        // Build clean filename
         let clean_name = build_clean_filename(source, title, first_author);
 
-        // Build subfolder: year or "unsorted"
         let subfolder = match year {
             Some(y) => y.to_string(),
             None => "unsorted".to_string(),
@@ -111,7 +102,6 @@ impl Database {
         let abs_dir = self.papers_dir().join(rel_dir);
         std::fs::create_dir_all(&abs_dir).map_err(|e| format!("Failed to create folder: {e}"))?;
 
-        // Handle filename collisions
         let mut dest_name = clean_name.clone();
         let mut dest = abs_dir.join(&dest_name);
         let mut counter = 1;
@@ -127,7 +117,6 @@ impl Database {
 
         std::fs::copy(source, &dest).map_err(|e| format!("Failed to copy PDF: {e}"))?;
 
-        // Return path relative to papers_dir
         let rel_path = std::path::Path::new(&subfolder)
             .join(&dest_name)
             .to_string_lossy()
@@ -144,7 +133,6 @@ impl Database {
         first_author: Option<&str>,
         year: Option<i32>,
     ) -> Result<String, String> {
-        // Validate PDF header
         if bytes.len() < 5 || &bytes[..5] != b"%PDF-" {
             return Err("Not a valid PDF file".to_string());
         }
@@ -184,8 +172,7 @@ impl Database {
     }
 }
 
-/// Build a clean, human-readable filename from metadata.
-/// Format: "Title - Author.pdf" or falls back to original filename.
+/// Format: "Title - Author.pdf", falling back to original filename.
 fn build_clean_filename(source: &Path, title: Option<&str>, first_author: Option<&str>) -> String {
     let original = source
         .file_stem()
@@ -203,14 +190,14 @@ fn build_clean_filename(source: &Path, title: Option<&str>, first_author: Option
             format!("{clean_title}.pdf")
         }
         _ => {
-            // Use original filename but ensure .pdf extension
+            // Fall back to original filename
             let clean = sanitize_filename(&original, 100);
             format!("{clean}.pdf")
         }
     }
 }
 
-/// Remove characters that are problematic in filenames, truncate to max length.
+/// Remove filesystem-unsafe characters and truncate to `max_len`.
 fn sanitize_filename(s: &str, max_len: usize) -> String {
     let cleaned: String = s
         .chars()

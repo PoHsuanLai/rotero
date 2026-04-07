@@ -7,7 +7,6 @@ mod state;
 mod sync;
 mod ui;
 
-// Re-export statics and functions so existing `crate::` paths still resolve.
 #[cfg(feature = "desktop")]
 pub use init::connector::CONNECTOR_NOTIFY;
 #[cfg(feature = "desktop")]

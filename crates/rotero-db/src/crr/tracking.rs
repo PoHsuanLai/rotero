@@ -1,12 +1,11 @@
-//! Change tracking functions (track_insert, track_update, track_delete, etc.)
-//! Called after each mutation to record changes for sync.
+//! Change tracking: called after each mutation to record changes for sync.
 
 use turso::{Connection, Value};
 
 use super::helpers::{get_col_ver, site_id};
 use super::next_db_version;
 
-/// Record an INSERT — sets sentinel CL=1 and all columns at col_ver=1.
+/// Record an INSERT: sentinel CL=1, all columns at col_ver=1.
 pub async fn track_insert(
     conn: &Connection,
     table: &str,
@@ -17,7 +16,7 @@ pub async fn track_insert(
     let db_ver = next_db_version(conn).await?;
     let clock_table = format!("{table}__crr_clock");
 
-    // Sentinel: marks row as alive (CL=1, odd)
+    // Sentinel marks row as alive (CL=1, odd)
     conn.execute(
         &format!(
             "INSERT OR REPLACE INTO {clock_table} (pk, col_name, col_ver, db_ver, site_id, seq)
@@ -31,7 +30,6 @@ pub async fn track_insert(
     )
     .await?;
 
-    // One clock entry per column
     for (i, col) in columns.iter().enumerate() {
         conn.execute(
             &format!(
@@ -52,7 +50,7 @@ pub async fn track_insert(
     Ok(())
 }
 
-/// Record an UPDATE — increments col_ver for each changed column.
+/// Record an UPDATE: increments col_ver for each changed column.
 pub async fn track_update(
     conn: &Connection,
     table: &str,
@@ -64,7 +62,6 @@ pub async fn track_update(
     let clock_table = format!("{table}__crr_clock");
 
     for (i, col) in changed_columns.iter().enumerate() {
-        // Get current col_ver and increment
         let current_ver = get_col_ver(conn, &clock_table, pk, col).await;
         conn.execute(
             &format!(
@@ -86,14 +83,13 @@ pub async fn track_update(
     Ok(())
 }
 
-/// Record a DELETE — increments sentinel CL to next even number.
+/// Record a DELETE: increments sentinel CL to next even number.
 pub async fn track_delete(conn: &Connection, table: &str, pk: &str) -> Result<(), turso::Error> {
     let site = site_id(conn).await?;
     let db_ver = next_db_version(conn).await?;
     let clock_table = format!("{table}__crr_clock");
 
     let current_cl = get_col_ver(conn, &clock_table, pk, "__sentinel").await;
-    // Next even number = deleted state
     let new_cl = if current_cl % 2 == 1 {
         current_cl + 1
     } else {
@@ -120,7 +116,7 @@ pub async fn track_delete(conn: &Connection, table: &str, pk: &str) -> Result<()
     Ok(())
 }
 
-/// Read all changes since a given db_version across all CRR tables.
+/// Read all changes since a given db_version.
 pub async fn changes_since(
     conn: &Connection,
     since_db_ver: i64,
@@ -130,7 +126,6 @@ pub async fn changes_since(
     for (table, _columns) in super::CRR_TABLES {
         let clock_table = format!("{table}__crr_clock");
 
-        // Get clock entries newer than since_db_ver
         let sql = format!(
             "SELECT pk, col_name, col_ver, db_ver, site_id, seq
              FROM {clock_table}
@@ -171,10 +166,8 @@ pub async fn changes_since(
                 .and_then(|v| v.as_integer().copied())
                 .unwrap_or(0);
 
-            // Get the sentinel CL for this row
             let cl = get_col_ver(conn, &clock_table, &pk, "__sentinel").await;
 
-            // Get the actual column value from the data table (if not sentinel)
             let col_val = if col_name == "__sentinel" {
                 serde_json::Value::Null
             } else {

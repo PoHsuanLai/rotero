@@ -12,7 +12,6 @@ pub use panel::ChatPanel;
 pub use toggle::ChatToggleButton;
 pub use resize_handle::ResizeHandle;
 
-/// Channel wrapper for sending requests to the ACP agent thread.
 #[derive(Clone, Copy)]
 pub struct AgentChannel {
     pub inner: Signal<Option<std::sync::mpsc::Sender<ChatRequest>>>,

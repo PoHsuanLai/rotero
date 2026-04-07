@@ -130,7 +130,6 @@ pub async fn precache_pdf(
         return;
     }
     if let Ok(text_data) = recv_reply(text_rx).await {
-        // Concatenate all text segments for full-text search
         if let (Some(pid), Some(conn)) = (&paper_id, db) {
             let fulltext: String = text_data
                 .values()

@@ -16,13 +16,12 @@ pub async fn get_or_create_tag(
         let id = row.get_value(0)?.as_text().cloned().unwrap_or_default();
         return Ok(id);
     }
-    // Auto-assign a color from the palette if none provided
     let actual_color = color.map(|c| c.to_string()).unwrap_or_else(|| {
         const PALETTE: &[&str] = &[
             "#6b7085", "#7c6b85", "#6b8580", "#857a6b", "#6b7a85", "#856b7a", "#6b856e", "#85706b",
             "#6e6b85", "#7a856b", "#856b6b", "#6b8585",
         ];
-        // Use a hash of the name to pick a color deterministically
+        // Deterministic color from name hash
         let hash = name
             .bytes()
             .fold(0usize, |acc, b| acc.wrapping_add(b as usize));

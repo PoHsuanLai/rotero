@@ -32,7 +32,6 @@ pub fn find_or_install_node() -> Result<PathBuf, TranslateError> {
     }
 }
 
-/// Find npm binary.
 pub fn find_npm() -> Result<PathBuf, TranslateError> {
     if let Ok(path) = which::which("npm") {
         return Ok(path);

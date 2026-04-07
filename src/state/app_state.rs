@@ -4,11 +4,8 @@ use std::sync::Arc;
 use rotero_models::{Annotation, Collection, Paper, Tag};
 use rotero_pdf::{BookmarkEntry, PageTextData, RenderedPage, SearchMatch};
 
-// ── Tab system types ──────────────────────────────────────────────
-
 pub type TabId = u64;
 
-/// Heavy render data — cleared when a tab is suspended to free memory.
 #[derive(Debug, Clone, Default)]
 pub struct PageRenderData {
     pub rendered_pages: Vec<RenderedPageData>,
@@ -17,14 +14,13 @@ pub struct PageRenderData {
     pub _page_dimensions: Vec<(f32, f32)>,
 }
 
-/// Zoom and scroll state for a document.
 #[derive(Debug, Clone)]
 pub struct ViewState {
     pub zoom: f32,
     pub render_zoom: f32,
     pub scroll_top: f64,
     pub page_batch_size: u32,
-    /// Device pixel ratio — render at `zoom * dpr` for sharp output on HiDPI screens.
+    /// Render at `zoom * dpr` for sharp HiDPI output.
     pub dpr: f32,
 }
 
@@ -40,7 +36,6 @@ impl Default for ViewState {
     }
 }
 
-/// In-document text search state.
 #[derive(Debug, Clone, Default)]
 pub struct SearchState {
     pub visible: bool,
@@ -49,7 +44,6 @@ pub struct SearchState {
     pub current_index: usize,
 }
 
-/// Navigation panel state (per-tab).
 #[derive(Debug, Clone, Default)]
 pub struct NavPanels {
     pub show_thumbnails: bool,
@@ -57,7 +51,6 @@ pub struct NavPanels {
     pub outline: Vec<BookmarkEntry>,
 }
 
-/// One open PDF tab.
 #[derive(Debug, Clone)]
 pub struct PdfTab {
     pub id: TabId,
@@ -106,31 +99,25 @@ impl PdfTab {
         }
     }
 
-    /// Whether this tab needs re-rendering (was suspended and has no pages).
     pub fn needs_render(&self) -> bool {
         self.render.rendered_pages.is_empty() && self.page_count > 0
     }
 
-    /// Number of rendered pages loaded so far.
     pub fn rendered_count(&self) -> u32 {
         self.render.rendered_pages.len() as u32
     }
 
-    /// Suspend the tab: clear heavy render data to free memory, but keep
-    /// thumbnails and text data (small) so they don't need re-extraction.
     pub fn suspend(&mut self) {
         self.is_suspended = true;
         self.render.rendered_pages.clear();
     }
 }
 
-/// Manages all open PDF tabs.
 #[derive(Debug, Clone)]
 pub struct PdfTabManager {
     pub tabs: Vec<PdfTab>,
     pub active_tab_id: Option<TabId>,
     next_id: u64,
-    /// Max tabs to keep rendered in memory (from settings).
     max_resident: u32,
 }
 
@@ -171,8 +158,7 @@ impl PdfTabManager {
             .and_then(|id| self.tabs.iter_mut().find(|t| t.id == id))
     }
 
-    /// Convenience: get active tab, panics if none. Use only in components
-    /// that are conditionally rendered when a tab exists.
+    /// Panics if no active tab.
     pub fn tab(&self) -> &PdfTab {
         self.active_tab().expect("no active tab")
     }
@@ -181,20 +167,16 @@ impl PdfTabManager {
         self.active_tab_mut().expect("no active tab")
     }
 
-    /// Update the max resident tabs setting.
     pub fn set_max_resident(&mut self, max_resident: u32) {
         self.max_resident = max_resident;
     }
 
-    /// Switch to a tab. Keeps up to `max_resident` tabs' rendered pages in
-    /// memory for fast switching; tabs beyond the limit are suspended.
     pub fn switch_to(&mut self, tab_id: TabId) {
         self.active_tab_id = Some(tab_id);
         if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
             tab.is_suspended = false;
         }
 
-        // Suspend oldest tabs beyond the memory limit
         let resident: Vec<TabId> = self
             .tabs
             .iter()
@@ -213,7 +195,6 @@ impl PdfTabManager {
         }
     }
 
-    /// Close a tab. Returns true if the active tab changed.
     pub fn close_tab(&mut self, tab_id: TabId) -> bool {
         let Some(idx) = self.tabs.iter().position(|t| t.id == tab_id) else {
             return false;
@@ -230,17 +211,14 @@ impl PdfTabManager {
         false
     }
 
-    /// Close all tabs except the given one.
     pub fn close_others(&mut self, keep_id: TabId) {
         self.tabs.retain(|t| t.id == keep_id);
         self.active_tab_id = Some(keep_id);
     }
 
-    /// Close all tabs to the right of the given one.
     pub fn close_to_right(&mut self, tab_id: TabId) {
         if let Some(idx) = self.tabs.iter().position(|t| t.id == tab_id) {
             self.tabs.truncate(idx + 1);
-            // If active tab was removed, switch to the kept tab
             if let Some(active) = self.active_tab_id
                 && !self.tabs.iter().any(|t| t.id == active)
             {
@@ -249,7 +227,6 @@ impl PdfTabManager {
         }
     }
 
-    /// Add a new tab and make it active.
     pub fn open_tab(&mut self, tab: PdfTab) -> TabId {
         let tab_id = tab.id;
         self.tabs.push(tab);
@@ -257,7 +234,6 @@ impl PdfTabManager {
         tab_id
     }
 
-    /// Switch to an existing tab for this paper, or create a new one.
     pub fn open_or_switch(
         &mut self,
         paper_id: String,
@@ -279,7 +255,6 @@ impl PdfTabManager {
     }
 }
 
-/// Shared viewer tool state (not per-tab).
 #[derive(Debug, Clone)]
 pub struct ViewerToolState {
     pub annotation_mode: AnnotationMode,
@@ -297,8 +272,6 @@ impl Default for ViewerToolState {
     }
 }
 
-// ── Shared types (unchanged) ──────────────────────────────────────
-
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum AnnotationMode {
     #[default]
@@ -310,10 +283,7 @@ pub enum AnnotationMode {
     Text,
 }
 
-/// Lightweight version of RenderedPage for storage in signals.
-/// Uses `Arc<String>` for the base64 data so that cloning page lists
-/// (which happens every Dioxus render cycle) is near-free instead of
-/// copying hundreds of KB of base64 per page.
+/// Uses `Arc<String>` for near-free cloning during Dioxus render cycles.
 #[derive(Debug, Clone)]
 pub struct RenderedPageData {
     pub page_index: u32,
@@ -335,9 +305,6 @@ impl From<RenderedPage> for RenderedPageData {
     }
 }
 
-// ── Library state (unchanged) ─────────────────────────────────────
-
-/// Which source the search bar queries.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum SearchSource {
     #[default]
@@ -376,7 +343,6 @@ impl SearchSource {
     }
 }
 
-/// Library search state: query, results, and external API search.
 #[derive(Debug, Clone, Default)]
 pub struct LibrarySearchState {
     pub query: String,
@@ -386,7 +352,6 @@ pub struct LibrarySearchState {
     pub external_searching: bool,
 }
 
-/// Library filter state: cached IDs for collection/tag/duplicate views.
 #[derive(Debug, Clone, Default)]
 pub struct LibraryFilterState {
     pub collection_paper_ids: Option<Vec<String>>,
@@ -394,7 +359,6 @@ pub struct LibraryFilterState {
     pub duplicate_groups: Option<Vec<Vec<Paper>>>,
 }
 
-/// Tracks the library state: papers, collections, tags.
 #[derive(Debug, Clone, Default)]
 pub struct LibraryState {
     pub papers: Vec<Paper>,
@@ -430,7 +394,6 @@ impl LibraryState {
             .and_then(|id| self.papers.iter().find(|p| p.id.as_ref() == Some(id)))
     }
 
-    /// Update date_modified for a paper in the in-memory list (call after opening a PDF).
     pub fn touch_paper(&mut self, paper_id: &str) {
         if let Some(p) = self.papers.iter_mut().find(|p| p.id.as_deref() == Some(paper_id)) {
             p.status.date_modified = chrono::Utc::now();
@@ -438,7 +401,6 @@ impl LibraryState {
     }
 }
 
-/// Shared annotation context-menu state: which annotation was right-clicked and where.
 #[derive(Debug, Clone)]
 pub struct AnnotationContextInfo {
     pub annotation_id: String,
@@ -450,6 +412,5 @@ pub struct AnnotationContextInfo {
     pub y: f64,
 }
 
-/// Newtype for drag-paper signal to avoid context ambiguity with other `Signal<Option<String>>`.
 #[derive(Debug, Clone)]
 pub struct DragPaper(pub Option<String>);

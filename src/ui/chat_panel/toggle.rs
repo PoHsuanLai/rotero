@@ -2,7 +2,6 @@ use dioxus::prelude::*;
 
 use crate::agent::types::ChatState;
 
-/// Chat toggle button for the library header / PDF tab bar.
 #[component]
 pub fn ChatToggleButton() -> Element {
     let mut chat_state = use_context::<Signal<ChatState>>();

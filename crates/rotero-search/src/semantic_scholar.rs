@@ -45,7 +45,6 @@ struct S2SearchResponse {
     data: Option<Vec<S2Paper>>,
 }
 
-/// Search Semantic Scholar and return up to `limit` results.
 pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, String> {
     let url = format!(
         "https://api.semanticscholar.org/graph/v1/paper/search?query={}&limit={limit}&fields={S2_FIELDS}",
@@ -86,14 +85,12 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, Stri
     Ok(results)
 }
 
-/// Fetch metadata from Semantic Scholar by DOI.
 pub async fn fetch_by_doi(doi: &str) -> Result<Paper, String> {
     let url = format!("{S2_API}/DOI:{doi}?fields={S2_FIELDS}");
     let paper = fetch_paper(&url).await?;
     s2_to_paper(paper, doi)
 }
 
-/// Fetch metadata from Semantic Scholar by arXiv ID.
 pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<Paper, String> {
     let url = format!("{S2_API}/ARXIV:{arxiv_id}?fields={S2_FIELDS}");
     let paper = fetch_paper(&url).await?;

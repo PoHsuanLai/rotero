@@ -4,17 +4,12 @@ use futures_util::StreamExt;
 use crate::state::app_state::{LibraryState, SearchSource};
 use rotero_db::Database;
 
-/// Minimum query length before triggering external search.
 const MIN_QUERY_LEN: usize = 3;
-/// Debounce delay in milliseconds for external API search.
 const DEBOUNCE_MS: u64 = 250;
 
-/// Message sent to the search coroutine.
 #[derive(Clone)]
 enum SearchMsg {
-    /// New query text from user input.
     Query(SearchSource, String),
-    /// Clear all results.
     Clear,
 }
 
@@ -26,7 +21,6 @@ pub fn SearchBar() -> Element {
     let source = lib_state.read().search.source.clone();
     let mut show_dropdown = use_signal(|| false);
 
-    // Single coroutine handles debounce + two-phase search
     let search_coro = use_coroutine(move |mut rx: UnboundedReceiver<SearchMsg>| async move {
         while let Some(msg) = rx.next().await {
             match msg {
@@ -37,7 +31,6 @@ pub fn SearchBar() -> Element {
                     });
                 }
                 SearchMsg::Query(source, query) => {
-                    // Drain to latest message (skip intermediate keystrokes)
                     let (source, query) = drain_latest(&mut rx, source, query);
 
                     if query.trim().len() < MIN_QUERY_LEN {
@@ -50,7 +43,6 @@ pub fn SearchBar() -> Element {
 
                     lib_state.with_mut(|s| s.search.external_searching = true);
 
-                    // Debounce: wait, then drain again in case more arrived
                     tokio::time::sleep(std::time::Duration::from_millis(DEBOUNCE_MS)).await;
                     let (source, query) = drain_latest(&mut rx, source, query);
 
@@ -66,7 +58,6 @@ pub fn SearchBar() -> Element {
                         continue;
                     };
 
-                    // Phase 1: fast search (autocomplete for OpenAlex)
                     match provider.search(&query, 20).await {
                         Ok(metas) => {
                             let papers: Vec<_> = metas;
@@ -84,10 +75,7 @@ pub fn SearchBar() -> Element {
                         }
                     }
 
-                    // Phase 2: if provider has sparse results (OpenAlex autocomplete),
-                    // fetch full metadata in background to have it ready for import
                     if provider.needs_enrichment() {
-                        // Check no new messages arrived while we were searching
                         if rx.try_recv().is_ok() {
                             continue;
                         }
@@ -95,7 +83,6 @@ pub fn SearchBar() -> Element {
                             Ok(metas) => {
                                 let papers: Vec<_> =
                                     metas;
-                                // Only apply if query hasn't changed
                                 if lib_state.read().search.query == query {
                                     lib_state.with_mut(|s| s.search.external_results = Some(papers));
                                 }
@@ -194,7 +181,6 @@ pub fn SearchBar() -> Element {
                 }
             }
 
-            // Source dropdown
             div { class: "search-source-wrapper",
                 button {
                     class: if is_external { "btn btn--sm search-source-btn search-source-btn--active" } else { "btn btn--sm search-source-btn" },
@@ -229,7 +215,6 @@ pub fn SearchBar() -> Element {
                             }
                         }
                     }
-                    // Invisible backdrop to close dropdown
                     div {
                         class: "search-source-backdrop",
                         onclick: move |_| show_dropdown.set(false),
@@ -240,7 +225,6 @@ pub fn SearchBar() -> Element {
     }
 }
 
-/// Drain all pending messages from the channel, returning the latest values.
 fn drain_latest(
     rx: &mut UnboundedReceiver<SearchMsg>,
     source: SearchSource,

@@ -1,5 +1,3 @@
-//! TextSegment extraction and PageTextData building from PDF documents.
-
 use std::sync::Arc;
 
 use pdfium_render::prelude::*;
@@ -10,10 +8,7 @@ use super::font::{detect_font_style, detect_font_weight, pdf_font_to_css};
 use super::TextSegment;
 use super::PageTextData;
 
-/// Extract text segments with bounding boxes from a single PDF page.
-///
-/// `img_width`/`img_height` are the actual rendered image dimensions in pixels.
-/// Coordinates are returned in pixel space matching those dimensions.
+/// Coordinates are returned in pixel space matching `img_width`/`img_height`.
 /// PDF coordinates (origin bottom-left) are converted to screen coordinates (origin top-left).
 pub fn extract_page_text(
     pdfium: &Pdfium,
@@ -28,9 +23,7 @@ pub fn extract_page_text(
     extract_page_text_from_doc(&document, page_index, img_width, img_height)
 }
 
-/// Extract text segments from multiple pages in batch.
 /// Opens the document once and extracts all pages, avoiding repeated file I/O.
-/// `page_dims` maps page_index to (img_width, img_height) of the rendered image.
 pub fn extract_pages_text(
     pdfium: &Pdfium,
     pdf_path: &str,
@@ -52,7 +45,6 @@ pub fn extract_pages_text(
     Ok(results)
 }
 
-/// Extract text from a single page of an already-opened document.
 fn extract_page_text_from_doc(
     document: &PdfDocument,
     page_index: u32,
@@ -189,9 +181,8 @@ fn extract_page_text_from_doc(
 
         if c.is_whitespace() {
             run.flush(&mut segments, scale_x, scale_y, page_height_pts);
-            // Append trailing space to the last emitted segment so the
-            // browser includes word separators when selecting/copying text
-            // from the virtual text layer.
+            // Append trailing space so the browser includes word separators
+            // when selecting/copying text from the virtual text layer.
             if let Some(last) = segments.last_mut() {
                 if !last.text.ends_with(' ') {
                     last.text.push(' ');
@@ -270,7 +261,6 @@ fn extract_page_text_from_doc(
 }
 
 /// Extract raw text content from specified pages (no position data).
-/// Returns a Vec of (page_index, text_string) pairs.
 pub fn extract_raw_text(
     pdfium: &Pdfium,
     pdf_path: &str,
@@ -292,7 +282,6 @@ pub fn extract_raw_text(
     Ok(results)
 }
 
-/// Document-level metadata extracted from PDF properties (XMP / DocInfo).
 #[derive(Debug, Clone, Default)]
 pub struct PdfDocMetadata {
     pub title: Option<String>,
@@ -300,7 +289,6 @@ pub struct PdfDocMetadata {
     pub subject: Option<String>,
 }
 
-/// Extract document-level metadata (title, author, subject) from PDF properties.
 pub fn extract_doc_metadata(pdfium: &Pdfium, pdf_path: &str) -> Result<PdfDocMetadata, PdfError> {
     use pdfium_render::prelude::PdfDocumentMetadataTagType;
 

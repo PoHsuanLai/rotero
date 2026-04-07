@@ -8,10 +8,8 @@ pub use nav::Sidebar;
 use dioxus::prelude::*;
 use crate::state::app_state::{LibraryState, LibraryView};
 
-/// Context menu state: (id, name, color, x, y).
 pub(super) type TagContextMenu = (String, String, Option<String>, f64, f64);
 
-/// A single sidebar navigation item with icon, label, and optional count.
 #[component]
 pub(crate) fn SidebarItem(
     label: String,
@@ -50,7 +48,6 @@ pub(crate) fn SidebarItem(
     }
 }
 
-/// A collapsible section with a header and children.
 #[component]
 pub(crate) fn CollapsibleSection(
     title: String,

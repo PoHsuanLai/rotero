@@ -28,7 +28,6 @@ pub fn PdfTabBar() -> Element {
     let tab_count = tab_info.len();
     drop(mgr);
 
-    // Tab context menu state: (tab_id, paper_id, tab_index, x, y)
     let mut tab_ctx = use_signal(|| None::<(TabId, Option<String>, usize, f64, f64)>);
 
     rsx! {
@@ -68,10 +67,8 @@ pub fn PdfTabBar() -> Element {
                                     })()"
                                 );
 
-                                // Switch tab immediately — no awaits
                                 tabs.with_mut(|m| m.switch_to(tab_id));
 
-                                // Save old tab's scroll in a separate task (don't block restore)
                                 if let Some(old_id) = old_tab_id {
                                     spawn(async move {
                                         let mut eval = document::eval("window.__roteroScrollSave || 0");
@@ -85,7 +82,6 @@ pub fn PdfTabBar() -> Element {
                                     });
                                 }
 
-                                // Restore scroll + reload in a separate task
                                 spawn(async move {
                                     let scroll_top = tabs.read().active_tab().map(|t| t.view.scroll_top).unwrap_or(0.0);
                                     let js = format!(
@@ -94,7 +90,6 @@ pub fn PdfTabBar() -> Element {
                                     );
                                     let _ = document::eval(&js);
 
-                                    // Reload pages from cache if tab was suspended
                                     let needs = tabs.read().active_tab().map(|t| t.needs_render()).unwrap_or(false);
                                     if needs {
                                         tabs.with_mut(|m| m.tab_mut().is_loading = true);
@@ -113,7 +108,6 @@ pub fn PdfTabBar() -> Element {
                                     if tabs.read().tabs.is_empty() {
                                         lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
                                     } else {
-                                        // Re-render newly active tab if needed
                                         let needs = tabs.read().active_tab().map(|t| t.needs_render()).unwrap_or(false);
                                         if needs {
                                             let new_id = tabs.read().active_tab_id.unwrap();
@@ -133,13 +127,11 @@ pub fn PdfTabBar() -> Element {
                 }
             }
 
-            // Spacer + chat toggle
             div { style: "flex: 1;" }
             div { style: "padding: 4px 8px 4px 0; display: flex; align-items: center;",
                 ChatToggleButton {}
             }
 
-            // Tab context menu
             if let Some((ctx_tab_id, ctx_paper_id, ctx_idx, mx, my)) = tab_ctx() {
                 {
                     let has_tabs_to_right = ctx_idx + 1 < tab_count;

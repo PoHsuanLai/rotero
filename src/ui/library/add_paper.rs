@@ -50,7 +50,6 @@ pub(crate) fn AddPaperButtons() -> Element {
                                             paper.id = Some(id.clone());
                                             lib_state.with_mut(|s| s.papers.insert(0, paper));
                                             error_msg.set(None);
-                                            // Extract metadata in background
                                             spawn(async move {
                                                 crate::state::commands::extract_and_fetch_metadata(
                                                     &meta_render_tx, meta_db.conn(), &id, &full_path, auto_fetch, &mut lib_state,
