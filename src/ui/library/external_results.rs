@@ -61,7 +61,7 @@ pub(crate) fn ExternalResults(results: Vec<rotero_models::Paper>, searching: boo
                                     drop(state);
                                     let db = db_banner.clone();
                                     spawn(async move {
-                                        let mut imported = 0;
+                                        let mut imported_papers: Vec<(rotero_models::Paper, String)> = Vec::new();
                                         for paper in papers {
                                             if let Some(ref doi) = paper.doi
                                                 && !doi.is_empty() && existing.contains(doi) {
@@ -69,12 +69,16 @@ pub(crate) fn ExternalResults(results: Vec<rotero_models::Paper>, searching: boo
                                                 }
                                             if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
                                                 let mut paper = paper;
-                                                paper.id = Some(id);
-                                                lib_state.with_mut(|s| s.papers.insert(0, paper));
-                                                imported += 1;
+                                                paper.id = Some(id.clone());
+                                                lib_state.with_mut(|s| s.papers.insert(0, paper.clone()));
+                                                imported_papers.push((paper, id));
                                             }
                                         }
-                                        tracing::info!("Imported {imported} papers");
+                                        tracing::info!("Imported {} papers, starting OA PDF downloads", imported_papers.len());
+                                        // Auto-download OA PDFs after all imports
+                                        for (paper, paper_id) in imported_papers {
+                                            try_download_oa_pdf(&db, &mut lib_state, &paper, &paper_id).await;
+                                        }
                                     });
                                 },
                                 if all_imported { "All Imported" } else { "Import All" }
@@ -154,8 +158,10 @@ pub(crate) fn ExternalResults(results: Vec<rotero_models::Paper>, searching: boo
                                                     match rotero_db::papers::insert_paper(db.conn(), &paper).await {
                                                         Ok(id) => {
                                                             let mut paper = paper;
-                                                            paper.id = Some(id);
-                                                            lib_state.with_mut(|s| s.papers.insert(0, paper));
+                                                            paper.id = Some(id.clone());
+                                                            lib_state.with_mut(|s| s.papers.insert(0, paper.clone()));
+                                                            // Auto-download OA PDF
+                                                            try_download_oa_pdf(&db, &mut lib_state, &paper, &id).await;
                                                         }
                                                         Err(e) => tracing::error!("Failed to import: {e}"),
                                                     }
@@ -170,6 +176,41 @@ pub(crate) fn ExternalResults(results: Vec<rotero_models::Paper>, searching: boo
                     }
                 }
             }
+        }
+    }
+}
+
+async fn try_download_oa_pdf(
+    db: &Database,
+    lib_state: &mut Signal<LibraryState>,
+    paper: &rotero_models::Paper,
+    paper_id: &str,
+) {
+    let title = &paper.title;
+    tracing::info!("Auto-downloading OA PDF for: {title}");
+    match crate::metadata::pdf_download::find_and_download_pdf(
+        db,
+        paper.doi.as_deref(),
+        &paper.title,
+        paper.authors.first().map(|a| a.as_str()),
+        paper.year,
+    )
+    .await
+    {
+        Ok(rel_path) => {
+            let _ = rotero_db::papers::update_pdf_path(db.conn(), paper_id, &rel_path).await;
+            let pid = paper_id.to_string();
+            lib_state.with_mut(|s| {
+                if let Some(p) =
+                    s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid.as_str()))
+                {
+                    p.links.pdf_path = Some(rel_path.clone());
+                }
+            });
+            tracing::info!("Auto-downloaded OA PDF for: {title} -> {rel_path}");
+        }
+        Err(e) => {
+            tracing::debug!("No OA PDF for: {title}: {e}");
         }
     }
 }

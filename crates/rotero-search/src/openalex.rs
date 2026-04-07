@@ -26,7 +26,6 @@ struct OpenAlexOA {
 #[derive(Debug, Deserialize)]
 struct OpenAlexLocation {
     source: Option<OpenAlexSource>,
-    #[allow(dead_code)]
     pdf_url: Option<String>,
 }
 
@@ -102,45 +101,57 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, Stri
     Ok(results)
 }
 
-/// Find an open-access PDF URL via OpenAlex.
+/// Find open-access PDF URLs via OpenAlex.
+/// Returns candidate URLs ordered by likelihood of being a direct PDF link.
 /// Tries DOI lookup first (if provided), then falls back to title search.
-pub async fn find_oa_pdf(doi: Option<&str>, title: &str) -> Result<Option<String>, String> {
-    // Try DOI lookup first — exact match
-    if let Some(doi) = doi {
+pub async fn find_oa_pdf(doi: Option<&str>, title: &str) -> Result<Vec<String>, String> {
+    let mut urls = Vec::new();
+
+    let work = if let Some(doi) = doi {
         let url = format!("{OPENALEX_API}/https://doi.org/{doi}");
-        if let Ok(work) = fetch_work(&url).await
-            && let Some(oa_url) = work.open_access.and_then(|oa| oa.oa_url)
+        fetch_work(&url).await.ok()
+    } else {
+        None
+    };
+
+    // Fall back to title search if DOI lookup didn't return a work
+    let work = match work {
+        Some(w) => Some(w),
+        None => {
+            let url = format!(
+                "{OPENALEX_API}?search={}&per_page=1",
+                urlencoding::encode(title)
+            );
+            let client = crate::shared_client();
+            if let Ok(resp) = client.get(&url).send().await
+                && resp.status().is_success()
+            {
+                let data: OpenAlexSearchResponse = resp
+                    .json()
+                    .await
+                    .map_err(|e| format!("Failed to parse OpenAlex response: {e}"))?;
+                data.results.and_then(|r| r.into_iter().next())
+            } else {
+                None
+            }
+        }
+    };
+
+    if let Some(work) = work {
+        // pdf_url first — more likely to be a direct PDF link
+        if let Some(ref loc) = work.primary_location
+            && let Some(ref pdf_url) = loc.pdf_url
         {
-            return Ok(Some(oa_url));
+            urls.push(pdf_url.clone());
+        }
+        if let Some(oa_url) = work.open_access.and_then(|oa| oa.oa_url)
+            && !urls.contains(&oa_url)
+        {
+            urls.push(oa_url);
         }
     }
 
-    // Fall back to title search
-    let url = format!(
-        "{OPENALEX_API}?search={}&per_page=1",
-        urlencoding::encode(title)
-    );
-    let client = crate::shared_client();
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("OpenAlex request failed: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Ok(None);
-    }
-
-    let data: OpenAlexSearchResponse = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse OpenAlex response: {e}"))?;
-
-    Ok(data
-        .results
-        .and_then(|r| r.into_iter().next())
-        .and_then(|w| w.open_access)
-        .and_then(|oa| oa.oa_url))
+    Ok(urls)
 }
 
 /// Fast autocomplete search — returns lightweight results (~50-100ms).

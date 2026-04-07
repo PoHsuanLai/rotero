@@ -285,45 +285,26 @@ pub fn PaperDetail() -> Element {
                                         let paper_id = pid_oa.clone();
                                         oa_status.set(Some("Searching...".to_string()));
                                         spawn(async move {
-                                            match crate::metadata::openalex::find_oa_pdf(doi.as_deref(), &title).await {
-                                                Ok(Some(pdf_url)) => {
-                                                    oa_status.set(Some("Downloading...".to_string()));
-                                                    match reqwest::get(&pdf_url).await {
-                                                        Ok(resp) if resp.status().is_success() => {
-                                                            // Some URLs return HTML instead of PDF
-                                                            let is_pdf = resp.headers()
-                                                                .get(reqwest::header::CONTENT_TYPE)
-                                                                .and_then(|v| v.to_str().ok())
-                                                                .is_none_or(|ct| !ct.contains("text/html"));
-
-                                                            match resp.bytes().await {
-                                                                Ok(bytes) if is_pdf && bytes.starts_with(b"%PDF") => {
-                                                                    let first_author = authors.first().map(|a| a.as_str());
-                                                                    match db.import_pdf_bytes(&bytes, &title, first_author, year) {
-                                                                        Ok(rel_path) => {
-                                                                            let pid = paper_id.clone();
-                                                                            let _ = rotero_db::papers::update_pdf_path(db.conn(), &pid, &rel_path).await;
-                                                                            let pid2 = pid.clone();
-                                                                            lib_state.with_mut(|s| {
-                                                                                if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
-                                                                                    p.links.pdf_path = Some(rel_path);
-                                                                                }
-                                                                            });
-                                                                            oa_status.set(Some("PDF downloaded!".to_string()));
-                                                                        }
-                                                                        Err(e) => oa_status.set(Some(format!("Save failed: {e}"))),
-                                                                    }
-                                                                }
-                                                                Ok(_) => oa_status.set(Some("OA link did not return a PDF".to_string())),
-                                                                Err(e) => oa_status.set(Some(format!("Download failed: {e}"))),
-                                                            }
+                                            let urls = crate::metadata::pdf_download::resolve_pdf_urls(doi.as_deref(), &title).await;
+                                            if urls.is_empty() {
+                                                oa_status.set(Some("No OA version found".to_string()));
+                                                return;
+                                            }
+                                            oa_status.set(Some("Downloading...".to_string()));
+                                            let first_author = authors.first().map(|a| a.as_str());
+                                            match crate::metadata::pdf_download::download_and_save_pdf(&db, &urls, &title, first_author, year).await {
+                                                Ok(rel_path) => {
+                                                    let pid = paper_id.clone();
+                                                    let _ = rotero_db::papers::update_pdf_path(db.conn(), &pid, &rel_path).await;
+                                                    let pid2 = pid.clone();
+                                                    lib_state.with_mut(|s| {
+                                                        if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
+                                                            p.links.pdf_path = Some(rel_path);
                                                         }
-                                                        Ok(resp) => oa_status.set(Some(format!("HTTP {}", resp.status()))),
-                                                        Err(e) => oa_status.set(Some(format!("Request failed: {e}"))),
-                                                    }
+                                                    });
+                                                    oa_status.set(Some("PDF downloaded!".to_string()));
                                                 }
-                                                Ok(None) => oa_status.set(Some("No OA version found".to_string())),
-                                                Err(e) => oa_status.set(Some(format!("Error: {e}"))),
+                                                Err(e) => oa_status.set(Some(format!("{e}"))),
                                             }
                                         });
                                     },

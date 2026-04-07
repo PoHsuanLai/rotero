@@ -1,5 +1,6 @@
 pub mod doi_extract;
 pub mod enrich;
+pub mod pdf_download;
 
 pub use rotero_search::arxiv;
 pub use rotero_search::crossref;

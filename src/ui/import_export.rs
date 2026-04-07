@@ -221,32 +221,19 @@ fn OaPromptDialog(papers: Vec<OaPending>) -> Element {
                                         break;
                                     }
                                     oa_state.set(Some(OaState::Downloading { done: i + 1, total, downloaded }));
-                                    if let Ok(Some(pdf_url)) = crate::metadata::openalex::find_oa_pdf(p.doi.as_deref(), &p.title).await {
-                                        if cancelled.load(Ordering::Relaxed) { break; }
-                                        if let Ok(resp) = reqwest::get(&pdf_url).await
-                                            && resp.status().is_success() {
-                                                let is_pdf = resp.headers()
-                                                    .get(reqwest::header::CONTENT_TYPE)
-                                                    .and_then(|v| v.to_str().ok())
-                                                    .is_none_or(|ct| !ct.contains("text/html"));
-                                                if let Ok(bytes) = resp.bytes().await
-                                                    && is_pdf && bytes.starts_with(b"%PDF")
-                                                        && let Ok(rel_path) = db.import_pdf_bytes(
-                                                            &bytes,
-                                                            &p.title,
-                                                            p.first_author.as_deref(),
-                                                            p.year,
-                                                        ) {
-                                                            let _ = rotero_db::papers::update_pdf_path(db.conn(), &p.id, &rel_path).await;
-                                                            let pid = p.id.clone();
-                                                            lib_state.with_mut(|s| {
-                                                                if let Some(paper) = s.papers.iter_mut().find(|paper| paper.id.as_deref() == Some(pid.as_str())) {
-                                                                    paper.links.pdf_path = Some(rel_path);
-                                                                }
-                                                            });
-                                                            downloaded += 1;
-                                                        }
+                                    let urls = crate::metadata::pdf_download::resolve_pdf_urls(p.doi.as_deref(), &p.title).await;
+                                    if cancelled.load(Ordering::Relaxed) { break; }
+                                    if let Ok(rel_path) = crate::metadata::pdf_download::download_and_save_pdf(
+                                        &db, &urls, &p.title, p.first_author.as_deref(), p.year,
+                                    ).await {
+                                        let _ = rotero_db::papers::update_pdf_path(db.conn(), &p.id, &rel_path).await;
+                                        let pid = p.id.clone();
+                                        lib_state.with_mut(|s| {
+                                            if let Some(paper) = s.papers.iter_mut().find(|paper| paper.id.as_deref() == Some(pid.as_str())) {
+                                                paper.links.pdf_path = Some(rel_path);
                                             }
+                                        });
+                                        downloaded += 1;
                                     }
                                 }
                                 oa_state.set(Some(OaState::Done { downloaded, total }));

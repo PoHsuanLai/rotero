@@ -199,85 +199,18 @@ pub async fn download_and_import_pdf(
 ) -> Result<(), String> {
     tracing::info!(paper_id, pdf_url, "Downloading PDF");
 
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .map_err(|e| format!("HTTP client error: {e}"))?;
-
-    let resp = client
-        .get(pdf_url)
-        .header("User-Agent", "Mozilla/5.0 (compatible; Rotero/0.1)")
-        .send()
-        .await
-        .map_err(|e| format!("PDF download failed: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("PDF download returned HTTP {}", resp.status()));
-    }
-
-    let papers_dir = lib_path.join("papers");
-    let tmp_dir = papers_dir.join(".tmp");
-    std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("Failed to create temp dir: {e}"))?;
-
-    let tmp_file = tmp_dir.join(format!("download_{paper_id}.pdf"));
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read PDF bytes: {e}"))?;
-
-    if bytes.len() < 5 || &bytes[..5] != b"%PDF-" {
-        return Err("Downloaded file is not a valid PDF".to_string());
-    }
-
-    std::fs::write(&tmp_file, &bytes).map_err(|e| format!("Failed to write temp PDF: {e}"))?;
-
+    let db = rotero_db::Database::from_conn(conn.clone(), lib_path.to_path_buf());
     let first_author = paper.authors.first().map(|s| s.as_str());
-    let subfolder = match paper.year {
-        Some(y) => y.to_string(),
-        None => "unsorted".to_string(),
-    };
-    let abs_dir = papers_dir.join(&subfolder);
-    std::fs::create_dir_all(&abs_dir).map_err(|e| format!("Failed to create folder: {e}"))?;
 
-    let clean_title = paper
-        .title
-        .chars()
-        .filter(|c| !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
-        .take(80)
-        .collect::<String>()
-        .trim()
-        .to_string();
-    let dest_name = match first_author {
-        Some(a) => {
-            let clean_author: String = a
-                .chars()
-                .filter(|c| !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
-                .take(40)
-                .collect::<String>()
-                .trim()
-                .to_string();
-            format!("{clean_title} - {clean_author}.pdf")
-        }
-        None => format!("{clean_title}.pdf"),
-    };
-
-    let mut final_name = dest_name.clone();
-    let mut dest = abs_dir.join(&final_name);
-    let mut counter = 1;
-    while dest.exists() {
-        let stem = std::path::Path::new(&dest_name)
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy();
-        final_name = format!("{stem} ({counter}).pdf");
-        dest = abs_dir.join(&final_name);
-        counter += 1;
-    }
-
-    std::fs::copy(&tmp_file, &dest).map_err(|e| format!("Failed to copy PDF: {e}"))?;
-    let _ = std::fs::remove_file(&tmp_file);
-
-    let rel_path = format!("{subfolder}/{final_name}");
+    let rel_path = crate::metadata::pdf_download::download_and_save_pdf(
+        &db,
+        &[pdf_url.to_string()],
+        &paper.title,
+        first_author,
+        paper.year,
+    )
+    .await
+    .map_err(|e| format!("{e}"))?;
 
     rotero_db::papers::update_pdf_path(conn, paper_id, &rel_path)
         .await
