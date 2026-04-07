@@ -4,6 +4,12 @@
   <img src="assets/icon.png" alt="Rotero" width="128" />
 </p>
 
+<p align="center">
+  <a href="https://github.com/PoHsuanLai/rotero/actions/workflows/ci.yml"><img src="https://github.com/PoHsuanLai/rotero/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/PoHsuanLai/rotero/releases/latest"><img src="https://img.shields.io/github/v/release/PoHsuanLai/rotero" alt="Release"></a>
+  <a href="https://github.com/PoHsuanLai/rotero/blob/master/LICENSE"><img src="https://img.shields.io/github/license/PoHsuanLai/rotero" alt="License"></a>
+</p>
+
 A fast, private, local-first reference manager built with Rust. Read, annotate, cite, and explore your papers — without the bloat.
 
 <p align="center">
@@ -15,7 +21,8 @@ A fast, private, local-first reference manager built with Rust. Read, annotate, 
 - **Native Rust, no Electron** — Single binary, starts instantly, stays light
 - **742 Zotero web translators** — One-click import from Google Scholar, arXiv, PubMed, and 40+ academic sites
 - **Citation graph** — Interactive visualization of how your papers connect
-- **AI research assistant** — Chat with your papers via built-in MCP server
+- **AI research assistant** — Chat with your papers via ACP — use your Claude subscription, no API costs
+- **CRR sync** — Custom conflict-free replicated relations for multi-device sync
 - **Local-first** — SQLite database, no accounts, no telemetry, no cloud dependency
 
 ## Performance

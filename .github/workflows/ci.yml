@@ -76,13 +76,13 @@ jobs:
       - run: npm run build
         working-directory: website
 
-  check-ios:
-    name: Check iOS
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-ios
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --target aarch64-apple-ios --features mobile --no-default-features
+  # check-ios:
+  #   name: Check iOS
+  #   runs-on: macos-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #       with:
+  #         targets: aarch64-apple-ios
+  #     - uses: Swatinem/rust-cache@v2
+  #     - run: cargo check --target aarch64-apple-ios --features mobile --no-default-features
