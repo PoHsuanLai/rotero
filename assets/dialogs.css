@@ -47,6 +47,53 @@
 /* === Settings Dialog === */
 .settings-dialog {
   width: 500px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: hidden;
+}
+
+.settings-tabs {
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: var(--space-2);
+}
+
+.settings-tab {
+  flex: 1;
+  padding: var(--space-1_5) var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast),
+              color var(--transition-fast);
+}
+
+.settings-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.settings-tab--active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.settings-tab--active:hover {
+  background: var(--accent-hover);
+  color: var(--text-on-accent);
+}
+
+.settings-tab-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .settings-header {
@@ -309,4 +356,91 @@
 .citation-actions {
   display: flex;
   gap: var(--space-2);
+  align-items: center;
+}
+
+.btn--copied {
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  border: none;
+  pointer-events: none;
+}
+
+
+/* === OA Download Dialog (prompt) === */
+.oa-dialog {
+  width: 420px;
+}
+
+.oa-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.oa-dialog-header h3 {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+}
+
+.oa-dialog-text {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+  margin-bottom: var(--space-4);
+}
+
+.oa-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* === OA Progress/Done Banner (non-blocking) === */
+.oa-banner {
+  position: fixed;
+  bottom: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 420px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  padding: var(--space-3) var(--space-4);
+  z-index: 90;
+  animation: dialog-enter 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.oa-banner--done {
+  border-color: var(--accent);
+}
+
+.oa-banner-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.oa-banner-text {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.oa-progress-bar {
+  height: 4px;
+  background: var(--bg-muted);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: var(--space-2);
+}
+
+.oa-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 200ms ease;
 }

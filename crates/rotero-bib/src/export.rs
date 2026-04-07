@@ -14,53 +14,70 @@ pub fn export_bibtex(papers: &[Paper]) -> String {
         };
         let _ = writeln!(output, "@article{{{key},");
 
-        let _ = writeln!(output, "  title = {{{{{}}}}},", paper.title);
+        // Collect fields, then write them — last field must not have trailing comma
+        let mut fields: Vec<String> = Vec::new();
+
+        fields.push(format!(
+            "  title = {{{}}}",
+            sanitize_bibtex(&paper.title)
+        ));
 
         if !paper.authors.is_empty() {
             let authors_str = paper.authors.join(" and ");
-            let _ = writeln!(output, "  author = {{{{{authors_str}}}}},");
+            fields.push(format!("  author = {{{{{authors_str}}}}}"));
         }
 
         if let Some(year) = paper.year {
-            let _ = writeln!(output, "  year = {{{year}}},");
+            fields.push(format!("  year = {{{year}}}"));
         }
 
         if let Some(ref journal) = paper.publication.journal {
-            let _ = writeln!(output, "  journal = {{{{{journal}}}}},");
+            fields.push(format!("  journal = {{{{{journal}}}}}"));
         }
 
         if let Some(ref volume) = paper.publication.volume {
-            let _ = writeln!(output, "  volume = {{{volume}}},");
+            fields.push(format!("  volume = {{{volume}}}"));
         }
 
         if let Some(ref issue) = paper.publication.issue {
-            let _ = writeln!(output, "  number = {{{issue}}},");
+            fields.push(format!("  number = {{{issue}}}"));
         }
 
         if let Some(ref pages) = paper.publication.pages {
-            let _ = writeln!(output, "  pages = {{{pages}}},");
+            fields.push(format!("  pages = {{{pages}}}"));
         }
 
         if let Some(ref doi) = paper.doi {
-            let _ = writeln!(output, "  doi = {{{doi}}},");
+            fields.push(format!("  doi = {{{doi}}}"));
         }
 
         if let Some(ref url) = paper.links.url {
-            let _ = writeln!(output, "  url = {{{url}}},");
+            fields.push(format!("  url = {{{url}}}"));
         }
 
         if let Some(ref publisher) = paper.publication.publisher {
-            let _ = writeln!(output, "  publisher = {{{{{publisher}}}}},");
+            fields.push(format!("  publisher = {{{{{publisher}}}}}"));
         }
 
-        if let Some(ref abstract_text) = paper.abstract_text {
-            let _ = writeln!(output, "  abstract = {{{{{abstract_text}}}}},");
-        }
+        // Skip abstract — not needed for citation formatting and often contains
+        // characters (unbalanced braces, HTML tags) that break BibTeX parsing
 
+        // Join with commas — no trailing comma before closing brace
+        output.push_str(&fields.join(",\n"));
+        output.push('\n');
         output.push_str("}\n\n");
     }
 
     output
+}
+
+
+/// Sanitize a string for use inside BibTeX `{...}` delimiters.
+/// Strips unbalanced braces that would break the parser.
+fn sanitize_bibtex(s: &str) -> String {
+    // Remove all braces — they're unreliable from metadata sources
+    // and the outer `{...}` wrapper already protects the value
+    s.replace('{', "").replace('}', "")
 }
 
 /// Generate a citation key from paper metadata.

@@ -9,6 +9,7 @@ pub fn CitationDialog() -> Element {
     let mut selected_style_idx = use_signal(|| 0usize);
     let mut formatted = use_signal(String::new);
     let mut error_msg = use_signal(|| None::<String>);
+    let mut copied = use_signal(|| false);
 
     let state = lib_state.read();
     let selected_paper = state.selected_paper().cloned();
@@ -96,34 +97,21 @@ pub fn CitationDialog() -> Element {
                     }
                 }
 
-                // Copy button
+                // Copy button — flips to "Copied!" checkmark briefly
                 div { class: "citation-actions",
                     button {
-                        class: "btn btn--primary",
+                        class: if copied() { "btn btn--copied" } else { "btn btn--primary" },
                         onclick: move |_| {
                             if let Ok(mut clip) = arboard::Clipboard::new() {
                                 let _ = clip.set_text(formatted());
+                                copied.set(true);
+                                spawn(async move {
+                                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                    copied.set(false);
+                                });
                             }
                         },
-                        "Copy to Clipboard"
-                    }
-
-                    // Generate bibliography for all papers
-                    button {
-                        class: "btn btn--ghost",
-                        onclick: move |_| {
-                            let papers = lib_state.read().papers.clone();
-                            let idx = selected_style_idx();
-                            let (_, style) = styles[idx];
-                            match rotero_bib::format_bibliography(&papers, style) {
-                                Ok(text) => {
-                                    formatted.set(text);
-                                    error_msg.set(None);
-                                }
-                                Err(e) => error_msg.set(Some(e)),
-                            }
-                        },
-                        "All Papers Bibliography"
+                        if copied() { "Copied!" } else { "Copy to Clipboard" }
                     }
                 }
             }
