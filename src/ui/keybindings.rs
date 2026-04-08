@@ -7,10 +7,40 @@ use crate::state::app_state::{
 };
 use crate::state::undo::{UndoStack, forward_action, reverse_action};
 use crate::sync::engine::SyncConfig;
+use crate::updates::{UpdateState, UpdateStatus};
 use rotero_db::Database;
 
 fn action_open_settings(mut show_settings: Signal<ShowSettings>) {
     show_settings.set(ShowSettings(true));
+}
+
+fn action_check_updates(mut update_state: Signal<UpdateState>) {
+    update_state.with_mut(|s| {
+        s.status = UpdateStatus::Checking;
+        s.show_dialog = true;
+        s.error = None;
+    });
+    spawn(async move {
+        match crate::updates::check_for_update().await {
+            Ok(Some(info)) => {
+                update_state.with_mut(|s| {
+                    s.status = UpdateStatus::Available;
+                    s.info = Some(info);
+                });
+            }
+            Ok(None) => {
+                update_state.with_mut(|s| {
+                    s.status = UpdateStatus::UpToDate;
+                });
+            }
+            Err(e) => {
+                update_state.with_mut(|s| {
+                    s.status = UpdateStatus::Error;
+                    s.error = Some(e);
+                });
+            }
+        }
+    });
 }
 
 fn action_open_pdf(
@@ -257,6 +287,8 @@ pub fn GlobalKeyHandler() -> Element {
     let new_coll_editing = use_context::<Signal<Option<Option<String>>>>();
     let dpr_sig = use_context::<Signal<DevicePixelRatio>>();
 
+    let update_state = use_context::<Signal<UpdateState>>();
+
     let db_menu = db.clone();
     let _ = use_muda_event_handler(move |event| match event.id().0.as_str() {
         "open-pdf" => action_open_pdf(tabs, lib_state, config, dpr_sig),
@@ -266,6 +298,7 @@ pub fn GlobalKeyHandler() -> Element {
         "find" => action_find(lib_state, tabs),
         "show-library" => action_show_library(lib_state),
         "new-collection" => action_new_collection(lib_state, new_coll_editing),
+        "check-updates" => action_check_updates(update_state),
         _ => {}
     });
 

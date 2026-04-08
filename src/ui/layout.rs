@@ -106,5 +106,16 @@ pub fn Layout() -> Element {
             }
         }
         super::import_export::OaOverlay {}
+        {update_dialog_element()}
     }
+}
+
+#[cfg(feature = "desktop")]
+fn update_dialog_element() -> Element {
+    rsx! { super::update_dialog::UpdateDialog {} }
+}
+
+#[cfg(not(feature = "desktop"))]
+fn update_dialog_element() -> Element {
+    rsx! {}
 }

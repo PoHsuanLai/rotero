@@ -12,6 +12,8 @@ pub mod pdf;
 pub mod search_bar;
 pub mod settings;
 pub mod sidebar;
+#[cfg(feature = "desktop")]
+pub mod update_dialog;
 
 /// Async file picker. Uses rfd on desktop, apple-utils on iOS.
 pub async fn pick_file_async(extensions: &[&str], _title: &str) -> Option<std::path::PathBuf> {

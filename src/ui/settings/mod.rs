@@ -4,6 +4,8 @@ mod connector;
 mod import;
 mod pdf_viewer;
 mod sync;
+#[cfg(feature = "desktop")]
+mod update;
 
 use crate::app::ShowSettings;
 use dioxus::prelude::*;
@@ -101,9 +103,12 @@ fn SettingsPanel(on_close: EventHandler<()>) -> Element {
                         SettingsTab::Advanced => rsx! {
                             connector::ConnectorSection {}
                             div { class: "settings-divider" }
+                            {update_settings_element()}
                             div { class: "settings-section",
                                 h4 { class: "settings-section-title", "About" }
-                                p { class: "settings-description", "Rotero v0.1.0" }
+                                p { class: "settings-description",
+                                    "Rotero v{env!(\"CARGO_PKG_VERSION\")}"
+                                }
                             }
                         },
                     }
@@ -111,4 +116,19 @@ fn SettingsPanel(on_close: EventHandler<()>) -> Element {
             }
         }
     }
+}
+
+#[cfg(feature = "desktop")]
+fn update_settings_element() -> dioxus::prelude::Element {
+    use dioxus::prelude::*;
+    rsx! {
+        update::UpdateSection {}
+        div { class: "settings-divider" }
+    }
+}
+
+#[cfg(not(feature = "desktop"))]
+fn update_settings_element() -> dioxus::prelude::Element {
+    use dioxus::prelude::*;
+    rsx! {}
 }

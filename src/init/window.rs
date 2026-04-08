@@ -97,27 +97,35 @@ pub(crate) fn build_menu_bar() -> dioxus::desktop::muda::Menu {
         ])
         .unwrap();
 
-    menu.append_items(&[&file_menu, &edit_menu, &view_menu, &window_menu])
+    let help_menu = Submenu::new("Help", true);
+    let mut help_items: Vec<Box<dyn dioxus::desktop::muda::IsMenuItem>> = vec![Box::new(
+        MenuItem::with_id("check-updates", "Check for Updates\u{2026}", true, None),
+    )];
+    if cfg!(debug_assertions) {
+        help_items.push(Box::new(PredefinedMenuItem::separator()));
+        help_items.push(Box::new(MenuItem::with_id(
+            "dioxus-toggle-dev-tools",
+            "Toggle Developer Tools",
+            true,
+            None,
+        )));
+        help_items.push(Box::new(MenuItem::with_id(
+            "dioxus-float-top",
+            "Float on Top",
+            true,
+            None,
+        )));
+    }
+    help_menu
+        .append_items(&help_items.iter().map(|i| i.as_ref()).collect::<Vec<_>>())
         .unwrap();
 
-    if cfg!(debug_assertions) {
-        let help_menu = Submenu::new("Help", true);
-        help_menu
-            .append_items(&[
-                &MenuItem::with_id(
-                    "dioxus-toggle-dev-tools",
-                    "Toggle Developer Tools",
-                    true,
-                    None,
-                ),
-                &MenuItem::with_id("dioxus-float-top", "Float on Top", true, None),
-            ])
-            .unwrap();
-        menu.append(&help_menu).unwrap();
+    menu.append_items(&[&file_menu, &edit_menu, &view_menu, &window_menu])
+        .unwrap();
+    menu.append(&help_menu).unwrap();
 
-        #[cfg(target_os = "macos")]
-        help_menu.set_as_help_menu_for_nsapp();
-    }
+    #[cfg(target_os = "macos")]
+    help_menu.set_as_help_menu_for_nsapp();
 
     #[cfg(target_os = "macos")]
     window_menu.set_as_windows_menu_for_nsapp();

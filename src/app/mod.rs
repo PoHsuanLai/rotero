@@ -1,6 +1,8 @@
 mod chat_handler;
 mod library_loader;
 mod sync_loop;
+#[cfg(feature = "desktop")]
+mod update_checker;
 
 use dioxus::prelude::*;
 
@@ -15,6 +17,8 @@ use rotero_db::Database;
 use chat_handler::handle_chat_event;
 use library_loader::LoadLibraryData;
 use sync_loop::SyncLoop;
+#[cfg(feature = "desktop")]
+use update_checker::UpdateChecker;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ShowSettings(pub bool);
@@ -78,6 +82,8 @@ pub fn App() -> Element {
     use_context_provider(|| Signal::new(DragPaper(None)));
     use_context_provider(|| Signal::new(crate::state::undo::UndoStack::default()));
     use_context_provider(|| Signal::new(None::<crate::ui::import_export::OaState>));
+    #[cfg(feature = "desktop")]
+    use_context_provider(|| Signal::new(crate::updates::UpdateState::default()));
     use_context_provider(|| crate::ui::import_export::OaCancelFlag(Signal::new(None)));
 
     let mut dpr_signal = use_context_provider(|| Signal::new(DevicePixelRatio(1.0)));
@@ -157,6 +163,7 @@ pub fn App() -> Element {
                 {longpress_script()}
                 LoadLibraryData {}
                 SyncLoop {}
+                {update_checker_element()}
                 Layout {}
             }
         }
@@ -187,6 +194,16 @@ pub fn App() -> Element {
             }
         }
     }
+}
+
+#[cfg(feature = "desktop")]
+fn update_checker_element() -> Element {
+    rsx! { UpdateChecker {} }
+}
+
+#[cfg(not(feature = "desktop"))]
+fn update_checker_element() -> Element {
+    rsx! {}
 }
 
 #[cfg(feature = "mobile")]

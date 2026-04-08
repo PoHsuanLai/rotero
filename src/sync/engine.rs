@@ -112,6 +112,23 @@ impl Default for AgentConfig {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UpdateConfig {
+    #[serde(default = "default_true")]
+    pub auto_check_updates: bool,
+    #[serde(default)]
+    pub last_check_timestamp: Option<i64>,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            auto_check_updates: default_true(),
+            last_check_timestamp: None,
+        }
+    }
+}
+
 /// Persisted to config.json.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SyncConfig {
@@ -125,6 +142,8 @@ pub struct SyncConfig {
     pub sync: FileSyncConfig,
     #[serde(flatten)]
     pub agent: AgentConfig,
+    #[serde(flatten)]
+    pub update: UpdateConfig,
 
     #[serde(default = "default_true")]
     pub auto_fetch_metadata: bool,
@@ -181,6 +200,7 @@ impl Default for SyncConfig {
             connector: ConnectorConfig::default(),
             sync: FileSyncConfig::default(),
             agent: AgentConfig::default(),
+            update: UpdateConfig::default(),
             auto_fetch_metadata: default_true(),
             max_resident_tabs: default_max_resident_tabs(),
         }

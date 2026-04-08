@@ -6,6 +6,8 @@ mod metadata;
 mod state;
 mod sync;
 mod ui;
+#[cfg(feature = "desktop")]
+mod updates;
 
 #[cfg(feature = "desktop")]
 pub use init::connector::CONNECTOR_NOTIFY;
