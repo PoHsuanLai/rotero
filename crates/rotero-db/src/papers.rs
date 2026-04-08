@@ -14,90 +14,31 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, tu
         .as_ref()
         .map(|v| serde_json::to_string(v).unwrap_or_default());
 
+    use crate::{opt_text, opt_int};
     conn.execute(
         queries::PAPER_INSERT,
         turso::params::Params::Positional(vec![
             Value::Text(uuid.clone()),
             Value::Text(paper.title.clone()),
             Value::Text(authors_json),
-            paper
-                .year
-                .map(|y| Value::Integer(y as i64))
-                .unwrap_or(Value::Null),
-            paper
-                .doi
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .abstract_text
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .publication
-                .journal
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .publication
-                .volume
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .publication
-                .issue
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .publication
-                .pages
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .publication
-                .publisher
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .links
-                .url
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .links
-                .pdf_path
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
+            paper.year.map(|y| Value::Integer(y as i64)).unwrap_or(Value::Null),
+            opt_text(paper.doi.as_ref()),
+            opt_text(paper.abstract_text.as_ref()),
+            opt_text(paper.publication.journal.as_ref()),
+            opt_text(paper.publication.volume.as_ref()),
+            opt_text(paper.publication.issue.as_ref()),
+            opt_text(paper.publication.pages.as_ref()),
+            opt_text(paper.publication.publisher.as_ref()),
+            opt_text(paper.links.url.as_ref()),
+            opt_text(paper.links.pdf_path.as_ref()),
             Value::Text(paper.status.date_added.to_rfc3339()),
             Value::Text(paper.status.date_modified.to_rfc3339()),
             Value::Integer(paper.status.is_favorite as i64),
             Value::Integer(paper.status.is_read as i64),
             extra_meta.map(Value::Text).unwrap_or(Value::Null),
-            paper
-                .citation
-                .citation_count
-                .map(Value::Integer)
-                .unwrap_or(Value::Null),
-            paper
-                .citation
-                .citation_key
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .links
-                .pdf_url
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
+            opt_int(paper.citation.citation_count),
+            opt_text(paper.citation.citation_key.as_ref()),
+            opt_text(paper.links.pdf_url.as_ref()),
         ]),
     )
     .await?;
@@ -227,62 +168,22 @@ pub async fn update_paper_metadata(
     id: &str,
     paper: &Paper,
 ) -> Result<(), turso::Error> {
+    use crate::opt_text;
     let authors_json = serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
     conn.execute(
         queries::PAPER_UPDATE_METADATA,
         turso::params::Params::Positional(vec![
             Value::Text(paper.title.clone()),
             Value::Text(authors_json),
-            paper
-                .year
-                .map(|y| Value::Integer(y as i64))
-                .unwrap_or(Value::Null),
-            paper
-                .doi
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .abstract_text
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .publication
-                .journal
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .publication
-                .volume
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .publication
-                .issue
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .publication
-                .pages
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .publication
-                .publisher
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            paper
-                .links
-                .url
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
+            paper.year.map(|y| Value::Integer(y as i64)).unwrap_or(Value::Null),
+            opt_text(paper.doi.as_ref()),
+            opt_text(paper.abstract_text.as_ref()),
+            opt_text(paper.publication.journal.as_ref()),
+            opt_text(paper.publication.volume.as_ref()),
+            opt_text(paper.publication.issue.as_ref()),
+            opt_text(paper.publication.pages.as_ref()),
+            opt_text(paper.publication.publisher.as_ref()),
+            opt_text(paper.links.url.as_ref()),
             Value::Text(Utc::now().to_rfc3339()),
             Value::Text(id.to_string()),
         ]),
@@ -347,33 +248,9 @@ pub async fn delete_paper(conn: &Connection, id: &str) -> Result<(), turso::Erro
     Ok(())
 }
 
-fn get_text(row: &turso::Row, idx: usize) -> String {
-    row.get_value(idx)
-        .ok()
-        .and_then(|v| v.as_text().cloned())
-        .unwrap_or_default()
-}
-
-fn get_opt_text(row: &turso::Row, idx: usize) -> Option<String> {
-    row.get_value(idx).ok().and_then(|v| v.as_text().cloned())
-}
-
-fn get_opt_i64(row: &turso::Row, idx: usize) -> Option<i64> {
-    row.get_value(idx)
-        .ok()
-        .and_then(|v| v.as_integer().copied())
-}
-
-fn get_bool(row: &turso::Row, idx: usize) -> bool {
-    row.get_value(idx)
-        .ok()
-        .and_then(|v| v.as_integer().copied())
-        .unwrap_or(0)
-        != 0
-}
-
 impl crate::FromRow for Paper {
     fn from_row(row: &turso::Row) -> Self {
+        use crate::{get_text, get_opt_text, get_opt_i64, get_bool};
         let authors_str = get_text(row, 2);
         let authors: Vec<String> = serde_json::from_str(&authors_str).unwrap_or_default();
 

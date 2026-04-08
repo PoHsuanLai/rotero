@@ -41,21 +41,19 @@ pub async fn get_or_create_tag(
     Ok(uuid)
 }
 
+impl crate::FromRow for Tag {
+    fn from_row(row: &turso::Row) -> Self {
+        Tag {
+            id: crate::get_opt_text(row, 0),
+            name: crate::get_text(row, 1),
+            color: crate::get_opt_text(row, 2),
+        }
+    }
+}
+
 pub async fn list_tags(conn: &Connection) -> Result<Vec<Tag>, turso::Error> {
     let mut rows = conn.query(queries::TAG_LIST, ()).await?;
-    let mut tags = Vec::new();
-    while let Some(row) = rows.next().await? {
-        tags.push(Tag {
-            id: row.get_value(0).ok().and_then(|v| v.as_text().cloned()),
-            name: row
-                .get_value(1)
-                .ok()
-                .and_then(|v| v.as_text().cloned())
-                .unwrap_or_default(),
-            color: row.get_value(2).ok().and_then(|v| v.as_text().cloned()),
-        });
-    }
-    Ok(tags)
+    crate::collect_rows(&mut rows).await
 }
 
 pub async fn add_tag_to_paper(

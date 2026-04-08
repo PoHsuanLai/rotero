@@ -86,18 +86,15 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, Stri
         .await
         .map_err(|e| format!("Failed to parse OpenAlex response: {e}"))?;
 
-    let works = data.results.unwrap_or_default();
-    let mut results = Vec::new();
-    for work in works {
-        let doi = work
-            .doi
-            .as_deref()
-            .unwrap_or("")
-            .replace("https://doi.org/", "");
-        if let Ok(paper) = work_to_paper(work, &doi) {
-            results.push(paper);
-        }
-    }
+    let results = data
+        .results
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|work| {
+            let doi = work.doi.as_deref().unwrap_or("").replace("https://doi.org/", "");
+            work_to_paper(work, &doi).ok()
+        })
+        .collect();
     Ok(results)
 }
 

@@ -30,6 +30,47 @@ pub async fn collect_rows<T: FromRow>(rows: &mut turso::Rows) -> Result<Vec<T>, 
     Ok(out)
 }
 
+// --- Row reading helpers (used by FromRow impls) ---
+
+/// Read a text column, returning empty string if NULL.
+pub fn get_text(row: &turso::Row, idx: usize) -> String {
+    row.get_value(idx)
+        .ok()
+        .and_then(|v| v.as_text().cloned())
+        .unwrap_or_default()
+}
+
+/// Read an optional text column.
+pub fn get_opt_text(row: &turso::Row, idx: usize) -> Option<String> {
+    row.get_value(idx).ok().and_then(|v| v.as_text().cloned())
+}
+
+/// Read an optional i64 column.
+pub fn get_opt_i64(row: &turso::Row, idx: usize) -> Option<i64> {
+    row.get_value(idx)
+        .ok()
+        .and_then(|v| v.as_integer().copied())
+}
+
+/// Read a boolean column (stored as 0/1 integer).
+pub fn get_bool(row: &turso::Row, idx: usize) -> bool {
+    get_opt_i64(row, idx).unwrap_or(0) != 0
+}
+
+// --- Value conversion helpers (used by insert/update functions) ---
+
+/// Convert Option<&String> to Value::Text or Value::Null.
+pub fn opt_text(opt: Option<&String>) -> turso::Value {
+    opt.map(|s| turso::Value::Text(s.clone()))
+        .unwrap_or(turso::Value::Null)
+}
+
+/// Convert Option<i64> to Value::Integer or Value::Null.
+pub fn opt_int(opt: Option<i64>) -> turso::Value {
+    opt.map(turso::Value::Integer)
+        .unwrap_or(turso::Value::Null)
+}
+
 use std::path::{Path, PathBuf};
 
 use turso::Connection;

@@ -34,27 +34,20 @@ pub async fn insert_collection(
     Ok(uuid)
 }
 
+impl crate::FromRow for Collection {
+    fn from_row(row: &turso::Row) -> Self {
+        Collection {
+            id: crate::get_opt_text(row, 0),
+            name: crate::get_text(row, 1),
+            parent_id: crate::get_opt_text(row, 2),
+            position: crate::get_opt_i64(row, 3).unwrap_or(0) as i32,
+        }
+    }
+}
+
 pub async fn list_collections(conn: &Connection) -> Result<Vec<Collection>, turso::Error> {
     let mut rows = conn.query(queries::COLLECTION_LIST, ()).await?;
-
-    let mut colls = Vec::new();
-    while let Some(row) = rows.next().await? {
-        colls.push(Collection {
-            id: row.get_value(0).ok().and_then(|v| v.as_text().cloned()),
-            name: row
-                .get_value(1)
-                .ok()
-                .and_then(|v| v.as_text().cloned())
-                .unwrap_or_default(),
-            parent_id: row.get_value(2).ok().and_then(|v| v.as_text().cloned()),
-            position: row
-                .get_value(3)
-                .ok()
-                .and_then(|v| v.as_integer().copied())
-                .unwrap_or(0) as i32,
-        });
-    }
-    Ok(colls)
+    crate::collect_rows(&mut rows).await
 }
 
 pub async fn rename_collection(
