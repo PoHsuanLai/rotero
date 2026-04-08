@@ -1,11 +1,9 @@
 use std::path::Path;
 
 use chrono::Utc;
+use rotero_db::FromRow;
 use rotero_models::queries;
-use rotero_models::{
-    Annotation, AnnotationType, CitationInfo, Collection, LibraryStatus, Note, Paper, PaperLinks,
-    Publication, Tag,
-};
+use rotero_models::{Annotation, Collection, Note, Paper, Tag};
 use turso::{Connection, Value};
 
 #[derive(Clone)]
@@ -65,7 +63,7 @@ impl Database {
             .await?;
         let mut papers = Vec::new();
         while let Some(row) = rows.next().await? {
-            papers.push(row_to_paper(&row));
+            papers.push(Paper::from_row(&row));
         }
         Ok(papers)
     }
@@ -76,7 +74,7 @@ impl Database {
         let mut rows = self.conn.query(&sql, [Value::Text(pattern)]).await?;
         let mut papers = Vec::new();
         while let Some(row) = rows.next().await? {
-            papers.push(row_to_paper(&row));
+            papers.push(Paper::from_row(&row));
         }
         Ok(papers)
     }
@@ -85,7 +83,7 @@ impl Database {
         let sql = queries::PAPER_GET_BY_ID.replace("{COLS}", queries::PAPER_SELECT_COLS);
         let mut rows = self.conn.query(&sql, [Value::Text(id.to_string())]).await?;
         match rows.next().await? {
-            Some(row) => Ok(Some(row_to_paper(&row))),
+            Some(row) => Ok(Some(Paper::from_row(&row))),
             None => Ok(None),
         }
     }
@@ -101,7 +99,7 @@ impl Database {
             .await?;
         let mut papers = Vec::new();
         while let Some(row) = rows.next().await? {
-            papers.push(row_to_paper(&row));
+            papers.push(Paper::from_row(&row));
         }
         Ok(papers)
     }
@@ -166,7 +164,7 @@ impl Database {
             .await?;
         let mut anns = Vec::new();
         while let Some(row) = rows.next().await? {
-            anns.push(row_to_annotation(&row));
+            anns.push(Annotation::from_row(&row));
         }
         Ok(anns)
     }
@@ -181,7 +179,7 @@ impl Database {
             .await?;
         let mut notes = Vec::new();
         while let Some(row) = rows.next().await? {
-            notes.push(row_to_note(&row));
+            notes.push(Note::from_row(&row));
         }
         Ok(notes)
     }
@@ -416,125 +414,13 @@ impl Database {
             .await?;
         let mut papers = Vec::new();
         while let Some(row) = rows.next().await? {
-            papers.push(row_to_paper(&row));
+            papers.push(Paper::from_row(&row));
         }
         Ok(papers)
     }
-}
-
-fn get_text(row: &turso::Row, idx: usize) -> String {
-    row.get_value(idx)
-        .ok()
-        .and_then(|v| v.as_text().cloned())
-        .unwrap_or_default()
 }
 
 fn get_opt_text(row: &turso::Row, idx: usize) -> Option<String> {
     row.get_value(idx).ok().and_then(|v| v.as_text().cloned())
 }
 
-fn get_opt_i64(row: &turso::Row, idx: usize) -> Option<i64> {
-    row.get_value(idx)
-        .ok()
-        .and_then(|v| v.as_integer().copied())
-}
-
-fn get_bool(row: &turso::Row, idx: usize) -> bool {
-    row.get_value(idx)
-        .ok()
-        .and_then(|v| v.as_integer().copied())
-        .unwrap_or(0)
-        != 0
-}
-
-fn row_to_paper(row: &turso::Row) -> Paper {
-    let authors_str = get_text(row, 2);
-    let authors: Vec<String> = serde_json::from_str(&authors_str).unwrap_or_default();
-    let date_added_str = get_text(row, 13);
-    let date_modified_str = get_text(row, 14);
-    let extra_meta_str = get_opt_text(row, 17);
-
-    Paper {
-        id: get_opt_text(row, 0),
-        title: get_text(row, 1),
-        authors,
-        year: get_opt_i64(row, 3).map(|i| i as i32),
-        doi: get_opt_text(row, 4),
-        abstract_text: get_opt_text(row, 5),
-        publication: Publication {
-            journal: get_opt_text(row, 6),
-            volume: get_opt_text(row, 7),
-            issue: get_opt_text(row, 8),
-            pages: get_opt_text(row, 9),
-            publisher: get_opt_text(row, 10),
-        },
-        links: PaperLinks {
-            url: get_opt_text(row, 11),
-            pdf_path: get_opt_text(row, 12),
-            pdf_url: get_opt_text(row, 20),
-        },
-        status: LibraryStatus {
-            date_added: chrono::DateTime::parse_from_rfc3339(&date_added_str)
-                .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now()),
-            date_modified: chrono::DateTime::parse_from_rfc3339(&date_modified_str)
-                .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now()),
-            is_favorite: get_bool(row, 15),
-            is_read: get_bool(row, 16),
-        },
-        citation: CitationInfo {
-            citation_count: get_opt_i64(row, 18),
-            citation_key: get_opt_text(row, 19),
-            extra_meta: extra_meta_str.and_then(|s| serde_json::from_str(&s).ok()),
-        },
-    }
-}
-
-fn row_to_annotation(row: &turso::Row) -> Annotation {
-    let ann_type_str = get_opt_text(row, 3).unwrap_or_default();
-    let geometry_str = get_opt_text(row, 6).unwrap_or_else(|| "{}".to_string());
-    let created_str = get_opt_text(row, 7).unwrap_or_default();
-    let modified_str = get_opt_text(row, 8).unwrap_or_default();
-
-    Annotation {
-        id: get_opt_text(row, 0),
-        paper_id: get_opt_text(row, 1).unwrap_or_default(),
-        page: get_opt_i64(row, 2).unwrap_or(0) as i32,
-        ann_type: match ann_type_str.as_str() {
-            "highlight" => AnnotationType::Highlight,
-            "area" => AnnotationType::Area,
-            "underline" => AnnotationType::Underline,
-            "ink" => AnnotationType::Ink,
-            "text" => AnnotationType::Text,
-            _ => AnnotationType::Note,
-        },
-        color: get_opt_text(row, 4).unwrap_or_else(|| "#ffff00".to_string()),
-        content: get_opt_text(row, 5),
-        geometry: serde_json::from_str(&geometry_str).unwrap_or(serde_json::json!({})),
-        created_at: chrono::DateTime::parse_from_rfc3339(&created_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now()),
-        modified_at: chrono::DateTime::parse_from_rfc3339(&modified_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now()),
-    }
-}
-
-fn row_to_note(row: &turso::Row) -> Note {
-    let created_str = get_opt_text(row, 4).unwrap_or_default();
-    let modified_str = get_opt_text(row, 5).unwrap_or_default();
-
-    Note {
-        id: get_opt_text(row, 0),
-        paper_id: get_opt_text(row, 1).unwrap_or_default(),
-        title: get_text(row, 2),
-        body: get_text(row, 3),
-        created_at: chrono::DateTime::parse_from_rfc3339(&created_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now()),
-        modified_at: chrono::DateTime::parse_from_rfc3339(&modified_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now()),
-    }
-}

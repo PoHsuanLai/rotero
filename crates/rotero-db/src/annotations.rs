@@ -4,6 +4,7 @@ use turso::{Connection, Value};
 
 use crate::crr;
 use crate::queries;
+use crate::FromRow;
 
 pub async fn insert_annotation(
     conn: &Connection,
@@ -72,7 +73,7 @@ pub async fn list_annotations_for_paper(
 
     let mut anns = Vec::new();
     while let Some(row) = rows.next().await? {
-        anns.push(row_to_annotation(&row));
+        anns.push(Annotation::from_row(&row));
     }
     Ok(anns)
 }
@@ -136,53 +137,55 @@ fn parse_ann_type(s: &str) -> AnnotationType {
     }
 }
 
-fn row_to_annotation(row: &turso::Row) -> Annotation {
-    let ann_type_str = row
-        .get_value(3)
-        .ok()
-        .and_then(|v| v.as_text().cloned())
-        .unwrap_or_default();
-    let geometry_str = row
-        .get_value(6)
-        .ok()
-        .and_then(|v| v.as_text().cloned())
-        .unwrap_or_else(|| "{}".to_string());
-    let created_str = row
-        .get_value(7)
-        .ok()
-        .and_then(|v| v.as_text().cloned())
-        .unwrap_or_default();
-    let modified_str = row
-        .get_value(8)
-        .ok()
-        .and_then(|v| v.as_text().cloned())
-        .unwrap_or_default();
+impl crate::FromRow for Annotation {
+    fn from_row(row: &turso::Row) -> Self {
+        let ann_type_str = row
+            .get_value(3)
+            .ok()
+            .and_then(|v| v.as_text().cloned())
+            .unwrap_or_default();
+        let geometry_str = row
+            .get_value(6)
+            .ok()
+            .and_then(|v| v.as_text().cloned())
+            .unwrap_or_else(|| "{}".to_string());
+        let created_str = row
+            .get_value(7)
+            .ok()
+            .and_then(|v| v.as_text().cloned())
+            .unwrap_or_default();
+        let modified_str = row
+            .get_value(8)
+            .ok()
+            .and_then(|v| v.as_text().cloned())
+            .unwrap_or_default();
 
-    Annotation {
-        id: row.get_value(0).ok().and_then(|v| v.as_text().cloned()),
-        paper_id: row
-            .get_value(1)
-            .ok()
-            .and_then(|v| v.as_text().cloned())
-            .unwrap_or_default(),
-        page: row
-            .get_value(2)
-            .ok()
-            .and_then(|v| v.as_integer().copied())
-            .unwrap_or(0) as i32,
-        ann_type: parse_ann_type(&ann_type_str),
-        color: row
-            .get_value(4)
-            .ok()
-            .and_then(|v| v.as_text().cloned())
-            .unwrap_or_else(|| "#ffff00".to_string()),
-        content: row.get_value(5).ok().and_then(|v| v.as_text().cloned()),
-        geometry: serde_json::from_str(&geometry_str).unwrap_or(serde_json::json!({})),
-        created_at: chrono::DateTime::parse_from_rfc3339(&created_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now()),
-        modified_at: chrono::DateTime::parse_from_rfc3339(&modified_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now()),
+        Annotation {
+            id: row.get_value(0).ok().and_then(|v| v.as_text().cloned()),
+            paper_id: row
+                .get_value(1)
+                .ok()
+                .and_then(|v| v.as_text().cloned())
+                .unwrap_or_default(),
+            page: row
+                .get_value(2)
+                .ok()
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(0) as i32,
+            ann_type: parse_ann_type(&ann_type_str),
+            color: row
+                .get_value(4)
+                .ok()
+                .and_then(|v| v.as_text().cloned())
+                .unwrap_or_else(|| "#ffff00".to_string()),
+            content: row.get_value(5).ok().and_then(|v| v.as_text().cloned()),
+            geometry: serde_json::from_str(&geometry_str).unwrap_or(serde_json::json!({})),
+            created_at: chrono::DateTime::parse_from_rfc3339(&created_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
+            modified_at: chrono::DateTime::parse_from_rfc3339(&modified_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
+        }
     }
 }

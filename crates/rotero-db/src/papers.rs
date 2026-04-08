@@ -4,6 +4,7 @@ use turso::{Connection, Value};
 
 use crate::crr;
 use crate::queries;
+use crate::FromRow;
 
 pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, turso::Error> {
     let uuid = uuid::Uuid::now_v7().to_string();
@@ -155,7 +156,7 @@ pub async fn list_papers_paginated(
         .await?;
     let mut papers = Vec::new();
     while let Some(row) = rows.next().await? {
-        papers.push(row_to_paper(&row));
+        papers.push(Paper::from_row(&row));
     }
     Ok(papers)
 }
@@ -182,7 +183,7 @@ async fn search_papers_fts(conn: &Connection, query: &str) -> Result<Vec<Paper>,
     let mut rows = conn.query(&sql, [Value::Text(query.to_string())]).await?;
     let mut papers = Vec::new();
     while let Some(row) = rows.next().await? {
-        papers.push(row_to_paper(&row));
+        papers.push(Paper::from_row(&row));
     }
     Ok(papers)
 }
@@ -193,7 +194,7 @@ async fn search_papers_like(conn: &Connection, query: &str) -> Result<Vec<Paper>
     let mut rows = conn.query(&sql, [Value::Text(pattern)]).await?;
     let mut papers = Vec::new();
     while let Some(row) = rows.next().await? {
-        papers.push(row_to_paper(&row));
+        papers.push(Paper::from_row(&row));
     }
     Ok(papers)
 }
@@ -384,48 +385,50 @@ fn get_bool(row: &turso::Row, idx: usize) -> bool {
         != 0
 }
 
-fn row_to_paper(row: &turso::Row) -> Paper {
-    let authors_str = get_text(row, 2);
-    let authors: Vec<String> = serde_json::from_str(&authors_str).unwrap_or_default();
+impl crate::FromRow for Paper {
+    fn from_row(row: &turso::Row) -> Self {
+        let authors_str = get_text(row, 2);
+        let authors: Vec<String> = serde_json::from_str(&authors_str).unwrap_or_default();
 
-    let date_added_str = get_text(row, 13);
-    let date_modified_str = get_text(row, 14);
-    let extra_meta_str = get_opt_text(row, 17);
+        let date_added_str = get_text(row, 13);
+        let date_modified_str = get_text(row, 14);
+        let extra_meta_str = get_opt_text(row, 17);
 
-    Paper {
-        id: get_opt_text(row, 0),
-        title: get_text(row, 1),
-        authors,
-        year: get_opt_i64(row, 3).map(|i| i as i32),
-        doi: get_opt_text(row, 4),
-        abstract_text: get_opt_text(row, 5),
-        publication: Publication {
-            journal: get_opt_text(row, 6),
-            volume: get_opt_text(row, 7),
-            issue: get_opt_text(row, 8),
-            pages: get_opt_text(row, 9),
-            publisher: get_opt_text(row, 10),
-        },
-        links: PaperLinks {
-            url: get_opt_text(row, 11),
-            pdf_path: get_opt_text(row, 12),
-            pdf_url: get_opt_text(row, 20),
-        },
-        status: LibraryStatus {
-            date_added: chrono::DateTime::parse_from_rfc3339(&date_added_str)
-                .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now()),
-            date_modified: chrono::DateTime::parse_from_rfc3339(&date_modified_str)
-                .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now()),
-            is_favorite: get_bool(row, 15),
-            is_read: get_bool(row, 16),
-        },
-        citation: CitationInfo {
-            citation_count: get_opt_i64(row, 18),
-            citation_key: get_opt_text(row, 19),
-            extra_meta: extra_meta_str.and_then(|s| serde_json::from_str(&s).ok()),
-        },
+        Paper {
+            id: get_opt_text(row, 0),
+            title: get_text(row, 1),
+            authors,
+            year: get_opt_i64(row, 3).map(|i| i as i32),
+            doi: get_opt_text(row, 4),
+            abstract_text: get_opt_text(row, 5),
+            publication: Publication {
+                journal: get_opt_text(row, 6),
+                volume: get_opt_text(row, 7),
+                issue: get_opt_text(row, 8),
+                pages: get_opt_text(row, 9),
+                publisher: get_opt_text(row, 10),
+            },
+            links: PaperLinks {
+                url: get_opt_text(row, 11),
+                pdf_path: get_opt_text(row, 12),
+                pdf_url: get_opt_text(row, 20),
+            },
+            status: LibraryStatus {
+                date_added: chrono::DateTime::parse_from_rfc3339(&date_added_str)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+                date_modified: chrono::DateTime::parse_from_rfc3339(&date_modified_str)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+                is_favorite: get_bool(row, 15),
+                is_read: get_bool(row, 16),
+            },
+            citation: CitationInfo {
+                citation_count: get_opt_i64(row, 18),
+                citation_key: get_opt_text(row, 19),
+                extra_meta: extra_meta_str.and_then(|s| serde_json::from_str(&s).ok()),
+            },
+        }
     }
 }
 
@@ -438,7 +441,7 @@ pub async fn find_duplicates(conn: &Connection) -> Result<Vec<Vec<Paper>>, turso
     let mut rows = conn.query(&doi_sql, ()).await?;
     let mut doi_papers: Vec<Paper> = Vec::new();
     while let Some(row) = rows.next().await? {
-        doi_papers.push(row_to_paper(&row));
+        doi_papers.push(Paper::from_row(&row));
     }
     let mut current_doi = String::new();
     let mut current_group: Vec<Paper> = Vec::new();

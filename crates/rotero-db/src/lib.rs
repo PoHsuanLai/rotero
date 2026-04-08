@@ -14,6 +14,13 @@ pub use rotero_models::queries;
 // Re-export so the app crate doesn't need a direct turso dependency.
 pub use turso;
 
+/// Trait for deserializing a turso Row into a domain model.
+/// Each implementation maps column indices to struct fields based on the
+/// SELECT column order in that model's query.
+pub trait FromRow: Sized {
+    fn from_row(row: &turso::Row) -> Self;
+}
+
 use std::path::{Path, PathBuf};
 
 use turso::Connection;

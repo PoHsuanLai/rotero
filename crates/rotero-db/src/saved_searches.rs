@@ -4,6 +4,7 @@ use turso::{Connection, Value};
 
 use crate::crr;
 use crate::queries;
+use crate::FromRow;
 
 pub async fn insert_saved_search(
     conn: &Connection,
@@ -36,7 +37,7 @@ pub async fn list_saved_searches(conn: &Connection) -> Result<Vec<SavedSearch>, 
     let mut rows = conn.query(queries::SAVED_SEARCH_LIST, ()).await?;
     let mut searches = Vec::new();
     while let Some(row) = rows.next().await? {
-        searches.push(row_to_saved_search(&row));
+        searches.push(SavedSearch::from_row(&row));
     }
     Ok(searches)
 }
@@ -62,30 +63,32 @@ pub async fn rename_saved_search(
     Ok(())
 }
 
-fn row_to_saved_search(row: &turso::Row) -> SavedSearch {
-    let id = row.get_value(0).ok().and_then(|v| v.as_text().cloned());
-    let name = row
-        .get_value(1)
-        .ok()
-        .and_then(|v| v.as_text().cloned())
-        .unwrap_or_default();
-    let query = row
-        .get_value(2)
-        .ok()
-        .and_then(|v| v.as_text().cloned())
-        .unwrap_or_default();
-    let created_str = row
-        .get_value(3)
-        .ok()
-        .and_then(|v| v.as_text().cloned())
-        .unwrap_or_default();
+impl crate::FromRow for SavedSearch {
+    fn from_row(row: &turso::Row) -> Self {
+        let id = row.get_value(0).ok().and_then(|v| v.as_text().cloned());
+        let name = row
+            .get_value(1)
+            .ok()
+            .and_then(|v| v.as_text().cloned())
+            .unwrap_or_default();
+        let query = row
+            .get_value(2)
+            .ok()
+            .and_then(|v| v.as_text().cloned())
+            .unwrap_or_default();
+        let created_str = row
+            .get_value(3)
+            .ok()
+            .and_then(|v| v.as_text().cloned())
+            .unwrap_or_default();
 
-    SavedSearch {
-        id,
-        name,
-        query,
-        created_at: chrono::DateTime::parse_from_rfc3339(&created_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now()),
+        SavedSearch {
+            id,
+            name,
+            query,
+            created_at: chrono::DateTime::parse_from_rfc3339(&created_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
+        }
     }
 }

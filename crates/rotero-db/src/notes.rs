@@ -4,6 +4,7 @@ use turso::{Connection, Value};
 
 use crate::crr;
 use crate::queries;
+use crate::FromRow;
 
 pub async fn insert_note(conn: &Connection, note: &Note) -> Result<String, turso::Error> {
     let uuid = uuid::Uuid::now_v7().to_string();
@@ -43,7 +44,7 @@ pub async fn list_notes_for_paper(
         .await?;
     let mut notes = Vec::new();
     while let Some(row) = rows.next().await? {
-        notes.push(row_to_note(&row));
+        notes.push(Note::from_row(&row));
     }
     Ok(notes)
 }
@@ -75,44 +76,46 @@ pub async fn delete_note(conn: &Connection, id: &str) -> Result<(), turso::Error
     Ok(())
 }
 
-fn row_to_note(row: &turso::Row) -> Note {
-    let id = row.get_value(0).ok().and_then(|v| v.as_text().cloned());
-    let paper_id = row
-        .get_value(1)
-        .ok()
-        .and_then(|v| v.as_text().cloned())
-        .unwrap_or_default();
-    let title = row
-        .get_value(2)
-        .ok()
-        .and_then(|v| v.as_text().cloned())
-        .unwrap_or_default();
-    let body = row
-        .get_value(3)
-        .ok()
-        .and_then(|v| v.as_text().cloned())
-        .unwrap_or_default();
-    let created_str = row
-        .get_value(4)
-        .ok()
-        .and_then(|v| v.as_text().cloned())
-        .unwrap_or_default();
-    let modified_str = row
-        .get_value(5)
-        .ok()
-        .and_then(|v| v.as_text().cloned())
-        .unwrap_or_default();
+impl crate::FromRow for Note {
+    fn from_row(row: &turso::Row) -> Self {
+        let id = row.get_value(0).ok().and_then(|v| v.as_text().cloned());
+        let paper_id = row
+            .get_value(1)
+            .ok()
+            .and_then(|v| v.as_text().cloned())
+            .unwrap_or_default();
+        let title = row
+            .get_value(2)
+            .ok()
+            .and_then(|v| v.as_text().cloned())
+            .unwrap_or_default();
+        let body = row
+            .get_value(3)
+            .ok()
+            .and_then(|v| v.as_text().cloned())
+            .unwrap_or_default();
+        let created_str = row
+            .get_value(4)
+            .ok()
+            .and_then(|v| v.as_text().cloned())
+            .unwrap_or_default();
+        let modified_str = row
+            .get_value(5)
+            .ok()
+            .and_then(|v| v.as_text().cloned())
+            .unwrap_or_default();
 
-    Note {
-        id,
-        paper_id,
-        title,
-        body,
-        created_at: chrono::DateTime::parse_from_rfc3339(&created_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now()),
-        modified_at: chrono::DateTime::parse_from_rfc3339(&modified_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now()),
+        Note {
+            id,
+            paper_id,
+            title,
+            body,
+            created_at: chrono::DateTime::parse_from_rfc3339(&created_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
+            modified_at: chrono::DateTime::parse_from_rfc3339(&modified_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
+        }
     }
 }

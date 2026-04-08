@@ -15,6 +15,7 @@ path = "src/lib.rs"
 rotero-models.workspace = true
 rotero-pdf.workspace = true
 rotero-graph.workspace = true
+rotero-db.workspace = true
 
 rmcp = { version = "1", features = ["server", "transport-io", "transport-streamable-http-server"] }
 tokio.workspace = true

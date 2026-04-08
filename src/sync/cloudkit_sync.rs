@@ -404,3 +404,19 @@ fn deserialize_server_token(bytes: &[u8]) -> Option<Retained<CKServerChangeToken
         token
     }
 }
+
+impl super::SyncBackend for CloudKitSyncEngine {
+    async fn export_changes(
+        &mut self,
+        conn: &rotero_db::turso::Connection,
+    ) -> Result<usize, String> {
+        CloudKitSyncEngine::export_changes(self, conn).await
+    }
+
+    async fn import_changes(
+        &mut self,
+        conn: &rotero_db::turso::Connection,
+    ) -> Result<usize, String> {
+        CloudKitSyncEngine::import_changes(self, conn).await
+    }
+}
