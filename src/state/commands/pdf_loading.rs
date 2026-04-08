@@ -92,45 +92,97 @@ pub async fn open_pdf(
                 }
             });
         }
-        if cached_count < meta.page_count {
+        // Check if we need to render missing pages or re-extract text
+        let text_page_count = tabs.read().tabs.iter()
+            .find(|t| t.id == tab_id)
+            .map(|t| t.render.text_data.len() as u32)
+            .unwrap_or(0);
+        let need_render = cached_count < meta.page_count;
+        let need_text = text_page_count < meta.page_count;
+
+        if need_render || need_text {
             let render_tx_bg = render_tx.clone();
             let data_dir_bg = data_dir.to_path_buf();
             let mut tabs_bg = *tabs;
             let total = meta.page_count;
             let paper_id_bg = paper_id.clone();
+            let path_bg = path.clone();
             spawn(async move {
-                let rendered_indices: std::collections::HashSet<u32> = tabs_bg
-                    .read()
-                    .tabs
-                    .iter()
-                    .find(|t| t.id == tab_id)
-                    .map(|t| {
-                        t.render
-                            .rendered_pages
-                            .iter()
-                            .map(|p| p.page_index)
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let mut missing: Vec<u32> = (0..total)
-                    .filter(|i| !rendered_indices.contains(i))
-                    .collect();
-                missing.sort();
-                for chunk in missing.chunks(batch_size as usize) {
-                    let start = chunk[0];
-                    let count = chunk.last().unwrap() - start + 1;
-                    if render_more_pages(
-                        &render_tx_bg,
-                        &mut tabs_bg,
-                        tab_id,
-                        start,
-                        count,
-                        &data_dir_bg,
-                    )
-                    .await
-                    .is_err()
-                    {
-                        break;
+                if need_render {
+                    let rendered_indices: std::collections::HashSet<u32> = tabs_bg
+                        .read()
+                        .tabs
+                        .iter()
+                        .find(|t| t.id == tab_id)
+                        .map(|t| {
+                            t.render
+                                .rendered_pages
+                                .iter()
+                                .map(|p| p.page_index)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let mut missing: Vec<u32> = (0..total)
+                        .filter(|i| !rendered_indices.contains(i))
+                        .collect();
+                    missing.sort();
+                    for chunk in missing.chunks(batch_size as usize) {
+                        let start = chunk[0];
+                        let count = chunk.last().unwrap() - start + 1;
+                        if render_more_pages(
+                            &render_tx_bg,
+                            &mut tabs_bg,
+                            tab_id,
+                            start,
+                            count,
+                            &data_dir_bg,
+                        )
+                        .await
+                        .is_err()
+                        {
+                            break;
+                        }
+                    }
+                }
+                if need_text {
+                    // Re-extract text for pages missing from text_data
+                    let missing_dims: Vec<(u32, u32, u32)> = {
+                        let mgr = tabs_bg.read();
+                        mgr.tabs.iter().find(|t| t.id == tab_id)
+                            .map(|t| {
+                                t.render.rendered_pages.iter()
+                                    .filter(|p| !t.render.text_data.contains_key(&p.page_index))
+                                    .map(|p| (p.page_index, p.width, p.height))
+                                    .collect()
+                            })
+                            .unwrap_or_default()
+                    };
+                    if !missing_dims.is_empty() {
+                        let (text_tx, text_rx) = std::sync::mpsc::channel();
+                        let _ = render_tx_bg.send(RenderRequest::ExtractText {
+                            pdf_path: path_bg.clone(),
+                            page_dims: missing_dims,
+                            reply: text_tx,
+                        });
+                        if let Ok(text_data) = recv_reply(text_rx).await {
+                            tabs_bg.with_mut(|mgr| {
+                                if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+                                    tab.render.text_data.extend(text_data);
+                                }
+                            });
+                            // Save complete text cache to disk
+                            let all_text: std::collections::HashMap<u32, rotero_pdf::PageTextData> = {
+                                let mgr = tabs_bg.read();
+                                mgr.tabs.iter().find(|t| t.id == tab_id)
+                                    .map(|t| t.render.text_data.clone())
+                                    .unwrap_or_default()
+                            };
+                            let dir = data_dir_bg.clone();
+                            let path_save = path_bg.clone();
+                            std::thread::spawn(move || {
+                                crate::cache::save_text(&dir, &path_save, &all_text);
+                            });
+                        }
                     }
                 }
                 #[cfg(feature = "desktop")]
