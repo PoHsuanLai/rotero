@@ -70,8 +70,7 @@ pub fn import_nbib(input: &str) -> Result<Vec<Paper>, String> {
             });
 
             let abstract_text = get_field(&fields, "AB");
-            let journal = get_field(&fields, "JT")
-                .or_else(|| get_field(&fields, "TA"));
+            let journal = get_field(&fields, "JT").or_else(|| get_field(&fields, "TA"));
             let volume = get_field(&fields, "VI");
             let issue = get_field(&fields, "IP");
             let pages = get_field(&fields, "PG");
