@@ -42,9 +42,22 @@ pub struct TagIdParams {
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct ExtractPdfTextParams {
     pub paper_id: String,
-    /// Page numbers to extract (0-indexed). If omitted, extracts first 10 pages.
-    #[allow(dead_code)] // exposed in MCP JSON schema, not yet used server-side
-    pub pages: Option<Vec<u32>>,
+    /// First page to extract (1-indexed, default 1)
+    pub page_start: Option<u32>,
+    /// Last page to extract (1-indexed, inclusive, default page_start + 9)
+    pub page_end: Option<u32>,
+}
+
+#[derive(Serialize)]
+pub(super) struct ExtractPdfTextResult {
+    /// The extracted text for the requested page range
+    pub text: String,
+    /// First page returned (1-indexed)
+    pub page_start: u32,
+    /// Last page returned (1-indexed)
+    pub page_end: u32,
+    /// Total number of pages in the PDF
+    pub total_pages: u32,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]

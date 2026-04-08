@@ -172,8 +172,11 @@ pub async fn open_pdf(
             });
 
             if let Some(ref pid) = paper_id2 {
-                let fulltext: String = text_data
-                    .values()
+                let mut pages_sorted: Vec<u32> = text_data.keys().copied().collect();
+                pages_sorted.sort();
+                let fulltext: String = pages_sorted
+                    .iter()
+                    .filter_map(|p| text_data.get(p))
                     .flat_map(|td| td.segments.iter().map(|s| s.text.as_str()))
                     .collect::<Vec<_>>()
                     .join("");
@@ -204,6 +207,7 @@ pub async fn open_pdf(
         let render_tx_bg = render_tx.clone();
         let data_dir_bg = data_dir.to_path_buf();
         let mut tabs_bg = *tabs;
+        let paper_id_bg = paper_id.clone();
         spawn(async move {
             let mut start = rendered_so_far;
             while start < page_count {
@@ -222,6 +226,35 @@ pub async fn open_pdf(
                     break;
                 }
                 start += count;
+            }
+            // Update DB fulltext with the complete text from all pages
+            #[cfg(feature = "desktop")]
+            if let Some(pid) = paper_id_bg {
+                // Small delay to let the last text extraction spawn finish
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let fulltext: String = {
+                    let mgr = tabs_bg.read();
+                    mgr.tabs
+                        .iter()
+                        .find(|t| t.id == tab_id)
+                        .map(|t| {
+                            let mut pages: Vec<u32> = t.render.text_data.keys().copied().collect();
+                            pages.sort();
+                            pages
+                                .iter()
+                                .filter_map(|p| t.render.text_data.get(p))
+                                .flat_map(|td| td.segments.iter().map(|s| s.text.as_str()))
+                                .collect::<Vec<_>>()
+                                .join("")
+                        })
+                        .unwrap_or_default()
+                };
+                if !fulltext.is_empty() {
+                    if let Some((conn, _)) = crate::init::database::SHARED_DB.get() {
+                        let _ =
+                            rotero_db::papers::update_paper_fulltext(conn, &pid, &fulltext).await;
+                    }
+                }
             }
         });
     }

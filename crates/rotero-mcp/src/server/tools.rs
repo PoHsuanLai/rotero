@@ -159,13 +159,87 @@ impl RoteroMcp {
     }
 
     #[tool(
-        description = "Extract plain text from a paper's PDF. Returns the full text (from database or cache)."
+        description = "Extract plain text from a paper's PDF with pagination. Returns a page range (default: first 10 pages) and total page count so you can request more. Use page_start/page_end to navigate."
     )]
     async fn extract_pdf_text(
         &self,
         Parameters(params): Parameters<ExtractPdfTextParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        // 1. Try fulltext column in DB
+        // 1. Try cached text.json (has per-page structure for pagination)
+        let paper = self
+            .db
+            .get_paper_by_id(&params.paper_id)
+            .await
+            .map_err(err)?
+            .ok_or_else(|| err(format!("No paper found with ID {}", params.paper_id)))?;
+
+        if let Some(pdf_path) = paper.links.pdf_path.as_ref() {
+            let abs_path = self
+                .db
+                .resolve_pdf_path(pdf_path)
+                .to_string_lossy()
+                .to_string();
+            let cache_key = {
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                abs_path.hash(&mut hasher);
+                format!("{:016x}", hasher.finish())
+            };
+            let text_cache = self
+                .db
+                .data_dir()
+                .join("cache")
+                .join(&cache_key)
+                .join("text.json");
+
+            if text_cache.exists()
+                && let Ok(text_str) = std::fs::read_to_string(&text_cache)
+                && let Ok(mut cached) = serde_json::from_str::<Vec<serde_json::Value>>(&text_str)
+            {
+                // Sort by page_index
+                cached.sort_by_key(|entry| {
+                    entry
+                        .get("page_index")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0)
+                });
+                let total_pages = cached.len() as u32;
+
+                if total_pages > 0 {
+                    let page_start = params.page_start.unwrap_or(1).max(1);
+                    let page_end = params
+                        .page_end
+                        .unwrap_or(page_start + 9)
+                        .min(total_pages);
+                    let page_start = page_start.min(total_pages);
+
+                    let text: String = cached
+                        .iter()
+                        .skip((page_start - 1) as usize)
+                        .take((page_end - page_start + 1) as usize)
+                        .filter_map(|entry| {
+                            let segments = entry.get("segments")?.as_array()?;
+                            let page_text: String = segments
+                                .iter()
+                                .filter_map(|seg| seg.get("text").and_then(|t| t.as_str()))
+                                .collect::<Vec<_>>()
+                                .join("");
+                            Some(page_text)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+
+                    return json_result(&ExtractPdfTextResult {
+                        text,
+                        page_start,
+                        page_end,
+                        total_pages,
+                    });
+                }
+            }
+        }
+
+        // 2. Fall back to DB fulltext (flat string, no pagination possible)
         let fulltext = self
             .db
             .get_paper_fulltext(&params.paper_id)
@@ -174,61 +248,12 @@ impl RoteroMcp {
         if let Some(text) = fulltext
             && !text.is_empty()
         {
-            return Ok(CallToolResult::success(vec![Content::text(text)]));
-        }
-
-        // 2. Fall back to cached text files on disk
-        let paper = self
-            .db
-            .get_paper_by_id(&params.paper_id)
-            .await
-            .map_err(err)?
-            .ok_or_else(|| err(format!("No paper found with ID {}", params.paper_id)))?;
-        let pdf_path = paper
-            .links
-            .pdf_path
-            .as_ref()
-            .ok_or_else(|| err("Paper has no PDF file"))?;
-        let abs_path = self
-            .db
-            .resolve_pdf_path(pdf_path)
-            .to_string_lossy()
-            .to_string();
-
-        let cache_key = {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            abs_path.hash(&mut hasher);
-            format!("{:016x}", hasher.finish())
-        };
-        let text_cache = self
-            .db
-            .data_dir()
-            .join("cache")
-            .join(&cache_key)
-            .join("text.json");
-
-        if text_cache.exists()
-            && let Ok(text_str) = std::fs::read_to_string(&text_cache)
-            && let Ok(cached) = serde_json::from_str::<Vec<serde_json::Value>>(&text_str)
-        {
-            let text: String = cached
-                .iter()
-                .filter_map(|entry| {
-                    let segments = entry.get("segments")?.as_array()?;
-                    let page_text: String = segments
-                        .iter()
-                        .filter_map(|seg| seg.get("text").and_then(|t| t.as_str()))
-                        .collect::<Vec<_>>()
-                        .join("");
-                    Some(page_text)
-                })
-                .collect::<Vec<_>>()
-                .join("\n\n");
-
-            if !text.is_empty() {
-                return Ok(CallToolResult::success(vec![Content::text(text)]));
-            }
+            return json_result(&ExtractPdfTextResult {
+                text,
+                page_start: 1,
+                page_end: 0,
+                total_pages: 0,
+            });
         }
 
         Err(err(
