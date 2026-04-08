@@ -16,10 +16,12 @@ use serde::Serialize;
 use super::RoteroMcp;
 use super::params::*;
 
+/// Convert any displayable error into an MCP internal error response.
 pub(super) fn err(msg: impl std::fmt::Display) -> rmcp::ErrorData {
     rmcp::ErrorData::internal_error(msg.to_string(), None)
 }
 
+/// Serialize a value as pretty-printed JSON and wrap it in a successful tool result.
 pub(super) fn json_result<T: Serialize>(value: &T) -> Result<CallToolResult, rmcp::ErrorData> {
     let text = serde_json::to_string_pretty(value).map_err(err)?;
     Ok(CallToolResult::success(vec![Content::text(text)]))

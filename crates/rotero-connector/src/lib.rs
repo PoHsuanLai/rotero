@@ -1,4 +1,12 @@
+//! Browser extension HTTP connector for Rotero.
+//!
+//! Provides an axum-based HTTP server on `127.0.0.1:21984` that the
+//! companion Chrome extension uses to save papers, query collections/tags,
+//! and scrape metadata from web pages.
+
+/// Axum request handlers for all connector API endpoints.
 pub mod handlers;
+/// HTML meta-tag and JSON-LD scraper for extracting paper metadata from web pages.
 pub mod scrape;
 
 use std::sync::Arc;
@@ -12,17 +20,22 @@ use rotero_models::Paper;
 
 type OnPaperSavedFn = dyn Fn(Paper, Option<String>, Vec<String>, Option<String>) + Send + Sync;
 
+/// Shared state for the connector server, holding callbacks into the main app.
 pub struct ConnectorState {
     /// Arguments: paper, collection_id, tag_ids, pdf_url
     pub on_paper_saved: Option<Box<OnPaperSavedFn>>,
+    /// Callback to retrieve the user's collections for the save dialog.
     pub on_get_collections: Option<Box<dyn Fn() -> Vec<CollectionInfo> + Send + Sync>>,
+    /// Callback to retrieve the user's tags for the save dialog.
     pub on_get_tags: Option<Box<dyn Fn() -> Vec<TagInfo> + Send + Sync>>,
     /// Behind RwLock so it can be set after the connector starts.
     pub translation_server: tokio::sync::RwLock<Option<rotero_translate::TranslationServer>>,
 }
 
+/// Default port the connector listens on (`21984`).
 pub const CONNECTOR_PORT: u16 = 21984;
 
+/// Builds the axum [`Router`] with CORS and all API routes.
 pub fn router(state: Arc<ConnectorState>) -> Router {
     // allow_origin(Any) is required because browser extension origins are
     // opaque (chrome-extension://<id>) and vary per install. The server is
@@ -42,6 +55,7 @@ pub fn router(state: Arc<ConnectorState>) -> Router {
         .with_state(state)
 }
 
+/// Starts the connector HTTP server, binding to `127.0.0.1:{port}`.
 pub async fn start_server(state: Arc<ConnectorState>, port: u16) -> Result<(), String> {
     let app = router(state);
     let addr = format!("127.0.0.1:{port}");

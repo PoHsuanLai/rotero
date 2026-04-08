@@ -1,7 +1,17 @@
+//! Metadata search clients for academic paper discovery.
+//!
+//! Provides unified access to arXiv, CrossRef, OpenAlex, Semantic Scholar,
+//! and Unpaywall APIs for fetching paper metadata by DOI, title, or keyword.
+
+/// arXiv API client for searching and fetching preprint metadata.
 pub mod arxiv;
+/// CrossRef API client for DOI-based metadata lookup.
 pub mod crossref;
+/// OpenAlex API client for search, autocomplete, and open-access PDF discovery.
 pub mod openalex;
+/// Semantic Scholar API client for paper search and citation data.
 pub mod semantic_scholar;
+/// Unpaywall API client for finding open-access PDF URLs.
 pub mod unpaywall;
 
 use std::sync::OnceLock;
@@ -11,6 +21,7 @@ use rotero_models::Paper;
 /// Shared HTTP client — reuses connections and TLS sessions across all API calls.
 static SHARED_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
+/// Returns the shared HTTP client, initializing it on first call.
 pub fn shared_client() -> &'static reqwest::Client {
     SHARED_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
@@ -29,6 +40,7 @@ pub enum SearchProvider {
 }
 
 impl SearchProvider {
+    /// Returns the human-readable display name for this provider.
     pub fn name(&self) -> &'static str {
         match self {
             Self::OpenAlex => "OpenAlex",
@@ -56,6 +68,7 @@ impl SearchProvider {
         }
     }
 
+    /// Fetches a single paper by DOI (or arXiv ID for the arXiv provider).
     pub async fn fetch_by_doi(&self, doi: &str) -> Result<Paper, String> {
         match self {
             Self::OpenAlex => openalex::fetch_by_doi(doi).await,
@@ -74,6 +87,7 @@ impl SearchProvider {
     }
 }
 
+/// All available search providers, in default display order.
 pub static ALL_PROVIDERS: &[SearchProvider] = &[
     SearchProvider::OpenAlex,
     SearchProvider::ArXiv,

@@ -282,13 +282,18 @@ pub fn extract_raw_text(
     Ok(results)
 }
 
+/// Title, author, and subject metadata read from a PDF's document info dictionary.
 #[derive(Debug, Clone, Default)]
 pub struct PdfDocMetadata {
+    /// Document title, if present.
     pub title: Option<String>,
+    /// Document author, if present.
     pub author: Option<String>,
+    /// Document subject or description, if present.
     pub subject: Option<String>,
 }
 
+/// Reads document-level metadata (title, author, subject) from the PDF.
 pub fn extract_doc_metadata(pdfium: &Pdfium, pdf_path: &str) -> Result<PdfDocMetadata, PdfError> {
     use pdfium_render::prelude::PdfDocumentMetadataTagType;
 

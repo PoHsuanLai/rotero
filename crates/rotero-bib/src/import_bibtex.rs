@@ -1,11 +1,15 @@
 use biblatex::{Bibliography, ChunksExt, PermissiveType};
 use rotero_models::{Paper, PaperLinks, Publication};
 
+/// A paper parsed from BibTeX, with an optional linked PDF path.
 pub struct ImportedPaper {
+    /// The parsed paper metadata.
     pub paper: Paper,
+    /// Path to a PDF extracted from the BibTeX `file` field, if present.
     pub source_pdf: Option<String>,
 }
 
+/// Parses a BibTeX string and returns the extracted papers.
 pub fn import_bibtex(input: &str) -> Result<Vec<ImportedPaper>, String> {
     let bibliography =
         Bibliography::parse(input).map_err(|e| format!("Failed to parse BibTeX: {e}"))?;

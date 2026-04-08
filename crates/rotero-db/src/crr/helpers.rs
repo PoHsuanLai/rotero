@@ -73,6 +73,7 @@ pub(crate) async fn get_col_ver(
     }
 }
 
+/// Read a single column value from a row by primary key, returning JSON.
 pub(crate) async fn read_column_value(
     conn: &Connection,
     table: &str,
@@ -98,6 +99,7 @@ pub(crate) async fn read_column_value(
     }
 }
 
+/// Convert a turso `Value` to a `serde_json::Value`.
 pub(crate) fn turso_value_to_json(val: Option<&turso::Value>) -> serde_json::Value {
     match val {
         Some(turso::Value::Text(s)) => serde_json::Value::String(s.clone()),
@@ -110,6 +112,7 @@ pub(crate) fn turso_value_to_json(val: Option<&turso::Value>) -> serde_json::Val
     }
 }
 
+/// Convert a `serde_json::Value` to a turso `Value`.
 pub(crate) fn json_to_turso_value(val: &serde_json::Value) -> Value {
     match val {
         serde_json::Value::String(s) => Value::Text(s.clone()),

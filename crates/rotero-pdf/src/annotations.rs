@@ -1,3 +1,8 @@
+//! Annotation writing to PDF files using lopdf.
+//!
+//! Converts in-app annotations (highlights, notes, areas, underlines, ink, free text)
+//! into PDF annotation dictionaries and writes them into the document.
+
 use std::collections::HashMap;
 use std::path::Path;
 

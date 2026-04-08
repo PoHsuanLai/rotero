@@ -6,6 +6,7 @@ use rotero_models::queries;
 use rotero_models::{Annotation, Collection, Note, Paper, Tag};
 use turso::{Connection, Value};
 
+/// Read-only handle to the Rotero SQLite database for MCP queries.
 #[derive(Clone)]
 pub struct Database {
     conn: Connection,
@@ -13,6 +14,7 @@ pub struct Database {
 }
 
 impl Database {
+    /// Open the SQLite database at the given path.
     pub async fn open(db_path: &Path) -> Result<Self, String> {
         let data_dir = db_path.parent().ok_or("Invalid db path")?.to_path_buf();
 
@@ -36,18 +38,22 @@ impl Database {
         Self { conn, data_dir }
     }
 
+    /// Return the application data directory (parent of the database file).
     pub fn data_dir(&self) -> &std::path::Path {
         &self.data_dir
     }
 
+    /// Return the directory where imported PDF files are stored.
     pub fn papers_dir(&self) -> std::path::PathBuf {
         self.data_dir.join("papers")
     }
 
+    /// Resolve a relative PDF path to an absolute path under the papers directory.
     pub fn resolve_pdf_path(&self, rel_path: &str) -> std::path::PathBuf {
         self.papers_dir().join(rel_path)
     }
 
+    /// Search papers by query string, trying FTS first and falling back to LIKE.
     pub async fn search_papers(&self, query: &str) -> Result<Vec<Paper>, turso::Error> {
         match self.search_papers_fts(query).await {
             Ok(results) => Ok(results),
@@ -79,6 +85,7 @@ impl Database {
         Ok(papers)
     }
 
+    /// Fetch a single paper by its unique ID.
     pub async fn get_paper_by_id(&self, id: &str) -> Result<Option<Paper>, turso::Error> {
         let sql = queries::PAPER_GET_BY_ID.replace("{COLS}", queries::PAPER_SELECT_COLS);
         let mut rows = self.conn.query(&sql, [Value::Text(id.to_string())]).await?;
@@ -88,6 +95,7 @@ impl Database {
         }
     }
 
+    /// List papers with pagination (offset and limit).
     pub async fn list_papers(&self, offset: u32, limit: u32) -> Result<Vec<Paper>, turso::Error> {
         let sql = queries::PAPER_LIST_PAGINATED.replace("{COLS}", queries::PAPER_SELECT_COLS);
         let mut rows = self
@@ -104,6 +112,7 @@ impl Database {
         Ok(papers)
     }
 
+    /// Return the total number of papers in the library.
     pub async fn count_papers(&self) -> Result<u32, turso::Error> {
         let mut rows = self.conn.query(queries::PAPER_COUNT, ()).await?;
         let row = rows
@@ -113,6 +122,7 @@ impl Database {
         Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0) as u32)
     }
 
+    /// Return the number of unread papers.
     pub async fn count_unread(&self) -> Result<u32, turso::Error> {
         let mut rows = self.conn.query(queries::PAPER_COUNT_UNREAD, ()).await?;
         let row = rows
@@ -122,6 +132,7 @@ impl Database {
         Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0) as u32)
     }
 
+    /// Return the number of favorited papers.
     pub async fn count_favorites(&self) -> Result<u32, turso::Error> {
         let mut rows = self.conn.query(queries::PAPER_COUNT_FAVORITES, ()).await?;
         let row = rows
@@ -131,6 +142,7 @@ impl Database {
         Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0) as u32)
     }
 
+    /// Set or clear the favorite flag on a paper.
     pub async fn set_favorite(&self, id: &str, favorite: bool) -> Result<(), turso::Error> {
         self.conn
             .execute(
@@ -141,6 +153,7 @@ impl Database {
         Ok(())
     }
 
+    /// Set or clear the read flag on a paper.
     pub async fn set_read(&self, id: &str, read: bool) -> Result<(), turso::Error> {
         self.conn
             .execute(
@@ -151,6 +164,7 @@ impl Database {
         Ok(())
     }
 
+    /// List all annotations (highlights, underlines, etc.) for a paper.
     pub async fn list_annotations_for_paper(
         &self,
         paper_id: &str,
@@ -169,6 +183,7 @@ impl Database {
         Ok(anns)
     }
 
+    /// List all user notes attached to a paper.
     pub async fn list_notes_for_paper(&self, paper_id: &str) -> Result<Vec<Note>, turso::Error> {
         let mut rows = self
             .conn
@@ -184,6 +199,7 @@ impl Database {
         Ok(notes)
     }
 
+    /// Create a new note for a paper and return the generated note ID.
     pub async fn insert_note(
         &self,
         paper_id: &str,
@@ -208,6 +224,7 @@ impl Database {
         Ok(uuid)
     }
 
+    /// Update the title and body of an existing note.
     pub async fn update_note(&self, id: &str, title: &str, body: &str) -> Result<(), turso::Error> {
         self.conn
             .execute(
@@ -223,6 +240,7 @@ impl Database {
         Ok(())
     }
 
+    /// List all collections in the library.
     pub async fn list_collections(&self) -> Result<Vec<Collection>, turso::Error> {
         let mut rows = self.conn.query(queries::COLLECTION_LIST, ()).await?;
         let mut colls = Vec::new();
@@ -245,6 +263,7 @@ impl Database {
         Ok(colls)
     }
 
+    /// Return the total number of collections.
     pub async fn count_collections(&self) -> Result<u32, turso::Error> {
         let mut rows = self.conn.query(queries::COLLECTION_COUNT, ()).await?;
         let row = rows
@@ -254,6 +273,7 @@ impl Database {
         Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0) as u32)
     }
 
+    /// List paper IDs belonging to a specific collection.
     pub async fn list_paper_ids_in_collection(
         &self,
         collection_id: &str,
@@ -274,6 +294,7 @@ impl Database {
         Ok(ids)
     }
 
+    /// List all tags in the library.
     pub async fn list_tags(&self) -> Result<Vec<Tag>, turso::Error> {
         let mut rows = self.conn.query(queries::TAG_LIST, ()).await?;
         let mut tags = Vec::new();
@@ -291,6 +312,7 @@ impl Database {
         Ok(tags)
     }
 
+    /// Return the total number of tags.
     pub async fn count_tags(&self) -> Result<u32, turso::Error> {
         let mut rows = self.conn.query(queries::TAG_COUNT, ()).await?;
         let row = rows
@@ -300,6 +322,7 @@ impl Database {
         Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0) as u32)
     }
 
+    /// List paper IDs that have a specific tag.
     pub async fn list_paper_ids_by_tag(&self, tag_id: &str) -> Result<Vec<String>, turso::Error> {
         let mut rows = self
             .conn
@@ -314,6 +337,7 @@ impl Database {
         Ok(ids)
     }
 
+    /// Find an existing tag by name, or create one with the given color.
     pub async fn get_or_create_tag(
         &self,
         name: &str,
@@ -351,6 +375,7 @@ impl Database {
         Ok(uuid)
     }
 
+    /// Associate a tag with a paper.
     pub async fn add_tag_to_paper(&self, paper_id: &str, tag_id: &str) -> Result<(), turso::Error> {
         self.conn
             .execute(
@@ -364,6 +389,7 @@ impl Database {
         Ok(())
     }
 
+    /// Retrieve the extracted full text of a paper's PDF, if available.
     pub async fn get_paper_fulltext(&self, paper_id: &str) -> Result<Option<String>, turso::Error> {
         let mut rows = self
             .conn
@@ -378,6 +404,7 @@ impl Database {
         }
     }
 
+    /// Return all (paper_id, tag_id) pairs for building the relationship graph.
     pub async fn list_all_paper_tags(&self) -> Result<Vec<(String, String)>, turso::Error> {
         let mut rows = self
             .conn
@@ -392,6 +419,7 @@ impl Database {
         Ok(pairs)
     }
 
+    /// Return all (paper_id, collection_id) pairs for building the relationship graph.
     pub async fn list_all_paper_collections(&self) -> Result<Vec<(String, String)>, turso::Error> {
         let mut rows = self
             .conn
@@ -406,6 +434,7 @@ impl Database {
         Ok(pairs)
     }
 
+    /// List all papers in the library (up to 10,000).
     pub async fn list_all_papers(&self) -> Result<Vec<Paper>, turso::Error> {
         let sql = queries::PAPER_LIST_PAGINATED.replace("{COLS}", queries::PAPER_SELECT_COLS);
         let mut rows = self

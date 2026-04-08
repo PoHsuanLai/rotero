@@ -50,12 +50,14 @@ struct OpenAlexSearchResponse {
     results: Option<Vec<OpenAlexWork>>,
 }
 
+/// Fetches paper metadata from OpenAlex by DOI.
 pub async fn fetch_by_doi(doi: &str) -> Result<Paper, String> {
     let url = format!("{OPENALEX_API}/https://doi.org/{doi}");
     let work = fetch_work(&url).await?;
     work_to_paper(work, doi)
 }
 
+/// Searches OpenAlex by title and returns the top result.
 pub async fn search_by_title(title: &str) -> Result<Paper, String> {
     let results = search_papers(title, 1).await?;
     results
@@ -64,6 +66,7 @@ pub async fn search_by_title(title: &str) -> Result<Paper, String> {
         .ok_or_else(|| "No results found on OpenAlex".to_string())
 }
 
+/// Searches OpenAlex for papers with full metadata (authors, abstract, etc.).
 pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, String> {
     let url = format!(
         "{OPENALEX_API}?search={}&per_page={limit}",

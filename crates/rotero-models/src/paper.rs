@@ -48,6 +48,7 @@ pub struct CitationInfo {
     pub extra_meta: Option<serde_json::Value>,
 }
 
+/// A research paper with full metadata, links, library status, and citation info.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Paper {
     pub id: Option<String>,
@@ -63,6 +64,7 @@ pub struct Paper {
 }
 
 impl Paper {
+    /// Create a new paper with the given title and default values for all other fields.
     pub fn new(title: String) -> Self {
         Self {
             title,

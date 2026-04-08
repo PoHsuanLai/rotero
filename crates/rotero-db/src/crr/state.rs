@@ -56,6 +56,7 @@ pub async fn current_db_version(conn: &Connection) -> Result<i64, turso::Error> 
     Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0))
 }
 
+/// Read a blob value from the key-value sync state store (e.g. server change tokens).
 pub async fn get_sync_state(conn: &Connection, key: &str) -> Option<Vec<u8>> {
     let result = conn
         .query(
@@ -75,6 +76,7 @@ pub async fn get_sync_state(conn: &Connection, key: &str) -> Option<Vec<u8>> {
     }
 }
 
+/// Write a blob value to the key-value sync state store (upsert).
 pub async fn set_sync_state(
     conn: &Connection,
     key: &str,

@@ -65,6 +65,7 @@ impl TranslationServer {
         ))
     }
 
+    /// Check whether the translation server is responding on its HTTP port.
     async fn is_healthy(&self) -> bool {
         let url = format!("http://127.0.0.1:{}/", self.port);
         reqwest::Client::new()
@@ -75,6 +76,7 @@ impl TranslationServer {
             .is_ok()
     }
 
+    /// Clone and set up the translation-server repo if not already present.
     async fn install(&self) -> Result<(), TranslateError> {
         let server_js = self.server_dir.join("src").join("server.js");
         if server_js.exists() {
@@ -183,6 +185,7 @@ ItemSaver.prototype.saveItems = async function (jsonItems, attachmentCallback, i
         Ok(())
     }
 
+    /// Run `npm install --production` in the translation-server directory.
     fn npm_install(&self) -> Result<(), TranslateError> {
         tracing::info!("Running npm install for translation-server...");
 
@@ -203,6 +206,7 @@ ItemSaver.prototype.saveItems = async function (jsonItems, attachmentCallback, i
         Ok(())
     }
 
+    /// Spawn the Node.js translation-server process on the configured port.
     fn start(&self) -> Result<(), TranslateError> {
         let entry = self.server_dir.join("src").join("server.js");
 
@@ -235,6 +239,7 @@ ItemSaver.prototype.saveItems = async function (jsonItems, attachmentCallback, i
         Ok(())
     }
 
+    /// Kill the translation-server child process if it is running.
     pub fn stop(&self) {
         let mut guard = self.child.lock().unwrap();
         if let Some(ref mut child) = *guard {
@@ -244,6 +249,7 @@ ItemSaver.prototype.saveItems = async function (jsonItems, attachmentCallback, i
         *guard = None;
     }
 
+    /// Return the HTTP base URL for the translation server.
     fn base_url(&self) -> String {
         format!("http://127.0.0.1:{}", self.port)
     }

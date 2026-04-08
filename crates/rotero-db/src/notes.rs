@@ -5,6 +5,7 @@ use turso::{Connection, Value};
 use crate::crr;
 use crate::queries;
 
+/// Insert a new note and return its generated UUID.
 pub async fn insert_note(conn: &Connection, note: &Note) -> Result<String, turso::Error> {
     let uuid = uuid::Uuid::now_v7().to_string();
     conn.execute(
@@ -31,6 +32,7 @@ pub async fn insert_note(conn: &Connection, note: &Note) -> Result<String, turso
     Ok(uuid)
 }
 
+/// List all notes belonging to a given paper.
 pub async fn list_notes_for_paper(
     conn: &Connection,
     paper_id: &str,
@@ -44,6 +46,7 @@ pub async fn list_notes_for_paper(
     crate::collect_rows(&mut rows).await
 }
 
+/// Update a note's title and body, touching its modified timestamp.
 pub async fn update_note(
     conn: &Connection,
     id: &str,
@@ -64,6 +67,7 @@ pub async fn update_note(
     Ok(())
 }
 
+/// Delete a note by ID.
 pub async fn delete_note(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::NOTE_DELETE, [Value::Text(id.to_string())])
         .await?;

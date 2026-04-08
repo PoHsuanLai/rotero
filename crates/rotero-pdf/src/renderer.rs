@@ -18,6 +18,7 @@ fn file_mtime(path: &str) -> u64 {
         .unwrap_or(0)
 }
 
+/// Errors that can occur during PDF operations (loading, rendering, encoding, annotation writing).
 #[derive(Error, Debug)]
 pub enum PdfError {
     #[error("Failed to bind PDFium library: {0}")]
@@ -41,24 +42,35 @@ pub struct PdfEngine {
     cached_bytes: Option<(String, u64, Vec<u8>)>,
 }
 
+/// Basic information about a loaded PDF document.
 pub struct PdfDocumentInfo {
+    /// Filesystem path of the loaded PDF.
     pub path: String,
+    /// Total number of pages in the document.
     pub page_count: u32,
 }
 
+/// A single rendered PDF page as a base64-encoded PNG image.
 pub struct RenderedPage {
+    /// Zero-based page number.
     pub page_index: u32,
+    /// Base64-encoded PNG image data.
     pub base64_data: String,
+    /// MIME type of the encoded image (always `"image/png"`).
     pub mime: &'static str,
+    /// Rendered image width in pixels.
     pub width: u32,
+    /// Rendered image height in pixels.
     pub height: u32,
 }
 
 impl PdfEngine {
+    /// Returns a reference to the underlying pdfium instance.
     pub fn pdfium(&self) -> &Pdfium {
         &self.pdfium
     }
 
+    /// Creates a new engine by binding to a statically linked PDFium library.
     #[cfg(feature = "static")]
     pub fn new_static() -> Result<Self, PdfError> {
         let bindings = Pdfium::bind_to_statically_linked_library()
@@ -110,6 +122,7 @@ impl PdfEngine {
         Ok(self.pdfium.load_pdf_from_byte_vec(bytes, None)?)
     }
 
+    /// Loads a PDF and returns its path and page count without rendering.
     pub fn load_document(&mut self, pdf_path: &str) -> Result<PdfDocumentInfo, PdfError> {
         let document = self.open_document(pdf_path)?;
         Ok(PdfDocumentInfo {
@@ -166,6 +179,7 @@ impl PdfEngine {
         })
     }
 
+    /// Renders a contiguous range of pages starting at `start` as base64 PNGs.
     pub fn render_pages(
         &mut self,
         pdf_path: &str,
@@ -216,6 +230,7 @@ impl PdfEngine {
         Ok(pages)
     }
 
+    /// Renders a range of pages as thumbnails constrained to `max_width` pixels.
     pub fn render_thumbnails_range(
         &mut self,
         pdf_path: &str,
@@ -267,6 +282,7 @@ impl PdfEngine {
         Ok(thumbs)
     }
 
+    /// Extracts the document outline (bookmarks / table of contents).
     pub fn extract_outline(&mut self, pdf_path: &str) -> Result<Vec<BookmarkEntry>, PdfError> {
         let document = self.open_document(pdf_path)?;
         let bookmarks = document.bookmarks();
@@ -313,10 +329,12 @@ impl PdfEngine {
         Ok(dims)
     }
 
+    /// Drops the cached PDF file bytes to free memory.
     pub fn clear_byte_cache(&mut self) {
         self.cached_bytes = None;
     }
 
+    /// Reads all supported annotations (highlights, notes, areas, underlines, ink, free text) from the PDF.
     pub fn extract_annotations(
         &mut self,
         pdf_path: &str,
@@ -381,21 +399,32 @@ impl PdfEngine {
     }
 }
 
+/// An annotation extracted from a PDF page, with bounds in PDF point coordinates.
 #[derive(Debug, Clone)]
 pub struct ExtractedAnnotation {
+    /// Zero-based page number where the annotation appears.
     pub page: u32,
+    /// The annotation type (highlight, note, area, underline, ink, or free text).
     pub ann_type: rotero_models::AnnotationType,
+    /// Hex color string (e.g. `"#ffff00"`).
     pub color: String,
+    /// Optional text content or comment attached to the annotation.
     pub content: Option<String>,
-    /// [x1 (left), y1 (bottom), x2 (right), y2 (top)] in PDF points
+    /// [x1 (left), y1 (bottom), x2 (right), y2 (top)] in PDF points.
     pub rect_pts: [f32; 4],
+    /// Width of the containing page in PDF points.
     pub page_width_pts: f32,
+    /// Height of the containing page in PDF points.
     pub page_height_pts: f32,
 }
 
+/// A single entry from the PDF document outline (bookmark tree).
 #[derive(Debug, Clone)]
 pub struct BookmarkEntry {
+    /// Display title of the bookmark.
     pub title: String,
+    /// Target page index, if the bookmark has a page destination.
     pub page_index: Option<u32>,
+    /// Nesting depth in the outline hierarchy (0 = top level).
     pub level: u32,
 }

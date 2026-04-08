@@ -7,6 +7,7 @@ use rotero_models::Paper;
 
 use crate::export::export_bibtex;
 
+/// Supported citation styles as `(display_name, style)` pairs.
 pub const AVAILABLE_STYLES: &[(&str, ArchivedStyle)] = &[
     ("APA 7th", ArchivedStyle::AmericanPsychologicalAssociation),
     ("Chicago Author-Date", ArchivedStyle::ChicagoAuthorDate),
@@ -77,6 +78,7 @@ pub fn format_bibliography(papers: &[Paper], style: ArchivedStyle) -> Result<Str
     Ok(output)
 }
 
+/// Formats a single paper's citation in the given CSL style.
 pub fn format_citation(paper: &Paper, style: ArchivedStyle) -> Result<String, String> {
     format_bibliography(std::slice::from_ref(paper), style)
 }

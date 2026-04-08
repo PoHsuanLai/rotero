@@ -4,6 +4,7 @@ use turso::{Connection, Value};
 use crate::crr;
 use crate::queries;
 
+/// Find a tag by name, or create it with the given (or auto-generated) color. Returns its UUID.
 pub async fn get_or_create_tag(
     conn: &Connection,
     name: &str,
@@ -51,11 +52,13 @@ impl crate::FromRow for Tag {
     }
 }
 
+/// List all tags.
 pub async fn list_tags(conn: &Connection) -> Result<Vec<Tag>, turso::Error> {
     let mut rows = conn.query(queries::TAG_LIST, ()).await?;
     crate::collect_rows(&mut rows).await
 }
 
+/// Associate a tag with a paper.
 pub async fn add_tag_to_paper(
     conn: &Connection,
     paper_id: &str,
@@ -74,6 +77,7 @@ pub async fn add_tag_to_paper(
     Ok(())
 }
 
+/// Rename a tag.
 pub async fn rename_tag(conn: &Connection, id: &str, name: &str) -> Result<(), turso::Error> {
     conn.execute(
         queries::TAG_RENAME,
@@ -87,6 +91,7 @@ pub async fn rename_tag(conn: &Connection, id: &str, name: &str) -> Result<(), t
     Ok(())
 }
 
+/// Change a tag's display color.
 pub async fn update_tag_color(
     conn: &Connection,
     id: &str,
@@ -104,6 +109,7 @@ pub async fn update_tag_color(
     Ok(())
 }
 
+/// Return all paper IDs that have a given tag.
 pub async fn list_paper_ids_by_tag(
     conn: &Connection,
     tag_id: &str,
@@ -120,6 +126,7 @@ pub async fn list_paper_ids_by_tag(
     Ok(ids)
 }
 
+/// Delete a tag by ID, cascading to paper-tag associations.
 pub async fn delete_tag(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::TAG_DELETE, [Value::Text(id.to_string())])
         .await?;

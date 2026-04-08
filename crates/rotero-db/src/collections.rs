@@ -4,6 +4,7 @@ use turso::{Connection, Value};
 use crate::crr;
 use crate::queries;
 
+/// Insert a new collection and return its generated UUID.
 pub async fn insert_collection(
     conn: &Connection,
     coll: &Collection,
@@ -45,11 +46,13 @@ impl crate::FromRow for Collection {
     }
 }
 
+/// List all collections ordered by position.
 pub async fn list_collections(conn: &Connection) -> Result<Vec<Collection>, turso::Error> {
     let mut rows = conn.query(queries::COLLECTION_LIST, ()).await?;
     crate::collect_rows(&mut rows).await
 }
 
+/// Rename a collection.
 pub async fn rename_collection(
     conn: &Connection,
     id: &str,
@@ -67,6 +70,7 @@ pub async fn rename_collection(
     Ok(())
 }
 
+/// Move a collection under a new parent (or to root if `None`).
 pub async fn reparent_collection(
     conn: &Connection,
     id: &str,
@@ -86,6 +90,7 @@ pub async fn reparent_collection(
     Ok(())
 }
 
+/// Delete a collection by ID, cascading to paper memberships.
 pub async fn delete_collection(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::COLLECTION_DELETE, [Value::Text(id.to_string())])
         .await?;
@@ -93,6 +98,7 @@ pub async fn delete_collection(conn: &Connection, id: &str) -> Result<(), turso:
     Ok(())
 }
 
+/// Return all paper IDs belonging to a collection.
 pub async fn list_paper_ids_in_collection(
     conn: &Connection,
     collection_id: &str,
@@ -112,6 +118,7 @@ pub async fn list_paper_ids_in_collection(
     Ok(ids)
 }
 
+/// Add a paper to a collection (idempotent via INSERT OR IGNORE).
 pub async fn add_paper_to_collection(
     conn: &Connection,
     paper_id: &str,
@@ -136,6 +143,7 @@ pub async fn add_paper_to_collection(
     Ok(())
 }
 
+/// Remove a paper from a collection.
 pub async fn remove_paper_from_collection(
     conn: &Connection,
     paper_id: &str,

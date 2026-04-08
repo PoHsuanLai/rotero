@@ -5,6 +5,7 @@ use turso::{Connection, Value};
 use crate::crr;
 use crate::queries;
 
+/// Insert a new saved search and return its generated UUID.
 pub async fn insert_saved_search(
     conn: &Connection,
     search: &SavedSearch,
@@ -32,11 +33,13 @@ pub async fn insert_saved_search(
     Ok(uuid)
 }
 
+/// List all saved searches.
 pub async fn list_saved_searches(conn: &Connection) -> Result<Vec<SavedSearch>, turso::Error> {
     let mut rows = conn.query(queries::SAVED_SEARCH_LIST, ()).await?;
     crate::collect_rows(&mut rows).await
 }
 
+/// Delete a saved search by ID.
 pub async fn delete_saved_search(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::SAVED_SEARCH_DELETE, [Value::Text(id.to_string())])
         .await?;
@@ -44,6 +47,7 @@ pub async fn delete_saved_search(conn: &Connection, id: &str) -> Result<(), turs
     Ok(())
 }
 
+/// Rename a saved search.
 pub async fn rename_saved_search(
     conn: &Connection,
     id: &str,

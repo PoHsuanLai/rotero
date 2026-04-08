@@ -13,15 +13,21 @@ pub struct GraphNode {
     pub is_favorite: bool,
 }
 
+/// The kind of relationship that connects two papers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EdgeType {
+    /// Papers share a common tag.
     Tag,
+    /// Papers belong to the same collection.
     Collection,
+    /// Papers share a co-author.
     Author,
+    /// Papers were published in the same journal.
     Journal,
 }
 
+/// A weighted, typed edge between two paper nodes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphEdge {
     pub source: String,
@@ -31,12 +37,14 @@ pub struct GraphEdge {
     pub weight: f32,
 }
 
+/// Complete graph output containing positioned nodes and relationship edges.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphData {
     pub nodes: Vec<GraphNode>,
     pub links: Vec<GraphEdge>,
 }
 
+/// Controls which edge types are included and caps edge density.
 #[derive(Debug, Clone)]
 pub struct GraphFilter {
     pub show_tag_edges: bool,

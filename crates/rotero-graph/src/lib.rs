@@ -1,4 +1,10 @@
+//! Citation network graph for the paper library. Computes edges from shared
+//! tags, authors, collections, and journals, then runs a force-directed layout
+//! via petgraph and fdg.
+
+/// Data types for graph nodes, edges, and filters.
 pub mod data;
+/// Edge computation: pairwise relationships between papers.
 pub mod edges;
 
 use std::collections::HashMap;

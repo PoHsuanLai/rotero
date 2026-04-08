@@ -42,6 +42,7 @@ struct CrossRefDate {
     date_parts: Option<Vec<Vec<Option<i32>>>>,
 }
 
+/// Fetches paper metadata from the CrossRef API by DOI.
 pub async fn fetch_by_doi(doi: &str) -> Result<Paper, String> {
     let url = format!("{CROSSREF_API}/{doi}");
 

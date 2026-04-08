@@ -1,5 +1,6 @@
 //! CREATE TABLE statements for all core tables.
 
+/// SQL batch that creates all core tables if they do not already exist.
 pub const CREATE_TABLES: &str = "
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER NOT NULL
@@ -84,6 +85,7 @@ CREATE TABLE IF NOT EXISTS saved_searches (
 );
 ";
 
+/// SQL statement that creates the turso FTS index over paper text fields with weighted columns.
 pub const CREATE_FTS_INDEX: &str = "CREATE INDEX IF NOT EXISTS idx_papers_fts ON papers \
      USING fts (title, authors, abstract_text, journal, fulltext) \
      WITH (weights = 'title=3.0,authors=2.0,abstract_text=1.5,journal=1.0,fulltext=1.0')";

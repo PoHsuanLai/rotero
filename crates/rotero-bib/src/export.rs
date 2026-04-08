@@ -2,6 +2,7 @@ use std::fmt::Write;
 
 use rotero_models::Paper;
 
+/// Exports a slice of papers as a BibTeX string.
 pub fn export_bibtex(papers: &[Paper]) -> String {
     let mut output = String::new();
 
@@ -130,6 +131,8 @@ pub fn generate_cite_key(paper: &Paper) -> String {
     format!("{author_part}{year_part}{title_word}")
 }
 
+/// Generates a citation key that does not collide with `existing_keys`,
+/// appending a letter suffix (a-z) if the base key is taken.
 pub fn generate_unique_cite_key(paper: &Paper, existing_keys: &[String]) -> String {
     let base = generate_cite_key(paper);
 

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+/// A named folder for organizing papers, supporting nested hierarchies.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Collection {
     pub id: Option<String>,
@@ -9,6 +10,7 @@ pub struct Collection {
 }
 
 impl Collection {
+    /// Create a new root-level collection with the given name.
     pub fn new(name: String) -> Self {
         Self {
             id: None,

@@ -1,12 +1,27 @@
+//! Database layer for Rotero, providing async CRUD operations over turso (pure Rust SQLite).
+//!
+//! Each submodule corresponds to a domain table (papers, annotations, collections, etc.)
+//! and exposes standalone async functions that take a `&Connection`.
+
+/// PDF annotation CRUD operations.
 pub mod annotations;
+/// Collection (folder) CRUD and paper-collection membership.
 pub mod collections;
+/// Conflict-free replicated relations (CRR) change tracking and merge for sync.
 pub mod crr;
+/// Graph queries for paper-tag and paper-collection relationships.
 pub mod graph;
+/// Per-paper note CRUD operations.
 pub mod notes;
+/// Paper CRUD, search, duplicate detection, and citation helpers.
 pub mod papers;
+/// Saved search CRUD operations.
 pub mod saved_searches;
+/// Table definitions, FTS index, and schema migrations.
 pub mod schema;
+/// Test utilities for simulating multi-device sync round-trips.
 pub mod sync_test_helpers;
+/// Tag CRUD and paper-tag membership.
 pub mod tags;
 
 pub use rotero_models::queries;
@@ -74,6 +89,7 @@ use std::path::{Path, PathBuf};
 
 use turso::Connection;
 
+/// Handle to the Rotero SQLite database, wrapping a turso connection and the library data directory.
 #[derive(Clone)]
 pub struct Database {
     conn: Connection,
@@ -116,22 +132,28 @@ impl Database {
         Ok(Self { conn, data_dir })
     }
 
+    /// Wrap an existing connection and data directory into a `Database`.
     pub fn from_conn(conn: Connection, data_dir: PathBuf) -> Self {
         Self { conn, data_dir }
     }
 
+    /// Returns a reference to the underlying turso connection.
     pub fn conn(&self) -> &Connection {
         &self.conn
     }
 
+    /// Returns the root library data directory (contains `rotero.db` and `papers/`).
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
     }
 
+    /// Returns the directory where imported PDFs are stored.
     pub fn papers_dir(&self) -> PathBuf {
         self.data_dir.join("papers")
     }
 
+    /// Resolve a relative PDF path to an absolute path within the papers directory.
+    /// Guards against path traversal attacks.
     pub fn resolve_pdf_path(&self, rel_path: &str) -> PathBuf {
         let papers = self.papers_dir();
         let joined = papers.join(rel_path);

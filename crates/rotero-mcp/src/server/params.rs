@@ -3,6 +3,7 @@
 use rmcp::schemars;
 use serde::{Deserialize, Serialize};
 
+/// Parameters for the `search_papers` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct SearchPapersParams {
     /// Search query string (searches title, authors, abstract, full text)
@@ -11,11 +12,13 @@ pub struct SearchPapersParams {
     pub limit: Option<u32>,
 }
 
+/// Parameters for the `get_paper` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct GetPaperParams {
     pub paper_id: String,
 }
 
+/// Parameters for the `list_papers` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct ListPapersParams {
     /// Offset for pagination (default 0)
@@ -24,21 +27,25 @@ pub struct ListPapersParams {
     pub limit: Option<u32>,
 }
 
+/// Parameters for tools that require only a paper ID.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct PaperIdParams {
     pub paper_id: String,
 }
 
+/// Parameters for tools that require only a collection ID.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct CollectionIdParams {
     pub collection_id: String,
 }
 
+/// Parameters for tools that require only a tag ID.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct TagIdParams {
     pub tag_id: String,
 }
 
+/// Parameters for the `extract_pdf_text` tool with optional page range.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct ExtractPdfTextParams {
     pub paper_id: String,
@@ -60,6 +67,7 @@ pub(super) struct ExtractPdfTextResult {
     pub total_pages: u32,
 }
 
+/// Parameters for the `add_note` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct AddNoteParams {
     pub paper_id: String,
@@ -67,6 +75,7 @@ pub struct AddNoteParams {
     pub body: String,
 }
 
+/// Parameters for the `update_note` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct UpdateNoteParams {
     pub note_id: String,
@@ -74,6 +83,7 @@ pub struct UpdateNoteParams {
     pub body: String,
 }
 
+/// Parameters for the `add_tag_to_paper` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct AddTagToPaperParams {
     pub paper_id: String,
@@ -83,23 +93,27 @@ pub struct AddTagToPaperParams {
     pub color: Option<String>,
 }
 
+/// Parameters for the `set_paper_read` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct SetPaperReadParams {
     pub paper_id: String,
     pub is_read: bool,
 }
 
+/// Parameters for the `set_paper_favorite` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct SetPaperFavoriteParams {
     pub paper_id: String,
     pub is_favorite: bool,
 }
 
+/// Parameters for the `get_paper_relationships` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct GetPaperRelationshipsParams {
     pub paper_id: String,
 }
 
+/// Parameters for the `get_library_graph` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct GetLibraryGraphParams {
     /// Maximum number of edges to return (default 100, max 500)

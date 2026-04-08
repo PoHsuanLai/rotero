@@ -4,11 +4,14 @@ use serde::{Deserialize, Serialize};
 
 use super::{PageTextData, TextSegment};
 
+/// A single search hit within the extracted text of a PDF page.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchMatch {
+    /// Zero-based page number containing this match.
     pub page_index: u32,
     /// Bounding rectangles (x, y, width, height in pixels).
     pub bounds: Vec<(f64, f64, f64, f64)>,
+    /// The matched text as it appears in the document.
     pub matched_text: String,
 }
 

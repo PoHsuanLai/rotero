@@ -2,13 +2,18 @@
 //! Uses per-column LWW with causal length for delete/resurrect tracking.
 
 mod helpers;
+/// LWW merge logic for applying remote changes.
 pub mod merge;
+/// CRR metadata table creation.
 pub mod schema;
+/// Sync state: site ID, db version counter, and key-value store.
 pub mod state;
+/// Change tracking called after each local mutation.
 pub mod tracking;
 
 use serde::{Deserialize, Serialize};
 
+/// A single column-level change record for sync, carrying LWW metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChangeRow {
     pub table_name: String,
@@ -22,6 +27,7 @@ pub struct ChangeRow {
     pub cl: i64, // causal length: odd=alive, even=deleted
 }
 
+/// Summary of a merge operation: how many changes were applied vs. skipped.
 #[derive(Debug, Default)]
 pub struct MergeResult {
     pub applied: usize,

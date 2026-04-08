@@ -1,5 +1,6 @@
 //! Font detection and CSS mapping for PDF text extraction.
 
+/// Infers a CSS font-weight value from the PDF font name (e.g. "bold", "300", "900").
 pub fn detect_font_weight(name: &str) -> &'static str {
     let lower = name.to_lowercase();
     if lower.contains("bold") || lower.contains("-bd") || lower.contains("demi") {
@@ -15,6 +16,7 @@ pub fn detect_font_weight(name: &str) -> &'static str {
     }
 }
 
+/// Returns `"italic"` or `"normal"` based on the font name or the pdfium italic flag.
 pub fn detect_font_style(name: &str, is_italic_flag: bool) -> &'static str {
     if is_italic_flag {
         return "italic";
@@ -31,6 +33,7 @@ pub fn detect_font_style(name: &str, is_italic_flag: bool) -> &'static str {
     }
 }
 
+/// Maps a PDF font name to a CSS `font-family` string with an appropriate generic fallback.
 pub fn pdf_font_to_css(name: &str, is_serif: bool) -> String {
     let lower = name.to_lowercase();
 

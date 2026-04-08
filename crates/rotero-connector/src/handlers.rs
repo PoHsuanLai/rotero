@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use super::ConnectorState;
 
+/// Incoming JSON body for `POST /api/save`.
 #[derive(Debug, Deserialize)]
 pub struct SavePaperRequest {
     pub url: Option<String>,
@@ -22,6 +23,7 @@ pub struct SavePaperRequest {
     pub tag_ids: Option<Vec<String>>,
 }
 
+/// JSON response returned by `POST /api/save`.
 #[derive(Debug, Serialize)]
 pub struct SavePaperResponse {
     pub success: bool,
@@ -29,6 +31,7 @@ pub struct SavePaperResponse {
     pub paper_id: Option<String>,
 }
 
+/// JSON response for `GET /api/status` health-check.
 #[derive(Debug, Serialize)]
 pub struct StatusResponse {
     pub status: &'static str,
@@ -36,17 +39,20 @@ pub struct StatusResponse {
     pub name: &'static str,
 }
 
+/// Lightweight collection descriptor sent to the browser extension.
 #[derive(Debug, Serialize)]
 pub struct CollectionInfo {
     pub id: String,
     pub name: String,
 }
 
+/// JSON response for `GET /api/collections`.
 #[derive(Debug, Serialize)]
 pub struct CollectionsResponse {
     pub collections: Vec<CollectionInfo>,
 }
 
+/// Lightweight tag descriptor sent to the browser extension.
 #[derive(Debug, Serialize)]
 pub struct TagInfo {
     pub id: String,
@@ -54,11 +60,13 @@ pub struct TagInfo {
     pub color: Option<String>,
 }
 
+/// JSON response for `GET /api/tags`.
 #[derive(Debug, Serialize)]
 pub struct TagsResponse {
     pub tags: Vec<TagInfo>,
 }
 
+/// Handler for `GET /api/status`. Returns app name and version.
 pub async fn status() -> Json<StatusResponse> {
     Json(StatusResponse {
         status: "ok",
@@ -67,6 +75,7 @@ pub async fn status() -> Json<StatusResponse> {
     })
 }
 
+/// Handler for `GET /api/collections`. Returns the user's collection list.
 pub async fn collections(State(state): State<Arc<ConnectorState>>) -> Json<CollectionsResponse> {
     let collections = if let Some(ref callback) = state.on_get_collections {
         callback()
@@ -76,6 +85,7 @@ pub async fn collections(State(state): State<Arc<ConnectorState>>) -> Json<Colle
     Json(CollectionsResponse { collections })
 }
 
+/// Handler for `GET /api/tags`. Returns the user's tag list.
 pub async fn tags(State(state): State<Arc<ConnectorState>>) -> Json<TagsResponse> {
     let tags = if let Some(ref callback) = state.on_get_tags {
         callback()
@@ -85,11 +95,13 @@ pub async fn tags(State(state): State<Arc<ConnectorState>>) -> Json<TagsResponse
     Json(TagsResponse { tags })
 }
 
+/// Incoming JSON body for `POST /api/scrape`.
 #[derive(Debug, Deserialize)]
 pub struct ScrapeRequest {
     pub url: String,
 }
 
+/// JSON response for `POST /api/scrape`.
 #[derive(Debug, Serialize)]
 pub struct ScrapeResponse {
     pub success: bool,
@@ -97,6 +109,7 @@ pub struct ScrapeResponse {
     pub error: Option<String>,
 }
 
+/// Scraped paper metadata returned inside [`ScrapeResponse`].
 #[derive(Debug, Serialize)]
 pub struct ScrapeResult {
     pub title: Option<String>,
@@ -113,6 +126,8 @@ pub struct ScrapeResult {
     pub abstract_text: Option<String>,
 }
 
+/// Handler for `POST /api/scrape`. Tries the translation server first,
+/// then falls back to HTML meta-tag scraping.
 pub async fn scrape(
     State(state): State<Arc<ConnectorState>>,
     Json(req): Json<ScrapeRequest>,
@@ -191,6 +206,8 @@ pub async fn scrape(
     }
 }
 
+/// Handler for `POST /api/save`. Creates a [`Paper`](rotero_models::Paper) and
+/// invokes the `on_paper_saved` callback to persist it.
 pub async fn save_paper(
     State(state): State<Arc<ConnectorState>>,
     Json(req): Json<SavePaperRequest>,

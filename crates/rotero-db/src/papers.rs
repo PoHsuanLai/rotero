@@ -5,6 +5,7 @@ use turso::{Connection, Value};
 use crate::crr;
 use crate::queries;
 
+/// Insert a new paper and return its generated UUID.
 pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, turso::Error> {
     let uuid = uuid::Uuid::now_v7().to_string();
     let authors_json = serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
@@ -78,10 +79,12 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, tu
     Ok(uuid)
 }
 
+/// List all papers, returning up to 500 most recently added.
 pub async fn list_papers(conn: &Connection) -> Result<Vec<Paper>, turso::Error> {
     list_papers_paginated(conn, 0, 500).await
 }
 
+/// List papers ordered by date added, with offset/limit pagination.
 pub async fn list_papers_paginated(
     conn: &Connection,
     offset: u32,
@@ -100,6 +103,7 @@ pub async fn list_papers_paginated(
     crate::collect_rows(&mut rows).await
 }
 
+/// Return the total number of papers in the library.
 pub async fn count_papers(conn: &Connection) -> Result<u32, turso::Error> {
     let mut rows = conn.query(queries::PAPER_COUNT, ()).await?;
     let row = rows
@@ -109,6 +113,7 @@ pub async fn count_papers(conn: &Connection) -> Result<u32, turso::Error> {
     Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0) as u32)
 }
 
+/// Search papers using FTS, falling back to LIKE if FTS is unavailable.
 pub async fn search_papers(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
     // FTS first, fall back to LIKE if unavailable
     match search_papers_fts(conn, query).await {
@@ -130,6 +135,7 @@ async fn search_papers_like(conn: &Connection, query: &str) -> Result<Vec<Paper>
     crate::collect_rows(&mut rows).await
 }
 
+/// Toggle the favorite flag on a paper.
 pub async fn set_favorite(conn: &Connection, id: &str, favorite: bool) -> Result<(), turso::Error> {
     conn.execute(
         queries::PAPER_SET_FAVORITE,
@@ -140,6 +146,7 @@ pub async fn set_favorite(conn: &Connection, id: &str, favorite: bool) -> Result
     Ok(())
 }
 
+/// Toggle the read flag on a paper.
 pub async fn set_read(conn: &Connection, id: &str, read: bool) -> Result<(), turso::Error> {
     conn.execute(
         queries::PAPER_SET_READ,
@@ -150,6 +157,7 @@ pub async fn set_read(conn: &Connection, id: &str, read: bool) -> Result<(), tur
     Ok(())
 }
 
+/// Store extracted full-text content for a paper (used for FTS indexing).
 pub async fn update_paper_fulltext(
     conn: &Connection,
     id: &str,
@@ -166,6 +174,7 @@ pub async fn update_paper_fulltext(
     Ok(())
 }
 
+/// Update a paper's bibliographic metadata (title, authors, DOI, etc.).
 pub async fn update_paper_metadata(
     conn: &Connection,
     id: &str,
@@ -218,6 +227,7 @@ pub async fn update_paper_metadata(
     Ok(())
 }
 
+/// Update the relative PDF file path for a paper.
 pub async fn update_pdf_path(
     conn: &Connection,
     id: &str,
@@ -236,6 +246,7 @@ pub async fn update_pdf_path(
     Ok(())
 }
 
+/// Update a paper's `date_modified` to now.
 pub async fn touch_paper(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     let now = chrono::Utc::now().to_rfc3339();
     conn.execute(
@@ -247,6 +258,7 @@ pub async fn touch_paper(conn: &Connection, id: &str) -> Result<(), turso::Error
     Ok(())
 }
 
+/// Delete a paper by ID, cascading to annotations, notes, and memberships.
 pub async fn delete_paper(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::PAPER_DELETE, [Value::Text(id.to_string())])
         .await?;
@@ -407,6 +419,7 @@ pub async fn list_papers_needing_citations(
     Ok(out)
 }
 
+/// Set the citation count for a paper (fetched from CrossRef).
 pub async fn update_citation_count(
     conn: &Connection,
     id: &str,
@@ -421,6 +434,7 @@ pub async fn update_citation_count(
     Ok(())
 }
 
+/// Set the BibTeX citation key for a paper.
 pub async fn update_citation_key(
     conn: &Connection,
     id: &str,

@@ -7,6 +7,7 @@ use rmcp::handler::server::tool::ToolRouter;
 
 use crate::db::Database;
 
+/// MCP server that exposes the Rotero paper library via tools, resources, and prompts.
 #[derive(Clone)]
 pub struct RoteroMcp {
     db: Database,

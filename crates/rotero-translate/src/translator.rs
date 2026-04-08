@@ -56,6 +56,7 @@ pub struct ZoteroItem {
     pub extra_fields: serde_json::Map<String, serde_json::Value>,
 }
 
+/// An author or contributor associated with a Zotero item.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ZoteroCreator {
@@ -69,6 +70,7 @@ pub struct ZoteroCreator {
     pub creator_type: String,
 }
 
+/// A file attachment (typically a PDF) linked to a Zotero item.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ZoteroAttachment {
@@ -82,6 +84,7 @@ pub struct ZoteroAttachment {
     pub snapshot: bool,
 }
 
+/// A keyword tag attached to a Zotero item.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZoteroTag {
     pub tag: String,
@@ -100,6 +103,8 @@ impl ZoteroItem {
         None
     }
 
+    /// Convert this Zotero item into a [`Paper`](rotero_models::Paper), returning
+    /// `None` for notes, attachments, or items with empty titles.
     pub fn into_paper(self) -> Option<rotero_models::Paper> {
         if self.title.is_empty() || self.item_type == "note" || self.item_type == "attachment" {
             return None;

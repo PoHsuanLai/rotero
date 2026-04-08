@@ -23,6 +23,8 @@ pub struct MergedEdge {
     pub weight: f32,
 }
 
+/// Compute pairwise edges between papers based on shared tags, collections,
+/// authors, and journals, then merge duplicates and cap per-node edge count.
 pub fn compute_edges(
     papers: &[Paper],
     tags: &[Tag],

@@ -4,12 +4,14 @@ use std::path::PathBuf;
 
 use crate::crr::{self, ChangeRow};
 
+/// Simulates a sync endpoint by exchanging JSON change files in a shared directory.
 pub struct TestSyncEngine {
     dir: PathBuf,
     site_id: Vec<u8>,
 }
 
 impl TestSyncEngine {
+    /// Create a new engine for the given shared directory and device site ID.
     pub fn new(dir: PathBuf, site_id: Vec<u8>) -> Self {
         Self { dir, site_id }
     }

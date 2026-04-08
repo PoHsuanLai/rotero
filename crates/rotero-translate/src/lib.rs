@@ -1,3 +1,6 @@
+//! Integration with the Zotero translation-server for metadata lookup, web
+//! scraping, and bibliography import/export via a managed Node.js subprocess.
+
 mod server;
 mod translator;
 
@@ -6,16 +9,22 @@ pub use translator::ZoteroItem;
 
 use rotero_models::Paper;
 
+/// Errors that can occur during translation server operations.
 #[derive(Debug, thiserror::Error)]
 pub enum TranslateError {
+    /// An HTTP request to the translation server failed.
     #[error("HTTP error: {0}")]
     Http(String),
+    /// The translation server process is not running.
     #[error("Server not running")]
     ServerNotRunning,
+    /// The translation returned no matching items.
     #[error("No results found")]
     NoResults,
+    /// Failed to install or start the translation server.
     #[error("Setup error: {0}")]
     Setup(String),
+    /// The translation server returned an error or unparseable response.
     #[error("Translation error: {0}")]
     Translation(String),
 }

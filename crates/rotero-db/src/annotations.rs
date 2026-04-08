@@ -5,6 +5,7 @@ use turso::{Connection, Value};
 use crate::crr;
 use crate::queries;
 
+/// Insert a new annotation and return its generated UUID.
 pub async fn insert_annotation(
     conn: &Connection,
     ann: &Annotation,
@@ -59,6 +60,7 @@ pub async fn insert_annotation(
     Ok(uuid)
 }
 
+/// List all annotations belonging to a given paper.
 pub async fn list_annotations_for_paper(
     conn: &Connection,
     paper_id: &str,
@@ -73,6 +75,7 @@ pub async fn list_annotations_for_paper(
     crate::collect_rows(&mut rows).await
 }
 
+/// Update an annotation's text content and touch its modified timestamp.
 pub async fn update_annotation_content(
     conn: &Connection,
     id: &str,
@@ -94,6 +97,7 @@ pub async fn update_annotation_content(
     Ok(())
 }
 
+/// Change an annotation's highlight color and touch its modified timestamp.
 pub async fn update_annotation_color(
     conn: &Connection,
     id: &str,
@@ -113,6 +117,7 @@ pub async fn update_annotation_color(
     Ok(())
 }
 
+/// Delete an annotation by ID.
 pub async fn delete_annotation(conn: &Connection, id: &str) -> Result<(), turso::Error> {
     conn.execute(queries::ANNOTATION_DELETE, [Value::Text(id.to_string())])
         .await?;

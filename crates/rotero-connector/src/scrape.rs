@@ -2,6 +2,7 @@ use rotero_models::{Paper, PaperLinks, Publication};
 use scraper::{Html, Selector};
 use serde::Deserialize;
 
+/// Fetches the given URL and extracts paper metadata from its HTML.
 pub async fn scrape_url(url: &str) -> Result<Paper, String> {
     // Validate URL scheme to prevent SSRF (file://, internal networks, etc.)
     let parsed = reqwest::Url::parse(url).map_err(|e| format!("Invalid URL: {e}"))?;
