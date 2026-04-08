@@ -79,7 +79,7 @@ fn ImportButton() -> Element {
                 let db = db.clone();
                 spawn(async move {
                     let file = super::pick_file_async(
-                        &["bib", "bibtex", "ris", "json"],
+                        &["bib", "bibtex", "ris", "json", "nbib"],
                         "Import Library",
                     ).await;
                     if let Some(path) = file {
@@ -96,6 +96,8 @@ fn ImportButton() -> Element {
                                     "ris" => rotero_bib::import_ris(&content)
                                         .map(|papers| papers.into_iter().map(|p| (p, None)).collect()),
                                     "json" => rotero_bib::import_csl_json(&content)
+                                        .map(|papers| papers.into_iter().map(|p| (p, None)).collect()),
+                                    "nbib" => rotero_bib::import_nbib(&content)
                                         .map(|papers| papers.into_iter().map(|p| (p, None)).collect()),
                                     _ => rotero_bib::import_bibtex(&content)
                                         .map(|entries| entries.into_iter().map(|e| (e.paper, e.source_pdf)).collect()),
