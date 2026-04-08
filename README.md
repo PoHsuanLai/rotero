@@ -46,7 +46,7 @@ Under active development. Known limitations:
 
 Download the latest release from the [Releases page](https://github.com/PoHsuanLai/rotero/releases/latest).
 
-> **macOS note:** On first launch, macOS may show "Rotero can't be opened because Apple cannot check it for malicious software." This is because the app is not notarized with an Apple Developer account. To open it: right-click the app → Open → Open. You only need to do this once.
+> **macOS note:** On first launch, macOS may show "Apple could not verify “Rotero” is free of malware that may harm your Mac or compromise your privacy." This is because the app is not notarized with an Apple Developer account. To open it: go to System Settings → Privacy & Security → scroll down to "Rotero was blocked to protect your Mac." -> click "Open Anyway". You only need to do this once.
 
 ### Build from source
 
