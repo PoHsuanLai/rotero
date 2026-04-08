@@ -67,7 +67,7 @@ pub fn PdfViewer() -> Element {
                         .map(|p| (p.width, p.height))
                         .collect();
 
-                    let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+                    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
                     if render_tx
                         .send(crate::state::commands::RenderRequest::ExtractAnnotations {
                             pdf_path,
@@ -75,11 +75,7 @@ pub fn PdfViewer() -> Element {
                         })
                         .is_ok()
                     {
-                        let extract_result: Result<
-                            Result<Result<Vec<rotero_pdf::ExtractedAnnotation>, String>, _>,
-                            _,
-                        > = tokio::task::spawn_blocking(move || reply_rx.recv()).await;
-                        if let Ok(Ok(Ok(extracted))) = extract_result {
+                        if let Ok(Ok(extracted)) = reply_rx.await {
                             let now = chrono::Utc::now();
                             for ext in extracted {
                                 // Deduplicate: skip if a DB annotation exists on same page with same type and similar position

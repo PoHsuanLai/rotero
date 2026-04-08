@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use tokio::sync::oneshot;
 
 use dioxus::prelude::*;
 
@@ -35,7 +35,7 @@ async fn save_fulltext_to_db(tabs: &Signal<PdfTabManager>, tab_id: TabId, paper_
 }
 
 pub async fn open_pdf(
-    render_tx: &mpsc::Sender<RenderRequest>,
+    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     data_dir: &std::path::Path,
@@ -65,16 +65,13 @@ pub async fn open_pdf(
         )>,
         Option<std::collections::HashMap<u32, rotero_pdf::PageTextData>>,
     );
-    let (cache_tx, cache_rx) = mpsc::channel::<CacheResult>();
+    let (cache_tx, cache_rx) = oneshot::channel::<CacheResult>();
     std::thread::spawn(move || {
         let result = crate::cache::load_cached(&cache_dir, &cache_path, render_scale);
         let text = crate::cache::load_cached_text(&cache_dir, &cache_path);
         let _ = cache_tx.send((result, text));
     });
-    let cache_result = tokio::task::spawn_blocking(move || cache_rx.recv())
-        .await
-        .ok()
-        .and_then(|r| r.ok());
+    let cache_result = cache_rx.await.ok();
     if let Some((Some((meta, cached_pages)), text_data)) = cache_result {
         let cached_count = cached_pages.len() as u32;
         tabs.with_mut(|mgr| {
@@ -158,7 +155,7 @@ pub async fn open_pdf(
                             .unwrap_or_default()
                     };
                     if !missing_dims.is_empty() {
-                        let (text_tx, text_rx) = std::sync::mpsc::channel();
+                        let (text_tx, text_rx) = oneshot::channel();
                         let _ = render_tx_bg.send(RenderRequest::ExtractText {
                             pdf_path: path_bg.clone(),
                             page_dims: missing_dims,
@@ -193,7 +190,7 @@ pub async fn open_pdf(
         }
         return Ok(());
     }
-    let (reply_tx, reply_rx) = mpsc::channel();
+    let (reply_tx, reply_rx) = oneshot::channel();
     render_tx
         .send(RenderRequest::OpenPdf {
             pdf_path: path.clone(),
@@ -242,7 +239,7 @@ pub async fn open_pdf(
     let path2 = path.clone();
     let mut tabs2 = *tabs;
     spawn(async move {
-        let (text_tx, text_rx) = mpsc::channel();
+        let (text_tx, text_rx) = oneshot::channel();
         let _ = render_tx2.send(RenderRequest::ExtractText {
             pdf_path: path2.clone(),
             page_dims,
@@ -309,7 +306,7 @@ pub async fn open_pdf(
 }
 
 pub async fn render_more_pages(
-    render_tx: &mpsc::Sender<RenderRequest>,
+    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     start: u32,
@@ -325,7 +322,7 @@ pub async fn render_more_pages(
             .ok_or("Tab not found")?;
         (tab.pdf_path.clone(), tab.view.render_zoom)
     };
-    let (reply_tx, reply_rx) = mpsc::channel();
+    let (reply_tx, reply_rx) = oneshot::channel();
     render_tx
         .send(RenderRequest::RenderMorePages {
             pdf_path: pdf_path.clone(),
@@ -361,7 +358,7 @@ pub async fn render_more_pages(
     let render_tx2 = render_tx.clone();
     let mut tabs2 = *tabs;
     spawn(async move {
-        let (text_tx, text_rx) = mpsc::channel();
+        let (text_tx, text_rx) = oneshot::channel();
         let _ = render_tx2.send(RenderRequest::ExtractText {
             pdf_path,
             page_dims,

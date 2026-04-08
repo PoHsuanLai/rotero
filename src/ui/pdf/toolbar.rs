@@ -210,7 +210,7 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                         if let Some(output_path) = file {
                             let render_tx = render_ch.sender();
                             spawn(async move {
-                                let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+                                let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
                                 if render_tx.send(crate::state::commands::RenderRequest::GetPageDimensions {
                                     pdf_path: pdf_path.clone(),
                                     reply: reply_tx,
@@ -218,8 +218,8 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                                     tracing::error!("Failed to send GetPageDimensions request");
                                     return;
                                 }
-                                let dims = match tokio::task::spawn_blocking(move || reply_rx.recv()).await {
-                                    Ok(Ok(Ok(d))) => d,
+                                let dims = match reply_rx.await {
+                                    Ok(Ok(d)) => d,
                                     _ => {
                                         tracing::error!("Failed to get page dimensions");
                                         return;

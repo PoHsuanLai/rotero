@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::sync::mpsc;
 
 use rotero_pdf::PageTextData;
+use tokio::sync::oneshot;
 
 use super::app_state::RenderedPageData;
 
@@ -22,42 +23,42 @@ pub enum RenderRequest {
         pdf_path: String,
         zoom: f32,
         batch_size: u32,
-        reply: mpsc::Sender<Result<(u32, Vec<RenderedPageData>), String>>,
+        reply: oneshot::Sender<Result<(u32, Vec<RenderedPageData>), String>>,
     },
     RenderMorePages {
         pdf_path: String,
         start: u32,
         count: u32,
         zoom: f32,
-        reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
+        reply: oneshot::Sender<Result<Vec<RenderedPageData>, String>>,
     },
     ExtractText {
         pdf_path: String,
         page_dims: Vec<(u32, u32, u32)>,
-        reply: mpsc::Sender<Result<HashMap<u32, PageTextData>, String>>,
+        reply: oneshot::Sender<Result<HashMap<u32, PageTextData>, String>>,
     },
     RenderThumbnails {
         pdf_path: String,
         start: u32,
         count: u32,
-        reply: mpsc::Sender<Result<Vec<RenderedPageData>, String>>,
+        reply: oneshot::Sender<Result<Vec<RenderedPageData>, String>>,
     },
     ExtractOutline {
         pdf_path: String,
-        reply: mpsc::Sender<Result<Vec<rotero_pdf::BookmarkEntry>, String>>,
+        reply: oneshot::Sender<Result<Vec<rotero_pdf::BookmarkEntry>, String>>,
     },
     GetPageDimensions {
         pdf_path: String,
-        reply: mpsc::Sender<Result<Vec<(f32, f32)>, String>>,
+        reply: oneshot::Sender<Result<Vec<(f32, f32)>, String>>,
     },
     ExtractMetadataText {
         pdf_path: String,
         page_count: u32,
-        reply: mpsc::Sender<Result<PdfExtractResult, String>>,
+        reply: oneshot::Sender<Result<PdfExtractResult, String>>,
     },
     ExtractAnnotations {
         pdf_path: String,
-        reply: mpsc::Sender<Result<Vec<rotero_pdf::ExtractedAnnotation>, String>>,
+        reply: oneshot::Sender<Result<Vec<rotero_pdf::ExtractedAnnotation>, String>>,
     },
 }
 
@@ -197,10 +198,7 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
 }
 
 pub(crate) async fn recv_reply<T: Send + 'static>(
-    rx: mpsc::Receiver<Result<T, String>>,
+    rx: oneshot::Receiver<Result<T, String>>,
 ) -> Result<T, String> {
-    tokio::task::spawn_blocking(move || rx.recv())
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?
+    rx.await.map_err(|e| e.to_string())?
 }

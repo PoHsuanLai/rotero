@@ -10,6 +10,7 @@ fn download_pdf_menu_item(
     show: bool,
     paper: &Paper,
     paper_id: &str,
+    db: &Database,
     mut lib_state: Signal<LibraryState>,
 ) -> Element {
     if !show || paper.links.pdf_url.is_none() {
@@ -18,6 +19,7 @@ fn download_pdf_menu_item(
     let pdf_url = paper.links.pdf_url.clone().unwrap_or_default();
     let paper_clone = paper.clone();
     let pid = paper_id.to_string();
+    let db = db.clone();
     rsx! {
         ContextMenuItem {
             label: "Download PDF".to_string(),
@@ -26,21 +28,21 @@ fn download_pdf_menu_item(
                 let pdf_url = pdf_url.clone();
                 let paper_clone = paper_clone.clone();
                 let pid = pid.clone();
+                let db = db.clone();
                 spawn(async move {
-                    if let Some((conn, lib_path)) = crate::SHARED_DB.get() {
-                        match crate::download_and_import_pdf(
-                            conn,
-                            lib_path,
-                            &pid,
-                            &paper_clone,
-                            &pdf_url,
-                        ).await {
-                            Ok(()) => {
-                                crate::state::commands::refresh_papers(conn, &mut lib_state).await;
-                            }
-                            Err(e) => {
-                                tracing::error!("Download PDF failed: {e}");
-                            }
+                    let lib_path = db.data_dir().join("pdfs");
+                    match crate::download_and_import_pdf(
+                        db.conn(),
+                        &lib_path,
+                        &pid,
+                        &paper_clone,
+                        &pdf_url,
+                    ).await {
+                        Ok(()) => {
+                            crate::state::commands::refresh_papers(db.conn(), &mut lib_state).await;
+                        }
+                        Err(e) => {
+                            tracing::error!("Download PDF failed: {e}");
                         }
                     }
                 });
@@ -54,6 +56,7 @@ fn download_pdf_menu_item(
     _show: bool,
     _paper: &Paper,
     _paper_id: &str,
+    _db: &Database,
     _lib_state: Signal<LibraryState>,
 ) -> Element {
     rsx! {}
@@ -107,7 +110,7 @@ pub fn PaperContextMenu(
                 }
             }
 
-            {download_pdf_menu_item(!has_pdf, &paper, &pid, lib_state)}
+            {download_pdf_menu_item(!has_pdf, &paper, &pid, &db, lib_state)}
 
             ContextMenuItem {
                 label: if is_fav { "Unfavorite".to_string() } else { "Favorite".to_string() },

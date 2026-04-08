@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use tokio::sync::oneshot;
 
 use dioxus::prelude::*;
 
@@ -6,7 +6,7 @@ use super::{RenderRequest, recv_reply};
 use crate::state::app_state::LibraryState;
 
 pub async fn extract_and_fetch_metadata(
-    render_tx: &mpsc::Sender<RenderRequest>,
+    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
     conn: &rotero_db::turso::Connection,
     paper_id: &str,
     pdf_path: &str,
@@ -14,7 +14,7 @@ pub async fn extract_and_fetch_metadata(
     lib_state: &mut Signal<LibraryState>,
 ) {
     tracing::info!(%paper_id, pdf_path, auto_fetch, "extract_and_fetch_metadata: start");
-    let (reply_tx, reply_rx) = mpsc::channel();
+    let (reply_tx, reply_rx) = oneshot::channel();
     if render_tx
         .send(RenderRequest::ExtractMetadataText {
             pdf_path: pdf_path.to_string(),

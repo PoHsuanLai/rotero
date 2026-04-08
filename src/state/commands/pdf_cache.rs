@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use tokio::sync::oneshot;
 
 use super::{RenderRequest, recv_reply};
 use crate::state::app_state::{PdfTabManager, TabId};
@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 const MAX_RESIDENT_THUMBS: usize = 50;
 
 pub async fn load_thumbnails(
-    render_tx: &mpsc::Sender<RenderRequest>,
+    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     start: u32,
@@ -22,7 +22,7 @@ pub async fn load_thumbnails(
             .pdf_path
             .clone()
     };
-    let (reply_tx, reply_rx) = mpsc::channel();
+    let (reply_tx, reply_rx) = oneshot::channel();
     render_tx
         .send(RenderRequest::RenderThumbnails {
             pdf_path,
@@ -52,7 +52,7 @@ pub async fn load_thumbnails(
 }
 
 pub async fn load_outline(
-    render_tx: &mpsc::Sender<RenderRequest>,
+    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
 ) -> Result<(), String> {
@@ -65,7 +65,7 @@ pub async fn load_outline(
             .pdf_path
             .clone()
     };
-    let (reply_tx, reply_rx) = mpsc::channel();
+    let (reply_tx, reply_rx) = oneshot::channel();
     render_tx
         .send(RenderRequest::ExtractOutline {
             pdf_path,
@@ -82,7 +82,7 @@ pub async fn load_outline(
 }
 
 pub async fn precache_pdf(
-    render_tx: &mpsc::Sender<RenderRequest>,
+    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
     pdf_path: &str,
     data_dir: &std::path::Path,
     zoom: f32,
@@ -93,7 +93,7 @@ pub async fn precache_pdf(
         return;
     }
     let path = pdf_path.to_string();
-    let (reply_tx, reply_rx) = mpsc::channel();
+    let (reply_tx, reply_rx) = oneshot::channel();
     if render_tx
         .send(RenderRequest::OpenPdf {
             pdf_path: path.clone(),
@@ -125,7 +125,7 @@ pub async fn precache_pdf(
     let mut start = batch_size.min(page_count);
     while start < page_count {
         let count = batch_size.min(page_count - start);
-        let (more_tx, more_rx) = mpsc::channel();
+        let (more_tx, more_rx) = oneshot::channel();
         if render_tx
             .send(RenderRequest::RenderMorePages {
                 pdf_path: path.clone(),
@@ -151,7 +151,7 @@ pub async fn precache_pdf(
         start += count;
     }
 
-    let (text_tx, text_rx) = mpsc::channel();
+    let (text_tx, text_rx) = oneshot::channel();
     if render_tx
         .send(RenderRequest::ExtractText {
             pdf_path: path.clone(),
