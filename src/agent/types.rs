@@ -39,6 +39,20 @@ pub struct ChatMessage {
     pub timestamp: DateTime<Utc>,
 }
 
+impl ChatMessage {
+    pub fn new(role: ChatRole, content: Vec<MessageContent>) -> Self {
+        Self {
+            role,
+            content,
+            timestamp: Utc::now(),
+        }
+    }
+
+    pub fn assistant(content: Vec<MessageContent>) -> Self {
+        Self::new(ChatRole::Assistant, content)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum AgentStatus {
     #[default]

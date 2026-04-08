@@ -4,7 +4,6 @@ use turso::{Connection, Value};
 
 use crate::crr;
 use crate::queries;
-use crate::FromRow;
 
 pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, turso::Error> {
     let uuid = uuid::Uuid::now_v7().to_string();
@@ -154,11 +153,7 @@ pub async fn list_papers_paginated(
             [Value::Integer(limit as i64), Value::Integer(offset as i64)],
         )
         .await?;
-    let mut papers = Vec::new();
-    while let Some(row) = rows.next().await? {
-        papers.push(Paper::from_row(&row));
-    }
-    Ok(papers)
+    crate::collect_rows(&mut rows).await
 }
 
 pub async fn count_papers(conn: &Connection) -> Result<u32, turso::Error> {
@@ -181,22 +176,14 @@ pub async fn search_papers(conn: &Connection, query: &str) -> Result<Vec<Paper>,
 async fn search_papers_fts(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
     let sql = queries::PAPER_SEARCH_FTS.replace("{COLS}", queries::PAPER_SELECT_COLS);
     let mut rows = conn.query(&sql, [Value::Text(query.to_string())]).await?;
-    let mut papers = Vec::new();
-    while let Some(row) = rows.next().await? {
-        papers.push(Paper::from_row(&row));
-    }
-    Ok(papers)
+    crate::collect_rows(&mut rows).await
 }
 
 async fn search_papers_like(conn: &Connection, query: &str) -> Result<Vec<Paper>, turso::Error> {
     let pattern = format!("%{query}%");
     let sql = queries::PAPER_SEARCH_LIKE.replace("{COLS}", queries::PAPER_SELECT_COLS);
     let mut rows = conn.query(&sql, [Value::Text(pattern)]).await?;
-    let mut papers = Vec::new();
-    while let Some(row) = rows.next().await? {
-        papers.push(Paper::from_row(&row));
-    }
-    Ok(papers)
+    crate::collect_rows(&mut rows).await
 }
 
 pub async fn set_favorite(conn: &Connection, id: &str, favorite: bool) -> Result<(), turso::Error> {
@@ -439,10 +426,7 @@ pub async fn find_duplicates(conn: &Connection) -> Result<Vec<Vec<Paper>>, turso
     // Exact DOI duplicates
     let doi_sql = queries::PAPER_FIND_DOI_DUPLICATES.replace("{COLS}", queries::PAPER_SELECT_COLS);
     let mut rows = conn.query(&doi_sql, ()).await?;
-    let mut doi_papers: Vec<Paper> = Vec::new();
-    while let Some(row) = rows.next().await? {
-        doi_papers.push(Paper::from_row(&row));
-    }
+    let doi_papers: Vec<Paper> = crate::collect_rows(&mut rows).await?;
     let mut current_doi = String::new();
     let mut current_group: Vec<Paper> = Vec::new();
     for paper in doi_papers {

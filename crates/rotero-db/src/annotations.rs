@@ -4,7 +4,6 @@ use turso::{Connection, Value};
 
 use crate::crr;
 use crate::queries;
-use crate::FromRow;
 
 pub async fn insert_annotation(
     conn: &Connection,
@@ -71,11 +70,7 @@ pub async fn list_annotations_for_paper(
         )
         .await?;
 
-    let mut anns = Vec::new();
-    while let Some(row) = rows.next().await? {
-        anns.push(Annotation::from_row(&row));
-    }
-    Ok(anns)
+    crate::collect_rows(&mut rows).await
 }
 
 pub async fn update_annotation_content(

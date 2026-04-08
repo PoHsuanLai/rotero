@@ -4,7 +4,6 @@ use turso::{Connection, Value};
 
 use crate::crr;
 use crate::queries;
-use crate::FromRow;
 
 pub async fn insert_note(conn: &Connection, note: &Note) -> Result<String, turso::Error> {
     let uuid = uuid::Uuid::now_v7().to_string();
@@ -42,11 +41,7 @@ pub async fn list_notes_for_paper(
             [Value::Text(paper_id.to_string())],
         )
         .await?;
-    let mut notes = Vec::new();
-    while let Some(row) = rows.next().await? {
-        notes.push(Note::from_row(&row));
-    }
-    Ok(notes)
+    crate::collect_rows(&mut rows).await
 }
 
 pub async fn update_note(

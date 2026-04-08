@@ -36,11 +36,7 @@ pub fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
         }
         ChatEvent::UserMessage(text) => {
             chat_state.with_mut(|s| {
-                s.messages.push(ChatMessage {
-                    role: ChatRole::User,
-                    content: vec![MessageContent::Text(text)],
-                    timestamp: chrono::Utc::now(),
-                });
+                s.messages.push(ChatMessage::new(ChatRole::User, vec![MessageContent::Text(text)]));
             });
         }
         ChatEvent::TextDelta(text) => {
@@ -56,22 +52,14 @@ pub fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
                     }
                     return;
                 }
-                s.messages.push(ChatMessage {
-                    role: ChatRole::Assistant,
-                    content: vec![MessageContent::Text(text)],
-                    timestamp: chrono::Utc::now(),
-                });
+                s.messages.push(ChatMessage::assistant(vec![MessageContent::Text(text)]));
             });
         }
         ChatEvent::ToolCallStarted { id, title } => {
             chat_state.with_mut(|s| {
                 s.status = AgentStatus::ToolCall(title.clone());
                 if s.messages.last().map(|m| &m.role) != Some(&ChatRole::Assistant) {
-                    s.messages.push(ChatMessage {
-                        role: ChatRole::Assistant,
-                        content: vec![],
-                        timestamp: chrono::Utc::now(),
-                    });
+                    s.messages.push(ChatMessage::assistant(vec![]));
                 }
                 if let Some(last) = s.messages.last_mut() {
                     last.content.push(MessageContent::ToolUse {
@@ -141,13 +129,9 @@ pub fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
         ChatEvent::AuthRequired { provider_name } => {
             chat_state.with_mut(|s| {
                 s.status = AgentStatus::NeedsAuth;
-                s.messages.push(ChatMessage {
-                    role: ChatRole::Assistant,
-                    content: vec![MessageContent::Text(
-                        format!("Sign in to {provider_name} to get started. Go to Settings > AI Agent and use the Sign in option."),
-                    )],
-                    timestamp: chrono::Utc::now(),
-                });
+                s.messages.push(ChatMessage::assistant(vec![MessageContent::Text(
+                    format!("Sign in to {provider_name} to get started. Go to Settings > AI Agent and use the Sign in option."),
+                )]));
             });
         }
         ChatEvent::PermissionRequest {
@@ -157,11 +141,7 @@ pub fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
         } => {
             chat_state.with_mut(|s| {
                 if s.messages.last().map(|m| &m.role) != Some(&ChatRole::Assistant) {
-                    s.messages.push(ChatMessage {
-                        role: ChatRole::Assistant,
-                        content: vec![],
-                        timestamp: chrono::Utc::now(),
-                    });
+                    s.messages.push(ChatMessage::assistant(vec![]));
                 }
                 if let Some(last) = s.messages.last_mut() {
                     last.content.push(MessageContent::Permission {
@@ -176,11 +156,7 @@ pub fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
         ChatEvent::Error(err) => {
             chat_state.with_mut(|s| {
                 s.status = AgentStatus::Error(err.clone());
-                s.messages.push(ChatMessage {
-                    role: ChatRole::Assistant,
-                    content: vec![MessageContent::Error(err)],
-                    timestamp: chrono::Utc::now(),
-                });
+                s.messages.push(ChatMessage::assistant(vec![MessageContent::Error(err)]));
             });
         }
     }

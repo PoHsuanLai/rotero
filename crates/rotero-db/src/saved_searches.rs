@@ -4,7 +4,6 @@ use turso::{Connection, Value};
 
 use crate::crr;
 use crate::queries;
-use crate::FromRow;
 
 pub async fn insert_saved_search(
     conn: &Connection,
@@ -35,11 +34,7 @@ pub async fn insert_saved_search(
 
 pub async fn list_saved_searches(conn: &Connection) -> Result<Vec<SavedSearch>, turso::Error> {
     let mut rows = conn.query(queries::SAVED_SEARCH_LIST, ()).await?;
-    let mut searches = Vec::new();
-    while let Some(row) = rows.next().await? {
-        searches.push(SavedSearch::from_row(&row));
-    }
-    Ok(searches)
+    crate::collect_rows(&mut rows).await
 }
 
 pub async fn delete_saved_search(conn: &Connection, id: &str) -> Result<(), turso::Error> {

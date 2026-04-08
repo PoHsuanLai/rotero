@@ -21,6 +21,15 @@ pub trait FromRow: Sized {
     fn from_row(row: &turso::Row) -> Self;
 }
 
+/// Collect all rows from an async turso Rows iterator into a Vec.
+pub async fn collect_rows<T: FromRow>(rows: &mut turso::Rows) -> Result<Vec<T>, turso::Error> {
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        out.push(T::from_row(&row));
+    }
+    Ok(out)
+}
+
 use std::path::{Path, PathBuf};
 
 use turso::Connection;

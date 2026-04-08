@@ -106,10 +106,11 @@ pub fn extract_from_html(html: &str) -> Paper {
         }
     }
     if let Some(ref mut doi) = meta.doi {
-        if let Some(stripped) = doi.strip_prefix("https://doi.org/") {
-            *doi = stripped.to_string();
-        } else if let Some(stripped) = doi.strip_prefix("http://doi.org/") {
-            *doi = stripped.to_string();
+        for prefix in ["https://doi.org/", "http://doi.org/"] {
+            if let Some(stripped) = doi.strip_prefix(prefix) {
+                *doi = stripped.to_string();
+                break;
+            }
         }
     }
 
