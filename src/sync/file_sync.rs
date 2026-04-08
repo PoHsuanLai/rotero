@@ -224,19 +224,3 @@ impl FileSyncEngine {
         Ok(())
     }
 }
-
-impl super::SyncBackend for FileSyncEngine {
-    async fn export_changes(
-        &mut self,
-        conn: &rotero_db::turso::Connection,
-    ) -> Result<usize, String> {
-        FileSyncEngine::export_changes(self, conn).await
-    }
-
-    async fn import_changes(
-        &mut self,
-        conn: &rotero_db::turso::Connection,
-    ) -> Result<usize, String> {
-        FileSyncEngine::import_changes(self, conn).await
-    }
-}

@@ -74,8 +74,8 @@ pub fn PdfViewer() -> Element {
                             reply: reply_tx,
                         })
                         .is_ok()
+                        && let Ok(Ok(extracted)) = reply_rx.await
                     {
-                        if let Ok(Ok(extracted)) = reply_rx.await {
                             let now = chrono::Utc::now();
                             for ext in extracted {
                                 // Deduplicate: skip if a DB annotation exists on same page with same type and similar position
@@ -144,8 +144,6 @@ pub fn PdfViewer() -> Element {
                                 }
                             }
                         }
-                    }
-
                     tabs.with_mut(|m| {
                         if let Some(t) = m.tabs.iter_mut().find(|t| t.id == tid) {
                             t.annotations = anns;

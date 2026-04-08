@@ -6,7 +6,6 @@ const ZIP_ASSET_SUFFIX: &str = "macos-arm64.zip";
 
 #[derive(Debug, Clone, Default)]
 pub struct UpdateInfo {
-    pub current_version: String,
     pub latest_version: String,
     pub release_notes: String,
     pub download_url: String,
@@ -78,7 +77,6 @@ pub async fn check_for_update() -> Result<Option<UpdateInfo>, String> {
         .ok_or_else(|| format!("No {ZIP_ASSET_SUFFIX} asset found in release"))?;
 
     Ok(Some(UpdateInfo {
-        current_version: current.to_string(),
         latest_version: latest_version.to_string(),
         release_notes,
         download_url,
