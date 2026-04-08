@@ -5,6 +5,35 @@ use dioxus::prelude::*;
 use super::{RenderRequest, recv_reply};
 use crate::state::app_state::{PdfTabManager, TabId};
 
+/// Collect all extracted text from a tab's text_data and save it to the DB fulltext column.
+#[cfg(feature = "desktop")]
+async fn save_fulltext_to_db(tabs: &Signal<PdfTabManager>, tab_id: TabId, paper_id: &str) {
+    // Small delay to let the last text extraction spawn finish
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let fulltext: String = {
+        let mgr = tabs.read();
+        mgr.tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .map(|t| {
+                let mut pages: Vec<u32> = t.render.text_data.keys().copied().collect();
+                pages.sort();
+                pages
+                    .iter()
+                    .filter_map(|p| t.render.text_data.get(p))
+                    .flat_map(|td| td.segments.iter().map(|s| s.text.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
+            .unwrap_or_default()
+    };
+    if !fulltext.is_empty() {
+        if let Some((conn, _)) = crate::init::database::SHARED_DB.get() {
+            let _ = rotero_db::papers::update_paper_fulltext(conn, paper_id, &fulltext).await;
+        }
+    }
+}
+
 pub async fn open_pdf(
     render_tx: &mpsc::Sender<RenderRequest>,
     tabs: &mut Signal<PdfTabManager>,
@@ -68,6 +97,7 @@ pub async fn open_pdf(
             let data_dir_bg = data_dir.to_path_buf();
             let mut tabs_bg = *tabs;
             let total = meta.page_count;
+            let paper_id_bg = paper_id.clone();
             spawn(async move {
                 let rendered_indices: std::collections::HashSet<u32> = tabs_bg
                     .read()
@@ -102,6 +132,10 @@ pub async fn open_pdf(
                     {
                         break;
                     }
+                }
+                #[cfg(feature = "desktop")]
+                if let Some(pid) = paper_id_bg {
+                    save_fulltext_to_db(&tabs_bg, tab_id, &pid).await;
                 }
             });
         }
@@ -155,7 +189,6 @@ pub async fn open_pdf(
     let data_dir2 = data_dir.to_path_buf();
     let path2 = path.clone();
     let mut tabs2 = *tabs;
-    let paper_id2 = paper_id.clone();
     spawn(async move {
         let (text_tx, text_rx) = mpsc::channel();
         let _ = render_tx2.send(RenderRequest::ExtractText {
@@ -170,29 +203,6 @@ pub async fn open_pdf(
             std::thread::spawn(move || {
                 crate::cache::save_text(&cache_dir, &cache_path, &text_clone);
             });
-
-            if let Some(ref pid) = paper_id2 {
-                let mut pages_sorted: Vec<u32> = text_data.keys().copied().collect();
-                pages_sorted.sort();
-                let fulltext: String = pages_sorted
-                    .iter()
-                    .filter_map(|p| text_data.get(p))
-                    .flat_map(|td| td.segments.iter().map(|s| s.text.as_str()))
-                    .collect::<Vec<_>>()
-                    .join("");
-                if !fulltext.is_empty() {
-                    #[cfg(feature = "desktop")]
-                    if let Some((conn, _)) = crate::init::database::SHARED_DB.get() {
-                        let pid = pid.clone();
-                        let conn = conn.clone();
-                        spawn(async move {
-                            let _ =
-                                rotero_db::papers::update_paper_fulltext(&conn, &pid, &fulltext)
-                                    .await;
-                        });
-                    }
-                }
-            }
 
             tabs2.with_mut(|mgr| {
                 if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
@@ -227,36 +237,20 @@ pub async fn open_pdf(
                 }
                 start += count;
             }
-            // Update DB fulltext with the complete text from all pages
             #[cfg(feature = "desktop")]
             if let Some(pid) = paper_id_bg {
-                // Small delay to let the last text extraction spawn finish
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                let fulltext: String = {
-                    let mgr = tabs_bg.read();
-                    mgr.tabs
-                        .iter()
-                        .find(|t| t.id == tab_id)
-                        .map(|t| {
-                            let mut pages: Vec<u32> = t.render.text_data.keys().copied().collect();
-                            pages.sort();
-                            pages
-                                .iter()
-                                .filter_map(|p| t.render.text_data.get(p))
-                                .flat_map(|td| td.segments.iter().map(|s| s.text.as_str()))
-                                .collect::<Vec<_>>()
-                                .join("")
-                        })
-                        .unwrap_or_default()
-                };
-                if !fulltext.is_empty() {
-                    if let Some((conn, _)) = crate::init::database::SHARED_DB.get() {
-                        let _ =
-                            rotero_db::papers::update_paper_fulltext(conn, &pid, &fulltext).await;
-                    }
-                }
+                save_fulltext_to_db(&tabs_bg, tab_id, &pid).await;
             }
         });
+    } else {
+        // All pages fit in one batch — save fulltext now
+        #[cfg(feature = "desktop")]
+        if let Some(pid) = paper_id {
+            let tabs_ref = *tabs;
+            spawn(async move {
+                save_fulltext_to_db(&tabs_ref, tab_id, &pid).await;
+            });
+        }
     }
 
     Ok(())
