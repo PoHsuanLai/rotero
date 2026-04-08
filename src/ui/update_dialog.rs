@@ -3,8 +3,31 @@ use dioxus::prelude::*;
 use crate::updates::{UpdateState, UpdateStatus, apply_update};
 
 fn restart_app() {
-    if let Ok(path) = std::env::current_exe() {
-        let _ = std::process::Command::new("open").arg("-n").arg(path).spawn();
+    if let Ok(exe) = std::env::current_exe() {
+        // Walk up to find the .app bundle (e.g. Rotero.app/Contents/MacOS/rotero → Rotero.app).
+        let mut path = exe.as_path();
+        let app_bundle = loop {
+            match path.parent() {
+                Some(parent) => {
+                    if path.extension().and_then(|e| e.to_str()) == Some("app") {
+                        break Some(path.to_path_buf());
+                    }
+                    path = parent;
+                }
+                None => break None,
+            }
+        };
+
+        if let Some(bundle) = app_bundle {
+            // Production: reopen the .app bundle.
+            let _ = std::process::Command::new("open")
+                .arg("-n")
+                .arg(bundle)
+                .spawn();
+        } else {
+            // Dev build: just re-run the binary directly.
+            let _ = std::process::Command::new(&exe).spawn();
+        }
     }
     std::process::exit(0);
 }
