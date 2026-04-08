@@ -164,6 +164,130 @@
   z-index: 99;
 }
 
+/* --- Search + Sort Row --- */
+.search-sort-row {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-sort-row .search-bar {
+  flex: 1;
+  border-bottom: none;
+}
+
+/* --- Sort Button --- */
+.sort-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: var(--space-4);
+  flex-shrink: 0;
+}
+
+.sort-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-main);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.sort-btn:hover {
+  border-color: var(--text-tertiary);
+  color: var(--text-primary);
+}
+
+.sort-icon {
+  font-size: 12px;
+}
+
+.sort-label {
+  font-size: var(--text-xs);
+}
+
+.sort-chevron {
+  font-size: 8px;
+  opacity: 0.6;
+}
+
+.sort-direction-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.sort-direction-btn:hover {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+
+.sort-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  z-index: 100;
+  min-width: 160px;
+  overflow: hidden;
+}
+
+.sort-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.sort-option:hover {
+  background: var(--bg-muted);
+}
+
+.sort-option--active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.sort-option-icon {
+  font-size: 11px;
+}
+
+.sort-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
+
 /* --- External Results --- */
 .external-results-banner {
   display: flex;

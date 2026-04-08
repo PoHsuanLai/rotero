@@ -359,6 +359,48 @@ pub struct LibraryFilterState {
     pub duplicate_groups: Option<Vec<Vec<Paper>>>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum SortField {
+    #[default]
+    DateAdded,
+    DateModified,
+    Title,
+    Year,
+    FirstAuthor,
+    CitationCount,
+}
+
+impl SortField {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::DateAdded => "Date Added",
+            Self::DateModified => "Date Modified",
+            Self::Title => "Title",
+            Self::Year => "Year",
+            Self::FirstAuthor => "First Author",
+            Self::CitationCount => "Citations",
+        }
+    }
+
+    pub fn all() -> &'static [SortField] {
+        &[
+            SortField::DateAdded,
+            SortField::DateModified,
+            SortField::Title,
+            SortField::Year,
+            SortField::FirstAuthor,
+            SortField::CitationCount,
+        ]
+    }
+
+    pub fn default_ascending(&self) -> bool {
+        match self {
+            Self::Title | Self::FirstAuthor => true,
+            Self::DateAdded | Self::DateModified | Self::Year | Self::CitationCount => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct LibraryState {
     pub papers: Vec<Paper>,
@@ -370,6 +412,8 @@ pub struct LibraryState {
     pub search: LibrarySearchState,
     pub filter: LibraryFilterState,
     pub saved_searches: Vec<rotero_models::SavedSearch>,
+    pub sort_field: SortField,
+    pub sort_ascending: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -392,6 +436,38 @@ impl LibraryState {
         self.selected_paper_id
             .as_ref()
             .and_then(|id| self.papers.iter().find(|p| p.id.as_ref() == Some(id)))
+    }
+
+    pub fn sort_papers(&self, papers: &mut Vec<Paper>) {
+        papers.sort_by(|a, b| {
+            let ord = match self.sort_field {
+                SortField::DateAdded => a.status.date_added.cmp(&b.status.date_added),
+                SortField::DateModified => a.status.date_modified.cmp(&b.status.date_modified),
+                SortField::Title => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
+                SortField::Year => a.year.cmp(&b.year),
+                SortField::FirstAuthor => {
+                    let aa = a
+                        .authors
+                        .first()
+                        .map(|s| s.to_lowercase())
+                        .unwrap_or_default();
+                    let ba = b
+                        .authors
+                        .first()
+                        .map(|s| s.to_lowercase())
+                        .unwrap_or_default();
+                    aa.cmp(&ba)
+                }
+                SortField::CitationCount => {
+                    a.citation.citation_count.cmp(&b.citation.citation_count)
+                }
+            };
+            if self.sort_ascending {
+                ord
+            } else {
+                ord.reverse()
+            }
+        });
     }
 
     pub fn touch_paper(&mut self, paper_id: &str) {

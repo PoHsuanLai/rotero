@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 use dioxus_elements::HasFileData;
 
-use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTabManager};
+use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTabManager, SortField};
 use crate::ui::chat_panel::ChatToggleButton;
 use crate::ui::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use crate::ui::import_export::ImportExportButtons;
@@ -166,14 +166,12 @@ pub fn LibraryPanel() -> Element {
     let external_searching = state.search.external_searching;
     let is_searching = state.search.results.is_some();
 
-    let filtered: Vec<_> = if is_searching {
+    let mut filtered: Vec<_> = if is_searching {
         state.search.results.as_ref().unwrap().clone()
     } else {
         match &state.view {
             LibraryView::AllPapers => state.papers.clone(),
             LibraryView::RecentlyAdded => {
-                // Papers are already ordered by date_added DESC from the DB,
-                // so just take the first 20 instead of cloning all + sorting.
                 state.papers.iter().take(20).cloned().collect()
             }
             LibraryView::Favorites => state
@@ -222,6 +220,10 @@ pub fn LibraryPanel() -> Element {
             _ => state.papers.clone(),
         }
     };
+
+    if !is_searching && !matches!(state.view, LibraryView::Duplicates) {
+        state.sort_papers(&mut filtered);
+    }
 
     let duplicate_groups = if matches!(state.view, LibraryView::Duplicates) {
         state.filter.duplicate_groups.clone()
@@ -403,7 +405,10 @@ pub fn LibraryPanel() -> Element {
             }
             AddPaperDOIInput {}
 
-            SearchBar {}
+            div { class: "search-sort-row",
+                SearchBar {}
+                SortButton {}
+            }
 
             if is_external {
                 ExternalResults {
@@ -991,6 +996,68 @@ fn GraphToggleButton() -> Element {
             },
             i { class: "bi bi-diagram-3" }
             " Graph"
+        }
+    }
+}
+
+#[component]
+fn SortButton() -> Element {
+    let mut lib_state = use_context::<Signal<LibraryState>>();
+    let sort_field = lib_state.read().sort_field;
+    let sort_ascending = lib_state.read().sort_ascending;
+    let mut show_dropdown = use_signal(|| false);
+
+    rsx! {
+        div { class: "sort-wrapper",
+            button {
+                class: "btn btn--ghost btn--sm sort-btn",
+                title: "Sort by {sort_field.label()}",
+                onclick: move |_| show_dropdown.toggle(),
+                i { class: "bi bi-arrow-down-up sort-icon" }
+                span { class: "sort-label", "{sort_field.label()}" }
+                i { class: "bi bi-chevron-down sort-chevron" }
+            }
+            button {
+                class: "btn btn--ghost btn--sm sort-direction-btn",
+                title: if sort_ascending { "Ascending" } else { "Descending" },
+                onclick: move |_| {
+                    lib_state.with_mut(|s| s.sort_ascending = !s.sort_ascending);
+                },
+                i { class: if sort_ascending { "bi bi-sort-up" } else { "bi bi-sort-down" } }
+            }
+            if show_dropdown() {
+                div { class: "sort-dropdown",
+                    for field in SortField::all().iter() {
+                        button {
+                            class: if *field == sort_field { "sort-option sort-option--active" } else { "sort-option" },
+                            onclick: {
+                                let f = *field;
+                                move |_| {
+                                    lib_state.with_mut(|s| {
+                                        if s.sort_field == f {
+                                            s.sort_ascending = !s.sort_ascending;
+                                        } else {
+                                            s.sort_field = f;
+                                            s.sort_ascending = f.default_ascending();
+                                        }
+                                    });
+                                    show_dropdown.set(false);
+                                }
+                            },
+                            if *field == sort_field {
+                                i {
+                                    class: if sort_ascending { "bi bi-sort-up sort-option-icon" } else { "bi bi-sort-down sort-option-icon" },
+                                }
+                            }
+                            "{field.label()}"
+                        }
+                    }
+                }
+                div {
+                    class: "sort-backdrop",
+                    onclick: move |_| show_dropdown.set(false),
+                }
+            }
         }
     }
 }
