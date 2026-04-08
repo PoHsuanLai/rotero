@@ -89,13 +89,7 @@ pub(crate) fn ExternalResults(results: Vec<rotero_models::Paper>, searching: boo
                 for (i, paper) in results.iter().enumerate() {
                     {
                         let title = paper.title.clone();
-                        let authors = if paper.authors.is_empty() {
-                            "Unknown".to_string()
-                        } else if paper.authors.len() <= 2 {
-                            paper.authors.join(", ")
-                        } else {
-                            format!("{} et al.", paper.authors[0])
-                        };
+                        let authors = paper.formatted_authors();
                         let year = paper.year.map(|y| y.to_string()).unwrap_or_default();
                         let journal = paper.publication.journal.clone().unwrap_or_default();
                         let citation_count = paper.citation.citation_count;

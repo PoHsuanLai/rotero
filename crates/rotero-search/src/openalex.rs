@@ -220,10 +220,8 @@ struct AutocompleteItem {
 }
 
 async fn fetch_work(url: &str) -> Result<OpenAlexWork, String> {
-    let client = reqwest::Client::new();
-    let resp = client
+    let resp = crate::shared_client()
         .get(url)
-        .header("User-Agent", "Rotero/0.1.0 (mailto:rotero@example.com)")
         .send()
         .await
         .map_err(|e| format!("OpenAlex request failed: {e}"))?;

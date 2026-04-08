@@ -37,7 +37,7 @@ pub(crate) fn build_menu_bar() -> dioxus::desktop::muda::Menu {
                 Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyW)),
             ),
         ])
-        .unwrap();
+        .expect("menu construction");
 
     let edit_menu = Submenu::new("Edit", true);
     edit_menu
@@ -58,7 +58,7 @@ pub(crate) fn build_menu_bar() -> dioxus::desktop::muda::Menu {
                 Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyF)),
             ),
         ])
-        .unwrap();
+        .expect("menu construction");
 
     let view_menu = Submenu::new("View", true);
     view_menu
@@ -79,7 +79,7 @@ pub(crate) fn build_menu_bar() -> dioxus::desktop::muda::Menu {
             &PredefinedMenuItem::separator(),
             &PredefinedMenuItem::fullscreen(None),
         ])
-        .unwrap();
+        .expect("menu construction");
 
     let window_menu = Submenu::new("Window", true);
     window_menu
@@ -95,7 +95,7 @@ pub(crate) fn build_menu_bar() -> dioxus::desktop::muda::Menu {
             &PredefinedMenuItem::separator(),
             &PredefinedMenuItem::quit(None),
         ])
-        .unwrap();
+        .expect("menu construction");
 
     let help_menu = Submenu::new("Help", true);
     let mut help_items: Vec<Box<dyn dioxus::desktop::muda::IsMenuItem>> = vec![Box::new(
@@ -118,11 +118,11 @@ pub(crate) fn build_menu_bar() -> dioxus::desktop::muda::Menu {
     }
     help_menu
         .append_items(&help_items.iter().map(|i| i.as_ref()).collect::<Vec<_>>())
-        .unwrap();
+        .expect("menu construction");
 
     menu.append_items(&[&file_menu, &edit_menu, &view_menu, &window_menu])
-        .unwrap();
-    menu.append(&help_menu).unwrap();
+        .expect("menu construction");
+    menu.append(&help_menu).expect("menu construction");
 
     #[cfg(target_os = "macos")]
     help_menu.set_as_help_menu_for_nsapp();

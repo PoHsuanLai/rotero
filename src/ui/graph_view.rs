@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 use rotero_graph::{GraphData, GraphFilter};
 
-use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
+use crate::state::app_state::{LibraryState, PdfTabManager};
 use rotero_db::Database;
 
 #[derive(serde::Deserialize)]
@@ -104,7 +104,7 @@ pub fn GraphView() -> Element {
                     .iter()
                     .find(|p| p.id.as_deref() == Some(node.id.as_str()))
                 {
-                    node.label = truncate(&paper.title, 25);
+                    node.label = crate::ui::truncate_text(&paper.title, 25);
                 }
             }
 
@@ -174,34 +174,11 @@ pub fn GraphView() -> Element {
                                 .find(|p| p.id.as_deref() == Some(event.id.as_str()))
                                 && let Some(ref pdf_path) = paper.links.pdf_path
                             {
-                                let abs_path =
-                                    db.resolve_pdf_path(pdf_path).to_string_lossy().to_string();
                                 let title = paper.title.clone();
+                                let pdf_path = pdf_path.clone();
                                 let pid = event.id.clone();
                                 drop(state);
-                                let cfg = config.read();
-                                let dpr_val = dpr.read().0;
-                                tabs.with_mut(|m| {
-                                    m.open_or_switch(
-                                        pid.clone(),
-                                        abs_path,
-                                        title,
-                                        cfg.pdf.default_zoom,
-                                        cfg.pdf.page_batch_size,
-                                        dpr_val,
-                                    )
-                                });
-                                lib_state.with_mut(|s| {
-                                    s.touch_paper(&pid);
-                                    s.view = LibraryView::PdfViewer;
-                                });
-                                let db_touch = db.clone();
-                                let pid_touch = pid;
-                                spawn(async move {
-                                    let _ =
-                                        rotero_db::papers::touch_paper(db_touch.conn(), &pid_touch)
-                                            .await;
-                                });
+                                crate::state::commands::open_paper_pdf(&db, &mut tabs, &mut lib_state, &config, &dpr, &pid, &pdf_path, &title);
                             }
                         }
                         _ => {}
@@ -318,13 +295,3 @@ fn build_js_data(data: &GraphData, papers: &[rotero_models::Paper]) -> String {
     .unwrap_or_else(|_| "{}".to_string())
 }
 
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        return s.to_string();
-    }
-    let mut end = max - 3;
-    while !s.is_char_boundary(end) && end > 0 {
-        end -= 1;
-    }
-    format!("{}...", &s[..end])
-}

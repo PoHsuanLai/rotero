@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
+use crate::state::app_state::{LibraryState, PdfTabManager};
 use crate::sync::engine::SyncConfig;
 use crate::ui::chat_panel::ResizeHandle;
 use crate::ui::components::context_menu::{ContextMenu, ContextMenuItem};
@@ -250,14 +250,7 @@ pub fn PaperDetail() -> Element {
                                     class: "btn btn--primary",
                                     onclick: move |_| {
                                         if let Some(ref rel_path) = pdf_rel_path {
-                                            let full_path = db_open.resolve_pdf_path(rel_path);
-                                            let path_str = full_path.to_string_lossy().to_string();
-                                            let cfg = config.read();
-                                            tabs.with_mut(|m| m.open_or_switch(pid_open.clone(), path_str, title.clone(), cfg.pdf.default_zoom, cfg.pdf.page_batch_size, dpr_sig.read().0));
-                                            lib_state.with_mut(|s| { s.touch_paper(&pid_open); s.view = LibraryView::PdfViewer; });
-                                            let db_touch = db_open.clone();
-                                            let pid_touch = pid_open.clone();
-                                            spawn(async move { let _ = rotero_db::papers::touch_paper(db_touch.conn(), &pid_touch).await; });
+                                            crate::state::commands::open_paper_pdf(&db_open, &mut tabs, &mut lib_state, &config, &dpr_sig, &pid_open, rel_path, &title);
                                         }
                                     },
                                     "Open Paper"

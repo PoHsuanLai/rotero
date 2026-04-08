@@ -121,28 +121,28 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
 
             CollapsibleSection { title: "Library", initially_open: true,
                 SidebarItem {
-                    label: format!("All Papers"),
+                    label: "All Papers".to_string(),
                     count: Some(total),
                     icon: "doc",
                     active: view == LibraryView::AllPapers,
                     view: LibraryView::AllPapers,
                 }
                 SidebarItem {
-                    label: format!("Recently Added"),
+                    label: "Recently Added".to_string(),
                     count: Some(recent_count),
                     icon: "clock",
                     active: view == LibraryView::RecentlyAdded,
                     view: LibraryView::RecentlyAdded,
                 }
                 SidebarItem {
-                    label: format!("Favorites"),
+                    label: "Favorites".to_string(),
                     count: Some(favorites_count),
                     icon: "star",
                     active: view == LibraryView::Favorites,
                     view: LibraryView::Favorites,
                 }
                 SidebarItem {
-                    label: format!("Unread"),
+                    label: "Unread".to_string(),
                     count: Some(unread_count),
                     icon: "circle",
                     active: view == LibraryView::Unread,
@@ -167,7 +167,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                             let recent_icon = if paper.links.pdf_path.is_some() { "bi bi-file-earmark-pdf" } else { "bi bi-file-earmark-text" };
                             let db_recent = db.clone();
                             let truncated = if title.len() > 35 {
-                                format!("{}...", &title[..32])
+                                crate::ui::truncate_text(&title, 35)
                             } else {
                                 title.clone()
                             };
@@ -191,14 +191,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                             && evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary)
                                             && let Some(ref rel_path) = pdf_rel
                                         {
-                                            let full_path = db_recent.resolve_pdf_path(rel_path);
-                                            let path_str = full_path.to_string_lossy().to_string();
-                                            let cfg = config.read();
-                                            tabs.with_mut(|m| m.open_or_switch(pid_open.clone(), path_str, title.clone(), cfg.pdf.default_zoom, cfg.pdf.page_batch_size, dpr_sig.read().0));
-                                            lib_state.with_mut(|s| { s.touch_paper(&pid_open); s.view = LibraryView::PdfViewer; });
-                                            let db_touch = db_recent.clone();
-                                            let pid_touch = pid_open.clone();
-                                            spawn(async move { let _ = rotero_db::papers::touch_paper(db_touch.conn(), &pid_touch).await; });
+                                            crate::state::commands::open_paper_pdf(&db_recent, &mut tabs, &mut lib_state, &config, &dpr_sig, &pid_open, rel_path, &title);
                                         }
                                     },
                                     oncontextmenu: move |evt: Event<MouseData>| {

@@ -1,9 +1,8 @@
 use dioxus::prelude::*;
 use dioxus_elements::HasFileData;
 
-use crate::state::app_state::{DragPaper, LibraryState, LibraryView, PdfTabManager, SortField};
+use crate::state::app_state::{LibraryState, LibraryView, SortField};
 use crate::ui::chat_panel::ChatToggleButton;
-use crate::ui::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use crate::ui::import_export::ImportExportButtons;
 use crate::ui::search_bar::SearchBar;
 use rotero_db::Database;
@@ -11,66 +10,9 @@ use rotero_db::Database;
 use super::add_paper::{AddPaperButtons, AddPaperDOIInput};
 use super::external_results::ExternalResults;
 
-#[cfg(feature = "desktop")]
-fn download_pdf_menu_item(
-    show: bool,
-    paper: &rotero_models::Paper,
-    paper_id: &str,
-    mut lib_state: Signal<LibraryState>,
-) -> Element {
-    if !show || paper.links.pdf_url.is_none() {
-        return rsx! {};
-    }
-    let pdf_url = paper.links.pdf_url.clone().unwrap_or_default();
-    let paper_clone = paper.clone();
-    let pid = paper_id.to_string();
-    rsx! {
-        ContextMenuItem {
-            label: "Download PDF".to_string(),
-            icon: Some("bi-download".to_string()),
-            on_click: move |_| {
-                let pdf_url = pdf_url.clone();
-                let paper_clone = paper_clone.clone();
-                let pid = pid.clone();
-                spawn(async move {
-                    if let Some((conn, lib_path)) = crate::SHARED_DB.get() {
-                        match crate::download_and_import_pdf(
-                            conn,
-                            lib_path,
-                            &pid,
-                            &paper_clone,
-                            &pdf_url,
-                        ).await {
-                            Ok(()) => {
-                                if let Ok(papers) = rotero_db::papers::list_papers(conn).await {
-                                    lib_state.with_mut(|s| s.papers = papers);
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!("Download PDF failed: {e}");
-                            }
-                        }
-                    }
-                });
-            },
-        }
-    }
-}
-
-#[cfg(not(feature = "desktop"))]
-fn download_pdf_menu_item(
-    _show: bool,
-    _paper: &rotero_models::Paper,
-    _paper_id: &str,
-    _lib_state: Signal<LibraryState>,
-) -> Element {
-    rsx! {}
-}
-
 #[component]
 pub fn LibraryPanel() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
-    let mut tabs = use_context::<Signal<PdfTabManager>>();
     let db = use_context::<Database>();
     let render_ch = use_context::<crate::app::RenderChannel>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
@@ -265,8 +207,6 @@ pub fn LibraryPanel() -> Element {
     let paper_count = filtered.len();
 
     let mut ctx_menu = use_signal(|| None::<(String, f64, f64)>);
-    let mut drag_paper = use_context::<Signal<DragPaper>>();
-
     use_effect(|| {
         document::eval(
             r#"
@@ -468,16 +408,7 @@ pub fn LibraryPanel() -> Element {
                                                 let groups = all_groups.clone();
                                                 spawn(async move {
                                                     for group in &groups {
-                                                        let best = group.iter().max_by_key(|p| {
-                                                            let mut c = 0i32;
-                                                            if p.doi.is_some() { c += 1; }
-                                                            if p.abstract_text.is_some() { c += 1; }
-                                                            if p.publication.journal.is_some() { c += 1; }
-                                                            if p.year.is_some() { c += 1; }
-                                                            if p.links.pdf_path.is_some() { c += 2; } // PDF weighted higher
-                                                            if !p.authors.is_empty() { c += 1; }
-                                                            c
-                                                        });
+                                                        let best = group.iter().max_by_key(|p| p.metadata_completeness_score());
                                                         if let Some(best) = best {
                                                             let keep_id = best.id.clone().unwrap_or_default();
                                                             for p in group {
@@ -488,15 +419,7 @@ pub fn LibraryPanel() -> Element {
                                                             }
                                                         }
                                                     }
-                                                    if let Ok(papers) = rotero_db::papers::list_papers(db.conn()).await {
-                                                        lib_state.with_mut(|s| {
-                                                            s.papers = papers;
-                                                            s.filter.duplicate_groups = None;
-                                                        });
-                                                    }
-                                                    if let Ok(groups) = rotero_db::papers::find_duplicates(db.conn()).await {
-                                                        lib_state.with_mut(|s| s.filter.duplicate_groups = Some(groups));
-                                                    }
+                                                    crate::state::commands::refresh_papers_and_duplicates(db.conn(), &mut lib_state).await;
                                                 });
                                             }
                                         },
@@ -527,26 +450,13 @@ pub fn LibraryPanel() -> Element {
                                         {
                                             let pid = paper.id.clone().unwrap_or_default();
                                             let title = paper.title.clone();
-                                            let authors = if paper.authors.is_empty() {
-                                                "Unknown".to_string()
-                                            } else if paper.authors.len() <= 2 {
-                                                paper.authors.join(", ")
-                                            } else {
-                                                format!("{} et al.", paper.authors[0])
-                                            };
+                                            let authors = paper.formatted_authors();
                                             let year = paper.year.map(|y| y.to_string()).unwrap_or_default();
                                             let has_pdf = paper.links.pdf_path.is_some();
                                             let doi_display = paper.doi.clone().unwrap_or_default();
                                             let journal = paper.publication.journal.clone().unwrap_or_default();
                                             let date_added = paper.status.date_added.format("%Y-%m-%d").to_string();
-                                            let field_count = [
-                                                paper.doi.is_some(),
-                                                paper.abstract_text.is_some(),
-                                                paper.publication.journal.is_some(),
-                                                paper.year.is_some(),
-                                                paper.links.pdf_path.is_some(),
-                                                !paper.authors.is_empty(),
-                                            ].iter().filter(|&&b| b).count();
+                                            let field_count = paper.metadata_completeness_score() as usize;
                                             rsx! {
                                                 div { class: "duplicate-item",
                                                     div { class: "duplicate-item-info",
@@ -572,7 +482,7 @@ pub fn LibraryPanel() -> Element {
                                                                 span { class: "duplicate-doi", "DOI: {doi_display}" }
                                                             }
                                                             span { class: "duplicate-date-added", "Added: {date_added}" }
-                                                            span { class: "duplicate-field-count", "{field_count}/6 fields" }
+                                                            span { class: "duplicate-field-count", "{field_count}/7 fields" }
                                                         }
                                                     }
                                                     div { class: "duplicate-item-actions",
@@ -594,15 +504,7 @@ pub fn LibraryPanel() -> Element {
                                                                         for del_id in &other_ids {
                                                                             let _ = rotero_db::papers::merge_papers(db.conn(), &pid, del_id).await;
                                                                         }
-                                                                        if let Ok(papers) = rotero_db::papers::list_papers(db.conn()).await {
-                                                                            lib_state.with_mut(|s| {
-                                                                                s.papers = papers;
-                                                                                s.filter.duplicate_groups = None;
-                                                                            });
-                                                                        }
-                                                                        if let Ok(groups) = rotero_db::papers::find_duplicates(db.conn()).await {
-                                                                            lib_state.with_mut(|s| s.filter.duplicate_groups = Some(groups));
-                                                                        }
+                                                                        crate::state::commands::refresh_papers_and_duplicates(db.conn(), &mut lib_state).await;
                                                                     });
                                                                 }
                                                             },
@@ -619,15 +521,7 @@ pub fn LibraryPanel() -> Element {
                                                                     let pid = pid2.clone();
                                                                     spawn(async move {
                                                                         let _ = rotero_db::papers::delete_paper(db.conn(), &pid).await;
-                                                                        if let Ok(papers) = rotero_db::papers::list_papers(db.conn()).await {
-                                                                            lib_state.with_mut(|s| {
-                                                                                s.papers = papers;
-                                                                                s.filter.duplicate_groups = None;
-                                                                            });
-                                                                        }
-                                                                        if let Ok(groups) = rotero_db::papers::find_duplicates(db.conn()).await {
-                                                                            lib_state.with_mut(|s| s.filter.duplicate_groups = Some(groups));
-                                                                        }
+                                                                        crate::state::commands::refresh_papers_and_duplicates(db.conn(), &mut lib_state).await;
                                                                     });
                                                                 }
                                                             },
@@ -646,134 +540,13 @@ pub fn LibraryPanel() -> Element {
                     for paper in filtered.iter() {
                         {
                             let paper_id = paper.id.clone().unwrap_or_default();
-                            let title = paper.title.clone();
-                            let pdf_rel_path = paper.links.pdf_path.clone();
-                            let authors = if paper.authors.is_empty() {
-                                "Unknown".to_string()
-                            } else if paper.authors.len() <= 2 {
-                                paper.authors.join(", ")
-                            } else {
-                                format!("{} et al.", paper.authors[0])
-                            };
-                            let year = paper.year.map(|y| y.to_string()).unwrap_or_default();
-                            let journal = paper.publication.journal.clone().unwrap_or_default();
-                            let citation_count = paper.citation.citation_count;
-                            let has_pdf = paper.links.pdf_path.is_some();
-                            let is_read = paper.status.is_read;
-                            let is_fav = paper.status.is_favorite;
                             let selected = state.selected_paper_id.as_deref() == Some(paper_id.as_str());
-                            let row_class = if selected {
-                                "library-card library-card--selected"
-                            } else {
-                                "library-card"
-                            };
-                            let db_for_view = db.clone();
-                            let db_for_fav = db.clone();
-                            let pid_drag = paper_id.clone();
-                            let pid_sel = paper_id.clone();
-                            let pid_ctx = paper_id.clone();
-                            let pid_fav = paper_id.clone();
-                            let pid_open = paper_id.clone();
-
                             rsx! {
-                                div {
+                                super::paper_card::PaperCard {
                                     key: "{paper_id}",
-                                    class: "{row_class}",
-                                    draggable: "true",
-                                    ondragstart: move |_| {
-                                        drag_paper.set(DragPaper(Some(pid_drag.clone())));
-                                    },
-                                    ondragend: move |evt: Event<DragData>| {
-                                        let _ = evt;
-                                        spawn(async move {
-                                            drag_paper.set(DragPaper(None));
-                                        });
-                                    },
-                                    onmouseup: move |evt: Event<MouseData>| {
-                                        if drag_paper().0.is_none()
-                                            && evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
-                                                let pid = pid_sel.clone();
-                                                lib_state.with_mut(|s| {
-                                                    s.selected_paper_id = Some(pid);
-                                                });
-                                            }
-                                    },
-                                    oncontextmenu: move |evt| {
-                                        evt.prevent_default();
-                                        let coords = evt.client_coordinates();
-                                        ctx_menu.set(Some((pid_ctx.clone(), coords.x, coords.y)));
-                                    },
-
-                                    div { class: "library-card-indicator",
-                                        if !is_read {
-                                            div { class: "library-unread-dot" }
-                                        }
-                                    }
-
-                                    div { class: "library-card-body",
-                                        div { class: "library-card-title", "{title}" }
-                                        div { class: "library-card-meta",
-                                            span { class: "library-card-authors", "{authors}" }
-                                            if !year.is_empty() {
-                                                span { class: "library-card-sep", "\u{00b7}" }
-                                                span { class: "library-card-year", "{year}" }
-                                            }
-                                            if !journal.is_empty() {
-                                                span { class: "library-card-sep", "\u{00b7}" }
-                                                span { class: "library-card-journal", "{journal}" }
-                                            }
-                                            if let Some(count) = citation_count {
-                                                span { class: "library-card-sep", "\u{00b7}" }
-                                                span { class: "library-card-citations", title: "Citation count", "{count} cited" }
-                                            }
-                                        }
-                                    }
-
-                                    div { class: "library-card-actions",
-                                        button {
-                                            class: if is_fav { "library-fav-btn library-fav-btn--active" } else { "library-fav-btn" },
-                                            title: if is_fav { "Unfavorite" } else { "Favorite" },
-                                            onclick: {
-                                                let pid = pid_fav.clone();
-                                                move |evt: Event<MouseData>| {
-                                                evt.stop_propagation();
-                                                let db = db_for_fav.clone();
-                                                let new_val = !is_fav;
-                                                let pid = pid.clone();
-                                                spawn(async move {
-                                                    if let Ok(()) = rotero_db::papers::set_favorite(db.conn(), &pid, new_val).await {
-                                                        let pid2 = pid.clone();
-                                                        lib_state.with_mut(|s| {
-                                                            if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
-                                                                p.status.is_favorite = new_val;
-                                                            }
-                                                        });
-                                                    }
-                                                });
-                                            }},
-                                            i { class: if is_fav { "bi bi-star-fill" } else { "bi bi-star" } }
-                                        }
-
-                                        if has_pdf {
-                                            button {
-                                                class: "btn btn--ghost",
-                                                onclick: move |evt| {
-                                                    evt.stop_propagation();
-                                                    if let Some(ref rel_path) = pdf_rel_path {
-                                                        let full_path = db_for_view.resolve_pdf_path(rel_path);
-                                                        let path_str = full_path.to_string_lossy().to_string();
-                                                        let cfg = config.read();
-                                                        tabs.with_mut(|m| m.open_or_switch(pid_open.clone(), path_str, title.clone(), cfg.pdf.default_zoom, cfg.pdf.page_batch_size, dpr_sig.read().0));
-                                                        lib_state.with_mut(|s| { s.touch_paper(&pid_open); s.view = LibraryView::PdfViewer; });
-                                                        let db_touch = db_for_view.clone();
-                                                        let pid_touch = pid_open.clone();
-                                                        spawn(async move { let _ = rotero_db::papers::touch_paper(db_touch.conn(), &pid_touch).await; });
-                                                    }
-                                                },
-                                                "Open"
-                                            }
-                                        }
-                                    }
+                                    paper: paper.clone(),
+                                    selected,
+                                    ctx_menu,
                                 }
                             }
                         }
@@ -789,177 +562,13 @@ pub fn LibraryPanel() -> Element {
                     drop(state);
 
                     if let Some(paper) = menu_paper {
-                        let has_pdf = paper.links.pdf_path.is_some();
-                        let is_fav = paper.status.is_favorite;
-                        let is_read = paper.status.is_read;
-                        let doi = paper.doi.clone();
-                        let pdf_rel = paper.links.pdf_path.clone();
-                        let paper_title_for_open = paper.title.clone();
-                        let pid = menu_paper_id;
-                        let db_ctx = db.clone();
-                        let db_fav = db.clone();
-                        let db_read = db.clone();
-                        let db_del = db.clone();
-
                         rsx! {
-                            ContextMenu {
+                            super::context_menu::PaperContextMenu {
+                                paper,
+                                paper_id: menu_paper_id,
                                 x: mx,
                                 y: my,
                                 on_close: move |_| ctx_menu.set(None),
-
-                                if has_pdf {
-                                    ContextMenuItem {
-                                        label: "Open PDF".to_string(),
-                                        icon: Some("bi-eye".to_string()),
-                                        on_click: {
-                                            let pid = pid.clone();
-                                            move |_| {
-                                                if let Some(ref rel_path) = pdf_rel {
-                                                    let full_path = db_ctx.resolve_pdf_path(rel_path);
-                                                    let path_str = full_path.to_string_lossy().to_string();
-                                                    let cfg = config.read();
-                                                    tabs.with_mut(|m| m.open_or_switch(pid.clone(), path_str, paper_title_for_open.clone(), cfg.pdf.default_zoom, cfg.pdf.page_batch_size, dpr_sig.read().0));
-                                                    lib_state.with_mut(|s| { s.touch_paper(&pid); s.view = LibraryView::PdfViewer; });
-                                                    let db_touch = db_ctx.clone();
-                                                    let pid_touch = pid.clone();
-                                                    spawn(async move { let _ = rotero_db::papers::touch_paper(db_touch.conn(), &pid_touch).await; });
-                                                }
-                                            }
-                                        },
-                                    }
-                                }
-
-                                {download_pdf_menu_item(!has_pdf, &paper, &pid, lib_state)}
-
-                                ContextMenuItem {
-                                    label: if is_fav { "Unfavorite".to_string() } else { "Favorite".to_string() },
-                                    icon: Some(if is_fav { "bi-star-fill".to_string() } else { "bi-star".to_string() }),
-                                    on_click: {
-                                        let pid = pid.clone();
-                                        move |_| {
-                                            let db = db_fav.clone();
-                                            let new_val = !is_fav;
-                                            let pid = pid.clone();
-                                            spawn(async move {
-                                                if let Ok(()) = rotero_db::papers::set_favorite(db.conn(), &pid, new_val).await {
-                                                    let pid2 = pid.clone();
-                                                    lib_state.with_mut(|s| {
-                                                        if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
-                                                            p.status.is_favorite = new_val;
-                                                        }
-                                                    });
-                                                }
-                                            });
-                                        }
-                                    },
-                                }
-
-                                ContextMenuItem {
-                                    label: if is_read { "Mark as unread".to_string() } else { "Mark as read".to_string() },
-                                    icon: Some(if is_read { "bi-book".to_string() } else { "bi-book-fill".to_string() }),
-                                    on_click: {
-                                        let pid = pid.clone();
-                                        move |_| {
-                                            let db = db_read.clone();
-                                            let new_val = !is_read;
-                                            let pid = pid.clone();
-                                            spawn(async move {
-                                                if let Ok(()) = rotero_db::papers::set_read(db.conn(), &pid, new_val).await {
-                                                    let pid2 = pid.clone();
-                                                    lib_state.with_mut(|s| {
-                                                        if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
-                                                            p.status.is_read = new_val;
-                                                        }
-                                                    });
-                                                }
-                                            });
-                                        }
-                                    },
-                                }
-
-                                ContextMenuItem {
-                                    label: "Add Tag".to_string(),
-                                    icon: Some("bi-tag".to_string()),
-                                    on_click: {
-                                        let pid = pid.clone();
-                                        move |_| {
-                                            lib_state.with_mut(|s| {
-                                                s.selected_paper_id = Some(pid.clone());
-                                            });
-                                            document::eval("setTimeout(() => { let el = document.getElementById('tag-editor-input'); if (el) el.focus(); }, 100)");
-                                        }
-                                    },
-                                }
-
-                                ContextMenuSeparator {}
-
-                                if let Some(ref doi_val) = doi {
-                                    {
-                                        let doi_copy = doi_val.clone();
-                                        rsx! {
-                                            ContextMenuItem {
-                                                label: "Copy DOI".to_string(),
-                                                icon: Some("bi-link-45deg".to_string()),
-                                                on_click: move |_| {
-                                                    if let Ok(mut clip) = arboard::Clipboard::new() {
-                                                        let _ = clip.set_text(&*doi_copy);
-                                                    }
-                                                },
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if let LibraryView::Collection(ref coll_id) = lib_state.read().view.clone() {
-                                    {
-                                        let db_remove = db.clone();
-                                        let pid = pid.clone();
-                                        let cid = coll_id.clone();
-                                        rsx! {
-                                            ContextMenuItem {
-                                                label: "Remove from Collection".to_string(),
-                                                icon: Some("bi-folder-minus".to_string()),
-                                                on_click: move |_| {
-                                                    let db = db_remove.clone();
-                                                    let pid = pid.clone();
-                                                    let cid = cid.clone();
-                                                    spawn(async move {
-                                                        if let Ok(()) = rotero_db::collections::remove_paper_from_collection(db.conn(), &pid, &cid).await
-                                                            && let Ok(ids) = rotero_db::collections::list_paper_ids_in_collection(db.conn(), &cid).await {
-                                                                lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
-                                                            }
-                                                    });
-                                                },
-                                            }
-                                        }
-                                    }
-                                }
-
-                                ContextMenuSeparator {}
-
-                                ContextMenuItem {
-                                    label: "Delete".to_string(),
-                                    icon: Some("bi-trash".to_string()),
-                                    danger: Some(true),
-                                    on_click: {
-                                        let pid = pid.clone();
-                                        move |_| {
-                                            let db = db_del.clone();
-                                            let pid = pid.clone();
-                                            spawn(async move {
-                                                if let Ok(()) = rotero_db::papers::delete_paper(db.conn(), &pid).await {
-                                                    let pid2 = pid.clone();
-                                                    lib_state.with_mut(|s| {
-                                                        s.papers.retain(|p| p.id.as_deref() != Some(pid2.as_str()));
-                                                        if s.selected_paper_id.as_deref() == Some(pid.as_str()) {
-                                                            s.selected_paper_id = None;
-                                                        }
-                                                    });
-                                                }
-                                            });
-                                        }
-                                    },
-                                }
                             }
                         }
                     } else {

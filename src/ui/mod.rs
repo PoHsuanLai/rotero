@@ -15,6 +15,19 @@ pub mod sidebar;
 #[cfg(feature = "desktop")]
 pub mod update_dialog;
 
+/// Truncate a string to `max` chars, appending "..." if truncated.
+/// UTF-8 safe: finds the nearest char boundary.
+pub fn truncate_text(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        return s.to_string();
+    }
+    let mut end = max.saturating_sub(3);
+    while !s.is_char_boundary(end) && end > 0 {
+        end -= 1;
+    }
+    format!("{}...", &s[..end])
+}
+
 /// Async file picker. Uses rfd on desktop, apple-utils on iOS.
 pub async fn pick_file_async(extensions: &[&str], _title: &str) -> Option<std::path::PathBuf> {
     #[cfg(feature = "desktop")]

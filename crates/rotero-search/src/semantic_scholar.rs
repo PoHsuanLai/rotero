@@ -103,10 +103,8 @@ pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<Paper, String> {
 }
 
 async fn fetch_paper(url: &str) -> Result<S2Paper, String> {
-    let client = reqwest::Client::new();
-    let resp = client
+    let resp = crate::shared_client()
         .get(url)
-        .header("User-Agent", "Rotero/0.1.0")
         .send()
         .await
         .map_err(|e| format!("Semantic Scholar request failed: {e}"))?;

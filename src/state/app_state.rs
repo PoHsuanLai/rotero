@@ -11,7 +11,6 @@ pub struct PageRenderData {
     pub rendered_pages: Vec<RenderedPageData>,
     pub text_data: HashMap<u32, PageTextData>,
     pub thumbnails: HashMap<u32, RenderedPageData>,
-    pub _page_dimensions: Vec<(f32, f32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -407,7 +406,6 @@ pub struct LibraryState {
     pub collections: Vec<Collection>,
     pub tags: Vec<Tag>,
     pub selected_paper_id: Option<String>,
-    pub _selected_collection_id: Option<String>,
     pub view: LibraryView,
     pub search: LibrarySearchState,
     pub filter: LibraryFilterState,
@@ -438,36 +436,32 @@ impl LibraryState {
             .and_then(|id| self.papers.iter().find(|p| p.id.as_ref() == Some(id)))
     }
 
-    pub fn sort_papers(&self, papers: &mut Vec<Paper>) {
-        papers.sort_by(|a, b| {
-            let ord = match self.sort_field {
-                SortField::DateAdded => a.status.date_added.cmp(&b.status.date_added),
-                SortField::DateModified => a.status.date_modified.cmp(&b.status.date_modified),
-                SortField::Title => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
-                SortField::Year => a.year.cmp(&b.year),
-                SortField::FirstAuthor => {
-                    let aa = a
-                        .authors
-                        .first()
-                        .map(|s| s.to_lowercase())
-                        .unwrap_or_default();
-                    let ba = b
-                        .authors
-                        .first()
-                        .map(|s| s.to_lowercase())
-                        .unwrap_or_default();
-                    aa.cmp(&ba)
-                }
-                SortField::CitationCount => {
-                    a.citation.citation_count.cmp(&b.citation.citation_count)
-                }
-            };
-            if self.sort_ascending {
-                ord
-            } else {
-                ord.reverse()
+    pub fn sort_papers(&self, papers: &mut [Paper]) {
+        let ascending = self.sort_ascending;
+        match self.sort_field {
+            SortField::Title => {
+                papers.sort_by_cached_key(|p| p.title.to_lowercase());
+                if !ascending { papers.reverse(); }
             }
-        });
+            SortField::FirstAuthor => {
+                papers.sort_by_cached_key(|p| {
+                    p.authors.first().map(|s| s.to_lowercase()).unwrap_or_default()
+                });
+                if !ascending { papers.reverse(); }
+            }
+            _ => {
+                papers.sort_by(|a, b| {
+                    let ord = match self.sort_field {
+                        SortField::DateAdded => a.status.date_added.cmp(&b.status.date_added),
+                        SortField::DateModified => a.status.date_modified.cmp(&b.status.date_modified),
+                        SortField::Year => a.year.cmp(&b.year),
+                        SortField::CitationCount => a.citation.citation_count.cmp(&b.citation.citation_count),
+                        SortField::Title | SortField::FirstAuthor => unreachable!(),
+                    };
+                    if ascending { ord } else { ord.reverse() }
+                });
+            }
+        }
     }
 
     pub fn touch_paper(&mut self, paper_id: &str) {

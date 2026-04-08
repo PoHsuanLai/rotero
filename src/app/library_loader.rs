@@ -19,9 +19,7 @@ pub fn LoadLibraryData() -> Element {
             }
 
             let conn = db.conn();
-            if let Ok(papers) = rotero_db::papers::list_papers(conn).await {
-                lib_state.with_mut(|s| s.papers = papers);
-            }
+            crate::state::commands::refresh_papers(conn, &mut lib_state).await;
             if let Ok(collections) = rotero_db::collections::list_collections(conn).await {
                 lib_state.with_mut(|s| s.collections = collections);
             }
@@ -179,9 +177,7 @@ pub fn LoadLibraryData() -> Element {
                     break;
                 }
                 let conn = db.conn();
-                if let Ok(papers) = rotero_db::papers::list_papers(conn).await {
-                    lib_state.with_mut(|s| s.papers = papers);
-                }
+                crate::state::commands::refresh_papers(conn, &mut lib_state).await;
                 let view = lib_state.read().view.clone();
                 match view {
                     LibraryView::Collection(coll_id) => {

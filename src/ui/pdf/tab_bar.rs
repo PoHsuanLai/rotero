@@ -39,11 +39,7 @@ pub fn PdfTabBar() -> Element {
                     let is_active = *is_active;
                     let paper_id = paper_id.clone();
                     let tab_class = if is_active { "pdf-tab pdf-tab--active" } else { "pdf-tab" };
-                    let display_title = if title.len() > 30 {
-                        format!("{}...", &title[..27])
-                    } else {
-                        title
-                    };
+                    let display_title = crate::ui::truncate_text(&title, 30);
 
                     rsx! {
                         div {

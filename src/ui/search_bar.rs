@@ -17,8 +17,10 @@ enum SearchMsg {
 pub fn SearchBar() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
-    let query = lib_state.read().search.query.clone();
-    let source = lib_state.read().search.source.clone();
+    let (query, source) = {
+        let state = lib_state.read();
+        (state.search.query.clone(), state.search.source.clone())
+    };
     let mut show_dropdown = use_signal(|| false);
 
     let search_coro = use_coroutine(move |mut rx: UnboundedReceiver<SearchMsg>| async move {

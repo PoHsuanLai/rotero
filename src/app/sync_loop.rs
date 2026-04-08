@@ -86,9 +86,7 @@ pub fn SyncLoop() -> Element {
 
                 if applied > 0 {
                     tracing::info!("Sync imported {applied} changes, refreshing library");
-                    if let Ok(papers) = rotero_db::papers::list_papers(conn).await {
-                        lib_state.with_mut(|s| s.papers = papers);
-                    }
+                    crate::state::commands::refresh_papers(conn, &mut lib_state).await;
                     if let Ok(collections) = rotero_db::collections::list_collections(conn).await {
                         lib_state.with_mut(|s| s.collections = collections);
                     }
