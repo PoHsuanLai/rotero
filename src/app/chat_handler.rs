@@ -36,7 +36,10 @@ pub fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
         }
         ChatEvent::UserMessage(text) => {
             chat_state.with_mut(|s| {
-                s.messages.push(ChatMessage::new(ChatRole::User, vec![MessageContent::Text(text)]));
+                s.messages.push(ChatMessage::new(
+                    ChatRole::User,
+                    vec![MessageContent::Text(text)],
+                ));
             });
         }
         ChatEvent::TextDelta(text) => {
@@ -52,7 +55,8 @@ pub fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
                     }
                     return;
                 }
-                s.messages.push(ChatMessage::assistant(vec![MessageContent::Text(text)]));
+                s.messages
+                    .push(ChatMessage::assistant(vec![MessageContent::Text(text)]));
             });
         }
         ChatEvent::ToolCallStarted { id, title } => {
@@ -156,7 +160,8 @@ pub fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
         ChatEvent::Error(err) => {
             chat_state.with_mut(|s| {
                 s.status = AgentStatus::Error(err.clone());
-                s.messages.push(ChatMessage::assistant(vec![MessageContent::Error(err)]));
+                s.messages
+                    .push(ChatMessage::assistant(vec![MessageContent::Error(err)]));
             });
         }
     }

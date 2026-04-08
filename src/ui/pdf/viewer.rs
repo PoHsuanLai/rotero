@@ -76,74 +76,67 @@ pub fn PdfViewer() -> Element {
                         .is_ok()
                         && let Ok(Ok(extracted)) = reply_rx.await
                     {
-                            let now = chrono::Utc::now();
-                            for ext in extracted {
-                                // Deduplicate: skip if a DB annotation exists on same page with same type and similar position
-                                let dominated = anns.iter().any(|a| {
-                                    a.page == ext.page as i32 && a.ann_type == ext.ann_type && {
-                                        let ax = a
-                                            .geometry
-                                            .get("x")
-                                            .and_then(|v| v.as_f64())
-                                            .unwrap_or(0.0);
-                                        let ay = a
-                                            .geometry
-                                            .get("y")
-                                            .and_then(|v| v.as_f64())
-                                            .unwrap_or(0.0);
-                                        let (rw, rh) = rendered_pages
-                                            .get(ext.page as usize)
-                                            .copied()
-                                            .unwrap_or((1, 1));
-                                        let sx = rw as f64 / ext.page_width_pts as f64;
-                                        let sy = rh as f64 / ext.page_height_pts as f64;
-                                        let ex = ext.rect_pts[0] as f64 * sx;
-                                        let ey = (ext.page_height_pts as f64
-                                            - ext.rect_pts[3] as f64)
-                                            * sy;
-                                        (ax - ex).abs() < 10.0 && (ay - ey).abs() < 10.0
-                                    }
-                                });
-                                if dominated {
-                                    continue;
+                        let now = chrono::Utc::now();
+                        for ext in extracted {
+                            // Deduplicate: skip if a DB annotation exists on same page with same type and similar position
+                            let dominated = anns.iter().any(|a| {
+                                a.page == ext.page as i32 && a.ann_type == ext.ann_type && {
+                                    let ax =
+                                        a.geometry.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                    let ay =
+                                        a.geometry.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                    let (rw, rh) = rendered_pages
+                                        .get(ext.page as usize)
+                                        .copied()
+                                        .unwrap_or((1, 1));
+                                    let sx = rw as f64 / ext.page_width_pts as f64;
+                                    let sy = rh as f64 / ext.page_height_pts as f64;
+                                    let ex = ext.rect_pts[0] as f64 * sx;
+                                    let ey =
+                                        (ext.page_height_pts as f64 - ext.rect_pts[3] as f64) * sy;
+                                    (ax - ex).abs() < 10.0 && (ay - ey).abs() < 10.0
                                 }
+                            });
+                            if dominated {
+                                continue;
+                            }
 
-                                let (rw, rh) = rendered_pages
-                                    .get(ext.page as usize)
-                                    .copied()
-                                    .unwrap_or((1, 1));
-                                let sx = rw as f32 / ext.page_width_pts;
-                                let sy = rh as f32 / ext.page_height_pts;
-                                let x = ext.rect_pts[0] * sx;
-                                let y = (ext.page_height_pts - ext.rect_pts[3]) * sy;
-                                let w = (ext.rect_pts[2] - ext.rect_pts[0]) * sx;
-                                let h = (ext.rect_pts[3] - ext.rect_pts[1]) * sy;
+                            let (rw, rh) = rendered_pages
+                                .get(ext.page as usize)
+                                .copied()
+                                .unwrap_or((1, 1));
+                            let sx = rw as f32 / ext.page_width_pts;
+                            let sy = rh as f32 / ext.page_height_pts;
+                            let x = ext.rect_pts[0] * sx;
+                            let y = (ext.page_height_pts - ext.rect_pts[3]) * sy;
+                            let w = (ext.rect_pts[2] - ext.rect_pts[0]) * sx;
+                            let h = (ext.rect_pts[3] - ext.rect_pts[1]) * sy;
 
-                                let geometry = serde_json::json!({
-                                    "x": x, "y": y, "width": w, "height": h,
-                                    "page_width": rw, "page_height": rh,
-                                });
+                            let geometry = serde_json::json!({
+                                "x": x, "y": y, "width": w, "height": h,
+                                "page_width": rw, "page_height": rh,
+                            });
 
-                                let ann = rotero_models::Annotation {
-                                    id: None,
-                                    paper_id: pid.clone(),
-                                    page: ext.page as i32,
-                                    ann_type: ext.ann_type,
-                                    color: ext.color,
-                                    content: ext.content,
-                                    geometry,
-                                    created_at: now,
-                                    modified_at: now,
-                                };
-                                if let Ok(id) =
-                                    rotero_db::annotations::insert_annotation(db.conn(), &ann).await
-                                {
-                                    let mut ann = ann;
-                                    ann.id = Some(id);
-                                    anns.push(ann);
-                                }
+                            let ann = rotero_models::Annotation {
+                                id: None,
+                                paper_id: pid.clone(),
+                                page: ext.page as i32,
+                                ann_type: ext.ann_type,
+                                color: ext.color,
+                                content: ext.content,
+                                geometry,
+                                created_at: now,
+                                modified_at: now,
+                            };
+                            if let Ok(id) =
+                                rotero_db::annotations::insert_annotation(db.conn(), &ann).await
+                            {
+                                let mut ann = ann;
+                                ann.id = Some(id);
+                                anns.push(ann);
                             }
                         }
+                    }
                     tabs.with_mut(|m| {
                         if let Some(t) = m.tabs.iter_mut().find(|t| t.id == tid) {
                             t.annotations = anns;

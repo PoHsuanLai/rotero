@@ -113,9 +113,7 @@ pub fn LibraryPanel() -> Element {
     } else {
         match &state.view {
             LibraryView::AllPapers => state.papers.clone(),
-            LibraryView::RecentlyAdded => {
-                state.papers.iter().take(20).cloned().collect()
-            }
+            LibraryView::RecentlyAdded => state.papers.iter().take(20).cloned().collect(),
             LibraryView::Favorites => state
                 .papers
                 .iter()

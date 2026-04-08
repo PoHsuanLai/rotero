@@ -14,14 +14,17 @@ pub async fn insert_paper(conn: &Connection, paper: &Paper) -> Result<String, tu
         .as_ref()
         .map(|v| serde_json::to_string(v).unwrap_or_default());
 
-    use crate::{opt_text, opt_int};
+    use crate::{opt_int, opt_text};
     conn.execute(
         queries::PAPER_INSERT,
         turso::params::Params::Positional(vec![
             Value::Text(uuid.clone()),
             Value::Text(paper.title.clone()),
             Value::Text(authors_json),
-            paper.year.map(|y| Value::Integer(y as i64)).unwrap_or(Value::Null),
+            paper
+                .year
+                .map(|y| Value::Integer(y as i64))
+                .unwrap_or(Value::Null),
             opt_text(paper.doi.as_ref()),
             opt_text(paper.abstract_text.as_ref()),
             opt_text(paper.publication.journal.as_ref()),
@@ -175,7 +178,10 @@ pub async fn update_paper_metadata(
         turso::params::Params::Positional(vec![
             Value::Text(paper.title.clone()),
             Value::Text(authors_json),
-            paper.year.map(|y| Value::Integer(y as i64)).unwrap_or(Value::Null),
+            paper
+                .year
+                .map(|y| Value::Integer(y as i64))
+                .unwrap_or(Value::Null),
             opt_text(paper.doi.as_ref()),
             opt_text(paper.abstract_text.as_ref()),
             opt_text(paper.publication.journal.as_ref()),
@@ -250,7 +256,7 @@ pub async fn delete_paper(conn: &Connection, id: &str) -> Result<(), turso::Erro
 
 impl crate::FromRow for Paper {
     fn from_row(row: &turso::Row) -> Self {
-        use crate::{get_text, get_opt_text, get_opt_i64, get_bool};
+        use crate::{get_bool, get_opt_i64, get_opt_text, get_text};
         let authors_str = get_text(row, 2);
         let authors: Vec<String> = serde_json::from_str(&authors_str).unwrap_or_default();
 

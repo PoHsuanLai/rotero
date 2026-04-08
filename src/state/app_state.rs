@@ -441,21 +441,32 @@ impl LibraryState {
         match self.sort_field {
             SortField::Title => {
                 papers.sort_by_cached_key(|p| p.title.to_lowercase());
-                if !ascending { papers.reverse(); }
+                if !ascending {
+                    papers.reverse();
+                }
             }
             SortField::FirstAuthor => {
                 papers.sort_by_cached_key(|p| {
-                    p.authors.first().map(|s| s.to_lowercase()).unwrap_or_default()
+                    p.authors
+                        .first()
+                        .map(|s| s.to_lowercase())
+                        .unwrap_or_default()
                 });
-                if !ascending { papers.reverse(); }
+                if !ascending {
+                    papers.reverse();
+                }
             }
             _ => {
                 papers.sort_by(|a, b| {
                     let ord = match self.sort_field {
                         SortField::DateAdded => a.status.date_added.cmp(&b.status.date_added),
-                        SortField::DateModified => a.status.date_modified.cmp(&b.status.date_modified),
+                        SortField::DateModified => {
+                            a.status.date_modified.cmp(&b.status.date_modified)
+                        }
                         SortField::Year => a.year.cmp(&b.year),
-                        SortField::CitationCount => a.citation.citation_count.cmp(&b.citation.citation_count),
+                        SortField::CitationCount => {
+                            a.citation.citation_count.cmp(&b.citation.citation_count)
+                        }
                         SortField::Title | SortField::FirstAuthor => unreachable!(),
                     };
                     if ascending { ord } else { ord.reverse() }

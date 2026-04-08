@@ -423,4 +423,3 @@ impl Database {
 fn get_opt_text(row: &turso::Row, idx: usize) -> Option<String> {
     row.get_value(idx).ok().and_then(|v| v.as_text().cloned())
 }
-

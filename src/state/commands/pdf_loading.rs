@@ -90,7 +90,10 @@ pub async fn open_pdf(
             });
         }
         // Check if we need to render missing pages or re-extract text
-        let text_page_count = tabs.read().tabs.iter()
+        let text_page_count = tabs
+            .read()
+            .tabs
+            .iter()
             .find(|t| t.id == tab_id)
             .map(|t| t.render.text_data.len() as u32)
             .unwrap_or(0);
@@ -145,9 +148,13 @@ pub async fn open_pdf(
                     // Re-extract text for pages missing from text_data
                     let missing_dims: Vec<(u32, u32, u32)> = {
                         let mgr = tabs_bg.read();
-                        mgr.tabs.iter().find(|t| t.id == tab_id)
+                        mgr.tabs
+                            .iter()
+                            .find(|t| t.id == tab_id)
                             .map(|t| {
-                                t.render.rendered_pages.iter()
+                                t.render
+                                    .rendered_pages
+                                    .iter()
                                     .filter(|p| !t.render.text_data.contains_key(&p.page_index))
                                     .map(|p| (p.page_index, p.width, p.height))
                                     .collect()
@@ -170,7 +177,9 @@ pub async fn open_pdf(
                             // Save complete text cache to disk
                             let all_text: std::collections::HashMap<u32, rotero_pdf::PageTextData> = {
                                 let mgr = tabs_bg.read();
-                                mgr.tabs.iter().find(|t| t.id == tab_id)
+                                mgr.tabs
+                                    .iter()
+                                    .find(|t| t.id == tab_id)
                                     .map(|t| t.render.text_data.clone())
                                     .unwrap_or_default()
                             };

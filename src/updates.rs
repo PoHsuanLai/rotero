@@ -34,9 +34,7 @@ pub struct UpdateState {
 /// Check GitHub Releases for a newer version.
 pub async fn check_for_update() -> Result<Option<UpdateInfo>, String> {
     let current = env!("CARGO_PKG_VERSION");
-    let url = format!(
-        "https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
-    );
+    let url = format!("https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest");
 
     let client = reqwest::Client::new();
     let resp: serde_json::Value = client
@@ -50,9 +48,7 @@ pub async fn check_for_update() -> Result<Option<UpdateInfo>, String> {
         .await
         .map_err(|e| e.to_string())?;
 
-    let tag = resp["tag_name"]
-        .as_str()
-        .ok_or("No tag_name in release")?;
+    let tag = resp["tag_name"].as_str().ok_or("No tag_name in release")?;
     let latest_version = tag.trim_start_matches('v');
 
     if !version_gt(latest_version, current) {
@@ -170,8 +166,7 @@ fn current_app_bundle() -> Result<PathBuf, String> {
 
 /// Find a .app bundle inside a directory.
 fn find_app_in_dir(dir: &std::path::Path) -> Result<PathBuf, String> {
-    let entries =
-        std::fs::read_dir(dir).map_err(|e| format!("Failed to read extract dir: {e}"))?;
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("Failed to read extract dir: {e}"))?;
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() && path.extension().and_then(|e| e.to_str()) == Some("app") {

@@ -6074,6 +6074,7 @@ dependencies = [
  "clap",
  "directories",
  "rmcp",
+ "rotero-db",
  "rotero-graph",
  "rotero-models",
  "rotero-pdf",

@@ -207,10 +207,7 @@ impl RoteroMcp {
 
                 if total_pages > 0 {
                     let page_start = params.page_start.unwrap_or(1).max(1);
-                    let page_end = params
-                        .page_end
-                        .unwrap_or(page_start + 9)
-                        .min(total_pages);
+                    let page_end = params.page_end.unwrap_or(page_start + 9).min(total_pages);
                     let page_start = page_start.min(total_pages);
 
                     let text: String = cached

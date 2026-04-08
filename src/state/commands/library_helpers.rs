@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
-use rotero_db::turso::Connection;
 use rotero_db::Database;
+use rotero_db::turso::Connection;
 
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
 use crate::sync::engine::SyncConfig;

@@ -91,7 +91,11 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, Stri
         .unwrap_or_default()
         .into_iter()
         .filter_map(|work| {
-            let doi = work.doi.as_deref().unwrap_or("").replace("https://doi.org/", "");
+            let doi = work
+                .doi
+                .as_deref()
+                .unwrap_or("")
+                .replace("https://doi.org/", "");
             work_to_paper(work, &doi).ok()
         })
         .collect();

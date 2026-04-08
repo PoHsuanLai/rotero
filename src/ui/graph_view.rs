@@ -178,7 +178,16 @@ pub fn GraphView() -> Element {
                                 let pdf_path = pdf_path.clone();
                                 let pid = event.id.clone();
                                 drop(state);
-                                crate::state::commands::open_paper_pdf(&db, &mut tabs, &mut lib_state, &config, &dpr, &pid, &pdf_path, &title);
+                                crate::state::commands::open_paper_pdf(
+                                    &db,
+                                    &mut tabs,
+                                    &mut lib_state,
+                                    &config,
+                                    &dpr,
+                                    &pid,
+                                    &pdf_path,
+                                    &title,
+                                );
                             }
                         }
                         _ => {}
@@ -294,4 +303,3 @@ fn build_js_data(data: &GraphData, papers: &[rotero_models::Paper]) -> String {
     })
     .unwrap_or_else(|_| "{}".to_string())
 }
-

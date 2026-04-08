@@ -67,8 +67,7 @@ pub fn opt_text(opt: Option<&String>) -> turso::Value {
 
 /// Convert Option<i64> to Value::Integer or Value::Null.
 pub fn opt_int(opt: Option<i64>) -> turso::Value {
-    opt.map(turso::Value::Integer)
-        .unwrap_or(turso::Value::Null)
+    opt.map(turso::Value::Integer).unwrap_or(turso::Value::Null)
 }
 
 use std::path::{Path, PathBuf};

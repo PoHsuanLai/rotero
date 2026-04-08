@@ -85,12 +85,24 @@ impl Paper {
     /// PDF presence is weighted higher since it's the primary asset.
     pub fn metadata_completeness_score(&self) -> i32 {
         let mut c = 0i32;
-        if self.doi.is_some() { c += 1; }
-        if self.abstract_text.is_some() { c += 1; }
-        if self.publication.journal.is_some() { c += 1; }
-        if self.year.is_some() { c += 1; }
-        if self.links.pdf_path.is_some() { c += 2; }
-        if !self.authors.is_empty() { c += 1; }
+        if self.doi.is_some() {
+            c += 1;
+        }
+        if self.abstract_text.is_some() {
+            c += 1;
+        }
+        if self.publication.journal.is_some() {
+            c += 1;
+        }
+        if self.year.is_some() {
+            c += 1;
+        }
+        if self.links.pdf_path.is_some() {
+            c += 2;
+        }
+        if !self.authors.is_empty() {
+            c += 1;
+        }
         c
     }
 }
