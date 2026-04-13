@@ -14,5 +14,6 @@ pub struct RoteroMcp {
     /// Whether pdfium is available (checked at startup).
     #[allow(dead_code)] // stored for future use gating PDF tools
     pdf_available: bool,
+    #[allow(dead_code)] // read by rmcp::tool_router macro
     tool_router: ToolRouter<Self>,
 }
