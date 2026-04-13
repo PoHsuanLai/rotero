@@ -135,6 +135,27 @@ async fn search_papers_like(conn: &Connection, query: &str) -> Result<Vec<Paper>
     crate::collect_rows(&mut rows).await
 }
 
+/// Fetch papers by a list of IDs.
+pub async fn get_papers_by_ids(
+    conn: &Connection,
+    ids: &[String],
+) -> Result<Vec<Paper>, turso::Error> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{i}")).collect();
+    let sql = format!(
+        "SELECT {} FROM papers WHERE id IN ({})",
+        queries::PAPER_SELECT_COLS,
+        placeholders.join(", ")
+    );
+    let params: Vec<Value> = ids.iter().map(|id| Value::Text(id.clone())).collect();
+    let mut rows = conn
+        .query(&sql, turso::params::Params::Positional(params))
+        .await?;
+    crate::collect_rows(&mut rows).await
+}
+
 /// Toggle the favorite flag on a paper.
 pub async fn set_favorite(conn: &Connection, id: &str, favorite: bool) -> Result<(), turso::Error> {
     conn.execute(

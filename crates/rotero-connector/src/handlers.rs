@@ -1,8 +1,9 @@
-use axum::{Json, extract::State};
+use axum::{Json, extract::Query, extract::State};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use super::ConnectorState;
+use rotero_bib::citation::AVAILABLE_STYLES;
 
 /// Incoming JSON body for `POST /api/save`.
 #[derive(Debug, Deserialize)]
@@ -201,6 +202,234 @@ pub async fn scrape(
         Err(e) => Json(ScrapeResponse {
             success: false,
             metadata: None,
+            error: Some(e),
+        }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Citation API types
+// ---------------------------------------------------------------------------
+
+/// A style entry returned by `GET /api/cite/styles`.
+#[derive(Debug, Serialize)]
+pub struct StyleEntry {
+    pub id: String,
+    pub name: String,
+}
+
+/// JSON response for `GET /api/cite/styles`.
+#[derive(Debug, Serialize)]
+pub struct StylesResponse {
+    pub styles: Vec<StyleEntry>,
+}
+
+/// Query parameter for `GET /api/cite/search`.
+#[derive(Debug, Deserialize)]
+pub struct CiteSearchQuery {
+    pub q: String,
+}
+
+/// Lightweight paper info returned by search.
+#[derive(Debug, Serialize)]
+pub struct CiteSearchPaper {
+    pub id: String,
+    pub title: String,
+    pub authors: Vec<String>,
+    pub year: Option<i32>,
+    pub doi: Option<String>,
+    pub journal: Option<String>,
+}
+
+/// JSON response for `GET /api/cite/search`.
+#[derive(Debug, Serialize)]
+pub struct CiteSearchResponse {
+    pub papers: Vec<CiteSearchPaper>,
+}
+
+/// JSON request body for `POST /api/cite/format`.
+#[derive(Debug, Deserialize)]
+pub struct CiteFormatRequest {
+    pub paper_ids: Vec<String>,
+    pub style: String,
+}
+
+/// Per-paper citation text.
+#[derive(Debug, Serialize)]
+pub struct CitationEntry {
+    pub paper_id: String,
+    pub text: String,
+}
+
+/// JSON response for `POST /api/cite/format`.
+#[derive(Debug, Serialize)]
+pub struct CiteFormatResponse {
+    pub success: bool,
+    pub citations: Vec<CitationEntry>,
+    pub combined: String,
+    pub error: Option<String>,
+}
+
+/// JSON request body for `POST /api/cite/bibliography`.
+#[derive(Debug, Deserialize)]
+pub struct CiteBibliographyRequest {
+    pub paper_ids: Vec<String>,
+    pub style: String,
+}
+
+/// JSON response for `POST /api/cite/bibliography`.
+#[derive(Debug, Serialize)]
+pub struct CiteBibliographyResponse {
+    pub success: bool,
+    pub entries: Vec<CitationEntry>,
+    pub error: Option<String>,
+}
+
+/// Convert a display name to a URL-safe slug (e.g. "APA 7th" → "apa-7th").
+fn style_slug(name: &str) -> String {
+    name.to_lowercase().replace(' ', "-")
+}
+
+/// Resolve a style slug back to an `ArchivedStyle`.
+fn resolve_style(slug: &str) -> Option<rotero_bib::ArchivedStyle> {
+    AVAILABLE_STYLES
+        .iter()
+        .find(|(name, _)| style_slug(name) == slug)
+        .map(|(_, style)| *style)
+}
+
+/// Handler for `GET /api/cite/styles`. Returns all available CSL styles.
+pub async fn cite_styles() -> Json<StylesResponse> {
+    let styles = AVAILABLE_STYLES
+        .iter()
+        .map(|(name, _)| StyleEntry {
+            id: style_slug(name),
+            name: name.to_string(),
+        })
+        .collect();
+    Json(StylesResponse { styles })
+}
+
+/// Handler for `GET /api/cite/search?q=...`. Searches papers in the library.
+pub async fn cite_search(
+    State(state): State<Arc<ConnectorState>>,
+    Query(query): Query<CiteSearchQuery>,
+) -> Json<CiteSearchResponse> {
+    let papers = if let Some(ref callback) = state.on_search_papers {
+        callback(&query.q)
+    } else {
+        Vec::new()
+    };
+    let results = papers
+        .into_iter()
+        .filter_map(|p| {
+            Some(CiteSearchPaper {
+                id: p.id?,
+                title: p.title,
+                authors: p.authors,
+                year: p.year,
+                doi: p.doi,
+                journal: p.publication.journal,
+            })
+        })
+        .collect();
+    Json(CiteSearchResponse { papers: results })
+}
+
+/// Handler for `POST /api/cite/format`. Returns inline citation text.
+pub async fn cite_format(
+    State(state): State<Arc<ConnectorState>>,
+    Json(req): Json<CiteFormatRequest>,
+) -> Json<CiteFormatResponse> {
+    let style = match resolve_style(&req.style) {
+        Some(s) => s,
+        None => {
+            return Json(CiteFormatResponse {
+                success: false,
+                citations: Vec::new(),
+                combined: String::new(),
+                error: Some(format!("Unknown style: {}", req.style)),
+            });
+        }
+    };
+
+    let papers = if let Some(ref callback) = state.on_get_papers_by_ids {
+        callback(&req.paper_ids)
+    } else {
+        Vec::new()
+    };
+
+    match rotero_bib::format_inline_citations(&papers, style) {
+        Ok((individual, combined)) => {
+            let citations = papers
+                .iter()
+                .zip(individual)
+                .filter_map(|(p, text)| {
+                    Some(CitationEntry {
+                        paper_id: p.id.clone()?,
+                        text,
+                    })
+                })
+                .collect();
+            Json(CiteFormatResponse {
+                success: true,
+                citations,
+                combined,
+                error: None,
+            })
+        }
+        Err(e) => Json(CiteFormatResponse {
+            success: false,
+            citations: Vec::new(),
+            combined: String::new(),
+            error: Some(e),
+        }),
+    }
+}
+
+/// Handler for `POST /api/cite/bibliography`. Returns formatted bibliography entries.
+pub async fn cite_bibliography(
+    State(state): State<Arc<ConnectorState>>,
+    Json(req): Json<CiteBibliographyRequest>,
+) -> Json<CiteBibliographyResponse> {
+    let style = match resolve_style(&req.style) {
+        Some(s) => s,
+        None => {
+            return Json(CiteBibliographyResponse {
+                success: false,
+                entries: Vec::new(),
+                error: Some(format!("Unknown style: {}", req.style)),
+            });
+        }
+    };
+
+    let papers = if let Some(ref callback) = state.on_get_papers_by_ids {
+        callback(&req.paper_ids)
+    } else {
+        Vec::new()
+    };
+
+    match rotero_bib::format_bibliography_entries(&papers, style) {
+        Ok(texts) => {
+            let entries = papers
+                .iter()
+                .zip(texts)
+                .filter_map(|(p, text)| {
+                    Some(CitationEntry {
+                        paper_id: p.id.clone()?,
+                        text,
+                    })
+                })
+                .collect();
+            Json(CiteBibliographyResponse {
+                success: true,
+                entries,
+                error: None,
+            })
+        }
+        Err(e) => Json(CiteBibliographyResponse {
+            success: false,
+            entries: Vec::new(),
             error: Some(e),
         }),
     }

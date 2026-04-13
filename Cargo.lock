@@ -6028,6 +6028,7 @@ dependencies = [
  "axum",
  "chrono",
  "reqwest",
+ "rotero-bib",
  "rotero-models",
  "rotero-translate",
  "scraper",
@@ -6035,6 +6036,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tower",
  "tower-http",
  "tracing",
 ]

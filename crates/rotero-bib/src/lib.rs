@@ -17,7 +17,10 @@ pub mod import_nbib;
 /// RIS import.
 pub mod import_ris;
 
-pub use citation::{AVAILABLE_STYLES, format_bibliography, format_citation};
+pub use citation::{
+    AVAILABLE_STYLES, format_bibliography, format_bibliography_entries, format_citation,
+    format_inline_citations,
+};
 pub use export::{export_bibtex, generate_cite_key, generate_unique_cite_key};
 /// Re-export of hayagriva's `ArchivedStyle` for selecting citation styles.
 pub use hayagriva::archive::ArchivedStyle;

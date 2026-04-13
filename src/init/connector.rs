@@ -40,6 +40,8 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                 let conn_collections = conn.clone();
                 let conn_tags = conn.clone();
                 let conn_save = conn.clone();
+                let conn_search = conn.clone();
+                let conn_get_by_ids = conn.clone();
 
                 let state = Arc::new(ConnectorState {
                     on_paper_saved: Some(Box::new({
@@ -144,6 +146,28 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                                         .collect(),
                                     Err(_) => Vec::new(),
                                 }
+                            })
+                        })
+                    })),
+                    on_search_papers: Some(Box::new(move |query: &str| {
+                        let conn = conn_search.clone();
+                        let query = query.to_string();
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                rotero_db::papers::search_papers(&conn, &query)
+                                    .await
+                                    .unwrap_or_default()
+                            })
+                        })
+                    })),
+                    on_get_papers_by_ids: Some(Box::new(move |ids: &[String]| {
+                        let conn = conn_get_by_ids.clone();
+                        let ids = ids.to_vec();
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                rotero_db::papers::get_papers_by_ids(&conn, &ids)
+                                    .await
+                                    .unwrap_or_default()
                             })
                         })
                     })),
