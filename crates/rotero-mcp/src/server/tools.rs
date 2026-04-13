@@ -860,7 +860,6 @@ impl RoteroMcp {
         Self {
             db,
             pdf_available,
-            tool_router: Self::tool_router(),
         }
     }
 }
