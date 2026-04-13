@@ -66,6 +66,8 @@
   cursor: pointer;
   transition: background var(--transition-fast);
   border-left: 2px solid transparent;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .library-card:hover {

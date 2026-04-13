@@ -1,13 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Context menu no longer truncated when opened near the bottom or right edge of the window
+
+### Added
+- LaTeX math rendering in chat messages, paper abstracts, and note previews via `pulldown-latex` (pure Rust MathML, no JS runtime)
+- **Multi-select in library view:** Cmd+Click to toggle, Shift+Click for range select, Cmd+A to select all
+- **Keyboard shortcuts:** Arrow keys to navigate papers, Enter to open PDF, Delete/Backspace to delete with confirmation, Cmd+Shift+F to toggle favorite, Cmd+Shift+U to toggle read/unread, Escape to clear selection
+- **Bulk operations:** context menu actions (favorite, read/unread, copy DOIs, remove from collection, delete) apply to all selected papers
+- **Multi-select detail panel:** shows selected paper cards with bulk action buttons and per-paper deselect
+- **Delete confirmation dialog:** all deletes now require confirmation
+- **Multi-drag:** drag multiple selected papers onto collections or tags
+
+### Changed
+- Compact sidebar tags: smaller font, tighter padding, removed icon for better stacking
+
 ## v0.1.4
 
 ### Fixed
 - Blurry PDF rendering on HiDPI/Retina displays — DPR is now read from the native window scale factor synchronously at startup instead of racing with an async JS eval
-- Context menu no longer truncated when opened near the bottom or right edge of the window
-
-### Changed
-- Compact sidebar tags: smaller font, tighter padding, removed icon for better stacking
 
 ### Added
 - 12 new MCP write tools for full library management via AI agents:

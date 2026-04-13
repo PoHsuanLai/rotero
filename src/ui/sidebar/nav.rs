@@ -179,7 +179,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                     class: "sidebar-collection-item",
                                     draggable: "true",
                                     ondragstart: move |_| {
-                                        drag_paper.set(DragPaper(Some(pid_drag.clone())));
+                                        drag_paper.set(DragPaper(Some(vec![pid_drag.clone()])));
                                     },
                                     ondragend: move |_| {
                                         spawn(async move {
@@ -582,7 +582,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                             move |_| {
                                 lib_state.with_mut(|s| {
                                     s.view = LibraryView::AllPapers;
-                                    s.selected_paper_id = Some(pid.clone());
+                                    s.select_one(pid.clone());
                                 });
                                 recent_ctx.set(None);
                             }

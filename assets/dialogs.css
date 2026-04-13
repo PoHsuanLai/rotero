@@ -309,6 +309,23 @@
 }
 
 
+/* === Confirm Dialog === */
+.confirm-dialog {
+  width: 400px;
+}
+
+.confirm-dialog-body {
+  margin-bottom: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+}
+
+.confirm-dialog .citation-actions {
+  justify-content: flex-end;
+}
+
+
 /* === Citation Dialog === */
 .citation-dialog {
   width: 560px;

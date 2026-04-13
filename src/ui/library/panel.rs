@@ -13,6 +13,7 @@ use super::external_results::ExternalResults;
 #[component]
 pub fn LibraryPanel() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
+    let mut filtered_ids_signal = use_context_provider(|| Signal::new(Vec::<String>::new()));
     let db = use_context::<Database>();
     let render_ch = use_context::<crate::app::RenderChannel>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
@@ -164,6 +165,10 @@ pub fn LibraryPanel() -> Element {
     if !is_searching && !matches!(state.view, LibraryView::Duplicates) {
         state.sort_papers(&mut filtered);
     }
+
+    // Provide ordered IDs to child components for shift-click range selection
+    let ids: Vec<String> = filtered.iter().filter_map(|p| p.id.clone()).collect();
+    filtered_ids_signal.set(ids);
 
     let duplicate_groups = if matches!(state.view, LibraryView::Duplicates) {
         state.filter.duplicate_groups.clone()
@@ -538,7 +543,7 @@ pub fn LibraryPanel() -> Element {
                     for paper in filtered.iter() {
                         {
                             let paper_id = paper.id.clone().unwrap_or_default();
-                            let selected = state.selected_paper_id.as_deref() == Some(paper_id.as_str());
+                            let selected = state.is_selected(&paper_id);
                             rsx! {
                                 super::paper_card::PaperCard {
                                     key: "{paper_id}",
@@ -553,17 +558,13 @@ pub fn LibraryPanel() -> Element {
             }
             } // end if !is_external
 
-            if let Some((menu_paper_id, mx, my)) = ctx_menu() {
+            if let Some((_menu_paper_id, mx, my)) = ctx_menu() {
                 {
-                    let state = lib_state.read();
-                    let menu_paper = state.papers.iter().find(|p| p.id.as_deref() == Some(menu_paper_id.as_str())).cloned();
-                    drop(state);
-
-                    if let Some(paper) = menu_paper {
+                    let selected: Vec<String> = lib_state.read().selected_paper_ids.iter().cloned().collect();
+                    if !selected.is_empty() {
                         rsx! {
                             super::context_menu::PaperContextMenu {
-                                paper,
-                                paper_id: menu_paper_id,
+                                paper_ids: selected,
                                 x: mx,
                                 y: my,
                                 on_close: move |_| ctx_menu.set(None),
@@ -571,6 +572,43 @@ pub fn LibraryPanel() -> Element {
                         }
                     } else {
                         rsx! {}
+                    }
+                }
+            }
+
+            // Delete confirmation dialog
+            if lib_state.read().confirm_delete.is_some() {
+                {
+                    let delete_ids = lib_state.read().confirm_delete.clone().unwrap();
+                    let count = delete_ids.len();
+                    let message = if count == 1 { "Delete this paper?".to_string() } else { format!("Delete {count} papers?") };
+                    let db_del = db.clone();
+                    rsx! {
+                        crate::ui::components::confirm_dialog::ConfirmDialog {
+                            title: "Confirm Delete".to_string(),
+                            message,
+                            confirm_label: "Delete".to_string(),
+                            danger: true,
+                            on_confirm: move |_| {
+                                let db = db_del.clone();
+                                let ids = delete_ids.clone();
+                                spawn(async move {
+                                    for pid in &ids {
+                                        let _ = rotero_db::papers::delete_paper(db.conn(), pid).await;
+                                    }
+                                    lib_state.with_mut(|s| {
+                                        for pid in &ids {
+                                            s.papers.retain(|p| p.id.as_deref() != Some(pid.as_str()));
+                                            s.selected_paper_ids.remove(pid);
+                                        }
+                                        s.confirm_delete = None;
+                                    });
+                                });
+                            },
+                            on_cancel: move |_| {
+                                lib_state.with_mut(|s| s.confirm_delete = None);
+                            },
+                        }
                     }
                 }
             }

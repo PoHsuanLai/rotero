@@ -17,6 +17,7 @@ pub fn PaperCard(
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
     let mut drag_paper = use_context::<Signal<DragPaper>>();
+    let filtered_ids = use_context::<Signal<Vec<String>>>();
 
     let paper_id = paper.id.clone().unwrap_or_default();
     let title = paper.title.clone();
@@ -49,7 +50,14 @@ pub fn PaperCard(
             class: "{row_class}",
             draggable: "true",
             ondragstart: move |_| {
-                drag_paper.set(DragPaper(Some(pid_drag.clone())));
+                let state = lib_state.read();
+                let ids = if state.is_selected(&pid_drag) {
+                    state.selected_paper_ids.iter().cloned().collect()
+                } else {
+                    vec![pid_drag.clone()]
+                };
+                drop(state);
+                drag_paper.set(DragPaper(Some(ids)));
             },
             ondragend: move |evt: Event<DragData>| {
                 let _ = evt;
@@ -61,14 +69,26 @@ pub fn PaperCard(
                 if drag_paper().0.is_none()
                     && evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) {
                         let pid = pid_sel.clone();
-                        lib_state.with_mut(|s| {
-                            s.selected_paper_id = Some(pid);
-                        });
+                        let modifiers = evt.modifiers();
+                        let cmd = modifiers.meta() || modifiers.ctrl();
+                        let shift = modifiers.shift();
+                        if cmd {
+                            lib_state.with_mut(|s| s.toggle_select(&pid));
+                        } else if shift {
+                            lib_state.with_mut(|s| s.range_select(&pid, &filtered_ids()));
+                        } else {
+                            lib_state.with_mut(|s| s.select_one(pid));
+                        }
                     }
             },
             oncontextmenu: move |evt| {
                 evt.prevent_default();
                 let coords = evt.client_coordinates();
+                lib_state.with_mut(|s| {
+                    if !s.is_selected(&pid_ctx) {
+                        s.select_one(pid_ctx.clone());
+                    }
+                });
                 ctx_menu.set(Some((pid_ctx.clone(), coords.x, coords.y)));
             },
 

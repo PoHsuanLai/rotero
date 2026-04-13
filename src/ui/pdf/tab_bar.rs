@@ -185,7 +185,11 @@ pub fn PdfTabBar() -> Element {
                                         move |_| {
                                             lib_state.with_mut(|s| {
                                                 s.view = LibraryView::AllPapers;
-                                                s.selected_paper_id = pid.clone();
+                                                if let Some(pid) = pid.clone() {
+                                                    s.select_one(pid);
+                                                } else {
+                                                    s.clear_selection();
+                                                }
                                             });
                                             tab_ctx.set(None);
                                         }

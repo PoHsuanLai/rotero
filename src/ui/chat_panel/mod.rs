@@ -35,7 +35,7 @@ fn get_active_paper_id(lib_state: &LibraryState, tab_mgr: &PdfTabManager) -> Opt
         .active_tab_id
         .and_then(|tid| tab_mgr.tabs.iter().find(|t| t.id == tid))
         .and_then(|t| t.paper_id.clone())
-        .or_else(|| lib_state.selected_paper_id.clone())
+        .or_else(|| lib_state.single_selected_id().cloned())
 }
 
 fn build_paper_context(lib_state: &LibraryState, tab_mgr: &PdfTabManager) -> Option<String> {

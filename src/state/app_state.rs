@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use rotero_models::{Annotation, Collection, Paper, Tag};
@@ -405,7 +405,9 @@ pub struct LibraryState {
     pub papers: Vec<Paper>,
     pub collections: Vec<Collection>,
     pub tags: Vec<Tag>,
-    pub selected_paper_id: Option<String>,
+    pub selected_paper_ids: HashSet<String>,
+    pub anchor_paper_id: Option<String>,
+    pub confirm_delete: Option<Vec<String>>,
     pub view: LibraryView,
     pub search: LibrarySearchState,
     pub filter: LibraryFilterState,
@@ -430,10 +432,116 @@ pub enum LibraryView {
 }
 
 impl LibraryState {
+    /// Returns the single selected paper when exactly one is selected.
     pub fn selected_paper(&self) -> Option<&Paper> {
-        self.selected_paper_id
-            .as_ref()
-            .and_then(|id| self.papers.iter().find(|p| p.id.as_ref() == Some(id)))
+        if self.selected_paper_ids.len() != 1 {
+            return None;
+        }
+        let id = self.selected_paper_ids.iter().next().unwrap();
+        self.papers.iter().find(|p| p.id.as_deref() == Some(id.as_str()))
+    }
+
+    /// Returns the single selected paper ID if exactly one is selected.
+    pub fn single_selected_id(&self) -> Option<&String> {
+        if self.selected_paper_ids.len() == 1 {
+            self.selected_paper_ids.iter().next()
+        } else {
+            None
+        }
+    }
+
+    pub fn is_selected(&self, id: &str) -> bool {
+        self.selected_paper_ids.contains(id)
+    }
+
+    pub fn select_one(&mut self, id: String) {
+        self.selected_paper_ids.clear();
+        self.selected_paper_ids.insert(id.clone());
+        self.anchor_paper_id = Some(id);
+    }
+
+    pub fn toggle_select(&mut self, id: &str) {
+        if self.selected_paper_ids.contains(id) {
+            self.selected_paper_ids.remove(id);
+        } else {
+            self.selected_paper_ids.insert(id.to_string());
+        }
+        self.anchor_paper_id = Some(id.to_string());
+    }
+
+    pub fn range_select(&mut self, target_id: &str, ordered_ids: &[String]) {
+        let anchor = self.anchor_paper_id.as_deref().unwrap_or(target_id);
+        let anchor_pos = ordered_ids.iter().position(|id| id == anchor);
+        let target_pos = ordered_ids.iter().position(|id| id == target_id);
+        if let (Some(a), Some(t)) = (anchor_pos, target_pos) {
+            let (start, end) = if a <= t { (a, t) } else { (t, a) };
+            for id in &ordered_ids[start..=end] {
+                self.selected_paper_ids.insert(id.clone());
+            }
+        } else {
+            self.select_one(target_id.to_string());
+        }
+    }
+
+    pub fn select_all(&mut self, ids: impl Iterator<Item = String>) {
+        self.selected_paper_ids = ids.collect();
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selected_paper_ids.clear();
+        self.anchor_paper_id = None;
+    }
+
+    pub fn selection_count(&self) -> usize {
+        self.selected_paper_ids.len()
+    }
+
+    pub fn selected_papers(&self) -> Vec<&Paper> {
+        self.papers
+            .iter()
+            .filter(|p| p.id.as_deref().is_some_and(|id| self.selected_paper_ids.contains(id)))
+            .collect()
+    }
+
+    /// Returns the ordered list of paper IDs for the current filtered view.
+    pub fn filtered_paper_ids(&self) -> Vec<String> {
+        let mut filtered: Vec<_> = if let Some(ref results) = self.search.results {
+            results.clone()
+        } else {
+            match &self.view {
+                LibraryView::AllPapers => self.papers.clone(),
+                LibraryView::RecentlyAdded => self.papers.iter().take(20).cloned().collect(),
+                LibraryView::Favorites => self.papers.iter().filter(|p| p.status.is_favorite).cloned().collect(),
+                LibraryView::Unread => self.papers.iter().filter(|p| !p.status.is_read).cloned().collect(),
+                LibraryView::Collection(_) => {
+                    if let Some(ref ids) = self.filter.collection_paper_ids {
+                        self.papers.iter().filter(|p| p.id.as_ref().is_some_and(|pid| ids.contains(pid))).cloned().collect()
+                    } else {
+                        Vec::new()
+                    }
+                }
+                LibraryView::Tag(_) => {
+                    if let Some(ref ids) = self.filter.tag_paper_ids {
+                        self.papers.iter().filter(|p| p.id.as_ref().is_some_and(|pid| ids.contains(pid))).cloned().collect()
+                    } else {
+                        Vec::new()
+                    }
+                }
+                LibraryView::Duplicates => {
+                    if let Some(ref groups) = self.filter.duplicate_groups {
+                        groups.iter().flatten().cloned().collect()
+                    } else {
+                        Vec::new()
+                    }
+                }
+                _ => self.papers.clone(),
+            }
+        };
+        let is_searching = self.search.results.is_some();
+        if !is_searching && !matches!(self.view, LibraryView::Duplicates) {
+            self.sort_papers(&mut filtered);
+        }
+        filtered.iter().filter_map(|p| p.id.clone()).collect()
     }
 
     pub fn sort_papers(&self, papers: &mut [Paper]) {
@@ -498,4 +606,4 @@ pub struct AnnotationContextInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct DragPaper(pub Option<String>);
+pub struct DragPaper(pub Option<Vec<String>>);

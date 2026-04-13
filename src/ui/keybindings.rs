@@ -263,6 +263,7 @@ fn action_escape(
     mut show_settings: Signal<ShowSettings>,
     mut tabs: Signal<PdfTabManager>,
     mut tools: Signal<ViewerToolState>,
+    mut lib_state: Signal<LibraryState>,
 ) {
     let mode = tools.read().annotation_mode;
     if mode != AnnotationMode::None {
@@ -270,6 +271,7 @@ fn action_escape(
     } else if show_settings.read().0 {
         show_settings.set(ShowSettings(false));
     } else {
+        let mut handled = false;
         tabs.with_mut(|m| {
             if let Some(t) = m.active_tab_mut()
                 && t.search.visible
@@ -278,9 +280,127 @@ fn action_escape(
                 t.search.query.clear();
                 t.search.matches.clear();
                 t.search.current_index = 0;
+                handled = true;
             }
         });
+        if !handled && !lib_state.read().selected_paper_ids.is_empty() {
+            lib_state.with_mut(|s| s.clear_selection());
+        }
     }
+}
+
+fn action_select_next(mut lib_state: Signal<LibraryState>) {
+    let ids = lib_state.read().filtered_paper_ids();
+    if ids.is_empty() {
+        return;
+    }
+    let current = lib_state.read().single_selected_id().cloned();
+    let next = match current {
+        Some(ref cid) => {
+            let pos = ids.iter().position(|id| id == cid).unwrap_or(0);
+            if pos + 1 < ids.len() { pos + 1 } else { pos }
+        }
+        None => 0,
+    };
+    lib_state.with_mut(|s| s.select_one(ids[next].clone()));
+}
+
+fn action_select_prev(mut lib_state: Signal<LibraryState>) {
+    let ids = lib_state.read().filtered_paper_ids();
+    if ids.is_empty() {
+        return;
+    }
+    let current = lib_state.read().single_selected_id().cloned();
+    let prev = match current {
+        Some(ref cid) => {
+            let pos = ids.iter().position(|id| id == cid).unwrap_or(0);
+            if pos > 0 { pos - 1 } else { 0 }
+        }
+        None => 0,
+    };
+    lib_state.with_mut(|s| s.select_one(ids[prev].clone()));
+}
+
+fn action_select_all(mut lib_state: Signal<LibraryState>) {
+    let ids = lib_state.read().filtered_paper_ids();
+    lib_state.with_mut(|s| s.select_all(ids.into_iter()));
+}
+
+fn action_open_selected_pdf(
+    mut lib_state: Signal<LibraryState>,
+    mut tabs: Signal<PdfTabManager>,
+    db: &Database,
+    config: &Signal<SyncConfig>,
+    dpr_sig: &Signal<DevicePixelRatio>,
+) {
+    let state = lib_state.read();
+    if state.selection_count() != 1 {
+        return;
+    }
+    let paper = state.selected_paper().cloned();
+    drop(state);
+    if let Some(paper) = paper
+        && let Some(ref rel_path) = paper.links.pdf_path
+    {
+        let pid = paper.id.clone().unwrap_or_default();
+        crate::state::commands::open_paper_pdf(db, &mut tabs, &mut lib_state, config, dpr_sig, &pid, rel_path, &paper.title);
+    }
+}
+
+fn action_delete_selected(mut lib_state: Signal<LibraryState>) {
+    let ids: Vec<String> = lib_state.read().selected_paper_ids.iter().cloned().collect();
+    if !ids.is_empty() {
+        lib_state.with_mut(|s| s.confirm_delete = Some(ids));
+    }
+}
+
+fn action_toggle_favorite_selected(mut lib_state: Signal<LibraryState>, db: Database) {
+    let ids: Vec<String> = lib_state.read().selected_paper_ids.iter().cloned().collect();
+    if ids.is_empty() {
+        return;
+    }
+    // For single: toggle. For multi: set all to favorite.
+    let new_val = if ids.len() == 1 {
+        !lib_state.read().papers.iter().find(|p| p.id.as_deref() == Some(ids[0].as_str())).map(|p| p.status.is_favorite).unwrap_or(false)
+    } else {
+        true
+    };
+    spawn(async move {
+        for pid in &ids {
+            let _ = rotero_db::papers::set_favorite(db.conn(), pid, new_val).await;
+        }
+        lib_state.with_mut(|s| {
+            for pid in &ids {
+                if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid.as_str())) {
+                    p.status.is_favorite = new_val;
+                }
+            }
+        });
+    });
+}
+
+fn action_toggle_read_selected(mut lib_state: Signal<LibraryState>, db: Database) {
+    let ids: Vec<String> = lib_state.read().selected_paper_ids.iter().cloned().collect();
+    if ids.is_empty() {
+        return;
+    }
+    let new_val = if ids.len() == 1 {
+        !lib_state.read().papers.iter().find(|p| p.id.as_deref() == Some(ids[0].as_str())).map(|p| p.status.is_read).unwrap_or(false)
+    } else {
+        true
+    };
+    spawn(async move {
+        for pid in &ids {
+            let _ = rotero_db::papers::set_read(db.conn(), pid, new_val).await;
+        }
+        lib_state.with_mut(|s| {
+            for pid in &ids {
+                if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid.as_str())) {
+                    p.status.is_read = new_val;
+                }
+            }
+        });
+    });
 }
 
 /// Handles keyboard shortcuts (window-scoped via onkeydown) and native menu events.
@@ -331,6 +451,8 @@ pub fn handle_keydown(
     let modifiers = event.modifiers();
     let cmd = modifiers.meta() || modifiers.ctrl();
     let shift = modifiers.shift();
+
+    let in_library = !matches!(lib_state.read().view, LibraryView::PdfViewer | LibraryView::Graph);
 
     if cmd && !shift {
         if let Key::Character(ref c) = key {
@@ -383,17 +505,52 @@ pub fn handle_keydown(
                     event.prevent_default();
                     action_undo(db.clone(), tabs, undo_stack);
                 }
+                "a" if in_library => {
+                    event.prevent_default();
+                    action_select_all(lib_state);
+                }
                 _ => {}
             }
         }
     } else if cmd && shift {
-        if let Key::Character(ref c) = key
-            && (c.as_str() == "z" || c.as_str() == "Z")
-        {
-            event.prevent_default();
-            action_redo(db.clone(), tabs, undo_stack);
+        if let Key::Character(ref c) = key {
+            match c.as_str() {
+                "z" | "Z" => {
+                    event.prevent_default();
+                    action_redo(db.clone(), tabs, undo_stack);
+                }
+                "f" | "F" if in_library => {
+                    event.prevent_default();
+                    action_toggle_favorite_selected(lib_state, db.clone());
+                }
+                "u" | "U" if in_library => {
+                    event.prevent_default();
+                    action_toggle_read_selected(lib_state, db.clone());
+                }
+                _ => {}
+            }
         }
     } else if key == Key::Escape {
-        action_escape(show_settings, tabs, tools);
+        action_escape(show_settings, tabs, tools, lib_state);
+    } else if !cmd && in_library {
+        match key {
+            Key::ArrowDown => {
+                event.prevent_default();
+                action_select_next(lib_state);
+            }
+            Key::ArrowUp => {
+                event.prevent_default();
+                action_select_prev(lib_state);
+            }
+            Key::Enter => {
+                event.prevent_default();
+                action_open_selected_pdf(lib_state, tabs, &db, &config, &dpr_sig);
+            }
+            Key::Backspace | Key::Delete => {
+                event.prevent_default();
+                action_delete_selected(lib_state);
+            }
+            _ => {}
+        }
     }
 }

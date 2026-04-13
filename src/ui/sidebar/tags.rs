@@ -87,12 +87,14 @@ pub(crate) fn TagSection(
                                             ondrop: move |evt| {
                                                 evt.prevent_default();
                                                 drop_hover.set(None);
-                                                if let Some(ref paper_id) = drag_paper().0 {
+                                                if let Some(ref paper_ids) = drag_paper().0 {
                                                     let db = db_for_tag_drop.clone();
-                                                    let pid = paper_id.clone();
+                                                    let pids = paper_ids.clone();
                                                     let tid = tid_drop.clone();
                                                     spawn(async move {
-                                                        let _ = rotero_db::tags::add_tag_to_paper(db.conn(), &pid, &tid).await;
+                                                        for pid in &pids {
+                                                            let _ = rotero_db::tags::add_tag_to_paper(db.conn(), pid, &tid).await;
+                                                        }
                                                         let current_view = lib_state.read().view.clone();
                                                         if current_view == LibraryView::Tag(tid.clone())
                                                             && let Ok(ids) = rotero_db::tags::list_paper_ids_by_tag(db.conn(), &tid).await {

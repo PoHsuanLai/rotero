@@ -132,17 +132,18 @@ pub(crate) fn CollectionTree(
                                     });
                                 }
                                 drag_coll.set(None);
-                            } else if let Some(paper_id) = drag_paper().0.clone() {
+                            } else if let Some(paper_ids) = drag_paper().0.clone() {
                                 let db = db_for_paper_drop.clone();
                                 let target = cid_drop.clone();
                                 spawn(async move {
-                                    if let Ok(()) = rotero_db::collections::add_paper_to_collection(db.conn(), &paper_id, &target).await {
-                                        let current_view = lib_state.read().view.clone();
-                                        if current_view == LibraryView::Collection(target.clone())
-                                            && let Ok(ids) = rotero_db::collections::list_paper_ids_in_collection(db.conn(), &target).await {
-                                                lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
-                                            }
+                                    for paper_id in &paper_ids {
+                                        let _ = rotero_db::collections::add_paper_to_collection(db.conn(), paper_id, &target).await;
                                     }
+                                    let current_view = lib_state.read().view.clone();
+                                    if current_view == LibraryView::Collection(target.clone())
+                                        && let Ok(ids) = rotero_db::collections::list_paper_ids_in_collection(db.conn(), &target).await {
+                                            lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
+                                        }
                                 });
                                 drag_paper.set(DragPaper(None));
                             }

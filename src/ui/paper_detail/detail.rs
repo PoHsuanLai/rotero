@@ -43,7 +43,7 @@ pub fn PaperDetail() -> Element {
     let mut oa_status = use_signal(|| None::<String>);
 
     let _ = use_memo(move || {
-        let _ = lib_state.read().selected_paper_id.clone();
+        let _ = lib_state.read().selected_paper_ids.clone();
         oa_status.set(None);
     });
 
@@ -56,7 +56,7 @@ pub fn PaperDetail() -> Element {
                 button {
                     class: "detail-close",
                     onclick: move |_| {
-                        lib_state.with_mut(|s| s.selected_paper_id = None);
+                        lib_state.with_mut(|s| s.clear_selection());
                     },
                     "\u{00d7}"
                 }
@@ -326,7 +326,7 @@ pub fn PaperDetail() -> Element {
                                         let pid2 = pid.clone();
                                         lib_state.with_mut(|s| {
                                             s.papers.retain(|p| p.id.as_deref() != Some(pid2.as_str()));
-                                            s.selected_paper_id = None;
+                                            s.clear_selection();
                                         });
                                     }
                                 });

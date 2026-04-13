@@ -163,7 +163,7 @@ pub fn GraphView() -> Element {
                     match event.event_type.as_str() {
                         "click" => {
                             lib_state.with_mut(|s| {
-                                s.selected_paper_id = Some(event.id.clone());
+                                s.select_one(event.id.clone());
                             });
                         }
                         "dblclick" => {
