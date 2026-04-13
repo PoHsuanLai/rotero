@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.4
 
 ### Fixed
 - Blurry PDF rendering on HiDPI/Retina displays — DPR is now read from the native window scale factor synchronously at startup instead of racing with an async JS eval
