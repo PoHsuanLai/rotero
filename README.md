@@ -70,6 +70,27 @@ Download `Rotero-Extension.zip` from the [Releases page](https://github.com/PoHs
 
 > **Why Developer mode?** The extension is not on the Chrome Web Store, which requires a paid developer account. Loading unpacked is the standard way to install extensions distributed outside the store.
 
+## Word Add-in
+
+Insert and manage citations directly in Microsoft Word.
+
+1. Make sure Rotero is running
+2. Copy the manifest to Word's sideload directory:
+   ```sh
+   mkdir -p ~/Library/Containers/com.microsoft.Word/Data/Documents/wef
+   cp word-addin/manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/
+   ```
+3. Restart Word — a **Rotero** group appears in the **Home** tab
+
+Features:
+- **Insert Citation** — search your library and insert inline citations (e.g. "(Smith, 2024)")
+- **Bibliography** — generate a bibliography from all cited papers in the document
+- **Refresh** — update all citations and bibliography to a different CSL style
+
+Citations are stored as Word content controls with metadata, so they survive editing and can be refreshed at any time. Supports 14 CSL styles (APA, Chicago, MLA, Vancouver, IEEE, etc.).
+
+> The add-in taskpane is served locally from the Rotero connector (`localhost:21984`). All data stays on your machine.
+
 ## Architecture
 
 Cargo workspace with 9 crates:
@@ -80,7 +101,7 @@ Cargo workspace with 9 crates:
 | `rotero-db` | SQLite CRUD | turso |
 | `rotero-pdf` | PDF rendering + annotation writing | pdfium-render, lopdf |
 | `rotero-bib` | BibTeX/RIS/CSL + citation generation | biblatex, hayagriva |
-| `rotero-connector` | Browser extension HTTP server | axum |
+| `rotero-connector` | Browser extension + Word add-in HTTP server | axum |
 | `rotero-translate` | Zotero translation server (Node.js sidecar) | reqwest |
 | `rotero-graph` | Citation graph visualization | fdg |
 | `rotero-mcp` | MCP server for AI integration | rmcp |

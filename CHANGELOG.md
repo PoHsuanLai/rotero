@@ -12,6 +12,19 @@
   - **Tags:** `rename_tag`, `delete_tag`
   - **Notes:** `delete_note`
 - CRR sync tracking on all new MCP write operations
+- Word add-in for citation management in Microsoft Word:
+  - Insert inline citations from your Rotero library
+  - Generate bibliography from all cited papers
+  - Refresh all citations/bibliography to a new style
+  - Taskpane served from the connector; icons hosted on GitHub Pages
+- Citation API on the browser connector (port 21984):
+  - `GET /api/cite/styles` — list available CSL citation styles
+  - `GET /api/cite/search` — search papers in library
+  - `POST /api/cite/format` — generate inline citations
+  - `POST /api/cite/bibliography` — generate formatted bibliography entries
+- `format_inline_citations()` and `format_bibliography_entries()` in rotero-bib
+- `get_papers_by_ids()` bulk fetch in rotero-db
+- Improved app restart after update (uses bundle identifier via `open -b`)
 
 ## v0.1.3
 
