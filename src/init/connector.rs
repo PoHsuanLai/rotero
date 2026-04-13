@@ -13,6 +13,10 @@ pub static CONNECTOR_NOTIFY: std::sync::OnceLock<
 > = std::sync::OnceLock::new();
 
 #[cfg(feature = "desktop")]
+pub static CONNECTOR_TX: std::sync::OnceLock<tokio::sync::watch::Sender<()>> =
+    std::sync::OnceLock::new();
+
+#[cfg(feature = "desktop")]
 pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
     let (connector_tx, connector_rx) = tokio::sync::watch::channel(());
 
@@ -207,6 +211,7 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
         });
     }
 
+    CONNECTOR_TX.get_or_init(|| connector_tx);
     CONNECTOR_NOTIFY.get_or_init(|| std::sync::Mutex::new(connector_rx));
 }
 

@@ -6,7 +6,7 @@ pub mod db;
 /// MCP server implementation, tool routing, and parameter types.
 pub mod server;
 
-/// Read-only handle to the Rotero SQLite database.
-pub use db::Database;
+/// Handle to the Rotero SQLite database.
+pub use db::{Database, OnChangeFn};
 /// The MCP server handler that wires tools, resources, and prompts.
 pub use server::RoteroMcp;

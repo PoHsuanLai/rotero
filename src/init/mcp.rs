@@ -20,7 +20,14 @@ pub(crate) fn start_mcp_server() {
                 tracing::error!("MCP: SHARED_DB not initialized");
                 return;
             };
-            let mcp_db = rotero_mcp::Database::from_conn(conn.clone(), lib_path.clone());
+            let mut mcp_db = rotero_mcp::Database::from_conn(conn.clone(), lib_path.clone());
+            // Wire up change notifications so the UI refreshes after MCP writes.
+            if let Some(tx) = super::connector::CONNECTOR_TX.get() {
+                let tx = tx.clone();
+                mcp_db.set_on_change(std::sync::Arc::new(move || {
+                    let _ = tx.send(());
+                }));
+            }
             // Disable PDF extraction in embedded mode — pdfium can crash the HTTP server
             let pdf_available = false;
             let mcp_server = rotero_mcp::RoteroMcp::new(mcp_db, pdf_available);

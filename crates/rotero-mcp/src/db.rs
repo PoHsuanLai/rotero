@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use chrono::Utc;
 use rotero_db::FromRow;
@@ -6,11 +7,15 @@ use rotero_models::queries;
 use rotero_models::{Annotation, Collection, Note, Paper, Tag};
 use turso::{Connection, Value};
 
-/// Read-only handle to the Rotero SQLite database for MCP queries.
+/// Callback invoked after every write operation so the UI can refresh.
+pub type OnChangeFn = Arc<dyn Fn() + Send + Sync>;
+
+/// Handle to the Rotero SQLite database for MCP queries.
 #[derive(Clone)]
 pub struct Database {
     conn: Connection,
     data_dir: std::path::PathBuf,
+    on_change: Option<OnChangeFn>,
 }
 
 impl Database {
@@ -29,13 +34,32 @@ impl Database {
             .connect()
             .map_err(|e| format!("Failed to connect: {e}"))?;
 
-        Ok(Self { conn, data_dir })
+        Ok(Self {
+            conn,
+            data_dir,
+            on_change: None,
+        })
     }
 
     /// Create from an existing connection (for embedding in the main app).
-    #[allow(dead_code)] // public API for embedding
     pub fn from_conn(conn: Connection, data_dir: std::path::PathBuf) -> Self {
-        Self { conn, data_dir }
+        Self {
+            conn,
+            data_dir,
+            on_change: None,
+        }
+    }
+
+    /// Set a callback that fires after every write operation.
+    pub fn set_on_change(&mut self, f: OnChangeFn) {
+        self.on_change = Some(f);
+    }
+
+    /// Notify the UI that data has changed.
+    fn notify(&self) {
+        if let Some(ref f) = self.on_change {
+            f();
+        }
     }
 
     /// Return the application data directory (parent of the database file).
@@ -150,6 +174,7 @@ impl Database {
                 [Value::Integer(favorite as i64), Value::Text(id.to_string())],
             )
             .await?;
+        self.notify();
         Ok(())
     }
 
@@ -161,6 +186,7 @@ impl Database {
                 [Value::Integer(read as i64), Value::Text(id.to_string())],
             )
             .await?;
+        self.notify();
         Ok(())
     }
 
@@ -221,6 +247,7 @@ impl Database {
                 ]),
             )
             .await?;
+        self.notify();
         Ok(uuid)
     }
 
@@ -237,6 +264,7 @@ impl Database {
                 ]),
             )
             .await?;
+        self.notify();
         Ok(())
     }
 
@@ -372,6 +400,7 @@ impl Database {
                 ]),
             )
             .await?;
+        self.notify();
         Ok(uuid)
     }
 
@@ -386,6 +415,7 @@ impl Database {
                 ],
             )
             .await?;
+        self.notify();
         Ok(())
     }
 
@@ -524,6 +554,7 @@ impl Database {
         )
         .await?;
 
+        self.notify();
         Ok(uuid)
     }
 
@@ -576,6 +607,7 @@ impl Database {
         )
         .await?;
 
+        self.notify();
         Ok(())
     }
 
@@ -585,6 +617,7 @@ impl Database {
             .execute(queries::PAPER_DELETE, [Value::Text(id.to_string())])
             .await?;
         rotero_db::crr::tracking::track_delete(&self.conn, "papers", id).await?;
+        self.notify();
         Ok(())
     }
 
@@ -605,6 +638,7 @@ impl Database {
             .await?;
         let pk = format!("{paper_id}:{tag_id}");
         rotero_db::crr::tracking::track_delete(&self.conn, "paper_tags", &pk).await?;
+        self.notify();
         Ok(())
     }
 
@@ -635,6 +669,7 @@ impl Database {
             &["name", "parent_id", "position"],
         )
         .await?;
+        self.notify();
         Ok(uuid)
     }
 
@@ -661,6 +696,7 @@ impl Database {
             &["paper_id", "collection_id"],
         )
         .await?;
+        self.notify();
         Ok(())
     }
 
@@ -681,6 +717,7 @@ impl Database {
             .await?;
         let pk = format!("{paper_id}:{collection_id}");
         rotero_db::crr::tracking::track_delete(&self.conn, "paper_collections", &pk).await?;
+        self.notify();
         Ok(())
     }
 
@@ -690,6 +727,7 @@ impl Database {
             .execute(queries::COLLECTION_DELETE, [Value::Text(id.to_string())])
             .await?;
         rotero_db::crr::tracking::track_delete(&self.conn, "collections", id).await?;
+        self.notify();
         Ok(())
     }
 
@@ -705,6 +743,7 @@ impl Database {
             )
             .await?;
         rotero_db::crr::tracking::track_update(&self.conn, "collections", id, &["name"]).await?;
+        self.notify();
         Ok(())
     }
 
@@ -720,6 +759,7 @@ impl Database {
             )
             .await?;
         rotero_db::crr::tracking::track_update(&self.conn, "tags", id, &["name"]).await?;
+        self.notify();
         Ok(())
     }
 
@@ -729,6 +769,7 @@ impl Database {
             .execute(queries::TAG_DELETE, [Value::Text(id.to_string())])
             .await?;
         rotero_db::crr::tracking::track_delete(&self.conn, "tags", id).await?;
+        self.notify();
         Ok(())
     }
 
@@ -738,6 +779,7 @@ impl Database {
             .execute(queries::NOTE_DELETE, [Value::Text(id.to_string())])
             .await?;
         rotero_db::crr::tracking::track_delete(&self.conn, "notes", id).await?;
+        self.notify();
         Ok(())
     }
 }
