@@ -25,6 +25,8 @@
 - `format_inline_citations()` and `format_bibliography_entries()` in rotero-bib
 - `get_papers_by_ids()` bulk fetch in rotero-db
 - Improved app restart after update (uses bundle identifier via `open -b`)
+- MCP tag/collection tools now accept arrays for batch operations in a single call
+- UI auto-refreshes after MCP write operations (papers, tags, collections, notes)
 
 ## v0.1.3
 
