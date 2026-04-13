@@ -183,8 +183,14 @@ fn action_close_tab(
             let cfg_dir = config.read().effective_library_path();
             tabs.with_mut(|m| m.tab_mut().is_loading = true);
             spawn(async move {
-                let _ =
-                    crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &cfg_dir, dpr_sig.read().0).await;
+                let _ = crate::state::commands::open_pdf(
+                    &render_tx,
+                    &mut tabs,
+                    new_id,
+                    &cfg_dir,
+                    dpr_sig.read().0,
+                )
+                .await;
             });
         }
     }

@@ -3,32 +3,29 @@ use dioxus::prelude::*;
 use crate::updates::{UpdateState, UpdateStatus, apply_update};
 
 fn restart_app() {
-    if let Ok(exe) = std::env::current_exe() {
-        // Walk up to find the .app bundle (e.g. Rotero.app/Contents/MacOS/rotero → Rotero.app).
-        let mut path = exe.as_path();
-        let app_bundle = loop {
-            match path.parent() {
-                Some(parent) => {
-                    if path.extension().and_then(|e| e.to_str()) == Some("app") {
-                        break Some(path.to_path_buf());
-                    }
-                    path = parent;
-                }
-                None => break None,
-            }
-        };
+    // Use the bundle identifier to relaunch via macOS `open -b`, which avoids
+    // opening a Terminal window. This works even after the .app bundle has been
+    // replaced on disk (the old exe path may no longer exist).
+    let launched = std::process::Command::new("open")
+        .arg("-b")
+        .arg("com.rotero.Rotero")
+        .spawn()
+        .is_ok();
 
-        if let Some(bundle) = app_bundle {
-            // Production: reopen the .app bundle.
-            let _ = std::process::Command::new("open")
-                .arg("-n")
-                .arg(bundle)
-                .spawn();
-        } else {
-            // Dev build: just re-run the binary directly.
-            let _ = std::process::Command::new(&exe).spawn();
+    if !launched {
+        // Fallback: try to find and open the .app bundle directly.
+        if let Ok(exe) = std::env::current_exe() {
+            let mut path = exe.as_path();
+            while let Some(parent) = path.parent() {
+                if path.extension().and_then(|e| e.to_str()) == Some("app") {
+                    let _ = std::process::Command::new("open").arg(path).spawn();
+                    break;
+                }
+                path = parent;
+            }
         }
     }
+
     std::process::exit(0);
 }
 
