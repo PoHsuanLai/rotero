@@ -1,0 +1,48 @@
+# Changelog
+
+## Unreleased
+
+### Fixed
+- Blurry PDF rendering on HiDPI/Retina displays — DPR is now read from the native window scale factor synchronously at startup instead of racing with an async JS eval
+
+### Added
+- 12 new MCP write tools for full library management via AI agents:
+  - **Papers:** `add_paper`, `update_paper`, `delete_paper`, `remove_tag_from_paper`
+  - **Collections:** `create_collection`, `add_paper_to_collection`, `remove_paper_from_collection`, `delete_collection`, `rename_collection`
+  - **Tags:** `rename_tag`, `delete_tag`
+  - **Notes:** `delete_note`
+- CRR sync tracking on all new MCP write operations
+
+## v0.1.3
+
+### Added
+- NBIB (PubMed/MEDLINE) import support
+- Cargo doc comments across all 9 workspace crates
+- `FromRow` trait, `collect_rows` helper, and shared row/value helpers
+- `SyncBackend` trait for future sync backends
+- In-app startup update check
+
+### Changed
+- Replace `std::sync::mpsc` with `tokio::sync::oneshot` for render replies
+- Refactor: extract shared helpers, decompose `panel.rs`, fix non-idiomatic patterns
+- Fix all clippy warnings
+
+### Fixed
+- Restart after update: detect `.app` bundle vs dev build
+
+## v0.1.2
+
+### Added
+- In-app auto-update via GitHub Releases
+- Sort button in library panel
+
+## v0.1.1
+
+### Fixed
+- MCP `extract_pdf_text`: save complete fulltext and add pagination
+- Re-extract text for pages with missing `text_data` on cache hit
+- Extract `save_fulltext_to_db` helper, fix cache-hit path
+
+## v0.1.0
+
+Initial release.
