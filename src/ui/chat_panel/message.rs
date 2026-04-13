@@ -114,7 +114,7 @@ pub(crate) fn ChatMessageBubble(message: ChatMessage) -> Element {
 
 #[component]
 fn MarkdownBlock(text: String) -> Element {
-    let html = md_to_html(&text);
+    let html = crate::ui::markdown::md_to_html(&text);
 
     rsx! {
         div {
@@ -122,18 +122,4 @@ fn MarkdownBlock(text: String) -> Element {
             dangerous_inner_html: "{html}",
         }
     }
-}
-
-fn md_to_html(text: &str) -> String {
-    use pulldown_cmark::{Options, Parser, html};
-
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_TABLES);
-    options.insert(Options::ENABLE_STRIKETHROUGH);
-    options.insert(Options::ENABLE_TASKLISTS);
-
-    let parser = Parser::new_ext(text, options);
-    let mut html_output = String::new();
-    html::push_html(&mut html_output, parser);
-    html_output
 }

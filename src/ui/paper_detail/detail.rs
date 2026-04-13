@@ -218,7 +218,10 @@ pub fn PaperDetail() -> Element {
             if let Some(ref abstract_text) = paper.abstract_text {
                 div { class: "detail-field",
                     label { class: "detail-label", "Abstract" }
-                    div { class: "detail-value detail-value--abstract", "{abstract_text}" }
+                    div {
+                        class: "detail-value detail-value--abstract rendered-latex",
+                        dangerous_inner_html: "{crate::ui::markdown::text_with_latex(abstract_text)}",
+                    }
                 }
             }
 

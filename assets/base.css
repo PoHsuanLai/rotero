@@ -117,3 +117,21 @@ body {
 .bi-stop-fill::before { content: "\f592"; }
 .bi-exclamation-triangle::before { content: "\f33a"; }
 .bi-arrow-up::before { content: "\f148"; }
+
+/* --- LaTeX / MathML --- */
+
+.latex-error {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--danger, #ef4444);
+}
+
+.rendered-latex math {
+  font-size: 1em;
+}
+
+.rendered-latex math[display="block"] {
+  display: block;
+  margin: var(--space-2, 8px) 0;
+  text-align: center;
+}

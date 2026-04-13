@@ -40,12 +40,16 @@ pub fn NotesSection(paper_id: String) -> Element {
                     } else {
                         note.body.clone()
                     };
+                    let body_html = crate::ui::markdown::md_to_html(&body_preview);
                     let db_del = db.clone();
                     let pid = paper_id.clone();
                     rsx! {
                         div { key: "note-{note_id}", class: "detail-note-card",
                             div { class: "detail-note-title", "{title}" }
-                            div { class: "detail-note-body", "{body_preview}" }
+                            div {
+                                class: "detail-note-body rendered-latex",
+                                dangerous_inner_html: "{body_html}",
+                            }
                             button {
                                 class: "btn--danger-sm",
                                 onclick: move |_| {
