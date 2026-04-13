@@ -449,10 +449,7 @@ impl Database {
     }
 
     /// Insert a new paper and return its generated UUID.
-    pub async fn insert_paper(
-        &self,
-        paper: &Paper,
-    ) -> Result<String, turso::Error> {
+    pub async fn insert_paper(&self, paper: &Paper) -> Result<String, turso::Error> {
         let uuid = uuid::Uuid::now_v7().to_string();
         let authors_json =
             serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
@@ -469,7 +466,10 @@ impl Database {
                     Value::Text(uuid.clone()),
                     Value::Text(paper.title.clone()),
                     Value::Text(authors_json),
-                    paper.year.map(|y| Value::Integer(y as i64)).unwrap_or(Value::Null),
+                    paper
+                        .year
+                        .map(|y| Value::Integer(y as i64))
+                        .unwrap_or(Value::Null),
                     opt_text(paper.doi.as_ref()),
                     opt_text(paper.abstract_text.as_ref()),
                     opt_text(paper.publication.journal.as_ref()),
@@ -484,7 +484,11 @@ impl Database {
                     Value::Integer(paper.status.is_favorite as i64),
                     Value::Integer(paper.status.is_read as i64),
                     extra_meta.map(Value::Text).unwrap_or(Value::Null),
-                    paper.citation.citation_count.map(Value::Integer).unwrap_or(Value::Null),
+                    paper
+                        .citation
+                        .citation_count
+                        .map(Value::Integer)
+                        .unwrap_or(Value::Null),
                     opt_text(paper.citation.citation_key.as_ref()),
                     opt_text(paper.links.pdf_url.as_ref()),
                 ]),
@@ -496,10 +500,26 @@ impl Database {
             "papers",
             &uuid,
             &[
-                "title", "authors", "year", "doi", "abstract_text", "journal", "volume",
-                "issue", "pages", "publisher", "url", "pdf_path", "date_added",
-                "date_modified", "is_favorite", "is_read", "extra_meta", "citation_count",
-                "citation_key", "pdf_url",
+                "title",
+                "authors",
+                "year",
+                "doi",
+                "abstract_text",
+                "journal",
+                "volume",
+                "issue",
+                "pages",
+                "publisher",
+                "url",
+                "pdf_path",
+                "date_added",
+                "date_modified",
+                "is_favorite",
+                "is_read",
+                "extra_meta",
+                "citation_count",
+                "citation_key",
+                "pdf_url",
             ],
         )
         .await?;
@@ -508,11 +528,7 @@ impl Database {
     }
 
     /// Update a paper's metadata fields. Only non-None fields are applied.
-    pub async fn update_paper_metadata(
-        &self,
-        id: &str,
-        paper: &Paper,
-    ) -> Result<(), turso::Error> {
+    pub async fn update_paper_metadata(&self, id: &str, paper: &Paper) -> Result<(), turso::Error> {
         let authors_json =
             serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
         self.conn
@@ -521,7 +537,10 @@ impl Database {
                 turso::params::Params::Positional(vec![
                     Value::Text(paper.title.clone()),
                     Value::Text(authors_json),
-                    paper.year.map(|y| Value::Integer(y as i64)).unwrap_or(Value::Null),
+                    paper
+                        .year
+                        .map(|y| Value::Integer(y as i64))
+                        .unwrap_or(Value::Null),
                     opt_text(paper.doi.as_ref()),
                     opt_text(paper.abstract_text.as_ref()),
                     opt_text(paper.publication.journal.as_ref()),
@@ -541,8 +560,18 @@ impl Database {
             "papers",
             id,
             &[
-                "title", "authors", "year", "doi", "abstract_text", "journal", "volume",
-                "issue", "pages", "publisher", "url", "date_modified",
+                "title",
+                "authors",
+                "year",
+                "doi",
+                "abstract_text",
+                "journal",
+                "volume",
+                "issue",
+                "pages",
+                "publisher",
+                "url",
+                "date_modified",
             ],
         )
         .await?;

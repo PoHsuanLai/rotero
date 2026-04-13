@@ -421,10 +421,7 @@ impl RoteroMcp {
         &self,
         Parameters(params): Parameters<DeletePaperParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        self.db
-            .delete_paper(&params.paper_id)
-            .await
-            .map_err(err)?;
+        self.db.delete_paper(&params.paper_id).await.map_err(err)?;
         json_result(&serde_json::json!({ "success": true }))
     }
 
