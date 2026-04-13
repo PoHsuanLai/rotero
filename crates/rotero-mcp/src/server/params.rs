@@ -86,10 +86,11 @@ pub struct UpdateNoteParams {
 /// Parameters for the `add_tag_to_paper` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct AddTagToPaperParams {
-    pub paper_id: String,
-    /// Tag name (will be created if it doesn't exist)
-    pub tag_name: String,
-    /// Optional tag color (hex, e.g. "#ff0000")
+    /// Paper IDs to tag
+    pub paper_ids: Vec<String>,
+    /// Tag names to add (each will be created if it doesn't exist)
+    pub tag_names: Vec<String>,
+    /// Optional tag color (hex, e.g. "#ff0000") — applies to newly created tags
     pub color: Option<String>,
 }
 
@@ -167,8 +168,8 @@ pub struct DeletePaperParams {
 /// Parameters for the `remove_tag_from_paper` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct RemoveTagFromPaperParams {
-    pub paper_id: String,
-    pub tag_id: String,
+    pub paper_ids: Vec<String>,
+    pub tag_ids: Vec<String>,
 }
 
 /// Parameters for the `create_collection` tool.
@@ -182,15 +183,15 @@ pub struct CreateCollectionParams {
 /// Parameters for the `add_paper_to_collection` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct AddPaperToCollectionParams {
-    pub paper_id: String,
-    pub collection_id: String,
+    pub paper_ids: Vec<String>,
+    pub collection_ids: Vec<String>,
 }
 
 /// Parameters for the `remove_paper_from_collection` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct RemovePaperFromCollectionParams {
-    pub paper_id: String,
-    pub collection_id: String,
+    pub paper_ids: Vec<String>,
+    pub collection_ids: Vec<String>,
 }
 
 /// Parameters for the `delete_collection` tool.

@@ -285,21 +285,31 @@ impl RoteroMcp {
         json_result(&serde_json::json!({ "success": true }))
     }
 
-    #[tool(description = "Add a tag to a paper (creates the tag if it doesn't exist)")]
+    #[tool(
+        description = "Add one or more tags to one or more papers (creates tags if they don't exist)"
+    )]
     async fn add_tag_to_paper(
         &self,
         Parameters(params): Parameters<AddTagToPaperParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        let tag_id = self
-            .db
-            .get_or_create_tag(&params.tag_name, params.color.as_deref())
-            .await
-            .map_err(err)?;
-        self.db
-            .add_tag_to_paper(&params.paper_id, &tag_id)
-            .await
-            .map_err(err)?;
-        json_result(&serde_json::json!({ "tag_id": tag_id, "success": true }))
+        let mut tag_ids = Vec::new();
+        for tag_name in &params.tag_names {
+            let tag_id = self
+                .db
+                .get_or_create_tag(tag_name, params.color.as_deref())
+                .await
+                .map_err(err)?;
+            tag_ids.push(tag_id);
+        }
+        for paper_id in &params.paper_ids {
+            for tag_id in &tag_ids {
+                self.db
+                    .add_tag_to_paper(paper_id, tag_id)
+                    .await
+                    .map_err(err)?;
+            }
+        }
+        json_result(&serde_json::json!({ "tag_ids": tag_ids, "success": true }))
     }
 
     #[tool(description = "Mark a paper as read or unread")]
@@ -425,15 +435,21 @@ impl RoteroMcp {
         json_result(&serde_json::json!({ "success": true }))
     }
 
-    #[tool(description = "Remove a tag from a paper (does not delete the tag itself)")]
+    #[tool(
+        description = "Remove one or more tags from one or more papers (does not delete the tags themselves)"
+    )]
     async fn remove_tag_from_paper(
         &self,
         Parameters(params): Parameters<RemoveTagFromPaperParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        self.db
-            .remove_tag_from_paper(&params.paper_id, &params.tag_id)
-            .await
-            .map_err(err)?;
+        for paper_id in &params.paper_ids {
+            for tag_id in &params.tag_ids {
+                self.db
+                    .remove_tag_from_paper(paper_id, tag_id)
+                    .await
+                    .map_err(err)?;
+            }
+        }
         json_result(&serde_json::json!({ "success": true }))
     }
 
@@ -452,27 +468,35 @@ impl RoteroMcp {
         json_result(&serde_json::json!({ "collection_id": id, "success": true }))
     }
 
-    #[tool(description = "Add a paper to a collection")]
+    #[tool(description = "Add one or more papers to one or more collections")]
     async fn add_paper_to_collection(
         &self,
         Parameters(params): Parameters<AddPaperToCollectionParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        self.db
-            .add_paper_to_collection(&params.paper_id, &params.collection_id)
-            .await
-            .map_err(err)?;
+        for paper_id in &params.paper_ids {
+            for collection_id in &params.collection_ids {
+                self.db
+                    .add_paper_to_collection(paper_id, collection_id)
+                    .await
+                    .map_err(err)?;
+            }
+        }
         json_result(&serde_json::json!({ "success": true }))
     }
 
-    #[tool(description = "Remove a paper from a collection")]
+    #[tool(description = "Remove one or more papers from one or more collections")]
     async fn remove_paper_from_collection(
         &self,
         Parameters(params): Parameters<RemovePaperFromCollectionParams>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        self.db
-            .remove_paper_from_collection(&params.paper_id, &params.collection_id)
-            .await
-            .map_err(err)?;
+        for paper_id in &params.paper_ids {
+            for collection_id in &params.collection_ids {
+                self.db
+                    .remove_paper_from_collection(paper_id, collection_id)
+                    .await
+                    .map_err(err)?;
+            }
+        }
         json_result(&serde_json::json!({ "success": true }))
     }
 
