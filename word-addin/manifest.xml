@@ -21,7 +21,7 @@
   </Hosts>
 
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://pohsuanlai.github.io/rotero/word/taskpane.html"/>
+    <SourceLocation DefaultValue="http://127.0.0.1:21984/word/taskpane.html"/>
   </DefaultSettings>
 
   <Permissions>ReadWriteDocument</Permissions>
@@ -104,9 +104,9 @@
         <bt:Image id="Icon80" DefaultValue="https://pohsuanlai.github.io/rotero/word/assets/icon-80.png"/>
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="TaskpaneUrl" DefaultValue="https://pohsuanlai.github.io/rotero/word/taskpane.html"/>
-        <bt:Url id="TaskpaneBibUrl" DefaultValue="https://pohsuanlai.github.io/rotero/word/taskpane.html#bibliography"/>
-        <bt:Url id="TaskpaneRefreshUrl" DefaultValue="https://pohsuanlai.github.io/rotero/word/taskpane.html#refresh"/>
+        <bt:Url id="TaskpaneUrl" DefaultValue="http://127.0.0.1:21984/word/taskpane.html"/>
+        <bt:Url id="TaskpaneBibUrl" DefaultValue="http://127.0.0.1:21984/word/taskpane.html#bibliography"/>
+        <bt:Url id="TaskpaneRefreshUrl" DefaultValue="http://127.0.0.1:21984/word/taskpane.html#refresh"/>
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="GroupLabel" DefaultValue="Rotero"/>
