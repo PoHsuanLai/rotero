@@ -163,6 +163,7 @@ fn action_close_tab(
     mut lib_state: Signal<LibraryState>,
     render_ch: RenderChannel,
     config: Signal<SyncConfig>,
+    dpr_sig: Signal<DevicePixelRatio>,
 ) {
     let Some(tab_id) = tabs.read().active_tab_id else {
         return;
@@ -183,7 +184,7 @@ fn action_close_tab(
             tabs.with_mut(|m| m.tab_mut().is_loading = true);
             spawn(async move {
                 let _ =
-                    crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &cfg_dir).await;
+                    crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &cfg_dir, dpr_sig.read().0).await;
             });
         }
     }
@@ -294,7 +295,7 @@ pub fn GlobalKeyHandler() -> Element {
         "open-pdf" => action_open_pdf(tabs, lib_state, config, dpr_sig),
         "import-bibtex" => action_import_bibtex(db_menu.clone(), lib_state),
         "export-bibtex" => action_export_bibtex(lib_state),
-        "close-tab" => action_close_tab(tabs, lib_state, render_ch, config),
+        "close-tab" => action_close_tab(tabs, lib_state, render_ch, config, dpr_sig),
         "find" => action_find(lib_state, tabs),
         "show-library" => action_show_library(lib_state),
         "new-collection" => action_new_collection(lib_state, new_coll_editing),
@@ -354,7 +355,7 @@ pub fn handle_keydown(
                 }
                 "w" => {
                     event.prevent_default();
-                    action_close_tab(tabs, lib_state, render_ch, config);
+                    action_close_tab(tabs, lib_state, render_ch, config, dpr_sig);
                 }
                 "n" => {
                     event.prevent_default();

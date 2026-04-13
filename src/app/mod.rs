@@ -60,7 +60,7 @@ pub type DbGeneration = Signal<u64>;
 
 #[component]
 pub fn App() -> Element {
-    let config = use_context_provider(|| Signal::new(SyncConfig::load()));
+    let mut config = use_context_provider(|| Signal::new(SyncConfig::load()));
 
     let db_generation: DbGeneration = use_context_provider(|| Signal::new(0u64));
 
@@ -86,13 +86,33 @@ pub fn App() -> Element {
     use_context_provider(|| Signal::new(crate::updates::UpdateState::default()));
     use_context_provider(|| crate::ui::import_export::OaCancelFlag(Signal::new(None)));
 
-    let mut dpr_signal = use_context_provider(|| Signal::new(DevicePixelRatio(1.0)));
+    let mut dpr_signal = use_context_provider(|| {
+        #[cfg(feature = "desktop")]
+        let ratio = dioxus::desktop::window().window.scale_factor() as f32;
+        #[cfg(not(feature = "desktop"))]
+        let ratio = 1.0_f32;
+        let ratio = ratio.max(1.0);
+        Signal::new(DevicePixelRatio(ratio))
+    });
+    // Also query via JS as a fallback and persist to config.
     use_hook(move || {
         spawn(async move {
             let mut eval = document::eval("window.devicePixelRatio || 1.0");
-            if let Ok(ratio) = eval.recv::<f64>().await {
-                let ratio = (ratio as f32).max(1.0);
-                dpr_signal.write().0 = ratio;
+            if let Ok(js_ratio) = eval.recv::<f64>().await {
+                let js_ratio = (js_ratio as f32).max(1.0);
+                let old = dpr_signal.read().0;
+                // Use whichever is higher — native or JS.
+                let best = js_ratio.max(old);
+                if (best - old).abs() > 0.01 {
+                    dpr_signal.write().0 = best;
+                }
+                let cached = config.read().cached_dpr;
+                if (best - cached).abs() > 0.01 {
+                    config.with_mut(|cfg| {
+                        cfg.cached_dpr = best;
+                        let _ = cfg.save();
+                    });
+                }
             }
         });
     });

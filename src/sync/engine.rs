@@ -151,10 +151,17 @@ pub struct SyncConfig {
     /// Tabs beyond this limit are suspended (pages cleared) to save memory.
     #[serde(default = "default_max_resident_tabs")]
     pub max_resident_tabs: u32,
+
+    /// Cached device pixel ratio from the last run. Avoids async DPR race on startup.
+    #[serde(default = "default_dpr")]
+    pub cached_dpr: f32,
 }
 
 fn default_max_resident_tabs() -> u32 {
     3
+}
+fn default_dpr() -> f32 {
+    1.0
 }
 fn default_agent_provider() -> String {
     "claude".to_string()
@@ -203,6 +210,7 @@ impl Default for SyncConfig {
             update: UpdateConfig::default(),
             auto_fetch_metadata: default_true(),
             max_resident_tabs: default_max_resident_tabs(),
+            cached_dpr: default_dpr(),
         }
     }
 }

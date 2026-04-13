@@ -17,6 +17,7 @@ pub fn PdfViewer() -> Element {
     let render_ch = use_context::<RenderChannel>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let db = use_context::<Database>();
+    let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
     use_context_provider::<AnnCtxState>(|| Signal::new(None));
 
     let mgr = tabs.read();
@@ -44,9 +45,10 @@ pub fn PdfViewer() -> Element {
         };
         let render_tx = render_ch.sender();
         let data_dir = config.read().effective_library_path();
+        let dpr = dpr_sig.read().0;
         let db = db.clone();
         spawn(async move {
-            if crate::state::commands::open_pdf(&render_tx, &mut tabs, tid, &data_dir)
+            if crate::state::commands::open_pdf(&render_tx, &mut tabs, tid, &data_dir, dpr)
                 .await
                 .is_ok()
             {

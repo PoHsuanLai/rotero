@@ -39,8 +39,9 @@ pub async fn open_pdf(
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     data_dir: &std::path::Path,
+    dpr: f32,
 ) -> Result<(), String> {
-    let (path, zoom, dpr, batch_size, paper_id) = {
+    let (path, zoom, batch_size, paper_id) = {
         let mgr = tabs.read();
         let tab = mgr
             .tabs
@@ -50,7 +51,6 @@ pub async fn open_pdf(
         (
             tab.pdf_path.clone(),
             tab.view.zoom,
-            tab.view.dpr,
             tab.view.page_batch_size,
             tab.paper_id.clone(),
         )
@@ -77,6 +77,7 @@ pub async fn open_pdf(
         tabs.with_mut(|mgr| {
             if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                 tab.page_count = meta.page_count;
+                tab.view.dpr = dpr;
                 tab.view.render_zoom = render_scale;
                 tab.render.rendered_pages = cached_pages;
                 tab.is_loading = false;
@@ -224,6 +225,7 @@ pub async fn open_pdf(
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
             tab.page_count = page_count;
+            tab.view.dpr = dpr;
             tab.view.render_zoom = render_scale;
             tab.render.rendered_pages = pages;
             tab.is_loading = false;

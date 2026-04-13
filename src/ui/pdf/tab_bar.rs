@@ -11,6 +11,7 @@ pub fn PdfTabBar() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let render_ch = use_context::<RenderChannel>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+    let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
 
     let mgr = tabs.read();
     let tab_info: Vec<(TabId, String, bool, Option<String>)> = mgr
@@ -91,7 +92,7 @@ pub fn PdfTabBar() -> Element {
                                         tabs.with_mut(|m| m.tab_mut().is_loading = true);
                                         let render_tx = render_ch.sender();
                                         let cfg_dir = config.read().effective_library_path();
-                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &cfg_dir).await;
+                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &cfg_dir, dpr_sig.read().0).await;
                                     }
                                 });
                             },
@@ -111,7 +112,7 @@ pub fn PdfTabBar() -> Element {
                                             let cfg_dir = config.read().effective_library_path();
                                             tabs.with_mut(|m| m.tab_mut().is_loading = true);
                                             spawn(async move {
-                                                let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &cfg_dir).await;
+                                                let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &cfg_dir, dpr_sig.read().0).await;
                                             });
                                         }
                                     }
