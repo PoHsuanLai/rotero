@@ -4,6 +4,10 @@
 
 ### Fixed
 - Blurry PDF rendering on HiDPI/Retina displays — DPR is now read from the native window scale factor synchronously at startup instead of racing with an async JS eval
+- Context menu no longer truncated when opened near the bottom or right edge of the window
+
+### Changed
+- Compact sidebar tags: smaller font, tighter padding, removed icon for better stacking
 
 ### Added
 - 12 new MCP write tools for full library management via AI agents:

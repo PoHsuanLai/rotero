@@ -102,7 +102,6 @@ pub(crate) fn TagSection(
                                                     drag_paper.set(DragPaper(None));
                                                 }
                                             },
-                                            i { class: "sidebar-tag-icon bi bi-tag" }
                                             "{tag.name}"
                                         }
                                     }

@@ -297,27 +297,21 @@
 .sidebar-tags-wrap {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1_5);
+  gap: 4px;
   padding: var(--space-1) var(--space-3);
 }
 
 .sidebar-tag {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 12px;
+  padding: 2px 8px;
   border-radius: var(--radius-full);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   cursor: pointer;
   font-weight: 500;
   color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   transition: opacity var(--transition-fast);
-}
-
-.sidebar-tag-icon {
-  font-size: 10px;
-  opacity: 0.8;
 }
 
 .sidebar-tag:hover {
