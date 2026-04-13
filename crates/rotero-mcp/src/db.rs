@@ -447,8 +447,276 @@ impl Database {
         }
         Ok(papers)
     }
+
+    /// Insert a new paper and return its generated UUID.
+    pub async fn insert_paper(
+        &self,
+        paper: &Paper,
+    ) -> Result<String, turso::Error> {
+        let uuid = uuid::Uuid::now_v7().to_string();
+        let authors_json =
+            serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
+        let extra_meta = paper
+            .citation
+            .extra_meta
+            .as_ref()
+            .map(|v| serde_json::to_string(v).unwrap_or_default());
+
+        self.conn
+            .execute(
+                queries::PAPER_INSERT,
+                turso::params::Params::Positional(vec![
+                    Value::Text(uuid.clone()),
+                    Value::Text(paper.title.clone()),
+                    Value::Text(authors_json),
+                    paper.year.map(|y| Value::Integer(y as i64)).unwrap_or(Value::Null),
+                    opt_text(paper.doi.as_ref()),
+                    opt_text(paper.abstract_text.as_ref()),
+                    opt_text(paper.publication.journal.as_ref()),
+                    opt_text(paper.publication.volume.as_ref()),
+                    opt_text(paper.publication.issue.as_ref()),
+                    opt_text(paper.publication.pages.as_ref()),
+                    opt_text(paper.publication.publisher.as_ref()),
+                    opt_text(paper.links.url.as_ref()),
+                    opt_text(paper.links.pdf_path.as_ref()),
+                    Value::Text(paper.status.date_added.to_rfc3339()),
+                    Value::Text(paper.status.date_modified.to_rfc3339()),
+                    Value::Integer(paper.status.is_favorite as i64),
+                    Value::Integer(paper.status.is_read as i64),
+                    extra_meta.map(Value::Text).unwrap_or(Value::Null),
+                    paper.citation.citation_count.map(Value::Integer).unwrap_or(Value::Null),
+                    opt_text(paper.citation.citation_key.as_ref()),
+                    opt_text(paper.links.pdf_url.as_ref()),
+                ]),
+            )
+            .await?;
+
+        rotero_db::crr::tracking::track_insert(
+            &self.conn,
+            "papers",
+            &uuid,
+            &[
+                "title", "authors", "year", "doi", "abstract_text", "journal", "volume",
+                "issue", "pages", "publisher", "url", "pdf_path", "date_added",
+                "date_modified", "is_favorite", "is_read", "extra_meta", "citation_count",
+                "citation_key", "pdf_url",
+            ],
+        )
+        .await?;
+
+        Ok(uuid)
+    }
+
+    /// Update a paper's metadata fields. Only non-None fields are applied.
+    pub async fn update_paper_metadata(
+        &self,
+        id: &str,
+        paper: &Paper,
+    ) -> Result<(), turso::Error> {
+        let authors_json =
+            serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
+        self.conn
+            .execute(
+                queries::PAPER_UPDATE_METADATA,
+                turso::params::Params::Positional(vec![
+                    Value::Text(paper.title.clone()),
+                    Value::Text(authors_json),
+                    paper.year.map(|y| Value::Integer(y as i64)).unwrap_or(Value::Null),
+                    opt_text(paper.doi.as_ref()),
+                    opt_text(paper.abstract_text.as_ref()),
+                    opt_text(paper.publication.journal.as_ref()),
+                    opt_text(paper.publication.volume.as_ref()),
+                    opt_text(paper.publication.issue.as_ref()),
+                    opt_text(paper.publication.pages.as_ref()),
+                    opt_text(paper.publication.publisher.as_ref()),
+                    opt_text(paper.links.url.as_ref()),
+                    Value::Text(Utc::now().to_rfc3339()),
+                    Value::Text(id.to_string()),
+                ]),
+            )
+            .await?;
+
+        rotero_db::crr::tracking::track_update(
+            &self.conn,
+            "papers",
+            id,
+            &[
+                "title", "authors", "year", "doi", "abstract_text", "journal", "volume",
+                "issue", "pages", "publisher", "url", "date_modified",
+            ],
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Delete a paper by ID (cascades to annotations, notes, memberships).
+    pub async fn delete_paper(&self, id: &str) -> Result<(), turso::Error> {
+        self.conn
+            .execute(queries::PAPER_DELETE, [Value::Text(id.to_string())])
+            .await?;
+        rotero_db::crr::tracking::track_delete(&self.conn, "papers", id).await?;
+        Ok(())
+    }
+
+    /// Remove a tag from a paper.
+    pub async fn remove_tag_from_paper(
+        &self,
+        paper_id: &str,
+        tag_id: &str,
+    ) -> Result<(), turso::Error> {
+        self.conn
+            .execute(
+                "DELETE FROM paper_tags WHERE paper_id = ?1 AND tag_id = ?2",
+                [
+                    Value::Text(paper_id.to_string()),
+                    Value::Text(tag_id.to_string()),
+                ],
+            )
+            .await?;
+        let pk = format!("{paper_id}:{tag_id}");
+        rotero_db::crr::tracking::track_delete(&self.conn, "paper_tags", &pk).await?;
+        Ok(())
+    }
+
+    /// Create a new collection and return its UUID.
+    pub async fn insert_collection(
+        &self,
+        name: &str,
+        parent_id: Option<&str>,
+    ) -> Result<String, turso::Error> {
+        let uuid = uuid::Uuid::now_v7().to_string();
+        self.conn
+            .execute(
+                queries::COLLECTION_INSERT,
+                turso::params::Params::Positional(vec![
+                    Value::Text(uuid.clone()),
+                    Value::Text(name.to_string()),
+                    parent_id
+                        .map(|s| Value::Text(s.to_string()))
+                        .unwrap_or(Value::Null),
+                    Value::Integer(0),
+                ]),
+            )
+            .await?;
+        rotero_db::crr::tracking::track_insert(
+            &self.conn,
+            "collections",
+            &uuid,
+            &["name", "parent_id", "position"],
+        )
+        .await?;
+        Ok(uuid)
+    }
+
+    /// Add a paper to a collection (idempotent).
+    pub async fn add_paper_to_collection(
+        &self,
+        paper_id: &str,
+        collection_id: &str,
+    ) -> Result<(), turso::Error> {
+        self.conn
+            .execute(
+                queries::COLLECTION_ADD_PAPER,
+                [
+                    Value::Text(paper_id.to_string()),
+                    Value::Text(collection_id.to_string()),
+                ],
+            )
+            .await?;
+        let pk = format!("{paper_id}:{collection_id}");
+        rotero_db::crr::tracking::track_insert(
+            &self.conn,
+            "paper_collections",
+            &pk,
+            &["paper_id", "collection_id"],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Remove a paper from a collection.
+    pub async fn remove_paper_from_collection(
+        &self,
+        paper_id: &str,
+        collection_id: &str,
+    ) -> Result<(), turso::Error> {
+        self.conn
+            .execute(
+                queries::COLLECTION_REMOVE_PAPER,
+                [
+                    Value::Text(paper_id.to_string()),
+                    Value::Text(collection_id.to_string()),
+                ],
+            )
+            .await?;
+        let pk = format!("{paper_id}:{collection_id}");
+        rotero_db::crr::tracking::track_delete(&self.conn, "paper_collections", &pk).await?;
+        Ok(())
+    }
+
+    /// Delete a collection (cascades to paper memberships).
+    pub async fn delete_collection(&self, id: &str) -> Result<(), turso::Error> {
+        self.conn
+            .execute(queries::COLLECTION_DELETE, [Value::Text(id.to_string())])
+            .await?;
+        rotero_db::crr::tracking::track_delete(&self.conn, "collections", id).await?;
+        Ok(())
+    }
+
+    /// Rename a collection.
+    pub async fn rename_collection(&self, id: &str, name: &str) -> Result<(), turso::Error> {
+        self.conn
+            .execute(
+                queries::COLLECTION_RENAME,
+                turso::params::Params::Positional(vec![
+                    Value::Text(name.to_string()),
+                    Value::Text(id.to_string()),
+                ]),
+            )
+            .await?;
+        rotero_db::crr::tracking::track_update(&self.conn, "collections", id, &["name"]).await?;
+        Ok(())
+    }
+
+    /// Rename a tag.
+    pub async fn rename_tag(&self, id: &str, name: &str) -> Result<(), turso::Error> {
+        self.conn
+            .execute(
+                queries::TAG_RENAME,
+                turso::params::Params::Positional(vec![
+                    Value::Text(name.to_string()),
+                    Value::Text(id.to_string()),
+                ]),
+            )
+            .await?;
+        rotero_db::crr::tracking::track_update(&self.conn, "tags", id, &["name"]).await?;
+        Ok(())
+    }
+
+    /// Delete a tag (cascades to paper-tag associations).
+    pub async fn delete_tag(&self, id: &str) -> Result<(), turso::Error> {
+        self.conn
+            .execute(queries::TAG_DELETE, [Value::Text(id.to_string())])
+            .await?;
+        rotero_db::crr::tracking::track_delete(&self.conn, "tags", id).await?;
+        Ok(())
+    }
+
+    /// Delete a note by ID.
+    pub async fn delete_note(&self, id: &str) -> Result<(), turso::Error> {
+        self.conn
+            .execute(queries::NOTE_DELETE, [Value::Text(id.to_string())])
+            .await?;
+        rotero_db::crr::tracking::track_delete(&self.conn, "notes", id).await?;
+        Ok(())
+    }
 }
 
 fn get_opt_text(row: &turso::Row, idx: usize) -> Option<String> {
     row.get_value(idx).ok().and_then(|v| v.as_text().cloned())
+}
+
+fn opt_text(s: Option<&String>) -> Value {
+    s.map(|v| Value::Text(v.clone())).unwrap_or(Value::Null)
 }

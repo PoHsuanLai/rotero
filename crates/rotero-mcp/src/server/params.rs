@@ -120,6 +120,111 @@ pub struct GetLibraryGraphParams {
     pub max_edges: Option<u32>,
 }
 
+/// Parameters for the `add_paper` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct AddPaperParams {
+    pub title: String,
+    /// List of author names
+    pub authors: Option<Vec<String>>,
+    pub year: Option<i32>,
+    /// Digital Object Identifier
+    pub doi: Option<String>,
+    pub abstract_text: Option<String>,
+    pub journal: Option<String>,
+    pub volume: Option<String>,
+    pub issue: Option<String>,
+    pub pages: Option<String>,
+    pub publisher: Option<String>,
+    /// URL to the paper's web page
+    pub url: Option<String>,
+    /// Direct URL to the PDF file
+    pub pdf_url: Option<String>,
+}
+
+/// Parameters for the `update_paper` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct UpdatePaperParams {
+    pub paper_id: String,
+    pub title: Option<String>,
+    pub authors: Option<Vec<String>>,
+    pub year: Option<i32>,
+    pub doi: Option<String>,
+    pub abstract_text: Option<String>,
+    pub journal: Option<String>,
+    pub volume: Option<String>,
+    pub issue: Option<String>,
+    pub pages: Option<String>,
+    pub publisher: Option<String>,
+    pub url: Option<String>,
+}
+
+/// Parameters for the `delete_paper` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct DeletePaperParams {
+    pub paper_id: String,
+}
+
+/// Parameters for the `remove_tag_from_paper` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct RemoveTagFromPaperParams {
+    pub paper_id: String,
+    pub tag_id: String,
+}
+
+/// Parameters for the `create_collection` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct CreateCollectionParams {
+    pub name: String,
+    /// Parent collection ID for nesting (omit for root-level)
+    pub parent_id: Option<String>,
+}
+
+/// Parameters for the `add_paper_to_collection` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct AddPaperToCollectionParams {
+    pub paper_id: String,
+    pub collection_id: String,
+}
+
+/// Parameters for the `remove_paper_from_collection` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct RemovePaperFromCollectionParams {
+    pub paper_id: String,
+    pub collection_id: String,
+}
+
+/// Parameters for the `delete_collection` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct DeleteCollectionParams {
+    pub collection_id: String,
+}
+
+/// Parameters for the `rename_collection` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct RenameCollectionParams {
+    pub collection_id: String,
+    pub name: String,
+}
+
+/// Parameters for the `rename_tag` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct RenameTagParams {
+    pub tag_id: String,
+    pub name: String,
+}
+
+/// Parameters for the `delete_tag` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct DeleteTagParams {
+    pub tag_id: String,
+}
+
+/// Parameters for the `delete_note` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct DeleteNoteParams {
+    pub note_id: String,
+}
+
 #[derive(Serialize)]
 pub(super) struct PaperRelationship {
     pub related_paper_id: String,

@@ -327,6 +327,213 @@ impl RoteroMcp {
     }
 
     #[tool(
+        description = "Add a new paper to the library with metadata. Returns the new paper ID. At minimum provide a title; other fields are optional."
+    )]
+    async fn add_paper(
+        &self,
+        Parameters(params): Parameters<AddPaperParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let paper = rotero_models::Paper {
+            id: None,
+            title: params.title,
+            authors: params.authors.unwrap_or_default(),
+            year: params.year,
+            doi: params.doi,
+            abstract_text: params.abstract_text,
+            publication: rotero_models::Publication {
+                journal: params.journal,
+                volume: params.volume,
+                issue: params.issue,
+                pages: params.pages,
+                publisher: params.publisher,
+            },
+            links: rotero_models::PaperLinks {
+                url: params.url,
+                pdf_url: params.pdf_url,
+                pdf_path: None,
+            },
+            status: rotero_models::LibraryStatus::default(),
+            citation: rotero_models::CitationInfo::default(),
+        };
+        let id = self.db.insert_paper(&paper).await.map_err(err)?;
+        json_result(&serde_json::json!({ "paper_id": id, "success": true }))
+    }
+
+    #[tool(
+        description = "Update a paper's metadata. Fetches the current paper, applies the provided fields (non-null only), and saves. Pass only the fields you want to change."
+    )]
+    async fn update_paper(
+        &self,
+        Parameters(params): Parameters<UpdatePaperParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let mut paper = self
+            .db
+            .get_paper_by_id(&params.paper_id)
+            .await
+            .map_err(err)?
+            .ok_or_else(|| err(format!("No paper found with ID {}", params.paper_id)))?;
+
+        if let Some(title) = params.title {
+            paper.title = title;
+        }
+        if let Some(authors) = params.authors {
+            paper.authors = authors;
+        }
+        if let Some(year) = params.year {
+            paper.year = Some(year);
+        }
+        if let Some(doi) = params.doi {
+            paper.doi = Some(doi);
+        }
+        if let Some(abstract_text) = params.abstract_text {
+            paper.abstract_text = Some(abstract_text);
+        }
+        if let Some(journal) = params.journal {
+            paper.publication.journal = Some(journal);
+        }
+        if let Some(volume) = params.volume {
+            paper.publication.volume = Some(volume);
+        }
+        if let Some(issue) = params.issue {
+            paper.publication.issue = Some(issue);
+        }
+        if let Some(pages) = params.pages {
+            paper.publication.pages = Some(pages);
+        }
+        if let Some(publisher) = params.publisher {
+            paper.publication.publisher = Some(publisher);
+        }
+        if let Some(url) = params.url {
+            paper.links.url = Some(url);
+        }
+
+        self.db
+            .update_paper_metadata(&params.paper_id, &paper)
+            .await
+            .map_err(err)?;
+        json_result(&serde_json::json!({ "success": true }))
+    }
+
+    #[tool(
+        description = "Delete a paper from the library. This permanently removes the paper and all its annotations, notes, and collection/tag associations."
+    )]
+    async fn delete_paper(
+        &self,
+        Parameters(params): Parameters<DeletePaperParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        self.db
+            .delete_paper(&params.paper_id)
+            .await
+            .map_err(err)?;
+        json_result(&serde_json::json!({ "success": true }))
+    }
+
+    #[tool(description = "Remove a tag from a paper (does not delete the tag itself)")]
+    async fn remove_tag_from_paper(
+        &self,
+        Parameters(params): Parameters<RemoveTagFromPaperParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        self.db
+            .remove_tag_from_paper(&params.paper_id, &params.tag_id)
+            .await
+            .map_err(err)?;
+        json_result(&serde_json::json!({ "success": true }))
+    }
+
+    #[tool(
+        description = "Create a new collection (folder) for organizing papers. Optionally nest it under a parent collection."
+    )]
+    async fn create_collection(
+        &self,
+        Parameters(params): Parameters<CreateCollectionParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let id = self
+            .db
+            .insert_collection(&params.name, params.parent_id.as_deref())
+            .await
+            .map_err(err)?;
+        json_result(&serde_json::json!({ "collection_id": id, "success": true }))
+    }
+
+    #[tool(description = "Add a paper to a collection")]
+    async fn add_paper_to_collection(
+        &self,
+        Parameters(params): Parameters<AddPaperToCollectionParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        self.db
+            .add_paper_to_collection(&params.paper_id, &params.collection_id)
+            .await
+            .map_err(err)?;
+        json_result(&serde_json::json!({ "success": true }))
+    }
+
+    #[tool(description = "Remove a paper from a collection")]
+    async fn remove_paper_from_collection(
+        &self,
+        Parameters(params): Parameters<RemovePaperFromCollectionParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        self.db
+            .remove_paper_from_collection(&params.paper_id, &params.collection_id)
+            .await
+            .map_err(err)?;
+        json_result(&serde_json::json!({ "success": true }))
+    }
+
+    #[tool(description = "Delete a collection (removes the collection but not the papers in it)")]
+    async fn delete_collection(
+        &self,
+        Parameters(params): Parameters<DeleteCollectionParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        self.db
+            .delete_collection(&params.collection_id)
+            .await
+            .map_err(err)?;
+        json_result(&serde_json::json!({ "success": true }))
+    }
+
+    #[tool(description = "Rename a collection")]
+    async fn rename_collection(
+        &self,
+        Parameters(params): Parameters<RenameCollectionParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        self.db
+            .rename_collection(&params.collection_id, &params.name)
+            .await
+            .map_err(err)?;
+        json_result(&serde_json::json!({ "success": true }))
+    }
+
+    #[tool(description = "Rename a tag")]
+    async fn rename_tag(
+        &self,
+        Parameters(params): Parameters<RenameTagParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        self.db
+            .rename_tag(&params.tag_id, &params.name)
+            .await
+            .map_err(err)?;
+        json_result(&serde_json::json!({ "success": true }))
+    }
+
+    #[tool(description = "Delete a tag from the library (removes it from all papers)")]
+    async fn delete_tag(
+        &self,
+        Parameters(params): Parameters<DeleteTagParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        self.db.delete_tag(&params.tag_id).await.map_err(err)?;
+        json_result(&serde_json::json!({ "success": true }))
+    }
+
+    #[tool(description = "Delete a note by its ID")]
+    async fn delete_note(
+        &self,
+        Parameters(params): Parameters<DeleteNoteParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        self.db.delete_note(&params.note_id).await.map_err(err)?;
+        json_result(&serde_json::json!({ "success": true }))
+    }
+
+    #[tool(
         description = "Get papers related to a specific paper via shared tags, authors, collections, or journal. Returns relationship type, strength, and connected paper details."
     )]
     async fn get_paper_relationships(
@@ -446,8 +653,9 @@ impl ServerHandler for RoteroMcp {
         )
         .with_server_info(Implementation::new("rotero-mcp", env!("CARGO_PKG_VERSION")))
         .with_instructions(
-            "Rotero paper library MCP server. Search papers, read annotations and notes, \
-             extract PDF text, and manage your academic paper library.",
+            "Rotero paper library MCP server. Search, add, update, and delete papers. \
+             Manage collections and tags. Read annotations and notes, extract PDF text, \
+             and organize your academic paper library.",
         )
     }
 
