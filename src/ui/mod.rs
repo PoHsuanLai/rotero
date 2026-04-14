@@ -3,6 +3,7 @@ pub mod markdown;
 pub mod citation_dialog;
 pub mod components;
 pub mod graph_view;
+pub mod helpers;
 pub mod import_export;
 #[cfg(feature = "desktop")]
 pub mod keybindings;

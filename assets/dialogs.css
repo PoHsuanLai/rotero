@@ -4,6 +4,7 @@
    ==================================== */
 
 /* --- Shared Overlay --- */
+.modal-overlay,
 .settings-overlay,
 .citation-overlay {
   position: fixed;
@@ -19,6 +20,7 @@
 
 
 /* --- Shared Dialog --- */
+.modal-dialog,
 .settings-dialog,
 .citation-dialog {
   background: var(--bg-surface);
@@ -42,6 +44,24 @@
     transform: scale(1);
   }
 }
+
+
+/* --- Modal (unified) --- */
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-5);
+}
+
+.modal-header h3 {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+}
+
+.modal-body {}
 
 
 /* === Settings Dialog === */

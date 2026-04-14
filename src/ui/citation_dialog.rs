@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::state::app_state::LibraryState;
+use crate::ui::components::modal::Modal;
 
 #[component]
 pub fn CitationDialog() -> Element {
@@ -43,71 +44,60 @@ pub fn CitationDialog() -> Element {
     let styles = rotero_bib::AVAILABLE_STYLES;
 
     rsx! {
-        div { class: "citation-overlay",
-            onclick: move |_| show.set(false),
+        Modal {
+            title: "Generate Citation".to_string(),
+            on_close: move |_| show.set(false),
+            width: "560px",
 
-            div { class: "citation-dialog",
-                onclick: move |evt| evt.stop_propagation(),
-
-                div { class: "citation-header",
-                    h3 { "Generate Citation" }
-                    button {
-                        class: "detail-close",
-                        onclick: move |_| show.set(false),
-                        "\u{00d7}"
-                    }
-                }
-
-                div { class: "citation-style-picker",
-                    label { class: "detail-label", "Citation Style" }
-                    select {
-                        class: "select citation-select",
-                        value: "{selected_style_idx}",
-                        onchange: move |evt| {
-                            if let Ok(idx) = evt.value().parse::<usize>() {
-                                selected_style_idx.set(idx);
-                                let state = lib_state.read();
-                                if let Some(paper) = state.selected_paper() {
-                                    let (_, style) = styles[idx];
-                                    match rotero_bib::format_citation(paper, style) {
-                                        Ok(text) => {
-                                            formatted.set(text);
-                                            error_msg.set(None);
-                                        }
-                                        Err(e) => error_msg.set(Some(e)),
+            div { class: "citation-style-picker",
+                label { class: "detail-label", "Citation Style" }
+                select {
+                    class: "select citation-select",
+                    value: "{selected_style_idx}",
+                    onchange: move |evt| {
+                        if let Ok(idx) = evt.value().parse::<usize>() {
+                            selected_style_idx.set(idx);
+                            let state = lib_state.read();
+                            if let Some(paper) = state.selected_paper() {
+                                let (_, style) = styles[idx];
+                                match rotero_bib::format_citation(paper, style) {
+                                    Ok(text) => {
+                                        formatted.set(text);
+                                        error_msg.set(None);
                                     }
+                                    Err(e) => error_msg.set(Some(e)),
                                 }
                             }
-                        },
-                        for (i, (name, _)) in styles.iter().enumerate() {
-                            option { value: "{i}", "{name}" }
                         }
+                    },
+                    for (i, (name, _)) in styles.iter().enumerate() {
+                        option { value: "{i}", "{name}" }
                     }
                 }
+            }
 
-                div { class: "citation-preview",
-                    if let Some(ref err) = *error_msg.read() {
-                        div { class: "error-message", "{err}" }
-                    } else {
-                        pre { class: "citation-text", "{formatted}" }
-                    }
+            div { class: "citation-preview",
+                if let Some(ref err) = *error_msg.read() {
+                    div { class: "error-message", "{err}" }
+                } else {
+                    pre { class: "citation-text", "{formatted}" }
                 }
+            }
 
-                div { class: "citation-actions",
-                    button {
-                        class: if copied() { "btn btn--copied" } else { "btn btn--primary" },
-                        onclick: move |_| {
-                            if let Ok(mut clip) = arboard::Clipboard::new() {
-                                let _ = clip.set_text(formatted());
-                                copied.set(true);
-                                spawn(async move {
-                                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                                    copied.set(false);
-                                });
-                            }
-                        },
-                        if copied() { "Copied!" } else { "Copy to Clipboard" }
-                    }
+            div { class: "citation-actions",
+                button {
+                    class: if copied() { "btn btn--copied" } else { "btn btn--primary" },
+                    onclick: move |_| {
+                        if let Ok(mut clip) = arboard::Clipboard::new() {
+                            let _ = clip.set_text(formatted());
+                            copied.set(true);
+                            spawn(async move {
+                                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                copied.set(false);
+                            });
+                        }
+                    },
+                    if copied() { "Copied!" } else { "Copy to Clipboard" }
                 }
             }
         }

@@ -3,6 +3,8 @@ use dioxus::prelude::*;
 use crate::agent::types::{AGENT_PROVIDERS, AgentStatus, ChatRequest, ChatState};
 use crate::sync::engine::SyncConfig;
 use crate::ui::chat_panel::AgentChannel;
+use crate::ui::components::settings_field::SettingsField;
+use crate::ui::helpers::save_config;
 
 #[component]
 pub fn AgentSection() -> Element {
@@ -71,23 +73,17 @@ pub fn AgentSection() -> Element {
             }
 
             if has_unsaved {
-                div { class: "settings-field",
-                    span { class: "settings-field-label", "" }
-                    div { class: "settings-field-control",
-                        button {
-                            class: "btn btn--primary",
-                            onclick: move |_| {
-                                let pid = pending_provider.read().clone();
-                                config.with_mut(|c| c.agent.agent_provider = pid.clone());
-                                if let Err(e) = config.read().save() {
-                                    tracing::error!("Failed to save config: {e}");
-                                }
-                                agent_channel.send(ChatRequest::SwitchAgent {
-                                    provider_id: pid,
-                                });
-                            },
-                            "Save & Connect"
-                        }
+                SettingsField { label: "",
+                    button {
+                        class: "btn btn--primary",
+                        onclick: move |_| {
+                            let pid = pending_provider.read().clone();
+                            save_config(&mut config, |c| c.agent.agent_provider = pid.clone());
+                            agent_channel.send(ChatRequest::SwitchAgent {
+                                provider_id: pid,
+                            });
+                        },
+                        "Save & Connect"
                     }
                 }
             }
@@ -112,9 +108,8 @@ pub fn AgentSection() -> Element {
                     };
 
                     rsx! {
-                        div { class: "settings-field",
-                            span { class: "settings-field-label", "Account" }
-                            div { class: "settings-field-control agent-auth-row",
+                        SettingsField { label: "Account",
+                            div { class: "agent-auth-row",
                                 select {
                                     class: "select",
                                     onchange: move |e| {
@@ -152,20 +147,16 @@ pub fn AgentSection() -> Element {
                             }
                         }
                         if selected_is_api_key {
-                            div { class: "settings-field",
-                                span { class: "settings-field-label", "" }
-                                div { class: "settings-field-control agent-auth-row",
+                            SettingsField { label: "",
+                                div { class: "agent-auth-row",
                                     if has_key {
                                         span { class: "agent-key-masked", "{masked_key}" }
                                         button {
                                             class: "btn btn--secondary",
                                             onclick: move |_| {
-                                                config.with_mut(|c| {
+                                                save_config(&mut config, |c| {
                                                     c.agent.agent_api_keys.remove(&selected_env_var);
                                                 });
-                                                if let Err(e) = config.read().save() {
-                                    tracing::error!("Failed to save config: {e}");
-                                }
                                             },
                                             "Clear"
                                         }
@@ -185,12 +176,9 @@ pub fn AgentSection() -> Element {
                                             onclick: move |_| {
                                                 let val = api_key_input.read().clone();
                                                 if !val.is_empty() {
-                                                    config.with_mut(|c| {
+                                                    save_config(&mut config, |c| {
                                                         c.agent.agent_api_keys.insert(selected_env_var.clone(), val);
                                                     });
-                                                    if let Err(e) = config.read().save() {
-                                    tracing::error!("Failed to save config: {e}");
-                                }
                                                     api_key_input.set(String::new());
                                                     let pid = config.read().agent.agent_provider.clone();
                                                     agent_channel.send(ChatRequest::SwitchAgent {

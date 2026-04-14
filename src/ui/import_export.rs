@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use dioxus::prelude::*;
 
 use crate::state::app_state::LibraryState;
+use crate::ui::components::modal::Modal;
 use rotero_db::Database;
 
 #[derive(Clone, PartialEq)]
@@ -183,66 +184,56 @@ fn OaPromptDialog(papers: Vec<OaPending>) -> Element {
     let count = papers.len();
 
     rsx! {
-        div { class: "citation-overlay",
-            onclick: move |_| oa_state.set(None),
+        Modal {
+            title: "Download Open Access PDFs".to_string(),
+            on_close: move |_| oa_state.set(None),
+            width: "420px",
 
-            div { class: "citation-dialog oa-dialog",
-                onclick: move |evt| evt.stop_propagation(),
-
-                div { class: "oa-dialog-header",
-                    h3 { "Download Open Access PDFs" }
-                    button {
-                        class: "detail-close",
-                        onclick: move |_| oa_state.set(None),
-                        "\u{00d7}"
-                    }
+            p { class: "oa-dialog-text",
+                "{count} imported papers don't have PDFs. Search OpenAlex for open access versions?"
+            }
+            div { class: "oa-dialog-actions",
+                button {
+                    class: "btn btn--ghost",
+                    onclick: move |_| oa_state.set(None),
+                    "Skip"
                 }
-                p { class: "oa-dialog-text",
-                    "{count} imported papers don't have PDFs. Search OpenAlex for open access versions?"
-                }
-                div { class: "oa-dialog-actions",
-                    button {
-                        class: "btn btn--ghost",
-                        onclick: move |_| oa_state.set(None),
-                        "Skip"
-                    }
-                    button {
-                        class: "btn btn--primary",
-                        onclick: move |_| {
-                            let papers = papers.clone();
-                            let total = papers.len();
-                            let db = db.clone();
-                            let cancelled = Arc::new(AtomicBool::new(false));
-                            cancel_flag.set(Some(cancelled.clone()));
-                            oa_state.set(Some(OaState::Downloading { done: 0, total, downloaded: 0 }));
+                button {
+                    class: "btn btn--primary",
+                    onclick: move |_| {
+                        let papers = papers.clone();
+                        let total = papers.len();
+                        let db = db.clone();
+                        let cancelled = Arc::new(AtomicBool::new(false));
+                        cancel_flag.set(Some(cancelled.clone()));
+                        oa_state.set(Some(OaState::Downloading { done: 0, total, downloaded: 0 }));
 
-                            spawn(async move {
-                                let mut downloaded = 0;
-                                for (i, p) in papers.iter().enumerate() {
-                                    if cancelled.load(Ordering::Relaxed) {
-                                        break;
-                                    }
-                                    oa_state.set(Some(OaState::Downloading { done: i + 1, total, downloaded }));
-                                    let urls = crate::metadata::pdf_download::resolve_pdf_urls(p.doi.as_deref(), &p.title).await;
-                                    if cancelled.load(Ordering::Relaxed) { break; }
-                                    if let Ok(rel_path) = crate::metadata::pdf_download::download_and_save_pdf(
-                                        &db, &urls, &p.title, p.first_author.as_deref(), p.year,
-                                    ).await {
-                                        let _ = rotero_db::papers::update_pdf_path(db.conn(), &p.id, &rel_path).await;
-                                        let pid = p.id.clone();
-                                        lib_state.with_mut(|s| {
-                                            if let Some(paper) = s.papers.iter_mut().find(|paper| paper.id.as_deref() == Some(pid.as_str())) {
-                                                paper.links.pdf_path = Some(rel_path);
-                                            }
-                                        });
-                                        downloaded += 1;
-                                    }
+                        spawn(async move {
+                            let mut downloaded = 0;
+                            for (i, p) in papers.iter().enumerate() {
+                                if cancelled.load(Ordering::Relaxed) {
+                                    break;
                                 }
-                                oa_state.set(Some(OaState::Done { downloaded, total }));
-                            });
-                        },
-                        "Download"
-                    }
+                                oa_state.set(Some(OaState::Downloading { done: i + 1, total, downloaded }));
+                                let urls = crate::metadata::pdf_download::resolve_pdf_urls(p.doi.as_deref(), &p.title).await;
+                                if cancelled.load(Ordering::Relaxed) { break; }
+                                if let Ok(rel_path) = crate::metadata::pdf_download::download_and_save_pdf(
+                                    &db, &urls, &p.title, p.first_author.as_deref(), p.year,
+                                ).await {
+                                    let _ = rotero_db::papers::update_pdf_path(db.conn(), &p.id, &rel_path).await;
+                                    let pid = p.id.clone();
+                                    lib_state.with_mut(|s| {
+                                        if let Some(paper) = s.papers.iter_mut().find(|paper| paper.id.as_deref() == Some(pid.as_str())) {
+                                            paper.links.pdf_path = Some(rel_path);
+                                        }
+                                    });
+                                    downloaded += 1;
+                                }
+                            }
+                            oa_state.set(Some(OaState::Done { downloaded, total }));
+                        });
+                    },
+                    "Download"
                 }
             }
         }

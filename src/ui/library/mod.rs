@@ -1,5 +1,7 @@
 mod add_paper;
 mod context_menu;
+mod duplicates;
+mod empty_state;
 mod external_results;
 mod panel;
 mod paper_card;

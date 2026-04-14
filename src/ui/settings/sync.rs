@@ -2,36 +2,10 @@ use dioxus::prelude::*;
 
 use crate::app::DbGeneration;
 use crate::sync::engine::{SyncConfig, SyncTransport};
-
-#[component]
-fn PathField(
-    label: &'static str,
-    path: String,
-    show_reset: bool,
-    on_pick: EventHandler<()>,
-    on_clear: EventHandler<()>,
-) -> Element {
-    rsx! {
-        div { class: "settings-field",
-            span { class: "settings-field-label", "{label}" }
-            div { class: "settings-field-control settings-path-control",
-                code { class: "settings-bib-path", "{path}" }
-                button {
-                    class: "btn btn--sm btn--secondary",
-                    onclick: move |_| on_pick.call(()),
-                    "Change..."
-                }
-                if show_reset {
-                    button {
-                        class: "btn btn--sm btn--ghost",
-                        onclick: move |_| on_clear.call(()),
-                        "Reset"
-                    }
-                }
-            }
-        }
-    }
-}
+use crate::ui::components::path_field::PathField;
+use crate::ui::components::settings_field::SettingsField;
+use crate::ui::components::toggle_switch::ToggleSwitch;
+use crate::ui::helpers::save_config;
 
 #[component]
 pub fn SyncSection() -> Element {
@@ -91,50 +65,31 @@ pub fn SyncSection() -> Element {
             }
             p { class: "settings-hint", "Where your papers and database are stored." }
 
-            div { class: "settings-field",
-                span { class: "settings-field-label", "Sync across devices" }
-                div { class: "settings-field-control",
-                    label { class: "settings-toggle",
-                        input {
-                            r#type: "checkbox",
-                            checked: enabled,
-                            onchange: move |evt: Event<FormData>| {
-                                let val = evt.checked();
-                                config.with_mut(|c| c.sync.sync_enabled = val);
-                                if let Err(e) = config.read().save() {
-                                    tracing::error!("Failed to save config: {e}");
-                                }
-                            },
-                        }
-                        span { class: "settings-toggle-track",
-                            span { class: "settings-toggle-thumb" }
-                        }
-                    }
+            SettingsField { label: "Sync across devices",
+                ToggleSwitch {
+                    checked: enabled,
+                    onchange: move |checked| {
+                        save_config(&mut config, |c| c.sync.sync_enabled = checked);
+                    },
                 }
             }
 
             if enabled {
-                div { class: "settings-field",
-                    span { class: "settings-field-label", "Method" }
-                    div { class: "settings-field-control",
-                        select {
-                            class: "select settings-select",
-                            value: if is_cloudkit { "cloudkit" } else { "file" },
-                            onchange: move |evt: Event<FormData>| {
-                                let val = evt.value();
-                                let transport = if val == "cloudkit" {
-                                    SyncTransport::CloudKit
-                                } else {
-                                    SyncTransport::File
-                                };
-                                config.with_mut(|c| c.sync.sync_transport = transport);
-                                if let Err(e) = config.read().save() {
-                                    tracing::error!("Failed to save config: {e}");
-                                }
-                            },
-                            option { value: "cloudkit", "iCloud" }
-                            option { value: "file", "Shared folder" }
-                        }
+                SettingsField { label: "Method",
+                    select {
+                        class: "select settings-select",
+                        value: if is_cloudkit { "cloudkit" } else { "file" },
+                        onchange: move |evt: Event<FormData>| {
+                            let val = evt.value();
+                            let transport = if val == "cloudkit" {
+                                SyncTransport::CloudKit
+                            } else {
+                                SyncTransport::File
+                            };
+                            save_config(&mut config, |c| c.sync.sync_transport = transport);
+                        },
+                        option { value: "cloudkit", "iCloud" }
+                        option { value: "file", "Shared folder" }
                     }
                 }
 
@@ -151,17 +106,11 @@ pub fn SyncSection() -> Element {
                             let picked = crate::ui::pick_folder("Choose Sync Folder");
                             if let Some(path) = picked {
                                 let path_str = path.to_string_lossy().to_string();
-                                config.with_mut(|c| c.sync.sync_folder_path = Some(path_str));
-                                if let Err(e) = config.read().save() {
-                                    tracing::error!("Failed to save config: {e}");
-                                }
+                                save_config(&mut config, |c| c.sync.sync_folder_path = Some(path_str));
                             }
                         },
                         on_clear: move |_| {
-                            config.with_mut(|c| c.sync.sync_folder_path = None);
-                            if let Err(e) = config.read().save() {
-                                tracing::error!("Failed to save config: {e}");
-                            }
+                            save_config(&mut config, |c| c.sync.sync_folder_path = None);
                         },
                     }
                     p { class: "settings-hint",

@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 
 use crate::sync::engine::SyncConfig;
+use crate::ui::components::settings_field::SettingsField;
+use crate::ui::components::toggle_switch::ToggleSwitch;
+use crate::ui::helpers::save_config;
 
 const SCALE_OPTIONS: &[(&str, &str)] = &[
     ("compact", "Compact"),
@@ -18,54 +21,35 @@ pub fn AppearanceSection() -> Element {
         div { class: "settings-section",
             h4 { class: "settings-section-title", "Appearance" }
 
-            div { class: "settings-field",
-                span { class: "settings-field-label", "Dark mode" }
-                div { class: "settings-field-control",
-                    label { class: "settings-toggle",
-                        input {
-                            r#type: "checkbox",
-                            checked: dark_mode,
-                            onchange: move |evt| {
-                                let checked = evt.checked();
-                                config.with_mut(|c| c.ui.dark_mode = checked);
-                                if let Err(e) = config.read().save() {
-                                    tracing::error!("Failed to save config: {e}");
-                                }
-                            },
-                        }
-                        span { class: "settings-toggle-track",
-                            span { class: "settings-toggle-thumb" }
-                        }
-                    }
+            SettingsField { label: "Dark mode",
+                ToggleSwitch {
+                    checked: dark_mode,
+                    onchange: move |checked| {
+                        save_config(&mut config, |c| c.ui.dark_mode = checked);
+                    },
                 }
             }
 
-            div { class: "settings-field",
-                span { class: "settings-field-label", "UI density" }
-                div { class: "settings-field-control",
-                    div { class: "settings-radio-group",
-                        for (value, label) in SCALE_OPTIONS.iter() {
-                            {
-                                let v = value.to_string();
-                                let v2 = v.clone();
-                                let is_active = v == current_scale;
-                                let btn_class = if is_active {
-                                    "settings-radio-btn settings-radio-btn--active"
-                                } else {
-                                    "settings-radio-btn"
-                                };
-                                rsx! {
-                                    button {
-                                        class: "{btn_class}",
-                                        onclick: move |_| {
-                                            let scale = v2.clone();
-                                            config.with_mut(|c| c.ui.ui_scale = scale);
-                                            if let Err(e) = config.read().save() {
-                                    tracing::error!("Failed to save config: {e}");
-                                }
-                                        },
-                                        "{label}"
-                                    }
+            SettingsField { label: "UI density",
+                div { class: "settings-radio-group",
+                    for (value, label) in SCALE_OPTIONS.iter() {
+                        {
+                            let v = value.to_string();
+                            let v2 = v.clone();
+                            let is_active = v == current_scale;
+                            let btn_class = if is_active {
+                                "settings-radio-btn settings-radio-btn--active"
+                            } else {
+                                "settings-radio-btn"
+                            };
+                            rsx! {
+                                button {
+                                    class: "{btn_class}",
+                                    onclick: move |_| {
+                                        let scale = v2.clone();
+                                        save_config(&mut config, |c| c.ui.ui_scale = scale);
+                                    },
+                                    "{label}"
                                 }
                             }
                         }

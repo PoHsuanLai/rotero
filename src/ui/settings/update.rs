@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 
 use crate::sync::engine::SyncConfig;
+use crate::ui::components::settings_field::SettingsField;
+use crate::ui::components::toggle_switch::ToggleSwitch;
+use crate::ui::helpers::save_config;
 use crate::updates::{UpdateState, UpdateStatus};
 
 #[component]
@@ -14,64 +17,48 @@ pub fn UpdateSection() -> Element {
         div { class: "settings-section",
             h4 { class: "settings-section-title", "Updates" }
 
-            div { class: "settings-field",
-                span { class: "settings-field-label", "Check automatically" }
-                div { class: "settings-field-control",
-                    label { class: "settings-toggle",
-                        input {
-                            r#type: "checkbox",
-                            checked: enabled,
-                            onchange: move |evt| {
-                                let checked = evt.checked();
-                                config.with_mut(|c| c.update.auto_check_updates = checked);
-                                if let Err(e) = config.read().save() {
-                                    tracing::error!("Failed to save config: {e}");
-                                }
-                            },
-                        }
-                        span { class: "settings-toggle-track",
-                            span { class: "settings-toggle-thumb" }
-                        }
-                    }
+            SettingsField { label: "Check automatically",
+                ToggleSwitch {
+                    checked: enabled,
+                    onchange: move |checked| {
+                        save_config(&mut config, |c| c.update.auto_check_updates = checked);
+                    },
                 }
             }
 
-            div { class: "settings-field",
-                span { class: "settings-field-label", "" }
-                div { class: "settings-field-control",
-                    button {
-                        class: "btn btn--sm",
-                        disabled: checking,
-                        onclick: move |_| {
-                            update_state.with_mut(|s| {
-                                s.status = UpdateStatus::Checking;
-                                s.show_dialog = true;
-                                s.error = None;
-                            });
-                            spawn(async move {
-                                match crate::updates::check_for_update().await {
-                                    Ok(Some(info)) => {
-                                        update_state.with_mut(|s| {
-                                            s.status = UpdateStatus::Available;
-                                            s.info = Some(info);
-                                        });
-                                    }
-                                    Ok(None) => {
-                                        update_state.with_mut(|s| {
-                                            s.status = UpdateStatus::UpToDate;
-                                        });
-                                    }
-                                    Err(e) => {
-                                        update_state.with_mut(|s| {
-                                            s.status = UpdateStatus::Error;
-                                            s.error = Some(e);
-                                        });
-                                    }
+            SettingsField { label: "",
+                button {
+                    class: "btn btn--sm",
+                    disabled: checking,
+                    onclick: move |_| {
+                        update_state.with_mut(|s| {
+                            s.status = UpdateStatus::Checking;
+                            s.show_dialog = true;
+                            s.error = None;
+                        });
+                        spawn(async move {
+                            match crate::updates::check_for_update().await {
+                                Ok(Some(info)) => {
+                                    update_state.with_mut(|s| {
+                                        s.status = UpdateStatus::Available;
+                                        s.info = Some(info);
+                                    });
                                 }
-                            });
-                        },
-                        if checking { "Checking\u{2026}" } else { "Check Now" }
-                    }
+                                Ok(None) => {
+                                    update_state.with_mut(|s| {
+                                        s.status = UpdateStatus::UpToDate;
+                                    });
+                                }
+                                Err(e) => {
+                                    update_state.with_mut(|s| {
+                                        s.status = UpdateStatus::Error;
+                                        s.error = Some(e);
+                                    });
+                                }
+                            }
+                        });
+                    },
+                    if checking { "Checking\u{2026}" } else { "Check Now" }
                 }
             }
         }

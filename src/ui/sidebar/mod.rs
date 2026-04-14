@@ -1,4 +1,5 @@
 pub mod collections;
+pub mod context_menus;
 pub mod nav;
 pub mod open_pdf;
 pub mod tags;

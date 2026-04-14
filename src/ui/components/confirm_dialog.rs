@@ -1,5 +1,7 @@
 use dioxus::prelude::*;
 
+use super::modal::Modal;
+
 #[component]
 pub fn ConfirmDialog(
     title: String,
@@ -16,36 +18,25 @@ pub fn ConfirmDialog(
     };
 
     rsx! {
-        div { class: "citation-overlay",
-            onclick: move |_| on_cancel.call(()),
+        Modal {
+            title,
+            on_close: move |_| on_cancel.call(()),
+            width: "400px",
 
-            div { class: "citation-dialog confirm-dialog",
-                onclick: move |evt| evt.stop_propagation(),
+            div { class: "confirm-dialog-body",
+                p { "{message}" }
+            }
 
-                div { class: "citation-header",
-                    h3 { "{title}" }
-                    button {
-                        class: "detail-close",
-                        onclick: move |_| on_cancel.call(()),
-                        "\u{00d7}"
-                    }
+            div { class: "citation-actions",
+                button {
+                    class: "btn",
+                    onclick: move |_| on_cancel.call(()),
+                    "Cancel"
                 }
-
-                div { class: "confirm-dialog-body",
-                    p { "{message}" }
-                }
-
-                div { class: "citation-actions",
-                    button {
-                        class: "btn",
-                        onclick: move |_| on_cancel.call(()),
-                        "Cancel"
-                    }
-                    button {
-                        class: "{confirm_class}",
-                        onclick: move |_| on_confirm.call(()),
-                        "{confirm_label}"
-                    }
+                button {
+                    class: "{confirm_class}",
+                    onclick: move |_| on_confirm.call(()),
+                    "{confirm_label}"
                 }
             }
         }
