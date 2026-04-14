@@ -40,12 +40,8 @@ pub fn PaperDetail() -> Element {
     let mut edit_key_value = use_signal(|| paper.citation.citation_key.clone().unwrap_or_default());
     let mut copied_hint = use_signal(|| false);
 
-    let mut oa_status = use_signal(|| None::<String>);
-
-    let _ = use_memo(move || {
-        let _ = lib_state.read().selected_paper_ids.clone();
-        oa_status.set(None);
-    });
+    let mut oa_statuses = use_context::<Signal<std::collections::HashMap<String, String>>>();
+    let oa_status_value = oa_statuses.read().get(&paper_id).cloned();
 
     rsx! {
         div { class: "paper-detail",
@@ -275,8 +271,8 @@ pub fn PaperDetail() -> Element {
                             let agent_pid = pid_oa.clone();
                             let agent_channel = use_context::<crate::ui::chat_panel::AgentChannel>();
                             let mut chat_state = use_context::<Signal<crate::agent::types::ChatState>>();
-                            let is_ask_agent = oa_status().as_deref() == Some("ask_agent");
-                            let is_busy = oa_status().is_some() && !is_ask_agent;
+                            let is_ask_agent = oa_status_value.as_deref() == Some("ask_agent");
+                            let is_busy = oa_status_value.is_some() && !is_ask_agent;
                             rsx! {
                                 button {
                                     class: if is_ask_agent { "btn btn--primary" } else { "btn btn--secondary" },
@@ -318,7 +314,7 @@ pub fn PaperDetail() -> Element {
                                                 prompt,
                                                 paper_context,
                                             });
-                                            oa_status.set(Some("Agent...".to_string()));
+                                            oa_statuses.with_mut(|m| { m.insert(pid, "Agent...".into()); });
                                         } else {
                                             // Automated OA search
                                             let db = db_oa.clone();
@@ -327,14 +323,14 @@ pub fn PaperDetail() -> Element {
                                             let authors = paper_authors.clone();
                                             let year = paper_year;
                                             let paper_id = pid_oa.clone();
-                                            oa_status.set(Some("Searching...".to_string()));
+                                            oa_statuses.with_mut(|m| { m.insert(paper_id.clone(), "Searching...".into()); });
                                             spawn(async move {
                                                 let urls = crate::metadata::pdf_download::resolve_pdf_urls(doi.as_deref(), &title).await;
                                                 if urls.is_empty() {
-                                                    oa_status.set(Some("ask_agent".to_string()));
+                                                    oa_statuses.with_mut(|m| { m.insert(paper_id.clone(), "ask_agent".into()); });
                                                     return;
                                                 }
-                                                oa_status.set(Some("Downloading...".to_string()));
+                                                oa_statuses.with_mut(|m| { m.insert(paper_id.clone(), "Downloading...".into()); });
                                                 let first_author = authors.first().map(|a| a.as_str());
                                                 match crate::metadata::pdf_download::download_and_save_pdf(&db, &urls, &title, first_author, year).await {
                                                     Ok(rel_path) => {
@@ -346,16 +342,18 @@ pub fn PaperDetail() -> Element {
                                                                 p.links.pdf_path = Some(rel_path);
                                                             }
                                                         });
-                                                        oa_status.set(Some("Downloaded".to_string()));
+                                                        oa_statuses.with_mut(|m| { m.insert(paper_id, "Downloaded".into()); });
                                                     }
-                                                    Err(_) => oa_status.set(Some("ask_agent".to_string())),
+                                                    Err(_) => {
+                                                        oa_statuses.with_mut(|m| { m.insert(paper_id, "ask_agent".into()); });
+                                                    }
                                                 }
                                             });
                                         }
                                     },
                                     if is_ask_agent {
                                         "Ask Agent"
-                                    } else if let Some(ref status) = oa_status() {
+                                    } else if let Some(ref status) = oa_status_value {
                                         "{status}"
                                     } else {
                                         "Find PDF"

@@ -85,6 +85,7 @@ pub fn App() -> Element {
     #[cfg(feature = "desktop")]
     use_context_provider(|| Signal::new(crate::updates::UpdateState::default()));
     use_context_provider(|| crate::ui::import_export::OaCancelFlag(Signal::new(None)));
+    use_context_provider(|| Signal::new(std::collections::HashMap::<String, String>::new()));
 
     let mut dpr_signal = use_context_provider(|| {
         #[cfg(feature = "desktop")]
