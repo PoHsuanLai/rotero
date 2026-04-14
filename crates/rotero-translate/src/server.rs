@@ -57,23 +57,23 @@ impl TranslationServer {
                 if let Some(ref mut child) = *guard
                     && let Ok(Some(status)) = child.try_wait()
                 {
-                        let stderr = child
-                            .stderr
-                            .take()
-                            .and_then(|mut s| {
-                                let mut buf = String::new();
-                                std::io::Read::read_to_string(&mut s, &mut buf).ok()?;
-                                Some(buf)
-                            })
-                            .unwrap_or_default();
-                        tracing::error!(
-                            "Translation server exited with {status} after ~{}s. stderr:\n{stderr}",
-                            i / 2
-                        );
-                        *guard = None;
-                        return Err(TranslateError::Setup(format!(
-                            "Translation server exited with {status}: {stderr}"
-                        )));
+                    let stderr = child
+                        .stderr
+                        .take()
+                        .and_then(|mut s| {
+                            let mut buf = String::new();
+                            std::io::Read::read_to_string(&mut s, &mut buf).ok()?;
+                            Some(buf)
+                        })
+                        .unwrap_or_default();
+                    tracing::error!(
+                        "Translation server exited with {status} after ~{}s. stderr:\n{stderr}",
+                        i / 2
+                    );
+                    *guard = None;
+                    return Err(TranslateError::Setup(format!(
+                        "Translation server exited with {status}: {stderr}"
+                    )));
                 }
             }
 

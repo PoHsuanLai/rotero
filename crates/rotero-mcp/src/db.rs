@@ -776,7 +776,11 @@ impl Database {
     }
 
     /// Update the pdf_path for a paper after downloading a PDF.
-    pub async fn update_pdf_path(&self, paper_id: &str, rel_path: &str) -> Result<(), turso::Error> {
+    pub async fn update_pdf_path(
+        &self,
+        paper_id: &str,
+        rel_path: &str,
+    ) -> Result<(), turso::Error> {
         self.conn
             .execute(
                 "UPDATE papers SET pdf_path = ?1, date_modified = ?2 WHERE id = ?3",
@@ -787,8 +791,13 @@ impl Database {
                 ]),
             )
             .await?;
-        rotero_db::crr::tracking::track_update(&self.conn, "papers", paper_id, &["pdf_path", "date_modified"])
-            .await?;
+        rotero_db::crr::tracking::track_update(
+            &self.conn,
+            "papers",
+            paper_id,
+            &["pdf_path", "date_modified"],
+        )
+        .await?;
         self.notify();
         Ok(())
     }
