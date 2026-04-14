@@ -54,8 +54,9 @@ impl TranslationServer {
             // Check if the process exited early
             {
                 let mut guard = self.child.lock().unwrap();
-                if let Some(ref mut child) = *guard {
-                    if let Ok(Some(status)) = child.try_wait() {
+                if let Some(ref mut child) = *guard
+                    && let Ok(Some(status)) = child.try_wait()
+                {
                         let stderr = child
                             .stderr
                             .take()
@@ -73,7 +74,6 @@ impl TranslationServer {
                         return Err(TranslateError::Setup(format!(
                             "Translation server exited with {status}: {stderr}"
                         )));
-                    }
                 }
             }
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.5
 
 ### Fixed
 - Context menu no longer truncated when opened near the bottom or right edge of the window

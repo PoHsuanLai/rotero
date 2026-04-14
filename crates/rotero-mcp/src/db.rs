@@ -42,6 +42,7 @@ impl Database {
     }
 
     /// Create from an existing connection (for embedding in the main app).
+    #[allow(dead_code)]
     pub fn from_conn(conn: Connection, data_dir: std::path::PathBuf) -> Self {
         Self {
             conn,
@@ -51,6 +52,7 @@ impl Database {
     }
 
     /// Set a callback that fires after every write operation.
+    #[allow(dead_code)]
     pub fn set_on_change(&mut self, f: OnChangeFn) {
         self.on_change = Some(f);
     }

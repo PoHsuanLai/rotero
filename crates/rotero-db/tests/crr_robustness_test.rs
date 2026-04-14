@@ -2,7 +2,7 @@
 //! idempotency, out-of-order application, delete/resurrect, junction tables.
 
 use rotero_db::{annotations, collections, crr, notes, papers, saved_searches, schema, tags};
-use rotero_models::{Annotation, AnnotationType, Collection, Note, Paper, Tag};
+use rotero_models::{Annotation, AnnotationType, Collection, Note, Paper};
 
 async fn open_test_db(dir: &std::path::Path) -> rotero_db::turso::Connection {
     std::fs::create_dir_all(dir).unwrap();
@@ -156,7 +156,7 @@ async fn test_sequential_changesets_from_same_device() {
     papers::update_paper_metadata(&conn_a, &id, &paper)
         .await
         .unwrap();
-    let v2 = crr::current_db_version(&conn_a).await.unwrap();
+    crr::current_db_version(&conn_a).await.unwrap();
 
     papers::set_favorite(&conn_a, &id, true).await.unwrap();
 
@@ -227,14 +227,14 @@ async fn test_bidirectional_sync_converges() {
 
     // A: favorite + update title
     papers::set_favorite(&conn_a, &id, true).await.unwrap();
-    let mut paper_a = new_paper("Title A");
+    let paper_a = new_paper("Title A");
     papers::update_paper_metadata(&conn_a, &id, &paper_a)
         .await
         .unwrap();
 
     // B: read + different title
     papers::set_read(&conn_b, &id, true).await.unwrap();
-    let mut paper_b = new_paper("Title B");
+    let paper_b = new_paper("Title B");
     papers::update_paper_metadata(&conn_b, &id, &paper_b)
         .await
         .unwrap();
@@ -351,7 +351,7 @@ async fn test_annotation_sync() {
         created_at: chrono::Utc::now(),
         modified_at: chrono::Utc::now(),
     };
-    let ann_id = annotations::insert_annotation(&conn_a, &ann).await.unwrap();
+    annotations::insert_annotation(&conn_a, &ann).await.unwrap();
 
     // Sync to B
     let changes = crr::changes_since(&conn_a, 0).await.unwrap();
@@ -380,7 +380,7 @@ async fn test_notes_sync() {
         .await
         .unwrap();
     let note = Note::new(paper_id.clone(), "My Note".to_string());
-    let note_id = notes::insert_note(&conn_a, &note).await.unwrap();
+    notes::insert_note(&conn_a, &note).await.unwrap();
 
     // Sync to B
     let changes = crr::changes_since(&conn_a, 0).await.unwrap();
@@ -449,7 +449,7 @@ async fn test_three_device_convergence() {
     // Each device makes a different change
     papers::set_favorite(&conn_a, &id, true).await.unwrap();
     papers::set_read(&conn_b, &id, true).await.unwrap();
-    let mut paper_c = new_paper("Updated by C");
+    let paper_c = new_paper("Updated by C");
     papers::update_paper_metadata(&conn_c, &id, &paper_c)
         .await
         .unwrap();

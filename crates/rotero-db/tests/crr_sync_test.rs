@@ -122,8 +122,8 @@ async fn test_two_device_sync() {
         .unwrap();
 
     // Device A: insert a collection
-    let mut coll = rotero_models::Collection::new("My Collection".to_string());
-    let coll_id = collections::insert_collection(&conn_a, &coll)
+    let coll = rotero_models::Collection::new("My Collection".to_string());
+    collections::insert_collection(&conn_a, &coll)
         .await
         .unwrap();
 

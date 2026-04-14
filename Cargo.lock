@@ -6021,7 +6021,7 @@ checksum = "c85cd47a33a4510b1424fe796498e174c6a9cf94e606460ef022a19f3e4ff85e"
 
 [[package]]
 name = "rotero"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "apple-utils",
  "arboard",
@@ -6065,7 +6065,7 @@ dependencies = [
 
 [[package]]
 name = "rotero-bib"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "biblatex",
  "biblib",
@@ -6079,7 +6079,7 @@ dependencies = [
 
 [[package]]
 name = "rotero-connector"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "axum",
  "chrono",
@@ -6099,7 +6099,7 @@ dependencies = [
 
 [[package]]
 name = "rotero-db"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "chrono",
  "rotero-models",
@@ -6114,7 +6114,7 @@ dependencies = [
 
 [[package]]
 name = "rotero-graph"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "rotero-models",
  "serde",
@@ -6123,7 +6123,7 @@ dependencies = [
 
 [[package]]
 name = "rotero-mcp"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -6147,7 +6147,7 @@ dependencies = [
 
 [[package]]
 name = "rotero-models"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "chrono",
  "serde",
@@ -6156,7 +6156,7 @@ dependencies = [
 
 [[package]]
 name = "rotero-pdf"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "base64",
  "image",
@@ -6171,7 +6171,7 @@ dependencies = [
 
 [[package]]
 name = "rotero-search"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "reqwest",
  "rotero-models",
@@ -6182,7 +6182,7 @@ dependencies = [
 
 [[package]]
 name = "rotero-translate"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "directories",
  "reqwest",

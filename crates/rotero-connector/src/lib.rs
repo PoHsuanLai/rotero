@@ -20,6 +20,8 @@ use handlers::{CollectionInfo, TagInfo};
 use rotero_models::Paper;
 
 type OnPaperSavedFn = dyn Fn(Paper, Option<String>, Vec<String>, Option<String>) + Send + Sync;
+type SearchPapersFn = dyn Fn(&str) -> Vec<Paper> + Send + Sync;
+type GetPapersByIdsFn = dyn Fn(&[String]) -> Vec<Paper> + Send + Sync;
 
 /// Shared state for the connector server, holding callbacks into the main app.
 pub struct ConnectorState {
@@ -30,9 +32,9 @@ pub struct ConnectorState {
     /// Callback to retrieve the user's tags for the save dialog.
     pub on_get_tags: Option<Box<dyn Fn() -> Vec<TagInfo> + Send + Sync>>,
     /// Callback to search papers by query string.
-    pub on_search_papers: Option<Box<dyn Fn(&str) -> Vec<Paper> + Send + Sync>>,
+    pub on_search_papers: Option<Box<SearchPapersFn>>,
     /// Callback to fetch papers by their IDs.
-    pub on_get_papers_by_ids: Option<Box<dyn Fn(&[String]) -> Vec<Paper> + Send + Sync>>,
+    pub on_get_papers_by_ids: Option<Box<GetPapersByIdsFn>>,
     /// Behind RwLock so it can be set after the connector starts.
     pub translation_server: tokio::sync::RwLock<Option<rotero_translate::TranslationServer>>,
 }
