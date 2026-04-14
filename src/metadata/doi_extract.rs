@@ -1,7 +1,6 @@
 use std::sync::LazyLock;
 
 use regex::Regex;
-use rotero_models::PaperId;
 
 static DOI_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\b(10\.\d{4,}/[^\s]+)").unwrap());
@@ -28,14 +27,4 @@ pub fn extract_arxiv_id(text: &str) -> Option<String> {
         }
         id.to_string()
     })
-}
-
-/// Extract the best paper identifier from raw text.
-/// Prefers DOI over arXiv (DOI is more universal).
-pub fn extract_paper_id(text: &str) -> Option<PaperId> {
-    if let Some(doi) = extract_doi(text) {
-        PaperId::parse(&doi)
-    } else {
-        extract_arxiv_id(text).map(PaperId::ArXiv)
-    }
 }
