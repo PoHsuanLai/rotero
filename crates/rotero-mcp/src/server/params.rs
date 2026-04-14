@@ -220,6 +220,15 @@ pub struct DeleteTagParams {
     pub tag_id: String,
 }
 
+/// Parameters for the `download_pdf` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct DownloadPdfParams {
+    /// ID of the existing paper to attach the PDF to
+    pub paper_id: String,
+    /// Direct URL to the PDF file to download
+    pub pdf_url: String,
+}
+
 /// Parameters for the `delete_note` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct DeleteNoteParams {

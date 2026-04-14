@@ -555,6 +555,87 @@ impl RoteroMcp {
     }
 
     #[tool(
+        description = "Download a PDF from a URL and attach it to an existing paper in the library. Use this when you find an open access PDF link for a paper that doesn't have a PDF yet."
+    )]
+    async fn download_pdf(
+        &self,
+        Parameters(params): Parameters<DownloadPdfParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        // Verify paper exists
+        let paper = self
+            .db
+            .get_paper_by_id(&params.paper_id)
+            .await
+            .map_err(err)?
+            .ok_or_else(|| err(format!("No paper found with ID {}", params.paper_id)))?;
+
+        // Download the PDF
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (compatible; Rotero/0.1)")
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .build()
+            .map_err(|e| err(format!("HTTP client error: {e}")))?;
+
+        let resp = client
+            .get(&params.pdf_url)
+            .send()
+            .await
+            .map_err(|e| err(format!("Download failed: {e}")))?;
+
+        if !resp.status().is_success() {
+            return Err(err(format!("HTTP {}", resp.status())));
+        }
+
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| err(format!("Failed to read response: {e}")))?;
+
+        if !bytes.starts_with(b"%PDF") {
+            return Err(err("URL did not return a valid PDF file"));
+        }
+
+        // Save to library
+        let first_author = paper.authors.first().map(|s| s.as_str());
+        let papers_dir = self.db.papers_dir();
+        std::fs::create_dir_all(&papers_dir).map_err(|e| err(format!("Failed to create papers dir: {e}")))?;
+
+        let safe_title: String = paper.title.chars()
+            .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' })
+            .collect();
+        let safe_title = safe_title.trim();
+        let safe_title = if safe_title.len() > 80 { &safe_title[..80] } else { safe_title };
+
+        let filename = if let Some(author) = first_author {
+            let safe_author: String = author.chars()
+                .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' })
+                .collect();
+            if let Some(year) = paper.year {
+                format!("{safe_author} - {year} - {safe_title}.pdf")
+            } else {
+                format!("{safe_author} - {safe_title}.pdf")
+            }
+        } else {
+            format!("{safe_title}.pdf")
+        };
+
+        let dest = papers_dir.join(&filename);
+        std::fs::write(&dest, &bytes).map_err(|e| err(format!("Failed to save PDF: {e}")))?;
+
+        // Update the paper's pdf_path in the database
+        self.db
+            .update_pdf_path(&params.paper_id, &filename)
+            .await
+            .map_err(err)?;
+
+        json_result(&serde_json::json!({
+            "success": true,
+            "pdf_path": filename,
+            "size_bytes": bytes.len(),
+        }))
+    }
+
+    #[tool(
         description = "Get papers related to a specific paper via shared tags, authors, collections, or journal. Returns relationship type, strength, and connected paper details."
     )]
     async fn get_paper_relationships(

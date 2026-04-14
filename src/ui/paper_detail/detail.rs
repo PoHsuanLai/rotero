@@ -268,46 +268,97 @@ pub fn PaperDetail() -> Element {
                             let paper_authors = paper.authors.clone();
                             let paper_year = paper.year;
                             let db_oa = db.clone();
+                            let agent_title = paper.title.clone();
+                            let agent_doi = paper.doi.clone();
+                            let agent_authors = paper.authors.clone();
+                            let agent_year = paper.year;
+                            let agent_pid = pid_oa.clone();
+                            let agent_channel = use_context::<crate::ui::chat_panel::AgentChannel>();
+                            let mut chat_state = use_context::<Signal<crate::agent::types::ChatState>>();
+                            let is_ask_agent = oa_status().as_deref() == Some("ask_agent");
+                            let is_busy = oa_status().is_some() && !is_ask_agent;
                             rsx! {
                                 button {
-                                    class: "btn btn--secondary",
-                                    disabled: oa_status().is_some(),
+                                    class: if is_ask_agent { "btn btn--primary" } else { "btn btn--secondary" },
+                                    disabled: is_busy,
                                     onclick: move |_| {
-                                        let db = db_oa.clone();
-                                        let doi = doi_for_oa.clone();
-                                        let title = paper_title.clone();
-                                        let authors = paper_authors.clone();
-                                        let year = paper_year;
-                                        let paper_id = pid_oa.clone();
-                                        oa_status.set(Some("Searching...".to_string()));
-                                        spawn(async move {
-                                            let urls = crate::metadata::pdf_download::resolve_pdf_urls(doi.as_deref(), &title).await;
-                                            if urls.is_empty() {
-                                                oa_status.set(Some("No OA version found".to_string()));
-                                                return;
-                                            }
-                                            oa_status.set(Some("Downloading...".to_string()));
-                                            let first_author = authors.first().map(|a| a.as_str());
-                                            match crate::metadata::pdf_download::download_and_save_pdf(&db, &urls, &title, first_author, year).await {
-                                                Ok(rel_path) => {
-                                                    let pid = paper_id.clone();
-                                                    let _ = rotero_db::papers::update_pdf_path(db.conn(), &pid, &rel_path).await;
-                                                    let pid2 = pid.clone();
-                                                    lib_state.with_mut(|s| {
-                                                        if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
-                                                            p.links.pdf_path = Some(rel_path);
-                                                        }
-                                                    });
-                                                    oa_status.set(Some("PDF downloaded!".to_string()));
+                                        if is_ask_agent {
+                                            // Delegate to agent
+                                            let title = agent_title.clone();
+                                            let doi = agent_doi.clone();
+                                            let authors = agent_authors.clone();
+                                            let year = agent_year;
+                                            let pid = agent_pid.clone();
+                                            let prompt = format!(
+                                                "Find and download the open access PDF for this paper:\n\
+                                                 Title: {title}\n\
+                                                 Authors: {}\n\
+                                                 Year: {}\n\
+                                                 DOI: {}\n\
+                                                 Paper ID: {pid}\n\n\
+                                                 The automated OA search couldn't find it. Please search the web for a freely \
+                                                 available PDF of this paper (check the conference website, author pages, \
+                                                 institutional repositories, etc.) and use the download_pdf tool to save it.",
+                                                authors.join(", "),
+                                                year.map(|y| y.to_string()).unwrap_or_default(),
+                                                doi.as_deref().unwrap_or("none"),
+                                            );
+                                            let paper_context = Some(format!(
+                                                "<rotero-context>\nPaper ID: {pid}\nTitle: {title}\n</rotero-context>"
+                                            ));
+                                            chat_state.with_mut(|s| {
+                                                s.panel_open = true;
+                                                s.messages.push(crate::agent::types::ChatMessage::new(
+                                                    crate::agent::types::ChatRole::User,
+                                                    vec![crate::agent::types::MessageContent::Text(prompt.clone())],
+                                                ));
+                                                s.status = crate::agent::types::AgentStatus::Streaming;
+                                            });
+                                            agent_channel.send(crate::agent::types::ChatRequest::SendMessage {
+                                                prompt,
+                                                paper_context,
+                                            });
+                                            oa_status.set(Some("Agent...".to_string()));
+                                        } else {
+                                            // Automated OA search
+                                            let db = db_oa.clone();
+                                            let doi = doi_for_oa.clone();
+                                            let title = paper_title.clone();
+                                            let authors = paper_authors.clone();
+                                            let year = paper_year;
+                                            let paper_id = pid_oa.clone();
+                                            oa_status.set(Some("Searching...".to_string()));
+                                            spawn(async move {
+                                                let urls = crate::metadata::pdf_download::resolve_pdf_urls(doi.as_deref(), &title).await;
+                                                if urls.is_empty() {
+                                                    oa_status.set(Some("ask_agent".to_string()));
+                                                    return;
                                                 }
-                                                Err(e) => oa_status.set(Some(format!("{e}"))),
-                                            }
-                                        });
+                                                oa_status.set(Some("Downloading...".to_string()));
+                                                let first_author = authors.first().map(|a| a.as_str());
+                                                match crate::metadata::pdf_download::download_and_save_pdf(&db, &urls, &title, first_author, year).await {
+                                                    Ok(rel_path) => {
+                                                        let pid = paper_id.clone();
+                                                        let _ = rotero_db::papers::update_pdf_path(db.conn(), &pid, &rel_path).await;
+                                                        let pid2 = pid.clone();
+                                                        lib_state.with_mut(|s| {
+                                                            if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
+                                                                p.links.pdf_path = Some(rel_path);
+                                                            }
+                                                        });
+                                                        oa_status.set(Some("Downloaded".to_string()));
+                                                    }
+                                                    Err(_) => oa_status.set(Some("ask_agent".to_string())),
+                                                }
+                                            });
+                                        }
                                     },
-                                    if let Some(ref status) = oa_status() {
+                                    if is_ask_agent {
+                                        "Ask Agent"
+                                    } else if let Some(ref status) = oa_status() {
                                         "{status}"
                                     } else {
-                                        "Find Open Access PDF"
+                                        "Find PDF"
                                     }
                                 }
                             }

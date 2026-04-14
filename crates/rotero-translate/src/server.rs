@@ -50,6 +50,33 @@ impl TranslationServer {
         // Wait for it to be ready (up to 60 seconds — first startup loads 700+ translators)
         for i in 0..120 {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+            // Check if the process exited early
+            {
+                let mut guard = self.child.lock().unwrap();
+                if let Some(ref mut child) = *guard {
+                    if let Ok(Some(status)) = child.try_wait() {
+                        let stderr = child
+                            .stderr
+                            .take()
+                            .and_then(|mut s| {
+                                let mut buf = String::new();
+                                std::io::Read::read_to_string(&mut s, &mut buf).ok()?;
+                                Some(buf)
+                            })
+                            .unwrap_or_default();
+                        tracing::error!(
+                            "Translation server exited with {status} after ~{}s. stderr:\n{stderr}",
+                            i / 2
+                        );
+                        *guard = None;
+                        return Err(TranslateError::Setup(format!(
+                            "Translation server exited with {status}: {stderr}"
+                        )));
+                    }
+                }
+            }
+
             if self.is_healthy().await {
                 tracing::info!(
                     "Translation server ready on port {} (took ~{}s)",
@@ -60,9 +87,28 @@ impl TranslationServer {
             }
         }
 
-        Err(TranslateError::Setup(
-            "Translation server failed to start within 60 seconds".into(),
-        ))
+        // Timed out — grab stderr for diagnostics
+        let stderr = {
+            let mut guard = self.child.lock().unwrap();
+            if let Some(ref mut child) = *guard {
+                let _ = child.kill();
+                child
+                    .stderr
+                    .take()
+                    .and_then(|mut s| {
+                        let mut buf = String::new();
+                        std::io::Read::read_to_string(&mut s, &mut buf).ok()?;
+                        Some(buf)
+                    })
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            }
+        };
+        tracing::error!("Translation server failed to start within 60s. stderr:\n{stderr}");
+        Err(TranslateError::Setup(format!(
+            "Translation server failed to start within 60 seconds: {stderr}"
+        )))
     }
 
     /// Check whether the translation server is responding on its HTTP port.
@@ -228,6 +274,7 @@ ItemSaver.prototype.saveItems = async function (jsonItems, attachmentCallback, i
 
         let child = Command::new(&self.node_bin)
             .arg(&entry)
+            .current_dir(&self.server_dir)
             .env("NODE_CONFIG", &node_config)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())

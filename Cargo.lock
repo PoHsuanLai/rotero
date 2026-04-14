@@ -6129,6 +6129,7 @@ dependencies = [
  "chrono",
  "clap",
  "directories",
+ "reqwest",
  "rmcp",
  "rotero-db",
  "rotero-graph",

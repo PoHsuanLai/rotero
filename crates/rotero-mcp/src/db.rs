@@ -773,6 +773,24 @@ impl Database {
         Ok(())
     }
 
+    /// Update the pdf_path for a paper after downloading a PDF.
+    pub async fn update_pdf_path(&self, paper_id: &str, rel_path: &str) -> Result<(), turso::Error> {
+        self.conn
+            .execute(
+                "UPDATE papers SET pdf_path = ?1, date_modified = ?2 WHERE id = ?3",
+                turso::params::Params::Positional(vec![
+                    Value::Text(rel_path.to_string()),
+                    Value::Text(Utc::now().to_rfc3339()),
+                    Value::Text(paper_id.to_string()),
+                ]),
+            )
+            .await?;
+        rotero_db::crr::tracking::track_update(&self.conn, "papers", paper_id, &["pdf_path", "date_modified"])
+            .await?;
+        self.notify();
+        Ok(())
+    }
+
     /// Delete a note by ID.
     pub async fn delete_note(&self, id: &str) -> Result<(), turso::Error> {
         self.conn
