@@ -639,7 +639,7 @@ fn GraphToggleButton() -> Element {
                     };
                 });
             },
-            i { class: "bi bi-diagram-3" }
+            i { class: "bi bi-diagram-2" }
             " Graph"
         }
     }
