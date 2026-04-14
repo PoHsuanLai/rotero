@@ -4,7 +4,6 @@ use crate::state::app_state::{LibraryState, LibraryView};
 use crate::ui::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use rotero_db::Database;
 
-
 #[component]
 pub fn CollectionContextMenu(
     coll_id: String,
@@ -286,12 +285,7 @@ pub fn SidebarTagContextMenu(
 }
 
 #[component]
-pub fn RecentContextMenu(
-    paper_id: String,
-    x: f64,
-    y: f64,
-    on_close: EventHandler<()>,
-) -> Element {
+pub fn RecentContextMenu(paper_id: String, x: f64, y: f64, on_close: EventHandler<()>) -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
 
     rsx! {

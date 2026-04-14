@@ -153,9 +153,7 @@ pub async fn find_oa_pdf(doi: Option<&str>, title: &str) -> Result<Option<String
         }
     };
 
-    Ok(paper
-        .and_then(|p| p.open_access_pdf)
-        .and_then(|oa| oa.url))
+    Ok(paper.and_then(|p| p.open_access_pdf).and_then(|oa| oa.url))
 }
 
 async fn fetch_paper(url: &str) -> Result<S2Paper, String> {

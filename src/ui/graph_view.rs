@@ -157,7 +157,8 @@ pub fn GraphView() -> Element {
     // Long-lived eval that polls the JS event queue and sends results via dioxus.send()
     use_hook(move || {
         spawn(async move {
-            let mut eval = document::eval(r#"
+            let mut eval = document::eval(
+                r#"
                 (async function() {
                     while (true) {
                         await new Promise(r => setTimeout(r, 100));
@@ -170,9 +171,12 @@ pub fn GraphView() -> Element {
                         }
                     }
                 })()
-            "#);
+            "#,
+            );
             while let Ok(msg) = eval.recv::<String>().await {
-                let Ok(event) = serde_json::from_str::<GraphEvent>(&msg) else { continue };
+                let Ok(event) = serde_json::from_str::<GraphEvent>(&msg) else {
+                    continue;
+                };
                 match event.event_type.as_str() {
                     "click" => {
                         lib_state.with_mut(|s| {

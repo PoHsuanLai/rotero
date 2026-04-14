@@ -438,7 +438,9 @@ impl LibraryState {
             return None;
         }
         let id = self.selected_paper_ids.iter().next().unwrap();
-        self.papers.iter().find(|p| p.id.as_deref() == Some(id.as_str()))
+        self.papers
+            .iter()
+            .find(|p| p.id.as_deref() == Some(id.as_str()))
     }
 
     /// Returns the single selected paper ID if exactly one is selected.
@@ -499,7 +501,10 @@ impl LibraryState {
     pub fn selected_papers(&self) -> Vec<&Paper> {
         self.papers
             .iter()
-            .filter(|p| p.id.as_deref().is_some_and(|id| self.selected_paper_ids.contains(id)))
+            .filter(|p| {
+                p.id.as_deref()
+                    .is_some_and(|id| self.selected_paper_ids.contains(id))
+            })
             .collect()
     }
 
@@ -511,18 +516,36 @@ impl LibraryState {
             match &self.view {
                 LibraryView::AllPapers => self.papers.clone(),
                 LibraryView::RecentlyAdded => self.papers.iter().take(20).cloned().collect(),
-                LibraryView::Favorites => self.papers.iter().filter(|p| p.status.is_favorite).cloned().collect(),
-                LibraryView::Unread => self.papers.iter().filter(|p| !p.status.is_read).cloned().collect(),
+                LibraryView::Favorites => self
+                    .papers
+                    .iter()
+                    .filter(|p| p.status.is_favorite)
+                    .cloned()
+                    .collect(),
+                LibraryView::Unread => self
+                    .papers
+                    .iter()
+                    .filter(|p| !p.status.is_read)
+                    .cloned()
+                    .collect(),
                 LibraryView::Collection(_) => {
                     if let Some(ref ids) = self.filter.collection_paper_ids {
-                        self.papers.iter().filter(|p| p.id.as_ref().is_some_and(|pid| ids.contains(pid))).cloned().collect()
+                        self.papers
+                            .iter()
+                            .filter(|p| p.id.as_ref().is_some_and(|pid| ids.contains(pid)))
+                            .cloned()
+                            .collect()
                     } else {
                         Vec::new()
                     }
                 }
                 LibraryView::Tag(_) => {
                     if let Some(ref ids) = self.filter.tag_paper_ids {
-                        self.papers.iter().filter(|p| p.id.as_ref().is_some_and(|pid| ids.contains(pid))).cloned().collect()
+                        self.papers
+                            .iter()
+                            .filter(|p| p.id.as_ref().is_some_and(|pid| ids.contains(pid)))
+                            .cloned()
+                            .collect()
                     } else {
                         Vec::new()
                     }

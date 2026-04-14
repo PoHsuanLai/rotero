@@ -17,7 +17,10 @@ fn latex_to_mathml(latex: &str, display: bool) -> String {
         Err(_) => {
             // Fall back to showing the raw LaTeX in a code element
             let tag = if display { "div" } else { "span" };
-            format!("<{tag} class=\"latex-error\">{}</{tag}>", html_escape(latex))
+            format!(
+                "<{tag} class=\"latex-error\">{}</{tag}>",
+                html_escape(latex)
+            )
         }
     }
 }
@@ -40,12 +43,8 @@ pub fn md_to_html(text: &str) -> String {
     // Process math events into raw HTML, pass everything else through
     let events: Vec<Event<'_>> = parser
         .map(|event| match event {
-            Event::InlineMath(latex) => {
-                Event::InlineHtml(latex_to_mathml(&latex, false).into())
-            }
-            Event::DisplayMath(latex) => {
-                Event::Html(latex_to_mathml(&latex, true).into())
-            }
+            Event::InlineMath(latex) => Event::InlineHtml(latex_to_mathml(&latex, false).into()),
+            Event::DisplayMath(latex) => Event::Html(latex_to_mathml(&latex, true).into()),
             other => other,
         })
         .collect();

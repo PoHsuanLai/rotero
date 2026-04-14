@@ -343,25 +343,50 @@ fn action_open_selected_pdf(
         && let Some(ref rel_path) = paper.links.pdf_path
     {
         let pid = paper.id.clone().unwrap_or_default();
-        crate::state::commands::open_paper_pdf(db, &mut tabs, &mut lib_state, config, dpr_sig, &pid, rel_path, &paper.title);
+        crate::state::commands::open_paper_pdf(
+            db,
+            &mut tabs,
+            &mut lib_state,
+            config,
+            dpr_sig,
+            &pid,
+            rel_path,
+            &paper.title,
+        );
     }
 }
 
 fn action_delete_selected(mut lib_state: Signal<LibraryState>) {
-    let ids: Vec<String> = lib_state.read().selected_paper_ids.iter().cloned().collect();
+    let ids: Vec<String> = lib_state
+        .read()
+        .selected_paper_ids
+        .iter()
+        .cloned()
+        .collect();
     if !ids.is_empty() {
         lib_state.with_mut(|s| s.confirm_delete = Some(ids));
     }
 }
 
 fn action_toggle_favorite_selected(mut lib_state: Signal<LibraryState>, db: Database) {
-    let ids: Vec<String> = lib_state.read().selected_paper_ids.iter().cloned().collect();
+    let ids: Vec<String> = lib_state
+        .read()
+        .selected_paper_ids
+        .iter()
+        .cloned()
+        .collect();
     if ids.is_empty() {
         return;
     }
     // For single: toggle. For multi: set all to favorite.
     let new_val = if ids.len() == 1 {
-        !lib_state.read().papers.iter().find(|p| p.id.as_deref() == Some(ids[0].as_str())).map(|p| p.status.is_favorite).unwrap_or(false)
+        !lib_state
+            .read()
+            .papers
+            .iter()
+            .find(|p| p.id.as_deref() == Some(ids[0].as_str()))
+            .map(|p| p.status.is_favorite)
+            .unwrap_or(false)
     } else {
         true
     };
@@ -371,7 +396,11 @@ fn action_toggle_favorite_selected(mut lib_state: Signal<LibraryState>, db: Data
         }
         lib_state.with_mut(|s| {
             for pid in &ids {
-                if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid.as_str())) {
+                if let Some(p) = s
+                    .papers
+                    .iter_mut()
+                    .find(|p| p.id.as_deref() == Some(pid.as_str()))
+                {
                     p.status.is_favorite = new_val;
                 }
             }
@@ -380,12 +409,23 @@ fn action_toggle_favorite_selected(mut lib_state: Signal<LibraryState>, db: Data
 }
 
 fn action_toggle_read_selected(mut lib_state: Signal<LibraryState>, db: Database) {
-    let ids: Vec<String> = lib_state.read().selected_paper_ids.iter().cloned().collect();
+    let ids: Vec<String> = lib_state
+        .read()
+        .selected_paper_ids
+        .iter()
+        .cloned()
+        .collect();
     if ids.is_empty() {
         return;
     }
     let new_val = if ids.len() == 1 {
-        !lib_state.read().papers.iter().find(|p| p.id.as_deref() == Some(ids[0].as_str())).map(|p| p.status.is_read).unwrap_or(false)
+        !lib_state
+            .read()
+            .papers
+            .iter()
+            .find(|p| p.id.as_deref() == Some(ids[0].as_str()))
+            .map(|p| p.status.is_read)
+            .unwrap_or(false)
     } else {
         true
     };
@@ -395,7 +435,11 @@ fn action_toggle_read_selected(mut lib_state: Signal<LibraryState>, db: Database
         }
         lib_state.with_mut(|s| {
             for pid in &ids {
-                if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid.as_str())) {
+                if let Some(p) = s
+                    .papers
+                    .iter_mut()
+                    .find(|p| p.id.as_deref() == Some(pid.as_str()))
+                {
                     p.status.is_read = new_val;
                 }
             }
@@ -452,7 +496,10 @@ pub fn handle_keydown(
     let cmd = modifiers.meta() || modifiers.ctrl();
     let shift = modifiers.shift();
 
-    let in_library = !matches!(lib_state.read().view, LibraryView::PdfViewer | LibraryView::Graph);
+    let in_library = !matches!(
+        lib_state.read().view,
+        LibraryView::PdfViewer | LibraryView::Graph
+    );
 
     if cmd && !shift {
         if let Key::Character(ref c) = key {

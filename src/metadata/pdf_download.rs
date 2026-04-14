@@ -27,7 +27,11 @@ pub async fn resolve_pdf_urls(doi: Option<&str>, title: &str) -> Vec<String> {
     if let Some(doi) = doi {
         match zotero_pdf_urls(doi).await {
             Ok(zotero_urls) => {
-                tracing::info!("Zotero translation server returned {} URLs: {:?}", zotero_urls.len(), zotero_urls);
+                tracing::info!(
+                    "Zotero translation server returned {} URLs: {:?}",
+                    zotero_urls.len(),
+                    zotero_urls
+                );
                 urls.extend(zotero_urls);
             }
             Err(e) => tracing::warn!("Zotero translation server failed: {e}"),
@@ -77,7 +81,11 @@ pub async fn resolve_pdf_urls(doi: Option<&str>, title: &str) -> Vec<String> {
         tracing::info!("Skipping Unpaywall (no DOI)");
     }
 
-    tracing::info!("resolve_pdf_urls: final candidate URLs ({} total): {:?}", urls.len(), urls);
+    tracing::info!(
+        "resolve_pdf_urls: final candidate URLs ({} total): {:?}",
+        urls.len(),
+        urls
+    );
     urls
 }
 
@@ -102,10 +110,7 @@ async fn zotero_pdf_urls(doi: &str) -> Result<Vec<String>, String> {
         .await
         .map_err(|e| format!("Failed to parse translation server response: {e}"))?;
 
-    let urls: Vec<String> = items
-        .iter()
-        .filter_map(|item| item.pdf_url())
-        .collect();
+    let urls: Vec<String> = items.iter().filter_map(|item| item.pdf_url()).collect();
 
     Ok(urls)
 }

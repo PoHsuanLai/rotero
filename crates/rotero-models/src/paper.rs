@@ -48,7 +48,10 @@ impl PaperId {
         }
 
         // PMID
-        if let Some(id) = raw.strip_prefix("PMID:").or_else(|| raw.strip_prefix("pmid:")) {
+        if let Some(id) = raw
+            .strip_prefix("PMID:")
+            .or_else(|| raw.strip_prefix("pmid:"))
+        {
             let id = id.trim();
             if !id.is_empty() {
                 return Some(Self::Pmid(id.to_string()));
@@ -56,7 +59,10 @@ impl PaperId {
         }
 
         // ISBN
-        if let Some(id) = raw.strip_prefix("ISBN:").or_else(|| raw.strip_prefix("isbn:")) {
+        if let Some(id) = raw
+            .strip_prefix("ISBN:")
+            .or_else(|| raw.strip_prefix("isbn:"))
+        {
             let id = id.trim();
             if !id.is_empty() {
                 return Some(Self::Isbn(id.to_string()));

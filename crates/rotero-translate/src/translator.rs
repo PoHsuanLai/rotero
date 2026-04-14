@@ -138,10 +138,7 @@ impl ZoteroItem {
                 extract_year(&self.date)
             },
             doi: non_empty(self.doi)
-                .or_else(|| {
-                    non_empty(self.isbn)
-                        .map(|i| PaperId::Isbn(i).to_stored_string())
-                })
+                .or_else(|| non_empty(self.isbn).map(|i| PaperId::Isbn(i).to_stored_string()))
                 .or_else(|| extract_pmid(&self.extra)),
             abstract_text: non_empty(self.abstract_note),
             publication: rotero_models::Publication {
@@ -164,7 +161,10 @@ impl ZoteroItem {
 fn extract_pmid(extra: &str) -> Option<String> {
     for line in extra.lines() {
         let line = line.trim();
-        if let Some(rest) = line.strip_prefix("PMID:").or_else(|| line.strip_prefix("pmid:")) {
+        if let Some(rest) = line
+            .strip_prefix("PMID:")
+            .or_else(|| line.strip_prefix("pmid:"))
+        {
             let id = rest.trim();
             if !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()) {
                 return Some(PaperId::Pmid(id.to_string()).to_stored_string());

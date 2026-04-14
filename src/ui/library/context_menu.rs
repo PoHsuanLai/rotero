@@ -22,7 +22,12 @@ fn download_pdf_menu_item(
     let pid = paper_id.to_string();
     let db = db.clone();
     // We need the paper clone for download — get it from state
-    let paper_clone = lib_state.read().papers.iter().find(|p| p.id.as_deref() == Some(&pid)).cloned();
+    let paper_clone = lib_state
+        .read()
+        .papers
+        .iter()
+        .find(|p| p.id.as_deref() == Some(&pid))
+        .cloned();
     let Some(paper_clone) = paper_clone else {
         return rsx! {};
     };
@@ -89,7 +94,11 @@ pub fn PaperContextMenu(
     // For single select, get paper details
     let single_paper = if !is_multi {
         let state = lib_state.read();
-        state.papers.iter().find(|p| p.id.as_deref() == Some(paper_ids[0].as_str())).cloned()
+        state
+            .papers
+            .iter()
+            .find(|p| p.id.as_deref() == Some(paper_ids[0].as_str()))
+            .cloned()
     } else {
         None
     };
@@ -107,7 +116,11 @@ pub fn PaperContextMenu(
         format!("Favorite {count} papers")
     } else {
         let is_fav = single_paper.as_ref().is_some_and(|p| p.status.is_favorite);
-        if is_fav { "Unfavorite".to_string() } else { "Favorite".to_string() }
+        if is_fav {
+            "Unfavorite".to_string()
+        } else {
+            "Favorite".to_string()
+        }
     };
     let fav_icon = if !is_multi && single_paper.as_ref().is_some_and(|p| p.status.is_favorite) {
         "bi-star-fill".to_string()
@@ -118,28 +131,50 @@ pub fn PaperContextMenu(
         format!("Mark {count} as read")
     } else {
         let is_read = single_paper.as_ref().is_some_and(|p| p.status.is_read);
-        if is_read { "Mark as unread".to_string() } else { "Mark as read".to_string() }
+        if is_read {
+            "Mark as unread".to_string()
+        } else {
+            "Mark as read".to_string()
+        }
     };
     let read_icon = if !is_multi && single_paper.as_ref().is_some_and(|p| p.status.is_read) {
         "bi-book".to_string()
     } else {
         "bi-book-fill".to_string()
     };
-    let delete_label = if is_multi { format!("Delete {count} papers") } else { "Delete".to_string() };
+    let delete_label = if is_multi {
+        format!("Delete {count} papers")
+    } else {
+        "Delete".to_string()
+    };
 
     // Collect DOIs
     let dois: Vec<String> = {
         let state = lib_state.read();
-        pids_doi.iter()
-            .filter_map(|pid| state.papers.iter().find(|p| p.id.as_deref() == Some(pid.as_str())))
+        pids_doi
+            .iter()
+            .filter_map(|pid| {
+                state
+                    .papers
+                    .iter()
+                    .find(|p| p.id.as_deref() == Some(pid.as_str()))
+            })
             .filter_map(|p| p.doi.clone())
             .collect()
     };
     let has_dois = !dois.is_empty();
-    let doi_label = if is_multi { format!("Copy {} DOIs", dois.len()) } else { "Copy DOI".to_string() };
+    let doi_label = if is_multi {
+        format!("Copy {} DOIs", dois.len())
+    } else {
+        "Copy DOI".to_string()
+    };
 
     // Collection removal
-    let remove_label = if is_multi { format!("Remove {count} from Collection") } else { "Remove from Collection".to_string() };
+    let remove_label = if is_multi {
+        format!("Remove {count} from Collection")
+    } else {
+        "Remove from Collection".to_string()
+    };
     let in_collection = matches!(lib_state.read().view, LibraryView::Collection(_));
     let collection_id = if let LibraryView::Collection(ref cid) = lib_state.read().view {
         Some(cid.clone())

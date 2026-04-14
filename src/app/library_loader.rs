@@ -48,8 +48,7 @@ pub fn LoadLibraryData() -> Element {
                         .unwrap_or_default();
 
                     for (paper_id, doi) in needs_update {
-                        let result =
-                            crate::metadata::semantic_scholar::fetch_by_doi(&doi).await;
+                        let result = crate::metadata::semantic_scholar::fetch_by_doi(&doi).await;
 
                         match result {
                             Ok(meta) => {

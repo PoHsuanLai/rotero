@@ -598,17 +598,37 @@ impl RoteroMcp {
         // Save to library
         let first_author = paper.authors.first().map(|s| s.as_str());
         let papers_dir = self.db.papers_dir();
-        std::fs::create_dir_all(&papers_dir).map_err(|e| err(format!("Failed to create papers dir: {e}")))?;
+        std::fs::create_dir_all(&papers_dir)
+            .map_err(|e| err(format!("Failed to create papers dir: {e}")))?;
 
-        let safe_title: String = paper.title.chars()
-            .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' })
+        let safe_title: String = paper
+            .title
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == ' ' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         let safe_title = safe_title.trim();
-        let safe_title = if safe_title.len() > 80 { &safe_title[..80] } else { safe_title };
+        let safe_title = if safe_title.len() > 80 {
+            &safe_title[..80]
+        } else {
+            safe_title
+        };
 
         let filename = if let Some(author) = first_author {
-            let safe_author: String = author.chars()
-                .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' })
+            let safe_author: String = author
+                .chars()
+                .map(|c| {
+                    if c.is_alphanumeric() || c == ' ' || c == '-' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
                 .collect();
             if let Some(year) = paper.year {
                 format!("{safe_author} - {year} - {safe_title}.pdf")
@@ -938,9 +958,6 @@ impl ServerHandler for RoteroMcp {
 
 impl RoteroMcp {
     pub fn new(db: crate::db::Database, pdf_available: bool) -> Self {
-        Self {
-            db,
-            pdf_available,
-        }
+        Self { db, pdf_available }
     }
 }

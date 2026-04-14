@@ -1,5 +1,4 @@
 pub mod chat_panel;
-pub mod markdown;
 pub mod citation_dialog;
 pub mod components;
 pub mod graph_view;
@@ -9,6 +8,7 @@ pub mod import_export;
 pub mod keybindings;
 pub mod layout;
 pub mod library;
+pub mod markdown;
 pub mod paper_detail;
 pub mod pdf;
 pub mod search_bar;
