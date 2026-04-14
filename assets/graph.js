@@ -5,15 +5,18 @@
 (function() {
   "use strict";
 
+  window.__roteroGraphEvents = window.__roteroGraphEvents || [];
+
   let canvas, ctx, dpr;
   let nodes = [], links = [], nodeMap = {};
   let transform = { x: 0, y: 0, scale: 1 };
   let dragNode = null, dragOffset = { x: 0, y: 0 };
+  let pendingDrag = null; // node clicked but not yet moved
   let isPanning = false, panStart = { x: 0, y: 0 };
   let hoverNode = null;
   let highlightIds = null;
   let tooltipEl = null;
-  let lastClickTime = 0;
+  let hintEl = null;
   let animFrameId = null;
 
   // Physics constants
@@ -69,6 +72,11 @@
     init: function(canvasId, tooltipId) {
       canvas = document.getElementById(canvasId);
       tooltipEl = document.getElementById(tooltipId);
+      hintEl = document.getElementById("graph-hint");
+      if (hintEl) {
+        const cmdKey = navigator.platform.indexOf('Mac') >= 0 ? '\u2318' : 'Ctrl';
+        hintEl.textContent = cmdKey + '+click to open';
+      }
       if (!canvas) return;
       ctx = canvas.getContext("2d");
       dpr = window.devicePixelRatio || 1;
@@ -419,11 +427,11 @@
     const my = e.clientY - rect.top;
     const node = hitTest(mx, my);
     if (node) {
-      dragNode = node;
+      pendingDrag = node;
       const w = screenToWorld(mx, my);
       dragOffset.x = node.x - w.x;
       dragOffset.y = node.y - w.y;
-      canvas.style.cursor = "grabbing";
+      canvas.style.cursor = "pointer";
     } else {
       isPanning = true;
       hoverEdge = null;
@@ -437,6 +445,12 @@
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
+
+    if (pendingDrag) {
+      dragNode = pendingDrag;
+      pendingDrag = null;
+      canvas.style.cursor = "grabbing";
+    }
 
     if (dragNode) {
       const w = screenToWorld(mx, my);
@@ -473,41 +487,28 @@
         tooltipEl.style.display = "none";
       }
     }
+    if (hintEl) {
+      hintEl.style.opacity = node ? "1" : "0";
+    }
   }
 
   function onMouseUp(e) {
-    if (dragNode) {
-      try {
-        dioxus.send(JSON.stringify({ type: "drag_end", id: dragNode.id, x: dragNode.x, y: dragNode.y }));
-      } catch(_) {}
-      dragNode = null;
-      canvas.style.cursor = "default";
-      return;
+    if (hoverNode && (e.metaKey || e.ctrlKey)) {
+      window.__roteroGraphEvents.push({ type: "open", id: hoverNode.id });
+    } else if (hoverNode) {
+      window.__roteroGraphEvents.push({ type: "click", id: hoverNode.id });
     }
 
-    if (!isPanning) {
-      const rect = canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      const node = hitTest(mx, my);
-      if (node) {
-        const now = Date.now();
-        if (now - lastClickTime < 350) {
-          try { dioxus.send(JSON.stringify({ type: "dblclick", id: node.id })); } catch(_) {}
-        } else {
-          try { dioxus.send(JSON.stringify({ type: "click", id: node.id })); } catch(_) {}
-        }
-        lastClickTime = now;
-      }
-    }
-
+    dragNode = null;
+    pendingDrag = null;
     isPanning = false;
-    canvas.style.cursor = "default";
+    canvas.style.cursor = hoverNode ? "pointer" : "default";
   }
 
   function onMouseLeave() {
     isPanning = false;
     dragNode = null;
+    pendingDrag = null;
     hoverNode = null;
     hoverEdge = null;
     if (tooltipEl) tooltipEl.style.display = "none";

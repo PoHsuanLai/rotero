@@ -154,44 +154,56 @@ pub fn GraphView() -> Element {
         }
     });
 
-    // Never-resolving promise keeps the eval channel open for dioxus.send() messages from JS
+    // Long-lived eval that polls the JS event queue and sends results via dioxus.send()
     use_hook(move || {
         spawn(async move {
-            let mut eval = document::eval("new Promise(() => {})");
-            while let Ok(msg) = eval.recv::<String>().await {
-                if let Ok(event) = serde_json::from_str::<GraphEvent>(&msg) {
-                    match event.event_type.as_str() {
-                        "click" => {
-                            lib_state.with_mut(|s| {
-                                s.select_one(event.id.clone());
-                            });
-                        }
-                        "dblclick" => {
-                            let state = lib_state.read();
-                            if let Some(paper) = state
-                                .papers
-                                .iter()
-                                .find(|p| p.id.as_deref() == Some(event.id.as_str()))
-                                && let Some(ref pdf_path) = paper.links.pdf_path
-                            {
-                                let title = paper.title.clone();
-                                let pdf_path = pdf_path.clone();
-                                let pid = event.id.clone();
-                                drop(state);
-                                crate::state::commands::open_paper_pdf(
-                                    &db,
-                                    &mut tabs,
-                                    &mut lib_state,
-                                    &config,
-                                    &dpr,
-                                    &pid,
-                                    &pdf_path,
-                                    &title,
-                                );
+            let mut eval = document::eval(r#"
+                (async function() {
+                    while (true) {
+                        await new Promise(r => setTimeout(r, 100));
+                        var q = window.__roteroGraphEvents || [];
+                        if (q.length > 0) {
+                            window.__roteroGraphEvents = [];
+                            for (var i = 0; i < q.length; i++) {
+                                dioxus.send(JSON.stringify(q[i]));
                             }
                         }
-                        _ => {}
                     }
+                })()
+            "#);
+            while let Ok(msg) = eval.recv::<String>().await {
+                let Ok(event) = serde_json::from_str::<GraphEvent>(&msg) else { continue };
+                match event.event_type.as_str() {
+                    "click" => {
+                        lib_state.with_mut(|s| {
+                            s.select_one(event.id.clone());
+                        });
+                    }
+                    "open" | "dblclick" => {
+                        let state = lib_state.read();
+                        if let Some(paper) = state
+                            .papers
+                            .iter()
+                            .find(|p| p.id.as_deref() == Some(event.id.as_str()))
+                            && let Some(ref pdf_path) = paper.links.pdf_path
+                        {
+                            let title = paper.title.clone();
+                            let pdf_path = pdf_path.clone();
+                            let pid = event.id.clone();
+                            drop(state);
+                            crate::state::commands::open_paper_pdf(
+                                &db,
+                                &mut tabs,
+                                &mut lib_state,
+                                &config,
+                                &dpr,
+                                &pid,
+                                &pdf_path,
+                                &title,
+                            );
+                        }
+                    }
+                    _ => {}
                 }
             }
         });
@@ -243,6 +255,7 @@ pub fn GraphView() -> Element {
                 div { class: "graph-canvas-wrap",
                     canvas { id: "graph-canvas" }
                     div { id: "graph-tooltip", class: "graph-tooltip" }
+                    div { id: "graph-hint", class: "graph-hint" }
                 }
             }
         }

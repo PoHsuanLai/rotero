@@ -141,6 +141,17 @@
   font-size: var(--text-xs);
 }
 
+.graph-hint {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  color: var(--text-tertiary, #888);
+  font-size: var(--text-xs);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
 /* Empty state */
 .graph-empty {
   flex: 1;
