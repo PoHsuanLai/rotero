@@ -24,6 +24,7 @@ pub async fn resolve_pdf_urls(doi: Option<&str>, title: &str) -> Vec<String> {
 
     // Try Zotero translation server first — it has site-specific scrapers that
     // return direct PDF links far more reliably than OA metadata APIs.
+    #[cfg(feature = "desktop")]
     if let Some(doi) = doi {
         match zotero_pdf_urls(doi).await {
             Ok(zotero_urls) => {
@@ -90,6 +91,7 @@ pub async fn resolve_pdf_urls(doi: Option<&str>, title: &str) -> Vec<String> {
 }
 
 /// Query the local Zotero translation server for PDF attachment URLs.
+#[cfg(feature = "desktop")]
 async fn zotero_pdf_urls(doi: &str) -> Result<Vec<String>, String> {
     let client = reqwest::Client::new();
     let resp = client
