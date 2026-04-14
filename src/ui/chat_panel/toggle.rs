@@ -19,7 +19,7 @@ pub fn ChatToggleButton() -> Element {
             onclick: move |_| {
                 chat_state.with_mut(|s| s.panel_open = !s.panel_open);
             },
-            i { class: "bi bi-chat-dots" }
+            i { class: "bi bi-chat-left-dots" }
             " Chat"
         }
     }

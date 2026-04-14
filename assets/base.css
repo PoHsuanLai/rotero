@@ -110,10 +110,11 @@ body {
 .bi-palette::before { content: "\f4c2"; }
 .bi-gear::before { content: "\f3e5"; }
 .bi-archive::before { content: "\f10d"; }
+.bi-diagram-2::before { content: "\f2ec"; }
 .bi-diagram-3::before { content: "\f2ee"; }
 .bi-download::before { content: "\f30a"; }
 .bi-upload::before { content: "\f603"; }
-.bi-chat-dots::before { content: "\f249"; }
+.bi-chat-left-dots::before { content: "\f24d"; }
 .bi-stop-fill::before { content: "\f592"; }
 .bi-exclamation-triangle::before { content: "\f33a"; }
 .bi-arrow-up::before { content: "\f148"; }
