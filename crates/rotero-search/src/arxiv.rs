@@ -1,4 +1,4 @@
-use rotero_models::{Paper, PaperLinks, Publication};
+use rotero_models::{Paper, PaperId, PaperLinks, Publication};
 
 const ARXIV_API: &str = "https://export.arxiv.org/api/query";
 
@@ -109,7 +109,7 @@ fn parse_arxiv_atom(xml: &str, arxiv_id: &str) -> Result<Paper, String> {
         title,
         authors,
         year,
-        doi: Some(format!("arXiv:{arxiv_id}")),
+        doi: Some(PaperId::ArXiv(arxiv_id.to_string()).to_stored_string()),
         abstract_text,
         publication: Publication {
             journal: Some("arXiv".to_string()),

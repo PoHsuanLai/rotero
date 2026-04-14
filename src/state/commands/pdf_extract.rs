@@ -97,7 +97,9 @@ pub async fn extract_and_fetch_metadata(
             if let Some(ref doi_str) = doi {
                 p.doi = Some(doi_str.clone());
             } else if let Some(ref arxiv) = arxiv_id {
-                p.doi = Some(format!("arXiv:{arxiv}"));
+                p.doi = Some(
+                    rotero_models::PaperId::ArXiv(arxiv.clone()).to_stored_string(),
+                );
             }
         }
     });

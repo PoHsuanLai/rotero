@@ -68,13 +68,19 @@ impl SearchProvider {
         }
     }
 
-    /// Fetches a single paper by DOI (or arXiv ID for the arXiv provider).
+    /// Fetches a single paper by DOI or other identifier string.
+    /// The raw string is parsed through [`PaperId`](rotero_models::PaperId) for
+    /// correct routing (e.g. arXiv DOIs go to the arXiv endpoint).
     pub async fn fetch_by_doi(&self, doi: &str) -> Result<Paper, String> {
+        let id = rotero_models::PaperId::parse(doi);
         match self {
             Self::OpenAlex => openalex::fetch_by_doi(doi).await,
             Self::ArXiv => {
-                let id = doi.strip_prefix("arXiv:").unwrap_or(doi);
-                arxiv::fetch_by_arxiv_id(id).await
+                let arxiv_id = match &id {
+                    Some(rotero_models::PaperId::ArXiv(a)) => a.as_str(),
+                    _ => doi,
+                };
+                arxiv::fetch_by_arxiv_id(arxiv_id).await
             }
             Self::SemanticScholar => semantic_scholar::fetch_by_doi(doi).await,
         }

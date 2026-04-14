@@ -1,9 +1,9 @@
-use rotero_models::{CitationInfo, Paper, Publication};
+use rotero_models::{CitationInfo, Paper, PaperId, Publication};
 use serde::Deserialize;
 
 const S2_API: &str = "https://api.semanticscholar.org/graph/v1/paper";
 const S2_FIELDS: &str =
-    "title,authors,year,abstract,venue,externalIds,publicationVenue,citationCount";
+    "title,authors,year,abstract,venue,externalIds,publicationVenue,citationCount,openAccessPdf";
 
 #[derive(Debug, Deserialize)]
 struct S2Paper {
@@ -19,6 +19,13 @@ struct S2Paper {
     publication_venue: Option<S2Venue>,
     #[serde(rename = "citationCount")]
     citation_count: Option<i64>,
+    #[serde(rename = "openAccessPdf")]
+    open_access_pdf: Option<S2OpenAccessPdf>,
+}
+
+#[derive(Debug, Deserialize)]
+struct S2OpenAccessPdf {
+    url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -86,16 +93,13 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, Stri
     Ok(results)
 }
 
-/// Fetches paper metadata from Semantic Scholar by DOI.
-pub async fn fetch_by_doi(doi: &str) -> Result<Paper, String> {
-    let url = format!("{S2_API}/DOI:{doi}?fields={S2_FIELDS}");
-    let paper = fetch_paper(&url).await?;
-    s2_to_paper(paper, doi)
-}
-
-/// Fetches paper metadata from Semantic Scholar by arXiv ID.
-pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<Paper, String> {
-    let url = format!("{S2_API}/ARXIV:{arxiv_id}?fields={S2_FIELDS}");
+/// Fetches paper metadata from Semantic Scholar using a typed identifier.
+pub async fn fetch_by_paper_id(id: &PaperId) -> Result<Paper, String> {
+    let query = id.semantic_scholar_query();
+    if query.is_empty() {
+        return Err("Semantic Scholar does not support this identifier type".into());
+    }
+    let url = format!("{S2_API}/{query}?fields={S2_FIELDS}");
     let paper = fetch_paper(&url).await?;
     let doi = paper
         .external_ids
@@ -103,6 +107,55 @@ pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<Paper, String> {
         .and_then(|e| e.doi.clone())
         .unwrap_or_default();
     s2_to_paper(paper, &doi)
+}
+
+/// Fetches paper metadata from Semantic Scholar by DOI.
+pub async fn fetch_by_doi(doi: &str) -> Result<Paper, String> {
+    let id = PaperId::parse(doi).unwrap_or_else(|| PaperId::Doi(doi.to_string()));
+    fetch_by_paper_id(&id).await
+}
+
+/// Fetches paper metadata from Semantic Scholar by arXiv ID.
+pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<Paper, String> {
+    fetch_by_paper_id(&PaperId::ArXiv(arxiv_id.to_string())).await
+}
+
+/// Find an open-access PDF URL via Semantic Scholar.
+/// Tries DOI lookup first, then falls back to title search.
+pub async fn find_oa_pdf(doi: Option<&str>, title: &str) -> Result<Option<String>, String> {
+    let paper = if let Some(doi) = doi {
+        let url = format!("{S2_API}/DOI:{doi}?fields=openAccessPdf");
+        fetch_paper(&url).await.ok()
+    } else {
+        None
+    };
+
+    // Fall back to title search
+    let paper = match paper {
+        Some(p) => Some(p),
+        None => {
+            let url = format!(
+                "https://api.semanticscholar.org/graph/v1/paper/search?query={}&limit=1&fields=openAccessPdf",
+                urlencoding::encode(title)
+            );
+            let client = crate::shared_client();
+            if let Ok(resp) = client.get(&url).send().await
+                && resp.status().is_success()
+            {
+                let data: S2SearchResponse = resp
+                    .json()
+                    .await
+                    .map_err(|e| format!("Failed to parse S2 response: {e}"))?;
+                data.data.and_then(|d| d.into_iter().next())
+            } else {
+                None
+            }
+        }
+    };
+
+    Ok(paper
+        .and_then(|p| p.open_access_pdf)
+        .and_then(|oa| oa.url))
 }
 
 async fn fetch_paper(url: &str) -> Result<S2Paper, String> {

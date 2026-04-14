@@ -1,3 +1,4 @@
+use rotero_models::PaperId;
 use serde::{Deserialize, Serialize};
 
 /// A Zotero item as returned by the translation server.
@@ -136,7 +137,12 @@ impl ZoteroItem {
             } else {
                 extract_year(&self.date)
             },
-            doi: non_empty(self.doi),
+            doi: non_empty(self.doi)
+                .or_else(|| {
+                    non_empty(self.isbn)
+                        .map(|i| PaperId::Isbn(i).to_stored_string())
+                })
+                .or_else(|| extract_pmid(&self.extra)),
             abstract_text: non_empty(self.abstract_note),
             publication: rotero_models::Publication {
                 journal: non_empty(self.publication_title),
@@ -152,6 +158,20 @@ impl ZoteroItem {
             ..Default::default()
         })
     }
+}
+
+/// Extract a PMID from the Zotero `extra` field (e.g. "PMID: 12345678").
+fn extract_pmid(extra: &str) -> Option<String> {
+    for line in extra.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("PMID:").or_else(|| line.strip_prefix("pmid:")) {
+            let id = rest.trim();
+            if !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()) {
+                return Some(PaperId::Pmid(id.to_string()).to_stored_string());
+            }
+        }
+    }
+    None
 }
 
 fn extract_year(s: &str) -> Option<i32> {

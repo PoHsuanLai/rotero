@@ -1,18 +1,14 @@
-use rotero_models::Paper;
+use rotero_models::{Paper, PaperId};
 
 /// Tries CrossRef first (most complete), then fills gaps from OpenAlex and Semantic Scholar.
 pub async fn enrich_paper(paper: &Paper) -> Option<Paper> {
-    let doi = paper.doi.as_deref();
-    let arxiv_id = extract_arxiv_id(paper);
-
-    if let Some(doi) = doi {
-        if doi.starts_with("arXiv:") {
-            let id = doi.strip_prefix("arXiv:").unwrap_or(doi);
-            fetch_from_sources_arxiv(id).await
-        } else {
-            fetch_from_sources_doi(doi).await
+    if let Some(id) = paper.paper_id() {
+        match &id {
+            PaperId::ArXiv(arxiv) => fetch_from_sources_arxiv(arxiv).await,
+            PaperId::Doi(doi) => fetch_from_sources_doi(doi).await,
+            PaperId::Pmid(_) | PaperId::Isbn(_) => None,
         }
-    } else if let Some(arxiv) = arxiv_id {
+    } else if let Some(arxiv) = extract_arxiv_from_url(paper) {
         fetch_from_sources_arxiv(&arxiv).await
     } else if !paper.title.is_empty() && paper.title != "Untitled" {
         match super::openalex::search_by_title(&paper.title).await {
@@ -99,25 +95,19 @@ async fn fetch_from_sources_arxiv(arxiv_id: &str) -> Option<Paper> {
     primary
 }
 
-fn extract_arxiv_id(paper: &Paper) -> Option<String> {
-    if let Some(ref url) = paper.links.url
-        && let Some(pos) = url
-            .find("arxiv.org/abs/")
-            .or_else(|| url.find("arxiv.org/pdf/"))
-    {
-        let after = &url[pos + 14..];
-        let id: String = after
-            .chars()
-            .take_while(|c| c.is_ascii_digit() || *c == '.')
-            .collect();
-        if id.contains('.') && !id.is_empty() {
-            return Some(id);
-        }
+fn extract_arxiv_from_url(paper: &Paper) -> Option<String> {
+    let url = paper.links.url.as_deref()?;
+    let pos = url
+        .find("arxiv.org/abs/")
+        .or_else(|| url.find("arxiv.org/pdf/"))?;
+    let after = &url[pos + 14..];
+    let id: String = after
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    if id.contains('.') && !id.is_empty() {
+        Some(id)
+    } else {
+        None
     }
-    if let Some(ref doi) = paper.doi
-        && let Some(id) = doi.strip_prefix("arXiv:")
-    {
-        return Some(id.to_string());
-    }
-    None
 }
