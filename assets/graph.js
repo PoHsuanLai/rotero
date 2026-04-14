@@ -17,15 +17,16 @@
   let animFrameId = null;
 
   // Physics constants
-  const REPULSION = 80;
-  const ATTRACTION = 0.0002;
-  const CENTER_GRAVITY = 0.001;
-  const DAMPING = 0.45;         // very high friction
-  const MAX_VELOCITY = 0.08;
+  const REPULSION = 300;
+  const SPRING_K = 0.005;       // spring stiffness
+  const SPRING_LENGTH = 120;    // ideal edge length
+  const CENTER_GRAVITY = 0.002;
+  const DAMPING = 0.4;
+  const MAX_VELOCITY = 0.4;
 
   // Ambient wander via simplex noise — very slow, barely perceptible drift
-  const WANDER_STRENGTH = 0.03;
-  const WANDER_FREQ = 0.00012;
+  const WANDER_STRENGTH = 0.008;
+  const WANDER_FREQ = 0.00004;
   let simTime = 0;
 
   // 2D simplex noise (compact implementation)
@@ -92,15 +93,6 @@
         n.noiseSeedY = idx * 73.7 + 500;
       });
       simTime = 0;
-      // Center the view
-      if (nodes.length > 0) {
-        let cx = 0, cy = 0;
-        nodes.forEach(n => { cx += n.x; cy += n.y; });
-        cx /= nodes.length; cy /= nodes.length;
-        transform.x = canvas.width / (2 * dpr) - cx;
-        transform.y = canvas.height / (2 * dpr) - cy;
-        transform.scale = 1;
-      }
       startAnimation();
     },
 
@@ -109,13 +101,7 @@
     },
 
     recenter: function() {
-      if (nodes.length === 0) return;
-      let cx = 0, cy = 0;
-      nodes.forEach(n => { cx += n.x; cy += n.y; });
-      cx /= nodes.length; cy /= nodes.length;
-      transform.x = canvas.width / (2 * dpr) - cx;
-      transform.y = canvas.height / (2 * dpr) - cy;
-      transform.scale = 1;
+      fitView();
     },
 
     stop: function() {
@@ -123,8 +109,32 @@
     }
   };
 
+  function fitView() {
+    if (nodes.length === 0) return;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    nodes.forEach(n => {
+      if (n.x < minX) minX = n.x;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.y > maxY) maxY = n.y;
+    });
+    const graphW = (maxX - minX) || 100;
+    const graphH = (maxY - minY) || 100;
+    const viewW = canvas.width / dpr;
+    const viewH = canvas.height / dpr;
+    const padding = 60;
+    const scaleX = (viewW - padding * 2) / graphW;
+    const scaleY = (viewH - padding * 2) / graphH;
+    transform.scale = Math.min(scaleX, scaleY, 2.0);
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    transform.x = viewW / 2 - cx * transform.scale;
+    transform.y = viewH / 2 - cy * transform.scale;
+  }
+
   function startAnimation() {
     if (animFrameId) cancelAnimationFrame(animFrameId);
+    fitView();
     function loop() {
       simulate();
       draw();
@@ -135,7 +145,7 @@
 
   function simulate() {
     const n = nodes.length;
-    if (n === 0 || dragNode || isPanning) return;
+    if (n === 0) return;
     simTime++;
 
     // Repulsion between all node pairs
@@ -147,22 +157,23 @@
         let force = REPULSION / (dist * dist);
         let fx = (dx / dist) * force;
         let fy = (dy / dist) * force;
-        a.vx += fx; a.vy += fy;
-        b.vx -= fx; b.vy -= fy;
+        if (a !== dragNode) { a.vx += fx; a.vy += fy; }
+        if (b !== dragNode) { b.vx -= fx; b.vy -= fy; }
       }
     }
 
-    // Attraction along edges
+    // Spring forces along edges (attract if too far, repel if too close)
     for (const link of links) {
       const a = nodeMap[link.source], b = nodeMap[link.target];
       if (!a || !b) continue;
       let dx = b.x - a.x, dy = b.y - a.y;
       let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      let force = dist * ATTRACTION * (link.weight || 1);
+      let displacement = dist - SPRING_LENGTH;
+      let force = SPRING_K * displacement * (link.weight || 1);
       let fx = (dx / dist) * force;
       let fy = (dy / dist) * force;
-      a.vx += fx; a.vy += fy;
-      b.vx -= fx; b.vy -= fy;
+      if (a !== dragNode) { a.vx += fx; a.vy += fy; }
+      if (b !== dragNode) { b.vx -= fx; b.vy -= fy; }
     }
 
     // Gentle center gravity
@@ -281,9 +292,9 @@
     const hovering = hoverNode !== null;
     const searching = highlightIds !== null;
 
-    // Edge color — muted, Obsidian-style
-    const edgeBase = isDark ? "#484848" : "#c0c0c0";
-    const edgeHighlight = isDark ? "#777777" : "#999999";
+    // Edge color
+    const edgeBase = isDark ? "#555555" : "#b0b0b0";
+    const edgeHighlight = isDark ? "#888888" : "#888888";
 
     // Draw edges — thin, subtle
     for (const link of links) {
@@ -307,7 +318,7 @@
       } else if (searching) {
         alpha = searchMatch ? 0.4 : 0.06; bright = searchMatch;
       } else {
-        alpha = 0.65; bright = false;
+        alpha = 0.7; bright = false;
       }
 
       ctx.beginPath();
@@ -356,11 +367,12 @@
       ctx.fillStyle = (isHovered || isEdgeEnd) ? lightenColor(n.color, 0.3) : n.color;
       ctx.fill();
 
-      // Label — only on hover or when zoomed in
-      if (isHovered || isNeighbor || isEdgeEnd || (transform.scale > 0.8 && nodeAlpha > 0.5)) {
+      // Label — only on hover/neighbor, or when zoomed in enough to avoid overlap
+      const showLabel = isHovered || isNeighbor || isEdgeEnd || (transform.scale > 1.8 && nodeAlpha > 0.5);
+      if (showLabel) {
         ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
         ctx.fillStyle = labelColor;
-        ctx.globalAlpha = (isHovered || isEdgeEnd) ? 1.0 : isNeighbor ? 0.9 : nodeAlpha * 0.6;
+        ctx.globalAlpha = (isHovered || isEdgeEnd) ? 1.0 : isNeighbor ? 0.9 : nodeAlpha * 0.5;
         ctx.fillText(n.label, n.x, n.y + r + 4);
       }
 
@@ -430,8 +442,7 @@
       const w = screenToWorld(mx, my);
       dragNode.x = w.x + dragOffset.x;
       dragNode.y = w.y + dragOffset.y;
-      // Freeze all other nodes while dragging
-      for (const nd of nodes) { nd.vx = 0; nd.vy = 0; }
+      dragNode.vx = 0; dragNode.vy = 0;
       return;
     }
 

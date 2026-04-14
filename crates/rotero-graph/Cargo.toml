@@ -5,7 +5,5 @@ edition.workspace = true
 
 [dependencies]
 rotero-models = { path = "../rotero-models" }
-fdg = { git = "https://github.com/grantshandy/fdg", rev = "44f6c1b", default-features = false }
-petgraph = "0.7"
 serde.workspace = true
 serde_json.workspace = true

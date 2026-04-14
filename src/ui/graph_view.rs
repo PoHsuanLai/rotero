@@ -96,7 +96,7 @@ pub fn GraphView() -> Element {
                 &tag_pairs,
                 &coll_pairs,
                 &filter,
-                200,
+                500,
             );
 
             for node in &mut data.nodes {

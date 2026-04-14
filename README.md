@@ -103,7 +103,7 @@ Cargo workspace with 9 crates:
 | `rotero-bib` | BibTeX/RIS/CSL + citation generation | biblatex, hayagriva |
 | `rotero-connector` | Browser extension + Word add-in HTTP server | axum |
 | `rotero-translate` | Zotero translation server (Node.js sidecar) | reqwest |
-| `rotero-graph` | Citation graph visualization | fdg |
+| `rotero-graph` | Citation graph visualization | — |
 | `rotero-mcp` | MCP server for AI integration | rmcp |
 | `rotero` (app) | Desktop UI, state management | dioxus, reqwest |
 
