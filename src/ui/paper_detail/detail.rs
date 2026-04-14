@@ -304,7 +304,7 @@ pub fn PaperDetail() -> Element {
                                             ));
                                             chat_state.with_mut(|s| {
                                                 s.panel_open = true;
-                                                s.messages.push(crate::agent::types::ChatMessage::new(
+                                                s.messages.push(crate::agent::types::ChatMessage::hidden(
                                                     crate::agent::types::ChatRole::User,
                                                     vec![crate::agent::types::MessageContent::Text(prompt.clone())],
                                                 ));

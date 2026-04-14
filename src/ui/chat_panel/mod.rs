@@ -79,11 +79,10 @@ fn do_send(
     }
 
     chat_state.with_mut(|s| {
-        s.messages.push(ChatMessage {
-            role: ChatRole::User,
-            content: vec![MessageContent::Text(input.clone())],
-            timestamp: chrono::Utc::now(),
-        });
+        s.messages.push(ChatMessage::new(
+            ChatRole::User,
+            vec![MessageContent::Text(input.clone())],
+        ));
         s.input_text.clear();
         s.status = AgentStatus::Streaming;
         s.show_command_picker = false;

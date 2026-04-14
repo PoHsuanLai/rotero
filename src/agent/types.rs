@@ -37,6 +37,7 @@ pub struct ChatMessage {
     pub role: ChatRole,
     pub content: Vec<MessageContent>,
     pub timestamp: DateTime<Utc>,
+    pub hidden: bool,
 }
 
 impl ChatMessage {
@@ -45,11 +46,21 @@ impl ChatMessage {
             role,
             content,
             timestamp: Utc::now(),
+            hidden: false,
         }
     }
 
     pub fn assistant(content: Vec<MessageContent>) -> Self {
         Self::new(ChatRole::Assistant, content)
+    }
+
+    pub fn hidden(role: ChatRole, content: Vec<MessageContent>) -> Self {
+        Self {
+            role,
+            content,
+            timestamp: Utc::now(),
+            hidden: true,
+        }
     }
 }
 

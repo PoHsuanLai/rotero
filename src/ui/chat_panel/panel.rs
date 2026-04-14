@@ -184,7 +184,9 @@ pub fn ChatPanel() -> Element {
                     }
                 } else {
                     for (i, msg) in messages.iter().enumerate() {
-                        ChatMessageBubble { key: "{i}", message: msg.clone() }
+                        if !msg.hidden {
+                            ChatMessageBubble { key: "{i}", message: msg.clone() }
+                        }
                     }
                 }
             }
