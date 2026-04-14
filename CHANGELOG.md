@@ -4,8 +4,17 @@
 
 ### Fixed
 - Context menu no longer truncated when opened near the bottom or right edge of the window
+- Semantic Scholar citation count fetch no longer 404s for papers with `10.48550/arXiv.*` DOIs
+- Zotero translation server now starts reliably (fixed missing `current_dir` causing config load failure)
+- Translation server startup captures stderr on crash/timeout for easier debugging
 
 ### Added
+- **Improved OA PDF search:** queries Zotero translation server, OpenAlex, Semantic Scholar, and Unpaywall in sequence
+- **Agent fallback for PDF search:** when automated sources fail, "Find PDF" button becomes "Ask Agent" to delegate web search to the AI agent
+- **`download_pdf` MCP tool:** agents can now download a PDF from a URL and attach it to an existing paper
+- OA search status persists per-paper — switch between papers while searches run in background
+- **Unified `PaperId` enum** for parsing paper identifiers (DOI, arXiv, PMID, ISBN) — replaces scattered string-prefix checks with a single typed parser
+- Zotero translator now preserves ISBN and extracts PMID from the `extra` field when DOI is absent
 - LaTeX math rendering in chat messages, paper abstracts, and note previews via `pulldown-latex` (pure Rust MathML, no JS runtime)
 - **Multi-select in library view:** Cmd+Click to toggle, Shift+Click for range select, Cmd+A to select all
 - **Keyboard shortcuts:** Arrow keys to navigate papers, Enter to open PDF, Delete/Backspace to delete with confirmation, Cmd+Shift+F to toggle favorite, Cmd+Shift+U to toggle read/unread, Escape to clear selection
