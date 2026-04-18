@@ -102,15 +102,13 @@ pub fn App() -> Element {
             if let Ok(js_ratio) = eval.recv::<f64>().await {
                 let js_ratio = (js_ratio as f32).max(1.0);
                 let old = dpr_signal.read().0;
-                // Use whichever is higher — native or JS.
-                let best = js_ratio.max(old);
-                if (best - old).abs() > 0.01 {
-                    dpr_signal.write().0 = best;
+                if (js_ratio - old).abs() > 0.01 {
+                    dpr_signal.write().0 = js_ratio;
                 }
                 let cached = config.read().cached_dpr;
-                if (best - cached).abs() > 0.01 {
+                if (js_ratio - cached).abs() > 0.01 {
                     config.with_mut(|cfg| {
-                        cfg.cached_dpr = best;
+                        cfg.cached_dpr = js_ratio;
                         let _ = cfg.save();
                     });
                 }
