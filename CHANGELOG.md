@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.6
+
+### Fixed
+- AI agent Node.js subprocess now exits cleanly when Rotero closes (previously could leak as orphaned processes that accumulated across sessions)
+
 ## v0.1.5
 
 ### Fixed

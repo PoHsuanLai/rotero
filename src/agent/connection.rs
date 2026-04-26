@@ -32,12 +32,6 @@ impl RawAcpConnection {
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            cmd.process_group(0);
-        }
-
         let mut child = cmd
             .spawn()
             .map_err(|e| format!("Failed to spawn node: {e}"))?;
@@ -157,21 +151,7 @@ impl RawAcpConnection {
     }
 
     pub(crate) fn kill(&mut self) {
-        #[cfg(unix)]
-        {
-            let pid = self.child.id();
-            unsafe {
-                libc::kill(-(pid as i32), libc::SIGTERM);
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            unsafe {
-                libc::kill(-(pid as i32), libc::SIGKILL);
-            }
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = self.child.kill();
-        }
+        let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }
