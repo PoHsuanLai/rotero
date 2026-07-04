@@ -137,6 +137,7 @@ pub async fn scrape(
     if let Some(items) = state.translator_registry.translate_web(&req.url).await
         && let Some(result) = first_usable_result(&items)
     {
+        crate::telemetry::record(crate::telemetry::Tier::Native, &req.url);
         return Json(ScrapeResponse {
             success: true,
             metadata: Some(result),
@@ -151,6 +152,7 @@ pub async fn scrape(
             match ts.translate_web(&req.url).await {
                 Ok(items) => {
                     if let Some(result) = first_usable_result(&items) {
+                        crate::telemetry::record(crate::telemetry::Tier::Node, &req.url);
                         return Json(ScrapeResponse {
                             success: true,
                             metadata: Some(result),
@@ -174,16 +176,22 @@ pub async fn scrape(
 
     // Tier 3: generic meta-tag scraper (never structured-fails).
     match super::scrape::scrape_url(&req.url).await {
-        Ok(p) => Json(ScrapeResponse {
-            success: true,
-            metadata: Some(paper_to_result(&p, p.links.pdf_url.clone())),
-            error: None,
-        }),
-        Err(e) => Json(ScrapeResponse {
-            success: false,
-            metadata: None,
-            error: Some(e),
-        }),
+        Ok(p) => {
+            crate::telemetry::record(crate::telemetry::Tier::Scrape, &req.url);
+            Json(ScrapeResponse {
+                success: true,
+                metadata: Some(paper_to_result(&p, p.links.pdf_url.clone())),
+                error: None,
+            })
+        }
+        Err(e) => {
+            crate::telemetry::record(crate::telemetry::Tier::Miss, &req.url);
+            Json(ScrapeResponse {
+                success: false,
+                metadata: None,
+                error: Some(e),
+            })
+        }
     }
 }
 

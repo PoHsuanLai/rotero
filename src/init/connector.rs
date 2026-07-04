@@ -22,6 +22,7 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
 
     if config.connector.connector_enabled {
         let port = config.connector.connector_port;
+        let use_node_ts = config.connector.use_node_translation_server;
         let lib_path = config.effective_library_path();
         let connector_tx = connector_tx.clone();
         std::thread::spawn(move || {
@@ -179,7 +180,11 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                     translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),
                 });
 
-                {
+                // The Node translation server is opt-in. In-process Rust
+                // translators cover the common case; only start Node (which
+                // clones a repo + runs npm install on first use) when the user
+                // has explicitly enabled it as a fallback for uncovered sites.
+                if use_node_ts {
                     let state_clone = state.clone();
                     tokio::spawn(async move {
                         let result: Result<_, String> = (|| {
@@ -203,6 +208,10 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                             Err(e) => tracing::warn!("Failed to start translation server: {e}"),
                         }
                     });
+                } else {
+                    tracing::info!(
+                        "Node translation server disabled (using in-process Rust translators)"
+                    );
                 }
 
                 if let Err(e) = rotero_connector::start_server(state, port).await {

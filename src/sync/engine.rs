@@ -67,6 +67,11 @@ pub struct ConnectorConfig {
     pub connector_enabled: bool,
     #[serde(default = "default_connector_port")]
     pub connector_port: u16,
+    /// Whether to run the Zotero Node.js translation server for sites the
+    /// in-process Rust translators don't cover. Off by default: enabling it
+    /// clones a repo and runs `npm install` on first use (slow, needs Node).
+    #[serde(default)]
+    pub use_node_translation_server: bool,
 }
 
 impl Default for ConnectorConfig {
@@ -74,6 +79,7 @@ impl Default for ConnectorConfig {
         Self {
             connector_enabled: default_true(),
             connector_port: default_connector_port(),
+            use_node_translation_server: false,
         }
     }
 }
