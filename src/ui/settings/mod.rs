@@ -20,7 +20,8 @@ enum SettingsTab {
     #[cfg(feature = "desktop")]
     Keybindings,
     AiAgent,
-    Advanced,
+    Connector,
+    About,
 }
 
 impl SettingsTab {
@@ -31,7 +32,8 @@ impl SettingsTab {
             #[cfg(feature = "desktop")]
             Self::Keybindings => "Keybindings",
             Self::AiAgent => "AI Agent",
-            Self::Advanced => "Advanced",
+            Self::Connector => "Connector",
+            Self::About => "About",
         }
     }
 }
@@ -42,7 +44,8 @@ const TABS: &[SettingsTab] = &[
     #[cfg(feature = "desktop")]
     SettingsTab::Keybindings,
     SettingsTab::AiAgent,
-    SettingsTab::Advanced,
+    SettingsTab::Connector,
+    SettingsTab::About,
 ];
 
 #[component]
@@ -84,6 +87,8 @@ fn SettingsPanel(on_close: EventHandler<()>) -> Element {
                     }
                 }
 
+                div { class: "settings-body",
+
                 div { class: "settings-tabs",
                     for tab in TABS.iter().copied() {
                         button {
@@ -113,9 +118,10 @@ fn SettingsPanel(on_close: EventHandler<()>) -> Element {
                         SettingsTab::AiAgent => rsx! {
                             claude::AgentSection {}
                         },
-                        SettingsTab::Advanced => rsx! {
+                        SettingsTab::Connector => rsx! {
                             connector::ConnectorSection {}
-                            div { class: "settings-divider" }
+                        },
+                        SettingsTab::About => rsx! {
                             {update_settings_element()}
                             div { class: "settings-section",
                                 h4 { class: "settings-section-title", "About" }
@@ -125,6 +131,7 @@ fn SettingsPanel(on_close: EventHandler<()>) -> Element {
                             }
                         },
                     }
+                }
                 }
             }
         }
