@@ -66,22 +66,33 @@
 
 /* === Settings Dialog === */
 .settings-dialog {
-  width: 500px;
+  width: clamp(560px, 60vw, 860px);
+  height: clamp(440px, 70vh, 680px);
   display: flex;
   flex-direction: column;
-  overflow-y: hidden;
+  overflow: hidden;
+}
+
+.settings-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: var(--space-4);
 }
 
 .settings-tabs {
   display: flex;
+  flex-direction: column;
   gap: var(--space-1);
-  margin-bottom: var(--space-4);
-  border-bottom: 1px solid var(--border-subtle);
-  padding-bottom: var(--space-2);
+  flex-shrink: 0;
+  width: 160px;
+  border-right: 1px solid var(--border-subtle);
+  padding-right: var(--space-3);
 }
 
 .settings-tab {
-  flex: 1;
+  text-align: left;
+  width: 100%;
   padding: var(--space-1_5) var(--space-2);
   border: none;
   background: transparent;
