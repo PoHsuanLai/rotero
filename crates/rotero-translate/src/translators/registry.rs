@@ -3,7 +3,7 @@
 
 use crate::ZoteroItem;
 
-use super::{EmbeddedMetadata, Translator, fetch_context};
+use super::{DoiContentNegotiation, EmbeddedMetadata, Translator, fetch_context};
 
 /// Holds the set of in-process translators and dispatches web/import requests.
 pub struct TranslatorRegistry {
@@ -17,7 +17,10 @@ impl TranslatorRegistry {
     /// Node/scrape tiers.
     pub fn with_builtins() -> Self {
         Self {
-            translators: vec![Box::new(EmbeddedMetadata)],
+            translators: vec![
+                Box::new(DoiContentNegotiation),
+                Box::new(EmbeddedMetadata),
+            ],
         }
     }
 

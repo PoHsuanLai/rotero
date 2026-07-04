@@ -13,9 +13,11 @@ use async_trait::async_trait;
 
 use crate::{TranslateError, ZoteroItem};
 
+mod doi_content_negotiation;
 mod embedded_metadata;
 mod registry;
 
+pub use doi_content_negotiation::DoiContentNegotiation;
 pub use embedded_metadata::EmbeddedMetadata;
 pub use registry::{TranslatorRegistry, has_usable};
 
