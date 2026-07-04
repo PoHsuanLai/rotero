@@ -91,10 +91,8 @@ pub fn PdfViewer() -> Element {
                                         a.geometry.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
                                     let ay =
                                         a.geometry.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                                    let (rw, rh) = page_dims
-                                        .get(&ext.page)
-                                        .copied()
-                                        .unwrap_or((1, 1));
+                                    let (rw, rh) =
+                                        page_dims.get(&ext.page).copied().unwrap_or((1, 1));
                                     let sx = rw as f64 / ext.page_width_pts as f64;
                                     let sy = rh as f64 / ext.page_height_pts as f64;
                                     let ex = ext.rect_pts[0] as f64 * sx;
@@ -107,10 +105,7 @@ pub fn PdfViewer() -> Element {
                                 continue;
                             }
 
-                            let (rw, rh) = page_dims
-                                .get(&ext.page)
-                                .copied()
-                                .unwrap_or((1, 1));
+                            let (rw, rh) = page_dims.get(&ext.page).copied().unwrap_or((1, 1));
                             let sx = rw as f32 / ext.page_width_pts;
                             let sy = rh as f32 / ext.page_height_pts;
                             let x = ext.rect_pts[0] * sx;

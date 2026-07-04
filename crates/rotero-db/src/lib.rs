@@ -170,12 +170,11 @@ impl Database {
                 for component in std::path::Path::new(rel_path).components() {
                     match component {
                         std::path::Component::Normal(c) => normalized.push(c),
-                        std::path::Component::ParentDir => {
+                        std::path::Component::ParentDir
                             // Don't allow escaping papers dir
-                            if normalized != papers {
+                            if normalized != papers => {
                                 normalized.pop();
                             }
-                        }
                         _ => {} // Skip CurDir, Prefix, RootDir
                     }
                 }

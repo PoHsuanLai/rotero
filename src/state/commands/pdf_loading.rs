@@ -103,8 +103,10 @@ pub async fn open_pdf(
         let cached_count = cached_pages.len() as u32;
         // Only keep an initial window (around page 0) resident; the rest render
         // lazily on scroll even though they exist in the disk cache.
-        let mut resident: std::collections::BTreeMap<u32, RenderedPageData> =
-            cached_pages.into_iter().map(|p| (p.page_index, p)).collect();
+        let mut resident: std::collections::BTreeMap<u32, RenderedPageData> = cached_pages
+            .into_iter()
+            .map(|p| (p.page_index, p))
+            .collect();
         evict_pages_outside_window(&mut resident, 0);
         tabs.with_mut(|mgr| {
             if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
@@ -430,7 +432,9 @@ pub async fn ensure_window_rendered(
     // NOT re-render on every scroll tick.
     if dims_ready && center == cur_page {
         let lo = center.saturating_sub(PAGE_WINDOW_RADIUS);
-        let hi = center.saturating_add(PAGE_WINDOW_RADIUS).min(page_count - 1);
+        let hi = center
+            .saturating_add(PAGE_WINDOW_RADIUS)
+            .min(page_count - 1);
         if (lo..=hi).all(|i| present.contains(&i)) {
             return;
         }
@@ -448,7 +452,9 @@ pub async fn ensure_window_rendered(
         }
     });
     let lo = center.saturating_sub(PAGE_WINDOW_RADIUS);
-    let hi = center.saturating_add(PAGE_WINDOW_RADIUS).min(page_count - 1);
+    let hi = center
+        .saturating_add(PAGE_WINDOW_RADIUS)
+        .min(page_count - 1);
     // Render contiguous runs of missing pages in the window.
     let mut idx = lo;
     while idx <= hi {

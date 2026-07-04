@@ -84,13 +84,25 @@ pub enum Trigger {
 
 impl KeySpec {
     const fn cmd(c: char) -> Self {
-        Self { cmd: true, shift: false, trigger: Trigger::Char(c) }
+        Self {
+            cmd: true,
+            shift: false,
+            trigger: Trigger::Char(c),
+        }
     }
     const fn cmd_shift(c: char) -> Self {
-        Self { cmd: true, shift: true, trigger: Trigger::Char(c) }
+        Self {
+            cmd: true,
+            shift: true,
+            trigger: Trigger::Char(c),
+        }
     }
     const fn bare(trigger: Trigger) -> Self {
-        Self { cmd: false, shift: false, trigger }
+        Self {
+            cmd: false,
+            shift: false,
+            trigger,
+        }
     }
 
     /// Does this spec match a live keyboard event's modifiers + key?
@@ -128,37 +140,140 @@ pub struct Binding {
 /// wins, so put more specific scopes before `Global` if they ever share a key.
 pub const BINDINGS: &[Binding] = &[
     // Global — fire in any view.
-    Binding { key: KeySpec::cmd(','), command: Command::OpenSettings, scope: Scope::Global, menu_id: None },
-    Binding { key: KeySpec::cmd('o'), command: Command::OpenPdf, scope: Scope::Global, menu_id: Some("open-pdf") },
-    Binding { key: KeySpec::cmd('i'), command: Command::ImportBibtex, scope: Scope::Global, menu_id: Some("import-bibtex") },
-    Binding { key: KeySpec::cmd('e'), command: Command::ExportBibtex, scope: Scope::Global, menu_id: Some("export-bibtex") },
-    Binding { key: KeySpec::cmd('f'), command: Command::Find, scope: Scope::Global, menu_id: Some("find") },
-    Binding { key: KeySpec::cmd('l'), command: Command::FocusLibrarySearch, scope: Scope::Global, menu_id: None },
-    Binding { key: KeySpec::cmd('w'), command: Command::CloseTab, scope: Scope::Global, menu_id: Some("close-tab") },
-    Binding { key: KeySpec::cmd('n'), command: Command::NewCollection, scope: Scope::Global, menu_id: Some("new-collection") },
-    Binding { key: KeySpec::cmd('1'), command: Command::ShowLibrary, scope: Scope::Global, menu_id: Some("show-library") },
-    Binding { key: KeySpec::cmd('['), command: Command::PrevTab, scope: Scope::Global, menu_id: None },
-    Binding { key: KeySpec::cmd(']'), command: Command::NextTab, scope: Scope::Global, menu_id: None },
-    Binding { key: KeySpec::cmd('z'), command: Command::Undo, scope: Scope::Global, menu_id: None },
-    Binding { key: KeySpec::cmd_shift('z'), command: Command::Redo, scope: Scope::Global, menu_id: None },
-    Binding { key: KeySpec::bare(Trigger::Escape), command: Command::Escape, scope: Scope::Global, menu_id: None },
+    Binding {
+        key: KeySpec::cmd(','),
+        command: Command::OpenSettings,
+        scope: Scope::Global,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::cmd('o'),
+        command: Command::OpenPdf,
+        scope: Scope::Global,
+        menu_id: Some("open-pdf"),
+    },
+    Binding {
+        key: KeySpec::cmd('i'),
+        command: Command::ImportBibtex,
+        scope: Scope::Global,
+        menu_id: Some("import-bibtex"),
+    },
+    Binding {
+        key: KeySpec::cmd('e'),
+        command: Command::ExportBibtex,
+        scope: Scope::Global,
+        menu_id: Some("export-bibtex"),
+    },
+    Binding {
+        key: KeySpec::cmd('f'),
+        command: Command::Find,
+        scope: Scope::Global,
+        menu_id: Some("find"),
+    },
+    Binding {
+        key: KeySpec::cmd('l'),
+        command: Command::FocusLibrarySearch,
+        scope: Scope::Global,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::cmd('w'),
+        command: Command::CloseTab,
+        scope: Scope::Global,
+        menu_id: Some("close-tab"),
+    },
+    Binding {
+        key: KeySpec::cmd('n'),
+        command: Command::NewCollection,
+        scope: Scope::Global,
+        menu_id: Some("new-collection"),
+    },
+    Binding {
+        key: KeySpec::cmd('1'),
+        command: Command::ShowLibrary,
+        scope: Scope::Global,
+        menu_id: Some("show-library"),
+    },
+    Binding {
+        key: KeySpec::cmd('['),
+        command: Command::PrevTab,
+        scope: Scope::Global,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::cmd(']'),
+        command: Command::NextTab,
+        scope: Scope::Global,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::cmd('z'),
+        command: Command::Undo,
+        scope: Scope::Global,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::cmd_shift('z'),
+        command: Command::Redo,
+        scope: Scope::Global,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::bare(Trigger::Escape),
+        command: Command::Escape,
+        scope: Scope::Global,
+        menu_id: None,
+    },
     // Library — only when a paper list is showing.
-    Binding { key: KeySpec::cmd('a'), command: Command::SelectAll, scope: Scope::Library, menu_id: None },
-    Binding { key: KeySpec::cmd_shift('f'), command: Command::ToggleFavorite, scope: Scope::Library, menu_id: None },
-    Binding { key: KeySpec::cmd_shift('u'), command: Command::ToggleRead, scope: Scope::Library, menu_id: None },
-    Binding { key: KeySpec::bare(Trigger::ArrowDown), command: Command::SelectNext, scope: Scope::Library, menu_id: None },
-    Binding { key: KeySpec::bare(Trigger::ArrowUp), command: Command::SelectPrev, scope: Scope::Library, menu_id: None },
-    Binding { key: KeySpec::bare(Trigger::Enter), command: Command::OpenSelected, scope: Scope::Library, menu_id: None },
-    Binding { key: KeySpec::bare(Trigger::Backspace), command: Command::DeleteSelected, scope: Scope::Library, menu_id: None },
+    Binding {
+        key: KeySpec::cmd('a'),
+        command: Command::SelectAll,
+        scope: Scope::Library,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::cmd_shift('f'),
+        command: Command::ToggleFavorite,
+        scope: Scope::Library,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::cmd_shift('u'),
+        command: Command::ToggleRead,
+        scope: Scope::Library,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::bare(Trigger::ArrowDown),
+        command: Command::SelectNext,
+        scope: Scope::Library,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::bare(Trigger::ArrowUp),
+        command: Command::SelectPrev,
+        scope: Scope::Library,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::bare(Trigger::Enter),
+        command: Command::OpenSelected,
+        scope: Scope::Library,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::bare(Trigger::Backspace),
+        command: Command::DeleteSelected,
+        scope: Scope::Library,
+        menu_id: None,
+    },
 ];
 
 /// Resolve a live key event within a scope to a command, if any binding matches.
 fn resolve(cmd: bool, shift: bool, key: &Key, scope: Scope) -> Option<Command> {
     BINDINGS
         .iter()
-        .find(|b| {
-            (b.scope == scope || b.scope == Scope::Global) && b.key.matches(cmd, shift, key)
-        })
+        .find(|b| (b.scope == scope || b.scope == Scope::Global) && b.key.matches(cmd, shift, key))
         .map(|b| b.command)
 }
 
@@ -726,9 +841,7 @@ fn dispatch(cmd: Command, ctx: &KeyCtx, db: &Database) {
         Command::CheckUpdates => action_check_updates(update_state),
         Command::SelectNext => action_select_next(lib_state),
         Command::SelectPrev => action_select_prev(lib_state),
-        Command::OpenSelected => {
-            action_open_selected_pdf(lib_state, tabs, db, &config, &dpr_sig)
-        }
+        Command::OpenSelected => action_open_selected_pdf(lib_state, tabs, db, &config, &dpr_sig),
         Command::DeleteSelected => action_delete_selected(lib_state),
         Command::Escape => action_escape(show_settings, tabs, tools, lib_state),
     }
