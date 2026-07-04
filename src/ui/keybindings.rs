@@ -10,6 +10,314 @@ use crate::sync::engine::SyncConfig;
 use crate::updates::{UpdateState, UpdateStatus};
 use rotero_db::Database;
 
+// ── Keybinding architecture ────────────────────────────────────────────────
+//
+// One source of truth for every shortcut. A `Command` is a semantic action; the
+// `BINDINGS` table maps keys + scope → command and (optionally) a menu id. Both
+// the DOM keydown handler and the native-menu handler resolve to a `Command`
+// and then call `dispatch`, so a shortcut is described in exactly one place and
+// the menu bar in `init/window.rs` is generated from the same table.
+//
+// Precedence between "typing in a field" and "pressing a shortcut" is handled
+// separately: local input handlers call `stop_propagation()` (see
+// `text_input_onkeydown`), and `assets/keybindings.js` is the capture-phase
+// backstop for bare keys. This module never sees a keystroke that a focused
+// input claimed.
+
+/// A semantic action, decoupled from the key that triggers it. This is the unit
+/// a future rebinding UI would let users remap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Command {
+    OpenSettings,
+    OpenPdf,
+    ImportBibtex,
+    ExportBibtex,
+    Find,
+    FocusLibrarySearch,
+    CloseTab,
+    NewCollection,
+    ShowLibrary,
+    PrevTab,
+    NextTab,
+    Undo,
+    Redo,
+    SelectAll,
+    ToggleFavorite,
+    ToggleRead,
+    CheckUpdates,
+    SelectNext,
+    SelectPrev,
+    OpenSelected,
+    DeleteSelected,
+    Escape,
+}
+
+/// Where a binding is active. `Global` fires regardless of view; the others only
+/// fire when the current view matches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    Global,
+    Library,
+    Viewer,
+}
+
+/// A key combination, normalized so the DOM handler, the menu accelerator, and a
+/// future config file all agree on the same representation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeySpec {
+    pub cmd: bool,
+    pub shift: bool,
+    pub trigger: Trigger,
+}
+
+/// The non-modifier part of a key combination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trigger {
+    /// A printable character, matched case-insensitively.
+    Char(char),
+    ArrowUp,
+    ArrowDown,
+    Enter,
+    Backspace,
+    Escape,
+}
+
+impl KeySpec {
+    const fn cmd(c: char) -> Self {
+        Self {
+            cmd: true,
+            shift: false,
+            trigger: Trigger::Char(c),
+        }
+    }
+    const fn cmd_shift(c: char) -> Self {
+        Self {
+            cmd: true,
+            shift: true,
+            trigger: Trigger::Char(c),
+        }
+    }
+    const fn bare(trigger: Trigger) -> Self {
+        Self {
+            cmd: false,
+            shift: false,
+            trigger,
+        }
+    }
+
+    /// Does this spec match a live keyboard event's modifiers + key?
+    fn matches(&self, cmd: bool, shift: bool, key: &Key) -> bool {
+        if self.cmd != cmd || self.shift != shift {
+            return false;
+        }
+        match self.trigger {
+            Trigger::Char(want) => matches!(
+                key,
+                Key::Character(c) if c.chars().next().is_some_and(|k| k.eq_ignore_ascii_case(&want))
+            ),
+            Trigger::ArrowUp => *key == Key::ArrowUp,
+            Trigger::ArrowDown => *key == Key::ArrowDown,
+            Trigger::Enter => *key == Key::Enter,
+            // Backspace and Delete both mean "delete selected" in the library.
+            Trigger::Backspace => *key == Key::Backspace || *key == Key::Delete,
+            Trigger::Escape => *key == Key::Escape,
+        }
+    }
+}
+
+/// One row of the shortcut table: key + scope → command, plus an optional native
+/// menu id so the menu bar can be generated from this same list.
+pub struct Binding {
+    pub key: KeySpec,
+    pub command: Command,
+    pub scope: Scope,
+    pub menu_id: Option<&'static str>,
+}
+
+/// The single source of truth for every keyboard shortcut and menu accelerator.
+///
+/// Order matters only for resolution when two rows could match: the first match
+/// wins, so put more specific scopes before `Global` if they ever share a key.
+pub const BINDINGS: &[Binding] = &[
+    // Global — fire in any view.
+    Binding {
+        key: KeySpec::cmd(','),
+        command: Command::OpenSettings,
+        scope: Scope::Global,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::cmd('o'),
+        command: Command::OpenPdf,
+        scope: Scope::Global,
+        menu_id: Some("open-pdf"),
+    },
+    Binding {
+        key: KeySpec::cmd('i'),
+        command: Command::ImportBibtex,
+        scope: Scope::Global,
+        menu_id: Some("import-bibtex"),
+    },
+    Binding {
+        key: KeySpec::cmd('e'),
+        command: Command::ExportBibtex,
+        scope: Scope::Global,
+        menu_id: Some("export-bibtex"),
+    },
+    Binding {
+        key: KeySpec::cmd('f'),
+        command: Command::Find,
+        scope: Scope::Global,
+        menu_id: Some("find"),
+    },
+    Binding {
+        key: KeySpec::cmd('l'),
+        command: Command::FocusLibrarySearch,
+        scope: Scope::Global,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::cmd('w'),
+        command: Command::CloseTab,
+        scope: Scope::Global,
+        menu_id: Some("close-tab"),
+    },
+    Binding {
+        key: KeySpec::cmd('n'),
+        command: Command::NewCollection,
+        scope: Scope::Global,
+        menu_id: Some("new-collection"),
+    },
+    Binding {
+        key: KeySpec::cmd('1'),
+        command: Command::ShowLibrary,
+        scope: Scope::Global,
+        menu_id: Some("show-library"),
+    },
+    Binding {
+        key: KeySpec::cmd('['),
+        command: Command::PrevTab,
+        scope: Scope::Global,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::cmd(']'),
+        command: Command::NextTab,
+        scope: Scope::Global,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::cmd('z'),
+        command: Command::Undo,
+        scope: Scope::Global,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::cmd_shift('z'),
+        command: Command::Redo,
+        scope: Scope::Global,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::bare(Trigger::Escape),
+        command: Command::Escape,
+        scope: Scope::Global,
+        menu_id: None,
+    },
+    // Library — only when a paper list is showing.
+    Binding {
+        key: KeySpec::cmd('a'),
+        command: Command::SelectAll,
+        scope: Scope::Library,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::cmd_shift('f'),
+        command: Command::ToggleFavorite,
+        scope: Scope::Library,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::cmd_shift('u'),
+        command: Command::ToggleRead,
+        scope: Scope::Library,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::bare(Trigger::ArrowDown),
+        command: Command::SelectNext,
+        scope: Scope::Library,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::bare(Trigger::ArrowUp),
+        command: Command::SelectPrev,
+        scope: Scope::Library,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::bare(Trigger::Enter),
+        command: Command::OpenSelected,
+        scope: Scope::Library,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::bare(Trigger::Backspace),
+        command: Command::DeleteSelected,
+        scope: Scope::Library,
+        menu_id: None,
+    },
+];
+
+/// Resolve a live key event within a scope to a command, if any binding matches.
+fn resolve(cmd: bool, shift: bool, key: &Key, scope: Scope) -> Option<Command> {
+    BINDINGS
+        .iter()
+        .find(|b| (b.scope == scope || b.scope == Scope::Global) && b.key.matches(cmd, shift, key))
+        .map(|b| b.command)
+}
+
+/// Look up the command a native menu item triggers.
+fn command_for_menu(menu_id: &str) -> Option<Command> {
+    BINDINGS
+        .iter()
+        .find(|b| b.menu_id == Some(menu_id))
+        .map(|b| b.command)
+}
+
+/// The native-menu accelerator for a menu item, derived from its `BINDINGS` row
+/// so the menu bar and the DOM handler can never disagree about a shortcut.
+/// Returns `None` for menu items that have no keyboard binding.
+#[cfg(feature = "desktop")]
+pub fn menu_accelerator(menu_id: &str) -> Option<dioxus::desktop::muda::accelerator::Accelerator> {
+    use dioxus::desktop::muda::accelerator::{Accelerator, Code, Modifiers};
+
+    let binding = BINDINGS.iter().find(|b| b.menu_id == Some(menu_id))?;
+    let key = binding.key;
+
+    // Every menu-bound shortcut today is a Cmd+<char>. Map the character to a
+    // muda Code; extend this match if a menu item ever needs a non-char key.
+    let code = match key.trigger {
+        Trigger::Char('o') => Code::KeyO,
+        Trigger::Char('i') => Code::KeyI,
+        Trigger::Char('e') => Code::KeyE,
+        Trigger::Char('f') => Code::KeyF,
+        Trigger::Char('w') => Code::KeyW,
+        Trigger::Char('n') => Code::KeyN,
+        Trigger::Char('1') => Code::Digit1,
+        _ => return None,
+    };
+
+    let mut mods = Modifiers::empty();
+    if key.cmd {
+        mods |= Modifiers::SUPER;
+    }
+    if key.shift {
+        mods |= Modifiers::SHIFT;
+    }
+    Some(Accelerator::new(Some(mods), code))
+}
+
 fn action_open_settings(mut show_settings: Signal<ShowSettings>) {
     show_settings.set(ShowSettings(true));
 }
@@ -171,6 +479,10 @@ fn action_close_tab(
     tabs.with_mut(|m| m.close_tab(tab_id));
     if tabs.read().tabs.is_empty() {
         lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
+        // No PDFs open — free the engine's cached file bytes.
+        let _ = render_ch
+            .sender()
+            .send(crate::state::commands::RenderRequest::ClearCache);
     } else {
         let needs = tabs
             .read()
@@ -447,157 +759,125 @@ fn action_toggle_read_selected(mut lib_state: Signal<LibraryState>, db: Database
     });
 }
 
-/// Handles keyboard shortcuts (window-scoped via onkeydown) and native menu events.
+/// All the state a command might need to run. Bundling it lets `dispatch` have a
+/// single signature and lets both entry points (DOM + menu) share one code path.
+#[derive(Clone, Copy)]
+pub struct KeyCtx {
+    pub show_settings: Signal<ShowSettings>,
+    pub lib_state: Signal<LibraryState>,
+    pub tabs: Signal<PdfTabManager>,
+    pub render_ch: RenderChannel,
+    pub config: Signal<SyncConfig>,
+    pub new_coll_editing: Signal<Option<Option<String>>>,
+    pub undo_stack: Signal<UndoStack>,
+    pub tools: Signal<ViewerToolState>,
+    pub dpr_sig: Signal<DevicePixelRatio>,
+    pub update_state: Signal<UpdateState>,
+}
+
+impl KeyCtx {
+    /// Gather every signal from context. Must be called inside a component (it
+    /// uses `use_context`). Returns the `Database` alongside because it isn't
+    /// `Copy` and so can't live in the `Copy` `KeyCtx`.
+    pub fn from_context() -> (Self, Database) {
+        (
+            Self {
+                show_settings: use_context::<Signal<ShowSettings>>(),
+                lib_state: use_context::<Signal<LibraryState>>(),
+                tabs: use_context::<Signal<PdfTabManager>>(),
+                render_ch: use_context::<RenderChannel>(),
+                config: use_context::<Signal<SyncConfig>>(),
+                new_coll_editing: use_context::<Signal<Option<Option<String>>>>(),
+                undo_stack: use_context::<Signal<UndoStack>>(),
+                tools: use_context::<Signal<ViewerToolState>>(),
+                dpr_sig: use_context::<Signal<DevicePixelRatio>>(),
+                update_state: use_context::<Signal<UpdateState>>(),
+            },
+            use_context::<Database>(),
+        )
+    }
+
+    fn scope(&self) -> Scope {
+        match self.lib_state.read().view {
+            LibraryView::PdfViewer => Scope::Viewer,
+            LibraryView::Graph => Scope::Global,
+            _ => Scope::Library,
+        }
+    }
+}
+
+/// Run a resolved command. This is the one place a `Command` maps to behavior;
+/// the existing `action_*` functions do the work.
+fn dispatch(cmd: Command, ctx: &KeyCtx, db: &Database) {
+    let KeyCtx {
+        show_settings,
+        lib_state,
+        tabs,
+        render_ch,
+        config,
+        new_coll_editing,
+        undo_stack,
+        tools,
+        dpr_sig,
+        update_state,
+    } = *ctx;
+    match cmd {
+        Command::OpenSettings => action_open_settings(show_settings),
+        Command::OpenPdf => action_open_pdf(tabs, lib_state, config, dpr_sig),
+        Command::ImportBibtex => action_import_bibtex(db.clone(), lib_state),
+        Command::ExportBibtex => action_export_bibtex(lib_state),
+        Command::Find => action_find(lib_state, tabs),
+        Command::FocusLibrarySearch => action_focus_library_search(lib_state),
+        Command::CloseTab => action_close_tab(tabs, lib_state, render_ch, config, dpr_sig),
+        Command::NewCollection => action_new_collection(lib_state, new_coll_editing),
+        Command::ShowLibrary => action_show_library(lib_state),
+        Command::PrevTab => action_prev_tab(tabs, lib_state),
+        Command::NextTab => action_next_tab(tabs, lib_state),
+        Command::Undo => action_undo(db.clone(), tabs, undo_stack),
+        Command::Redo => action_redo(db.clone(), tabs, undo_stack),
+        Command::SelectAll => action_select_all(lib_state),
+        Command::ToggleFavorite => action_toggle_favorite_selected(lib_state, db.clone()),
+        Command::ToggleRead => action_toggle_read_selected(lib_state, db.clone()),
+        Command::CheckUpdates => action_check_updates(update_state),
+        Command::SelectNext => action_select_next(lib_state),
+        Command::SelectPrev => action_select_prev(lib_state),
+        Command::OpenSelected => action_open_selected_pdf(lib_state, tabs, db, &config, &dpr_sig),
+        Command::DeleteSelected => action_delete_selected(lib_state),
+        Command::Escape => action_escape(show_settings, tabs, tools, lib_state),
+    }
+}
+
+/// Handles keyboard shortcuts (window-scoped via onkeydown) and native menu
+/// events. Both resolve to a `Command` and go through `dispatch`.
 #[component]
 pub fn GlobalKeyHandler() -> Element {
-    let lib_state = use_context::<Signal<LibraryState>>();
-    let tabs = use_context::<Signal<PdfTabManager>>();
-    let db = use_context::<Database>();
-    let render_ch = use_context::<RenderChannel>();
-    let config = use_context::<Signal<SyncConfig>>();
-    let new_coll_editing = use_context::<Signal<Option<Option<String>>>>();
-    let dpr_sig = use_context::<Signal<DevicePixelRatio>>();
+    let (ctx, db) = KeyCtx::from_context();
 
-    let update_state = use_context::<Signal<UpdateState>>();
-
-    let db_menu = db.clone();
-    let _ = use_muda_event_handler(move |event| match event.id().0.as_str() {
-        "open-pdf" => action_open_pdf(tabs, lib_state, config, dpr_sig),
-        "import-bibtex" => action_import_bibtex(db_menu.clone(), lib_state),
-        "export-bibtex" => action_export_bibtex(lib_state),
-        "close-tab" => action_close_tab(tabs, lib_state, render_ch, config, dpr_sig),
-        "find" => action_find(lib_state, tabs),
-        "show-library" => action_show_library(lib_state),
-        "new-collection" => action_new_collection(lib_state, new_coll_editing),
-        "check-updates" => action_check_updates(update_state),
-        _ => {}
+    let _ = use_muda_event_handler(move |event| {
+        if let Some(cmd) = command_for_menu(event.id().0.as_str()) {
+            dispatch(cmd, &ctx, &db);
+        } else if event.id().0 == "check-updates" {
+            // Not a keyboard shortcut, so it has no BINDINGS row.
+            dispatch(Command::CheckUpdates, &ctx, &db);
+        }
     });
 
     rsx! {}
 }
 
-/// Keyboard event handler called from Layout's root div onkeydown.
-#[allow(clippy::too_many_arguments)]
-pub fn handle_keydown(
-    event: Event<KeyboardData>,
-    show_settings: Signal<ShowSettings>,
-    lib_state: Signal<LibraryState>,
-    tabs: Signal<PdfTabManager>,
-    db: Database,
-    render_ch: RenderChannel,
-    config: Signal<SyncConfig>,
-    new_coll_editing: Signal<Option<Option<String>>>,
-    undo_stack: Signal<UndoStack>,
-    tools: Signal<ViewerToolState>,
-    dpr_sig: Signal<DevicePixelRatio>,
-) {
+/// Keyboard event handler called from Layout's root div onkeydown. Resolves the
+/// key within the current scope to a command, then dispatches.
+pub fn handle_keydown(event: Event<KeyboardData>, ctx: KeyCtx, db: Database) {
     let key = event.key();
     let modifiers = event.modifiers();
     let cmd = modifiers.meta() || modifiers.ctrl();
     let shift = modifiers.shift();
 
-    let in_library = !matches!(
-        lib_state.read().view,
-        LibraryView::PdfViewer | LibraryView::Graph
-    );
-
-    if cmd && !shift {
-        if let Key::Character(ref c) = key {
-            match c.as_str() {
-                "," => {
-                    event.prevent_default();
-                    action_open_settings(show_settings);
-                }
-                "o" => {
-                    event.prevent_default();
-                    action_open_pdf(tabs, lib_state, config, dpr_sig);
-                }
-                "i" => {
-                    event.prevent_default();
-                    action_import_bibtex(db.clone(), lib_state);
-                }
-                "e" => {
-                    event.prevent_default();
-                    action_export_bibtex(lib_state);
-                }
-                "f" => {
-                    event.prevent_default();
-                    action_find(lib_state, tabs);
-                }
-                "l" => {
-                    event.prevent_default();
-                    action_focus_library_search(lib_state);
-                }
-                "w" => {
-                    event.prevent_default();
-                    action_close_tab(tabs, lib_state, render_ch, config, dpr_sig);
-                }
-                "n" => {
-                    event.prevent_default();
-                    action_new_collection(lib_state, new_coll_editing);
-                }
-                "1" => {
-                    event.prevent_default();
-                    action_show_library(lib_state);
-                }
-                "[" => {
-                    event.prevent_default();
-                    action_prev_tab(tabs, lib_state);
-                }
-                "]" => {
-                    event.prevent_default();
-                    action_next_tab(tabs, lib_state);
-                }
-                "z" => {
-                    event.prevent_default();
-                    action_undo(db.clone(), tabs, undo_stack);
-                }
-                "a" if in_library => {
-                    event.prevent_default();
-                    action_select_all(lib_state);
-                }
-                _ => {}
-            }
+    if let Some(command) = resolve(cmd, shift, &key, ctx.scope()) {
+        // Escape is intentionally not prevent_default'd — matches prior behavior.
+        if command != Command::Escape {
+            event.prevent_default();
         }
-    } else if cmd && shift {
-        if let Key::Character(ref c) = key {
-            match c.as_str() {
-                "z" | "Z" => {
-                    event.prevent_default();
-                    action_redo(db.clone(), tabs, undo_stack);
-                }
-                "f" | "F" if in_library => {
-                    event.prevent_default();
-                    action_toggle_favorite_selected(lib_state, db.clone());
-                }
-                "u" | "U" if in_library => {
-                    event.prevent_default();
-                    action_toggle_read_selected(lib_state, db.clone());
-                }
-                _ => {}
-            }
-        }
-    } else if key == Key::Escape {
-        action_escape(show_settings, tabs, tools, lib_state);
-    } else if !cmd && in_library {
-        match key {
-            Key::ArrowDown => {
-                event.prevent_default();
-                action_select_next(lib_state);
-            }
-            Key::ArrowUp => {
-                event.prevent_default();
-                action_select_prev(lib_state);
-            }
-            Key::Enter => {
-                event.prevent_default();
-                action_open_selected_pdf(lib_state, tabs, &db, &config, &dpr_sig);
-            }
-            Key::Backspace | Key::Delete => {
-                event.prevent_default();
-                action_delete_selected(lib_state);
-            }
-            _ => {}
-        }
+        dispatch(command, &ctx, &db);
     }
 }

@@ -11,7 +11,12 @@ use rotero_models::{Annotation, AnnotationType};
 #[component]
 pub(crate) fn PdfPageWithOverlay(
     page_index: u32,
-    base64_data: Arc<String>,
+    /// `None` while the page is outside the resident render window — the slot
+    /// renders as a sized placeholder so the scroll container keeps full height
+    /// and this element (and its stable `id`) always exists. Keeping one node
+    /// type per page slot avoids Dioxus keyed-diff breakage when a page swaps
+    /// between placeholder and rendered.
+    base64_data: Option<Arc<String>>,
     mime: &'static str,
     width: u32,
     height: u32,
@@ -79,9 +84,23 @@ pub(crate) fn PdfPageWithOverlay(
         1.0
     };
 
+    // Not-yet-rendered slot: render a sized placeholder with the SAME element type,
+    // wrapper class, and id as a rendered page so it reserves scroll height and the
+    // node type never changes when the real page arrives.
+    let Some(base64_data) = base64_data else {
+        return rsx! {
+            div {
+                class: "pdf-page-wrapper pdf-page-placeholder",
+                id: "pdf-page-{page_index}",
+                style: "width: {width}px; height: {height}px; zoom: {css_zoom};",
+            }
+        };
+    };
+
     rsx! {
         div {
             class: "pdf-page-wrapper",
+            id: "pdf-page-{page_index}",
             style: "cursor: {cursor}; zoom: {css_zoom};",
 
             {

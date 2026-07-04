@@ -80,19 +80,32 @@ pub fn PdfTabBar() -> Element {
                                 }
 
                                 spawn(async move {
-                                    let scroll_top = tabs.read().active_tab().map(|t| t.view.scroll_top).unwrap_or(0.0);
-                                    let js = format!(
-                                        "setTimeout(() => {{ let el = document.getElementById('pdf-pages-container'); if (el) el.scrollTop = {}; }}, 30)",
-                                        scroll_top
-                                    );
-                                    let _ = document::eval(&js);
+                                    let render_tx = render_ch.sender();
+                                    let cfg_dir = config.read().effective_library_path();
 
                                     let needs = tabs.read().active_tab().map(|t| t.needs_render()).unwrap_or(false);
                                     if needs {
                                         tabs.with_mut(|m| m.tab_mut().is_loading = true);
-                                        let render_tx = render_ch.sender();
-                                        let cfg_dir = config.read().effective_library_path();
                                         let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &cfg_dir, dpr_sig.read().0).await;
+                                    }
+
+                                    // Pages render in a sliding window, so before restoring
+                                    // scroll we must render the window around the page the
+                                    // user was last on; otherwise that region is blank.
+                                    let last_page = tabs.read().active_tab().map(|t| t.view.current_page).unwrap_or(0);
+                                    if last_page > 0 {
+                                        crate::state::commands::ensure_window_rendered(&render_tx, &mut tabs, tab_id, last_page, &cfg_dir).await;
+                                        // Scroll to the page element (robust to variable page heights
+                                        // and to Dioxus not having flushed the just-rendered page yet).
+                                        let _ = document::eval(&super::scroll_to_page_js(last_page, "start"));
+                                    } else {
+                                        // Restore exact pixel offset for the top of the document.
+                                        let scroll_top = tabs.read().active_tab().map(|t| t.view.scroll_top).unwrap_or(0.0);
+                                        let js = format!(
+                                            "setTimeout(() => {{ let el = document.getElementById('pdf-pages-container'); if (el) el.scrollTop = {}; }}, 30)",
+                                            scroll_top
+                                        );
+                                        let _ = document::eval(&js);
                                     }
                                 });
                             },
@@ -104,6 +117,8 @@ pub fn PdfTabBar() -> Element {
                                     tabs.with_mut(|m| m.close_tab(tab_id));
                                     if tabs.read().tabs.is_empty() {
                                         lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
+                                        // No PDFs open — free the engine's cached file bytes.
+                                        let _ = render_ch.sender().send(crate::state::commands::RenderRequest::ClearCache);
                                     } else {
                                         let needs = tabs.read().active_tab().map(|t| t.needs_render()).unwrap_or(false);
                                         if needs {
@@ -149,6 +164,7 @@ pub fn PdfTabBar() -> Element {
                                     tabs.with_mut(|m| m.close_tab(ctx_tab_id));
                                     if tabs.read().tabs.is_empty() {
                                         lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
+                                        let _ = render_ch.sender().send(crate::state::commands::RenderRequest::ClearCache);
                                     }
                                     tab_ctx.set(None);
                                 },

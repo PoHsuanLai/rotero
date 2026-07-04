@@ -39,33 +39,10 @@ pub fn Layout() -> Element {
 
     #[cfg(feature = "desktop")]
     let onkeydown_handler = {
-        use crate::app::{DevicePixelRatio, RenderChannel, ShowSettings};
-        use crate::state::app_state::ViewerToolState;
-        use crate::state::undo::UndoStack;
-        use rotero_db::Database;
-
-        let show_settings = use_context::<Signal<ShowSettings>>();
-        let db = use_context::<Database>();
-        let render_ch = use_context::<RenderChannel>();
-        let new_coll_editing = use_context::<Signal<Option<Option<String>>>>();
-        let undo_stack = use_context::<Signal<UndoStack>>();
-        let tools = use_context::<Signal<ViewerToolState>>();
-        let dpr_sig = use_context::<Signal<DevicePixelRatio>>();
+        let (ctx, db) = super::keybindings::KeyCtx::from_context();
 
         EventHandler::new(move |event: Event<KeyboardData>| {
-            super::keybindings::handle_keydown(
-                event,
-                show_settings,
-                lib_state,
-                tab_mgr,
-                db.clone(),
-                render_ch,
-                config,
-                new_coll_editing,
-                undo_stack,
-                tools,
-                dpr_sig,
-            );
+            super::keybindings::handle_keydown(event, ctx, db.clone());
         })
     };
     #[cfg(not(feature = "desktop"))]
@@ -78,6 +55,7 @@ pub fn Layout() -> Element {
             "data-scale": "{scale}",
             tabindex: "0",
             onkeydown: onkeydown_handler,
+            oncontextmenu: move |evt| evt.prevent_default(),
             Sidebar {
                 collapsed: sidebar_collapsed(),
                 on_toggle: move |_| sidebar_collapsed.toggle(),

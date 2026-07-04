@@ -387,20 +387,26 @@ pub fn LibraryPanel() -> Element {
             }
             } // end if !is_external
 
-            if let Some((_menu_paper_id, mx, my)) = ctx_menu() {
+            if let Some((menu_paper_id, mx, my)) = ctx_menu() {
                 {
-                    let selected: Vec<String> = lib_state.read().selected_paper_ids.iter().cloned().collect();
-                    if !selected.is_empty() {
-                        rsx! {
-                            super::context_menu::PaperContextMenu {
-                                paper_ids: selected,
-                                x: mx,
-                                y: my,
-                                on_close: move |_| ctx_menu.set(None),
-                            }
+                    // Act on the current selection when the right-clicked paper
+                    // is part of it; otherwise act on just the clicked paper,
+                    // without disturbing the selection or the overview panel.
+                    let paper_ids: Vec<String> = {
+                        let state = lib_state.read();
+                        if state.is_selected(&menu_paper_id) {
+                            state.selected_paper_ids.iter().cloned().collect()
+                        } else {
+                            vec![menu_paper_id.clone()]
                         }
-                    } else {
-                        rsx! {}
+                    };
+                    rsx! {
+                        super::context_menu::PaperContextMenu {
+                            paper_ids,
+                            x: mx,
+                            y: my,
+                            on_close: move |_| ctx_menu.set(None),
+                        }
                     }
                 }
             }

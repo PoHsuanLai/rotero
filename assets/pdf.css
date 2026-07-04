@@ -218,6 +218,19 @@
   user-select: none;
 }
 
+/* Slot for a page not yet in the resident render window. Reserves scroll height
+   so every page is reachable; fills in with the real page once rendered. */
+.pdf-page-placeholder {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--surface, #f4f4f5),
+    var(--surface, #f4f4f5) 12px,
+    color-mix(in srgb, var(--surface, #f4f4f5) 92%, #000) 12px,
+    color-mix(in srgb, var(--surface, #f4f4f5) 92%, #000) 24px
+  );
+  opacity: 0.5;
+}
+
 .annotation-click-overlay {
   position: absolute;
   top: 0;

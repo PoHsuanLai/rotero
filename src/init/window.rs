@@ -1,41 +1,23 @@
 #[cfg(feature = "desktop")]
 pub(crate) fn build_menu_bar() -> dioxus::desktop::muda::Menu {
-    use dioxus::desktop::muda::{
-        Menu, MenuItem, PredefinedMenuItem, Submenu,
-        accelerator::{Accelerator, Code, Modifiers},
-    };
+    use crate::ui::keybindings::menu_accelerator;
+    use dioxus::desktop::muda::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+
+    // Build a menu item whose id, label, and accelerator stay in sync with the
+    // keybinding table (`BINDINGS`) — the accelerator is looked up by id.
+    let item = |id: &str, label: &str| MenuItem::with_id(id, label, true, menu_accelerator(id));
 
     let menu = Menu::new();
 
     let file_menu = Submenu::new("File", true);
     file_menu
         .append_items(&[
-            &MenuItem::with_id(
-                "open-pdf",
-                "Open PDF\u{2026}",
-                true,
-                Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyO)),
-            ),
+            &item("open-pdf", "Open PDF\u{2026}"),
             &PredefinedMenuItem::separator(),
-            &MenuItem::with_id(
-                "import-bibtex",
-                "Import BibTeX\u{2026}",
-                true,
-                Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyI)),
-            ),
-            &MenuItem::with_id(
-                "export-bibtex",
-                "Export BibTeX\u{2026}",
-                true,
-                Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyE)),
-            ),
+            &item("import-bibtex", "Import BibTeX\u{2026}"),
+            &item("export-bibtex", "Export BibTeX\u{2026}"),
             &PredefinedMenuItem::separator(),
-            &MenuItem::with_id(
-                "close-tab",
-                "Close Tab",
-                true,
-                Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyW)),
-            ),
+            &item("close-tab", "Close Tab"),
         ])
         .expect("menu construction");
 
@@ -51,31 +33,16 @@ pub(crate) fn build_menu_bar() -> dioxus::desktop::muda::Menu {
             &PredefinedMenuItem::separator(),
             &PredefinedMenuItem::select_all(None),
             &PredefinedMenuItem::separator(),
-            &MenuItem::with_id(
-                "find",
-                "Find\u{2026}",
-                true,
-                Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyF)),
-            ),
+            &item("find", "Find\u{2026}"),
         ])
         .expect("menu construction");
 
     let view_menu = Submenu::new("View", true);
     view_menu
         .append_items(&[
-            &MenuItem::with_id(
-                "show-library",
-                "Library",
-                true,
-                Some(Accelerator::new(Some(Modifiers::SUPER), Code::Digit1)),
-            ),
+            &item("show-library", "Library"),
             &PredefinedMenuItem::separator(),
-            &MenuItem::with_id(
-                "new-collection",
-                "New Collection",
-                true,
-                Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyN)),
-            ),
+            &item("new-collection", "New Collection"),
             &PredefinedMenuItem::separator(),
             &PredefinedMenuItem::fullscreen(None),
         ])

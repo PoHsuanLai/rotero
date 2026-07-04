@@ -7,6 +7,7 @@ use crate::state::app_state::PdfTabManager;
 pub(crate) fn ThumbnailSidebar() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let render_ch = use_context::<RenderChannel>();
+    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let mut is_loading_thumbs = use_signal(|| false);
 
     let mgr = tabs.read();
@@ -51,9 +52,15 @@ pub(crate) fn ThumbnailSidebar() -> Element {
                             div {
                                 key: "thumb-{page_idx}", class: "thumbnail-item",
                                 onclick: move |_| {
+                                    let render_tx = render_ch.sender();
+                                    let data_dir = config.read().effective_library_path();
                                     spawn(async move {
-                                        let js = format!("let pages = document.querySelectorAll('.pdf-page-wrapper'); if (pages[{page_idx}]) {{ pages[{page_idx}].scrollIntoView({{ behavior: 'smooth', block: 'start' }}); }}");
-                                        let _ = document::eval(&js);
+                                        // Ensure the target page is rendered (it may be
+                                        // outside the current window) before scrolling to it.
+                                        crate::state::commands::ensure_window_rendered(
+                                            &render_tx, &mut tabs, tab_id, page_idx, &data_dir,
+                                        ).await;
+                                        let _ = document::eval(&super::scroll_to_page_js(page_idx, "start"));
                                     });
                                 },
                                 img { class: "thumbnail-img", src: "data:{mime};base64,{base64}", width: "{w}", height: "{h}" }
@@ -78,7 +85,10 @@ pub(crate) fn ThumbnailSidebar() -> Element {
 
 #[component]
 pub(crate) fn OutlinePanel() -> Element {
-    let tabs = use_context::<Signal<PdfTabManager>>();
+    let mut tabs = use_context::<Signal<PdfTabManager>>();
+    let render_ch = use_context::<RenderChannel>();
+    let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+    let tab_id = tabs.read().tab().id;
     let outline = tabs.read().tab().nav.outline.clone();
 
     rsx! {
@@ -95,9 +105,13 @@ pub(crate) fn OutlinePanel() -> Element {
                                 key: "outline-{idx}", class: "outline-entry", style: "padding-left: {indent}px;",
                                 onclick: move |_| {
                                     if let Some(pi) = page_idx {
+                                        let render_tx = render_ch.sender();
+                                        let data_dir = config.read().effective_library_path();
                                         spawn(async move {
-                                            let js = format!("let pages = document.querySelectorAll('.pdf-page-wrapper'); if (pages[{pi}]) {{ pages[{pi}].scrollIntoView({{ behavior: 'smooth', block: 'start' }}); }}");
-                                            let _ = document::eval(&js);
+                                            crate::state::commands::ensure_window_rendered(
+                                                &render_tx, &mut tabs, tab_id, pi, &data_dir,
+                                            ).await;
+                                            let _ = document::eval(&super::scroll_to_page_js(pi, "start"));
                                         });
                                     }
                                 },
