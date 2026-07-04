@@ -158,6 +158,11 @@ pub struct SyncConfig {
 
     /// User keybinding overrides: command id → key spec. Empty means "use the
     /// built-in defaults". See `crate::ui::keybindings`.
+    ///
+    /// Desktop-only: the keybinding module (native menus, muda) doesn't build on
+    /// mobile. `#[serde(default)]` means the field simply round-trips absent
+    /// there, so a config written on desktop still loads on mobile.
+    #[cfg(feature = "desktop")]
     #[serde(default)]
     pub keybindings: crate::ui::keybindings::Overrides,
 }
@@ -216,6 +221,7 @@ impl Default for SyncConfig {
             auto_fetch_metadata: default_true(),
             max_resident_tabs: default_max_resident_tabs(),
             cached_dpr: default_dpr(),
+            #[cfg(feature = "desktop")]
             keybindings: crate::ui::keybindings::Overrides::default(),
         }
     }
