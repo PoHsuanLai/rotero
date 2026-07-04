@@ -25,7 +25,7 @@ use rotero_db::Database;
 // input claimed.
 
 /// A semantic action, decoupled from the key that triggers it. This is the unit
-/// a future rebinding UI would let users remap.
+/// a rebinding UI lets users remap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
     OpenSettings,
@@ -52,6 +52,73 @@ pub enum Command {
     Escape,
 }
 
+impl Command {
+    /// Stable string id used as the config key for a user override. Changing one
+    /// of these orphans existing overrides, so treat them as a wire format.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::OpenSettings => "open_settings",
+            Self::OpenPdf => "open_pdf",
+            Self::ImportBibtex => "import_bibtex",
+            Self::ExportBibtex => "export_bibtex",
+            Self::Find => "find",
+            Self::FocusLibrarySearch => "focus_library_search",
+            Self::CloseTab => "close_tab",
+            Self::NewCollection => "new_collection",
+            Self::ShowLibrary => "show_library",
+            Self::PrevTab => "prev_tab",
+            Self::NextTab => "next_tab",
+            Self::Undo => "undo",
+            Self::Redo => "redo",
+            Self::SelectAll => "select_all",
+            Self::ToggleFavorite => "toggle_favorite",
+            Self::ToggleRead => "toggle_read",
+            Self::CheckUpdates => "check_updates",
+            Self::SelectNext => "select_next",
+            Self::SelectPrev => "select_prev",
+            Self::OpenSelected => "open_selected",
+            Self::DeleteSelected => "delete_selected",
+            Self::Escape => "escape",
+        }
+    }
+
+    /// Human-readable name shown in the keybindings settings page.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::OpenSettings => "Open settings",
+            Self::OpenPdf => "Open PDF\u{2026}",
+            Self::ImportBibtex => "Import BibTeX\u{2026}",
+            Self::ExportBibtex => "Export BibTeX\u{2026}",
+            Self::Find => "Find in page / library",
+            Self::FocusLibrarySearch => "Focus library search",
+            Self::CloseTab => "Close tab",
+            Self::NewCollection => "New collection",
+            Self::ShowLibrary => "Show library",
+            Self::PrevTab => "Previous tab",
+            Self::NextTab => "Next tab",
+            Self::Undo => "Undo",
+            Self::Redo => "Redo",
+            Self::SelectAll => "Select all papers",
+            Self::ToggleFavorite => "Toggle favorite",
+            Self::ToggleRead => "Toggle read",
+            Self::CheckUpdates => "Check for updates",
+            Self::SelectNext => "Select next paper",
+            Self::SelectPrev => "Select previous paper",
+            Self::OpenSelected => "Open selected paper",
+            Self::DeleteSelected => "Delete selected papers",
+            Self::Escape => "Cancel / dismiss",
+        }
+    }
+
+    /// Whether the settings page lets the user rebind this command.
+    ///
+    /// `Escape` is a hard-wired cancel key and `CheckUpdates` has no keyboard
+    /// shortcut (menu-only), so neither is user-rebindable.
+    pub fn is_rebindable(self) -> bool {
+        !matches!(self, Self::Escape | Self::CheckUpdates)
+    }
+}
+
 /// Where a binding is active. `Global` fires regardless of view; the others only
 /// fire when the current view matches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,8 +128,9 @@ pub enum Scope {
     Viewer,
 }
 
-/// A key combination, normalized so the DOM handler, the menu accelerator, and a
-/// future config file all agree on the same representation.
+/// A key combination, normalized so the DOM handler, the menu accelerator, and
+/// the config file all agree on the same representation. Serialized as a compact
+/// string like `"cmd+shift+z"` or `"arrowdown"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeySpec {
     pub cmd: bool,
@@ -82,27 +150,59 @@ pub enum Trigger {
     Escape,
 }
 
+impl Trigger {
+    /// Lowercase token used in the serialized form.
+    fn token(self) -> String {
+        match self {
+            Trigger::Char(c) => c.to_ascii_lowercase().to_string(),
+            Trigger::ArrowUp => "arrowup".to_string(),
+            Trigger::ArrowDown => "arrowdown".to_string(),
+            Trigger::Enter => "enter".to_string(),
+            Trigger::Backspace => "backspace".to_string(),
+            Trigger::Escape => "escape".to_string(),
+        }
+    }
+
+    fn from_token(tok: &str) -> Option<Self> {
+        Some(match tok {
+            "arrowup" => Trigger::ArrowUp,
+            "arrowdown" => Trigger::ArrowDown,
+            "enter" => Trigger::Enter,
+            "backspace" => Trigger::Backspace,
+            "escape" => Trigger::Escape,
+            _ => {
+                let mut chars = tok.chars();
+                let c = chars.next()?;
+                if chars.next().is_some() {
+                    return None; // multi-char token that isn't a known name
+                }
+                Trigger::Char(c)
+            }
+        })
+    }
+
+    /// Symbol shown in the UI (e.g. the up-arrow glyph).
+    fn glyph(self) -> String {
+        match self {
+            Trigger::Char(c) => c.to_ascii_uppercase().to_string(),
+            Trigger::ArrowUp => "\u{2191}".to_string(),
+            Trigger::ArrowDown => "\u{2193}".to_string(),
+            Trigger::Enter => "\u{21a9}".to_string(),
+            Trigger::Backspace => "\u{232b}".to_string(),
+            Trigger::Escape => "esc".to_string(),
+        }
+    }
+}
+
 impl KeySpec {
     const fn cmd(c: char) -> Self {
-        Self {
-            cmd: true,
-            shift: false,
-            trigger: Trigger::Char(c),
-        }
+        Self { cmd: true, shift: false, trigger: Trigger::Char(c) }
     }
     const fn cmd_shift(c: char) -> Self {
-        Self {
-            cmd: true,
-            shift: true,
-            trigger: Trigger::Char(c),
-        }
+        Self { cmd: true, shift: true, trigger: Trigger::Char(c) }
     }
     const fn bare(trigger: Trigger) -> Self {
-        Self {
-            cmd: false,
-            shift: false,
-            trigger,
-        }
+        Self { cmd: false, shift: false, trigger }
     }
 
     /// Does this spec match a live keyboard event's modifiers + key?
@@ -123,6 +223,82 @@ impl KeySpec {
             Trigger::Escape => *key == Key::Escape,
         }
     }
+
+    /// Compact serialized form, e.g. `"cmd+shift+z"`, `"arrowdown"`.
+    fn to_token_string(self) -> String {
+        let mut parts = Vec::new();
+        if self.cmd {
+            parts.push("cmd".to_string());
+        }
+        if self.shift {
+            parts.push("shift".to_string());
+        }
+        parts.push(self.trigger.token());
+        parts.join("+")
+    }
+
+    fn from_token_string(s: &str) -> Option<Self> {
+        let mut cmd = false;
+        let mut shift = false;
+        let mut trigger = None;
+        for part in s.split('+') {
+            match part {
+                "cmd" => cmd = true,
+                "shift" => shift = true,
+                other => trigger = Some(Trigger::from_token(other)?),
+            }
+        }
+        Some(Self { cmd, shift, trigger: trigger? })
+    }
+
+    /// Human-facing label for the settings chip, e.g. `⌘⇧Z` or `↓`.
+    pub fn display(self) -> String {
+        let mut s = String::new();
+        if self.cmd {
+            s.push('\u{2318}'); // ⌘
+        }
+        if self.shift {
+            s.push('\u{21e7}'); // ⇧
+        }
+        s.push_str(&self.trigger.glyph());
+        s
+    }
+
+    /// Build a spec from a captured keyboard event, or `None` if the key can't be
+    /// bound (e.g. a lone modifier press, or a non-printable key we don't model).
+    pub fn from_event(cmd: bool, shift: bool, key: &Key) -> Option<Self> {
+        let trigger = match key {
+            Key::Character(c) => {
+                let ch = c.chars().next()?;
+                // Reject whitespace/control chars as bindings.
+                if ch.is_control() {
+                    return None;
+                }
+                Trigger::Char(ch)
+            }
+            Key::ArrowUp => Trigger::ArrowUp,
+            Key::ArrowDown => Trigger::ArrowDown,
+            Key::Enter => Trigger::Enter,
+            Key::Backspace | Key::Delete => Trigger::Backspace,
+            // Escape is reserved as cancel; don't let it be captured as a binding.
+            _ => return None,
+        };
+        Some(Self { cmd, shift, trigger })
+    }
+}
+
+impl serde::Serialize for KeySpec {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.to_token_string())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for KeySpec {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Self::from_token_string(&s)
+            .ok_or_else(|| serde::de::Error::custom(format!("invalid keyspec: {s:?}")))
+    }
 }
 
 /// One row of the shortcut table: key + scope → command, plus an optional native
@@ -140,140 +316,126 @@ pub struct Binding {
 /// wins, so put more specific scopes before `Global` if they ever share a key.
 pub const BINDINGS: &[Binding] = &[
     // Global — fire in any view.
-    Binding {
-        key: KeySpec::cmd(','),
-        command: Command::OpenSettings,
-        scope: Scope::Global,
-        menu_id: None,
-    },
-    Binding {
-        key: KeySpec::cmd('o'),
-        command: Command::OpenPdf,
-        scope: Scope::Global,
-        menu_id: Some("open-pdf"),
-    },
-    Binding {
-        key: KeySpec::cmd('i'),
-        command: Command::ImportBibtex,
-        scope: Scope::Global,
-        menu_id: Some("import-bibtex"),
-    },
-    Binding {
-        key: KeySpec::cmd('e'),
-        command: Command::ExportBibtex,
-        scope: Scope::Global,
-        menu_id: Some("export-bibtex"),
-    },
-    Binding {
-        key: KeySpec::cmd('f'),
-        command: Command::Find,
-        scope: Scope::Global,
-        menu_id: Some("find"),
-    },
-    Binding {
-        key: KeySpec::cmd('l'),
-        command: Command::FocusLibrarySearch,
-        scope: Scope::Global,
-        menu_id: None,
-    },
-    Binding {
-        key: KeySpec::cmd('w'),
-        command: Command::CloseTab,
-        scope: Scope::Global,
-        menu_id: Some("close-tab"),
-    },
-    Binding {
-        key: KeySpec::cmd('n'),
-        command: Command::NewCollection,
-        scope: Scope::Global,
-        menu_id: Some("new-collection"),
-    },
-    Binding {
-        key: KeySpec::cmd('1'),
-        command: Command::ShowLibrary,
-        scope: Scope::Global,
-        menu_id: Some("show-library"),
-    },
-    Binding {
-        key: KeySpec::cmd('['),
-        command: Command::PrevTab,
-        scope: Scope::Global,
-        menu_id: None,
-    },
-    Binding {
-        key: KeySpec::cmd(']'),
-        command: Command::NextTab,
-        scope: Scope::Global,
-        menu_id: None,
-    },
-    Binding {
-        key: KeySpec::cmd('z'),
-        command: Command::Undo,
-        scope: Scope::Global,
-        menu_id: None,
-    },
-    Binding {
-        key: KeySpec::cmd_shift('z'),
-        command: Command::Redo,
-        scope: Scope::Global,
-        menu_id: None,
-    },
-    Binding {
-        key: KeySpec::bare(Trigger::Escape),
-        command: Command::Escape,
-        scope: Scope::Global,
-        menu_id: None,
-    },
+    Binding { key: KeySpec::cmd(','), command: Command::OpenSettings, scope: Scope::Global, menu_id: None },
+    Binding { key: KeySpec::cmd('o'), command: Command::OpenPdf, scope: Scope::Global, menu_id: Some("open-pdf") },
+    Binding { key: KeySpec::cmd('i'), command: Command::ImportBibtex, scope: Scope::Global, menu_id: Some("import-bibtex") },
+    Binding { key: KeySpec::cmd('e'), command: Command::ExportBibtex, scope: Scope::Global, menu_id: Some("export-bibtex") },
+    Binding { key: KeySpec::cmd('f'), command: Command::Find, scope: Scope::Global, menu_id: Some("find") },
+    Binding { key: KeySpec::cmd('l'), command: Command::FocusLibrarySearch, scope: Scope::Global, menu_id: None },
+    Binding { key: KeySpec::cmd('w'), command: Command::CloseTab, scope: Scope::Global, menu_id: Some("close-tab") },
+    Binding { key: KeySpec::cmd('n'), command: Command::NewCollection, scope: Scope::Global, menu_id: Some("new-collection") },
+    Binding { key: KeySpec::cmd('1'), command: Command::ShowLibrary, scope: Scope::Global, menu_id: Some("show-library") },
+    Binding { key: KeySpec::cmd('['), command: Command::PrevTab, scope: Scope::Global, menu_id: None },
+    Binding { key: KeySpec::cmd(']'), command: Command::NextTab, scope: Scope::Global, menu_id: None },
+    Binding { key: KeySpec::cmd('z'), command: Command::Undo, scope: Scope::Global, menu_id: None },
+    Binding { key: KeySpec::cmd_shift('z'), command: Command::Redo, scope: Scope::Global, menu_id: None },
+    Binding { key: KeySpec::bare(Trigger::Escape), command: Command::Escape, scope: Scope::Global, menu_id: None },
     // Library — only when a paper list is showing.
-    Binding {
-        key: KeySpec::cmd('a'),
-        command: Command::SelectAll,
-        scope: Scope::Library,
-        menu_id: None,
-    },
-    Binding {
-        key: KeySpec::cmd_shift('f'),
-        command: Command::ToggleFavorite,
-        scope: Scope::Library,
-        menu_id: None,
-    },
-    Binding {
-        key: KeySpec::cmd_shift('u'),
-        command: Command::ToggleRead,
-        scope: Scope::Library,
-        menu_id: None,
-    },
-    Binding {
-        key: KeySpec::bare(Trigger::ArrowDown),
-        command: Command::SelectNext,
-        scope: Scope::Library,
-        menu_id: None,
-    },
-    Binding {
-        key: KeySpec::bare(Trigger::ArrowUp),
-        command: Command::SelectPrev,
-        scope: Scope::Library,
-        menu_id: None,
-    },
-    Binding {
-        key: KeySpec::bare(Trigger::Enter),
-        command: Command::OpenSelected,
-        scope: Scope::Library,
-        menu_id: None,
-    },
-    Binding {
-        key: KeySpec::bare(Trigger::Backspace),
-        command: Command::DeleteSelected,
-        scope: Scope::Library,
-        menu_id: None,
-    },
+    Binding { key: KeySpec::cmd('a'), command: Command::SelectAll, scope: Scope::Library, menu_id: None },
+    Binding { key: KeySpec::cmd_shift('f'), command: Command::ToggleFavorite, scope: Scope::Library, menu_id: None },
+    Binding { key: KeySpec::cmd_shift('u'), command: Command::ToggleRead, scope: Scope::Library, menu_id: None },
+    Binding { key: KeySpec::bare(Trigger::ArrowDown), command: Command::SelectNext, scope: Scope::Library, menu_id: None },
+    Binding { key: KeySpec::bare(Trigger::ArrowUp), command: Command::SelectPrev, scope: Scope::Library, menu_id: None },
+    Binding { key: KeySpec::bare(Trigger::Enter), command: Command::OpenSelected, scope: Scope::Library, menu_id: None },
+    Binding { key: KeySpec::bare(Trigger::Backspace), command: Command::DeleteSelected, scope: Scope::Library, menu_id: None },
 ];
 
-/// Resolve a live key event within a scope to a command, if any binding matches.
-fn resolve(cmd: bool, shift: bool, key: &Key, scope: Scope) -> Option<Command> {
+/// The default (built-in) key for a command, if it has one.
+pub fn default_key(command: Command) -> Option<KeySpec> {
     BINDINGS
         .iter()
-        .find(|b| (b.scope == scope || b.scope == Scope::Global) && b.key.matches(cmd, shift, key))
+        .find(|b| b.command == command)
+        .map(|b| b.key)
+}
+
+/// The scope a command belongs to (from its `BINDINGS` row).
+pub fn command_scope(command: Command) -> Scope {
+    BINDINGS
+        .iter()
+        .find(|b| b.command == command)
+        .map(|b| b.scope)
+        .unwrap_or(Scope::Global)
+}
+
+/// User overrides: command id → binding.
+///
+/// - key **absent**  → use the built-in default
+/// - `Some(key)`     → rebound to `key`
+/// - `None`          → explicitly unbound (default suppressed, no shortcut)
+pub type Overrides = std::collections::HashMap<String, Option<KeySpec>>;
+
+/// The effective key for a command, honoring a user override if present. Returns
+/// `None` when the command has no default and no override, or when the user has
+/// explicitly unbound it.
+pub fn effective_key(command: Command, overrides: &Overrides) -> Option<KeySpec> {
+    match overrides.get(command.id()) {
+        // An entry exists (rebound or explicitly unbound) — it wins over the default.
+        Some(binding) => *binding,
+        // No entry — fall back to the built-in default.
+        None => default_key(command),
+    }
+}
+
+impl Scope {
+    pub fn label(self) -> &'static str {
+        match self {
+            Scope::Global => "Global",
+            Scope::Library => "Library",
+            Scope::Viewer => "PDF Viewer",
+        }
+    }
+}
+
+/// Every user-rebindable command, in table order. Used by the settings page.
+pub fn rebindable_commands() -> impl Iterator<Item = Command> {
+    BINDINGS
+        .iter()
+        .filter(|b| b.command.is_rebindable())
+        .map(|b| b.command)
+}
+
+/// Would assigning `key` to `command` collide with another command that could
+/// fire in the same scope? Returns the conflicting command if so.
+///
+/// Two commands conflict when their scopes overlap (either is `Global`, or they
+/// share a scope) and their effective keys match the same event.
+pub fn conflict_for(
+    command: Command,
+    key: KeySpec,
+    overrides: &Overrides,
+) -> Option<Command> {
+    let target_scope = command_scope(command);
+    for b in BINDINGS {
+        if b.command == command {
+            continue;
+        }
+        let other_scope = command_scope(b.command);
+        let scopes_overlap = target_scope == Scope::Global
+            || other_scope == Scope::Global
+            || target_scope == other_scope;
+        if !scopes_overlap {
+            continue;
+        }
+        if effective_key(b.command, overrides) == Some(key) {
+            return Some(b.command);
+        }
+    }
+    None
+}
+
+/// Resolve a live key event within a scope to a command, honoring user overrides.
+///
+/// A command matches if its *effective* key (override or default) matches the
+/// event and its scope is active. The default table order is preserved so that,
+/// absent overrides, resolution is identical to the built-in behavior.
+fn resolve(cmd: bool, shift: bool, key: &Key, scope: Scope, overrides: &Overrides) -> Option<Command> {
+    BINDINGS
+        .iter()
+        .filter(|b| b.scope == scope || b.scope == Scope::Global)
+        .find(|b| {
+            effective_key(b.command, overrides)
+                .is_some_and(|k| k.matches(cmd, shift, key))
+        })
         .map(|b| b.command)
 }
 
@@ -841,7 +1003,9 @@ fn dispatch(cmd: Command, ctx: &KeyCtx, db: &Database) {
         Command::CheckUpdates => action_check_updates(update_state),
         Command::SelectNext => action_select_next(lib_state),
         Command::SelectPrev => action_select_prev(lib_state),
-        Command::OpenSelected => action_open_selected_pdf(lib_state, tabs, db, &config, &dpr_sig),
+        Command::OpenSelected => {
+            action_open_selected_pdf(lib_state, tabs, db, &config, &dpr_sig)
+        }
         Command::DeleteSelected => action_delete_selected(lib_state),
         Command::Escape => action_escape(show_settings, tabs, tools, lib_state),
     }
@@ -873,7 +1037,8 @@ pub fn handle_keydown(event: Event<KeyboardData>, ctx: KeyCtx, db: Database) {
     let cmd = modifiers.meta() || modifiers.ctrl();
     let shift = modifiers.shift();
 
-    if let Some(command) = resolve(cmd, shift, &key, ctx.scope()) {
+    let overrides = ctx.config.read().keybindings.clone();
+    if let Some(command) = resolve(cmd, shift, &key, ctx.scope(), &overrides) {
         // Escape is intentionally not prevent_default'd — matches prior behavior.
         if command != Command::Escape {
             event.prevent_default();

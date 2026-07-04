@@ -2,6 +2,7 @@ mod appearance;
 mod claude;
 mod connector;
 mod import;
+mod keybindings;
 mod pdf_viewer;
 mod sync;
 #[cfg(feature = "desktop")]
@@ -14,6 +15,7 @@ use dioxus::prelude::*;
 enum SettingsTab {
     General,
     PdfViewer,
+    Keybindings,
     AiAgent,
     Advanced,
 }
@@ -23,15 +25,17 @@ impl SettingsTab {
         match self {
             Self::General => "General",
             Self::PdfViewer => "PDF Viewer",
+            Self::Keybindings => "Keybindings",
             Self::AiAgent => "AI Agent",
             Self::Advanced => "Advanced",
         }
     }
 }
 
-const TABS: [SettingsTab; 4] = [
+const TABS: [SettingsTab; 5] = [
     SettingsTab::General,
     SettingsTab::PdfViewer,
+    SettingsTab::Keybindings,
     SettingsTab::AiAgent,
     SettingsTab::Advanced,
 ];
@@ -96,6 +100,9 @@ fn SettingsPanel(on_close: EventHandler<()>) -> Element {
                         },
                         SettingsTab::PdfViewer => rsx! {
                             pdf_viewer::PdfViewerSection {}
+                        },
+                        SettingsTab::Keybindings => rsx! {
+                            keybindings::KeybindingsSection {}
                         },
                         SettingsTab::AiAgent => rsx! {
                             claude::AgentSection {}

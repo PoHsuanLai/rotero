@@ -155,6 +155,11 @@ pub struct SyncConfig {
     /// Cached device pixel ratio from the last run. Avoids async DPR race on startup.
     #[serde(default = "default_dpr")]
     pub cached_dpr: f32,
+
+    /// User keybinding overrides: command id → key spec. Empty means "use the
+    /// built-in defaults". See `crate::ui::keybindings`.
+    #[serde(default)]
+    pub keybindings: crate::ui::keybindings::Overrides,
 }
 
 fn default_max_resident_tabs() -> u32 {
@@ -211,6 +216,7 @@ impl Default for SyncConfig {
             auto_fetch_metadata: default_true(),
             max_resident_tabs: default_max_resident_tabs(),
             cached_dpr: default_dpr(),
+            keybindings: crate::ui::keybindings::Overrides::default(),
         }
     }
 }
