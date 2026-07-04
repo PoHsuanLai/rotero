@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use rotero_models::{Annotation, Collection, Paper, Tag};
@@ -8,7 +8,14 @@ pub type TabId = u64;
 
 #[derive(Debug, Clone, Default)]
 pub struct PageRenderData {
-    pub rendered_pages: Vec<RenderedPageData>,
+    /// Resident rendered pages keyed by absolute page index. Bounded to a
+    /// sliding window around the viewport (see `MAX_RESIDENT_PAGES`); BTreeMap
+    /// so iteration yields pages in page order for the render loop.
+    pub rendered_pages: BTreeMap<u32, RenderedPageData>,
+    /// Pixel dimensions `(width, height)` for every page, indexed by page number.
+    /// Used to size placeholders for not-yet-rendered pages so the scroll
+    /// container has its full height and scrolling can reach every page.
+    pub page_dims: Vec<(u32, u32)>,
     pub text_data: HashMap<u32, PageTextData>,
     pub thumbnails: HashMap<u32, RenderedPageData>,
 }
@@ -21,6 +28,9 @@ pub struct ViewState {
     pub page_batch_size: u32,
     /// Render at `zoom * dpr` for sharp HiDPI output.
     pub dpr: f32,
+    /// Page index nearest the viewport center, reported by the viewer's
+    /// scroll handler. Drives the sliding render window.
+    pub current_page: u32,
 }
 
 impl Default for ViewState {
@@ -31,6 +41,7 @@ impl Default for ViewState {
             scroll_top: 0.0,
             page_batch_size: 5,
             dpr: 1.0,
+            current_page: 0,
         }
     }
 }
@@ -100,10 +111,6 @@ impl PdfTab {
 
     pub fn needs_render(&self) -> bool {
         self.render.rendered_pages.is_empty() && self.page_count > 0
-    }
-
-    pub fn rendered_count(&self) -> u32 {
-        self.render.rendered_pages.len() as u32
     }
 
     pub fn suspend(&mut self) {

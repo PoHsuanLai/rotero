@@ -240,11 +240,7 @@ pub(crate) fn AnnotationContextMenu() -> Element {
                 label: format!("Go to page {}", ctx_page + 1),
                 icon: Some("bi-arrow-right-circle".to_string()),
                 on_click: move |_| {
-                    let js = format!(
-                        "let el = document.getElementById('pdf-page-{}'); if (el) el.scrollIntoView({{behavior: 'smooth'}})",
-                        ctx_page
-                    );
-                    let _ = document::eval(&js);
+                    let _ = document::eval(&super::scroll_to_page_js(ctx_page.max(0) as u32, "center"));
                     ann_ctx.set(None);
                 },
             }

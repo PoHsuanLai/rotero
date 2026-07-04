@@ -184,6 +184,31 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 },
                 "TOC"
             }
+            div { class: "toolbar-tooltip", "data-tooltip": "Find (\u{2318}F)",
+                button {
+                    class: "btn btn--ghost",
+                    onclick: move |_| {
+                        let now_visible = tabs.with_mut(|m| {
+                            let t = m.tab_mut();
+                            t.search.visible = !t.search.visible;
+                            if !t.search.visible {
+                                t.search.query.clear();
+                                t.search.matches.clear();
+                                t.search.current_index = 0;
+                            }
+                            t.search.visible
+                        });
+                        if now_visible {
+                            spawn(async move {
+                                let _ = document::eval(
+                                    "setTimeout(() => { document.querySelector('.pdf-search-input')?.focus(); }, 30)",
+                                );
+                            });
+                        }
+                    },
+                    span { class: "bi bi-search" }
+                }
+            }
             button {
                 class: "btn btn--ghost",
                 onclick: move |_| {

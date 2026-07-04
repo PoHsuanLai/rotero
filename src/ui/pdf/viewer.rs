@@ -19,6 +19,8 @@ pub fn PdfViewer() -> Element {
     let db = use_context::<Database>();
     let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
     use_context_provider::<AnnCtxState>(|| Signal::new(None));
+    // Guards the scroll-driven render window against re-entrant scroll events.
+    let mut window_loading = use_signal(|| false);
 
     let mgr = tabs.read();
     let Some(tab) = mgr.active_tab() else {
@@ -60,13 +62,15 @@ pub fn PdfViewer() -> Element {
                             .unwrap_or_default();
 
                     let pdf_path = tabs.read().tab().pdf_path.clone();
-                    let rendered_pages: Vec<(u32, u32)> = tabs
+                    // Page pixel dims keyed by absolute page index (rendered_pages
+                    // is a sliding window, so it may not be contiguous from 0).
+                    let page_dims: std::collections::HashMap<u32, (u32, u32)> = tabs
                         .read()
                         .tab()
                         .render
                         .rendered_pages
-                        .iter()
-                        .map(|p| (p.width, p.height))
+                        .values()
+                        .map(|p| (p.page_index, (p.width, p.height)))
                         .collect();
 
                     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
@@ -87,8 +91,8 @@ pub fn PdfViewer() -> Element {
                                         a.geometry.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
                                     let ay =
                                         a.geometry.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                                    let (rw, rh) = rendered_pages
-                                        .get(ext.page as usize)
+                                    let (rw, rh) = page_dims
+                                        .get(&ext.page)
                                         .copied()
                                         .unwrap_or((1, 1));
                                     let sx = rw as f64 / ext.page_width_pts as f64;
@@ -103,8 +107,8 @@ pub fn PdfViewer() -> Element {
                                 continue;
                             }
 
-                            let (rw, rh) = rendered_pages
-                                .get(ext.page as usize)
+                            let (rw, rh) = page_dims
+                                .get(&ext.page)
                                 .copied()
                                 .unwrap_or((1, 1));
                             let sx = rw as f32 / ext.page_width_pts;
@@ -151,8 +155,6 @@ pub fn PdfViewer() -> Element {
     let page_count = tab.page_count;
     let zoom = tab.view.zoom;
     let render_zoom = tab.view.render_zoom;
-    let rendered_count = tab.rendered_count();
-    let has_more = rendered_count < page_count;
     let show_thumbnails = tab.nav.show_thumbnails;
     let show_outline = tab.nav.show_outline && !tab.nav.outline.is_empty();
     let show_search = tab.search.visible;
@@ -246,6 +248,52 @@ pub fn PdfViewer() -> Element {
                 div {
                     class: "pdf-pages",
                     id: "pdf-pages-container",
+                    onscroll: move |_| {
+                        if window_loading() {
+                            return;
+                        }
+                        window_loading.set(true);
+                        let render_tx = render_ch.sender();
+                        let data_dir = config.read().effective_library_path();
+                        spawn(async move {
+                            // Find the page wrapper whose vertical midpoint is nearest
+                            // the container's viewport center; return its page index.
+                            // Send the result back via `dioxus.send(...)`; a bare `return`
+                            // from the IIFE is NOT delivered to `.recv()` in this Dioxus
+                            // version (it comes back as Err(Finished)).
+                            let mut eval = document::eval(
+                                "let el = document.getElementById('pdf-pages-container'); \
+                                 let best = -1; \
+                                 if (el) { \
+                                   let cr = el.getBoundingClientRect(); \
+                                   let mid = cr.top + cr.height / 2; \
+                                   let bestDist = Infinity; \
+                                   for (let w of el.querySelectorAll('.pdf-page-wrapper')) { \
+                                     let r = w.getBoundingClientRect(); \
+                                     let c = r.top + r.height / 2; \
+                                     let d = Math.abs(c - mid); \
+                                     if (d < bestDist) { bestDist = d; \
+                                       best = parseInt(w.id.replace('pdf-page-', ''), 10); } \
+                                   } \
+                                 } \
+                                 dioxus.send(best);",
+                            );
+                            let idx_res = eval.recv::<i64>().await;
+                            if let Ok(idx) = idx_res
+                                && idx >= 0
+                            {
+                                crate::state::commands::ensure_window_rendered(
+                                    &render_tx,
+                                    &mut tabs,
+                                    tab_id,
+                                    idx as u32,
+                                    &data_dir,
+                                )
+                                .await;
+                            }
+                            window_loading.set(false);
+                        });
+                    },
                     onmounted: move |_| {
                         spawn(async move {
                             let _ = document::eval(r#"
@@ -326,27 +374,40 @@ pub fn PdfViewer() -> Element {
                         let mgr = tabs.read();
                         let tab = mgr.tab();
                         let pages = tab.render.rendered_pages.clone();
+                        let page_dims = tab.render.page_dims.clone();
+                        let total = tab.page_count;
                         drop(mgr);
+                        // Render every page slot in order with a SINGLE element type
+                        // (PdfPageWithOverlay). Resident pages pass Some(image); the rest
+                        // pass None and render as a sized placeholder, keeping full scroll
+                        // height so every page is reachable (which triggers rendering the
+                        // next window). Keeping one node type per key avoids Dioxus
+                        // keyed-diff breakage when a slot swaps placeholder<->rendered.
                         rsx! {
-                            for (idx, page) in pages.iter().enumerate() {
-                                PdfPageWithOverlay {
-                                    key: "{idx}",
-                                    page_index: page.page_index,
-                                    base64_data: page.base64_data.clone(),
-                                    mime: page.mime,
-                                    width: page.width,
-                                    height: page.height,
-                                    zoom,
-                                    render_zoom,
-                                    tab_id,
+                            for idx in 0..total {
+                                {
+                                    let page = pages.get(&idx);
+                                    // Rendered pages carry their exact pixel size; placeholders
+                                    // fall back to page_dims (or US-Letter until dims load).
+                                    let (w, h) = page
+                                        .map(|p| (p.width, p.height))
+                                        .or_else(|| page_dims.get(idx as usize).copied())
+                                        .unwrap_or((612, 792));
+                                    rsx! {
+                                        PdfPageWithOverlay {
+                                            key: "{idx}",
+                                            page_index: idx,
+                                            base64_data: page.map(|p| p.base64_data.clone()),
+                                            mime: page.map(|p| p.mime).unwrap_or("image/png"),
+                                            width: w,
+                                            height: h,
+                                            zoom,
+                                            render_zoom,
+                                            tab_id,
+                                        }
+                                    }
                                 }
                             }
-                        }
-                    }
-
-                    if has_more {
-                        div { class: "pdf-load-more",
-                            "Loading pages..."
                         }
                     }
                 }

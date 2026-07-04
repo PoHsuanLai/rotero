@@ -32,9 +32,22 @@ impl RawAcpConnection {
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
 
+        // Put the child in its own process group (setsid) so we can kill it and
+        // any grandchildren as a group — used by the signal reaper on app exit.
+        #[cfg(unix)]
+        unsafe {
+            use std::os::unix::process::CommandExt;
+            cmd.pre_exec(|| {
+                // Detach into a new session/process group. Errors are non-fatal.
+                libc::setsid();
+                Ok(())
+            });
+        }
+
         let mut child = cmd
             .spawn()
             .map_err(|e| format!("Failed to spawn node: {e}"))?;
+        super::reaper::register(child.id() as i32);
         let stdout = child.stdout.take().ok_or("No stdout")?;
 
         let (line_tx, line_rx) = mpsc::channel();
@@ -151,8 +164,15 @@ impl RawAcpConnection {
     }
 
     pub(crate) fn kill(&mut self) {
+        let pid = self.child.id() as i32;
+        // Kill the whole process group (setsid at spawn) to also reap grandchildren.
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(-pid, libc::SIGKILL);
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
+        super::reaper::unregister(pid);
     }
 }
 

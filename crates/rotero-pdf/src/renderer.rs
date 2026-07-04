@@ -230,6 +230,58 @@ impl PdfEngine {
         Ok(pages)
     }
 
+    /// Opens a document once and renders its first `batch_size` pages, returning
+    /// the total page count alongside the rendered pages. Equivalent to
+    /// `load_document` followed by `render_pages(.., 0, batch_size, ..)` but parses
+    /// the PDF a single time instead of twice.
+    pub fn open_and_render_initial(
+        &mut self,
+        pdf_path: &str,
+        scale: f32,
+        batch_size: u32,
+    ) -> Result<(u32, Vec<RenderedPage>), PdfError> {
+        let document = self.open_document(pdf_path)?;
+        let page_count = document.pages().len() as u32;
+        let end = batch_size.min(page_count);
+
+        let mut pages = Vec::with_capacity(end as usize);
+        let mut img_bytes: Vec<u8> = Vec::with_capacity(256 * 1024);
+        for i in 0..end {
+            let page = document
+                .pages()
+                .get(i as u16)
+                .map_err(|e| PdfError::RenderError(e.to_string()))?;
+
+            let width = (page.width().value * scale) as i32;
+            let height = (page.height().value * scale) as i32;
+
+            let render_config = PdfRenderConfig::new()
+                .set_target_width(width.max(1))
+                .set_maximum_height(height.max(1));
+
+            let bitmap = page
+                .render_with_config(&render_config)
+                .map_err(|e| PdfError::RenderError(e.to_string()))?;
+
+            let image = bitmap.as_image();
+            let img_width = image.width();
+            let img_height = image.height();
+
+            encode_png(&image, &mut img_bytes)?;
+            let base64_data = BASE64.encode(&img_bytes);
+
+            pages.push(RenderedPage {
+                page_index: i,
+                base64_data,
+                mime: "image/png",
+                width: img_width,
+                height: img_height,
+            });
+        }
+
+        Ok((page_count, pages))
+    }
+
     /// Renders a range of pages as thumbnails constrained to `max_width` pixels.
     pub fn render_thumbnails_range(
         &mut self,

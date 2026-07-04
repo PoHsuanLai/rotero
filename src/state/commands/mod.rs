@@ -60,6 +60,9 @@ pub enum RenderRequest {
         pdf_path: String,
         reply: oneshot::Sender<Result<Vec<rotero_pdf::ExtractedAnnotation>, String>>,
     },
+    /// Drops the engine's cached PDF file bytes. Sent when the last PDF tab
+    /// closes so a large document's raw bytes aren't pinned indefinitely.
+    ClearCache,
 }
 
 pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
@@ -87,14 +90,12 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     reply,
                 } => {
                     let result = (|| {
-                        let info = engine.load_document(&pdf_path).map_err(|e| e.to_string())?;
-                        let render_count = info.page_count.min(batch_size);
-                        let rendered = engine
-                            .render_pages(&pdf_path, 0, render_count, zoom)
+                        let (page_count, rendered) = engine
+                            .open_and_render_initial(&pdf_path, zoom, batch_size)
                             .map_err(|e| e.to_string())?;
                         let pages: Vec<RenderedPageData> =
                             rendered.into_iter().map(|r| r.into()).collect();
-                        Ok((info.page_count, pages))
+                        Ok((page_count, pages))
                     })();
                     let _ = reply.send(result);
                 }
@@ -189,6 +190,9 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                         .extract_annotations(&pdf_path)
                         .map_err(|e| e.to_string());
                     let _ = reply.send(result);
+                }
+                RenderRequest::ClearCache => {
+                    engine.clear_byte_cache();
                 }
             }
         }
