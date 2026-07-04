@@ -5,54 +5,125 @@
 //! in `rotero-connector`) so both the connector's fetch-then-scrape path and the
 //! native translator registry can reuse it without a circular dependency.
 
-use rotero_models::{Paper, PaperLinks, Publication};
+use rotero_models::Paper;
 use scraper::{Html, Selector};
 use serde::Deserialize;
+
+use crate::item::{ZoteroCreator, ZoteroItem, ZoteroTag};
 
 #[derive(Debug, Default)]
 struct ScrapedFields {
     title: Option<String>,
     authors: Vec<String>,
     doi: Option<String>,
+    isbn: Option<String>,
+    issn: Option<String>,
     url: Option<String>,
     pdf_url: Option<String>,
     journal: Option<String>,
     year: Option<i32>,
+    date: Option<String>,
     volume: Option<String>,
     issue: Option<String>,
     pages: Option<String>,
     publisher: Option<String>,
     abstract_text: Option<String>,
+    language: Option<String>,
+    keywords: Vec<String>,
+    item_type: Option<String>,
 }
 
 impl ScrapedFields {
-    fn into_paper(self) -> Paper {
-        Paper {
-            title: self.title.unwrap_or_else(|| "Untitled".to_string()),
-            authors: self.authors,
-            year: self.year,
-            doi: self.doi,
-            abstract_text: self.abstract_text,
-            publication: Publication {
-                journal: self.journal,
-                volume: self.volume,
-                issue: self.issue,
-                pages: self.pages,
-                publisher: self.publisher,
-            },
-            links: PaperLinks {
-                url: self.url,
-                pdf_url: self.pdf_url,
-                ..Default::default()
-            },
+    fn into_zotero_item(self) -> ZoteroItem {
+        let creators = self
+            .authors
+            .into_iter()
+            .map(|a| split_creator(&a))
+            .collect();
+        let tags = self
+            .keywords
+            .into_iter()
+            .map(|k| ZoteroTag {
+                tag: k,
+                tag_type: 1,
+            })
+            .collect();
+        ZoteroItem {
+            item_type: self.item_type.unwrap_or_else(|| "journalArticle".to_string()),
+            title: self.title.unwrap_or_default(),
+            creators,
+            date: self.date.unwrap_or_default(),
+            url: self.url.unwrap_or_default(),
+            doi: self.doi.unwrap_or_default(),
+            isbn: self.isbn.unwrap_or_default(),
+            issn: self.issn.unwrap_or_default(),
+            abstract_note: self.abstract_text.unwrap_or_default(),
+            publication_title: self.journal.unwrap_or_default(),
+            volume: self.volume.unwrap_or_default(),
+            issue: self.issue.unwrap_or_default(),
+            pages: self.pages.unwrap_or_default(),
+            publisher: self.publisher.unwrap_or_default(),
+            language: self.language.unwrap_or_default(),
+            tags,
+            attachments: pdf_attachment(self.pdf_url),
             ..Default::default()
         }
     }
 }
 
-/// Extracts scholarly metadata from HTML meta tags and JSON-LD.
-#[allow(clippy::field_reassign_with_default)] // fields computed incrementally from HTML
+/// Build a PDF attachment list from an optional URL (empty if none).
+fn pdf_attachment(pdf_url: Option<String>) -> Vec<crate::item::ZoteroAttachment> {
+    match pdf_url {
+        Some(u) if !u.is_empty() => vec![crate::item::ZoteroAttachment {
+            title: "Full Text PDF".to_string(),
+            url: u,
+            mime_type: "application/pdf".to_string(),
+            snapshot: false,
+        }],
+        _ => Vec::new(),
+    }
+}
+
+/// Split an author string into a structured creator. Handles "Last, First"
+/// (comma form) and "First Last" (space form); falls back to a name-only
+/// creator when the shape is ambiguous.
+fn split_creator(author: &str) -> ZoteroCreator {
+    let author = author.trim();
+    let make = |first: &str, last: &str| ZoteroCreator {
+        first_name: first.trim().to_string(),
+        last_name: last.trim().to_string(),
+        name: String::new(),
+        creator_type: "author".to_string(),
+    };
+    if let Some((last, first)) = author.split_once(',') {
+        return make(first, last);
+    }
+    if let Some(idx) = author.rfind(' ') {
+        return make(&author[..idx], &author[idx + 1..]);
+    }
+    ZoteroCreator {
+        first_name: String::new(),
+        last_name: String::new(),
+        name: author.to_string(),
+        creator_type: "author".to_string(),
+    }
+}
+
+/// Extracts scholarly metadata from HTML meta tags and JSON-LD into a [`Paper`].
 pub fn extract_from_html(html: &str) -> Paper {
+    extract_zotero_item(html)
+        .into_paper()
+        .unwrap_or_else(|| Paper {
+            title: "Untitled".to_string(),
+            ..Default::default()
+        })
+}
+
+/// Extracts scholarly metadata from HTML meta tags and JSON-LD into the richer
+/// [`ZoteroItem`] (captures ISSN, language, keywords, structured creators, and
+/// item type — fields the flat `Paper` model drops).
+#[allow(clippy::field_reassign_with_default)] // fields computed incrementally from HTML
+pub fn extract_zotero_item(html: &str) -> ZoteroItem {
     let doc = Html::parse_document(html);
     let mut meta = ScrapedFields::default();
 
@@ -98,35 +169,44 @@ pub fn extract_from_html(html: &str) -> Paper {
         &doc,
         &[
             ("name", "citation_author"),
+            ("name", "bepress_citation_author"),
             ("name", "DC.creator"),
             ("name", "dc.creator"),
             ("name", "eprints.creators_name"),
         ],
     );
 
-    meta.pdf_url = get_meta(&doc, &[("name", "citation_pdf_url")]);
+    meta.pdf_url = get_meta(
+        &doc,
+        &[
+            ("name", "citation_pdf_url"),
+            ("name", "bepress_citation_pdf_url"),
+        ],
+    );
 
     meta.journal = get_meta(
         &doc,
         &[
             ("name", "citation_journal_title"),
+            ("name", "bepress_citation_journal_title"),
             ("name", "prism.publicationName"),
             ("name", "DC.source"),
             ("name", "dc.source"),
         ],
     );
 
-    let date_str = get_meta(
+    meta.date = get_meta(
         &doc,
         &[
             ("name", "citation_publication_date"),
             ("name", "citation_date"),
+            ("name", "bepress_citation_date"),
             ("name", "DC.date"),
             ("name", "dc.date"),
             ("property", "article:published_time"),
         ],
     );
-    if let Some(ref d) = date_str
+    if let Some(ref d) = meta.date
         && let Some(year) = extract_year(d)
     {
         meta.year = Some(year);
@@ -163,9 +243,107 @@ pub fn extract_from_html(html: &str) -> Paper {
         ],
     );
 
+    meta.isbn = get_meta(&doc, &[("name", "citation_isbn")]);
+    meta.issn = get_meta(
+        &doc,
+        &[
+            ("name", "citation_issn"),
+            ("name", "prism.issn"),
+            ("name", "prism.eIssn"),
+        ],
+    );
+
+    meta.language = get_meta(
+        &doc,
+        &[
+            ("name", "citation_language"),
+            ("name", "DC.language"),
+            ("name", "dc.language"),
+        ],
+    )
+    .or_else(|| html_lang(&doc));
+
+    meta.keywords = get_all_meta(
+        &doc,
+        &[
+            ("name", "citation_keywords"),
+            ("name", "DC.subject"),
+            ("name", "dc.subject"),
+            ("name", "keywords"),
+        ],
+    )
+    .into_iter()
+    // citation_keywords / keywords are often a single comma/semicolon list.
+    .flat_map(|k| {
+        k.split([',', ';'])
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+    })
+    .collect();
+
     extract_jsonld(&doc, &mut meta);
 
-    meta.into_paper()
+    // Title fallback: <title>, then first <h1>, before giving up.
+    if meta.title.is_none() {
+        meta.title = doc_title(&doc).or_else(|| first_h1(&doc));
+    }
+
+    meta.item_type = Some(infer_item_type(&doc, &meta));
+
+    meta.into_zotero_item()
+}
+
+/// Infer a Zotero item type from the metadata present. Defaults to
+/// `journalArticle` (the overwhelming common case for scholarly pages).
+fn infer_item_type(doc: &Html, meta: &ScrapedFields) -> String {
+    if get_meta(doc, &[("name", "citation_conference_title")]).is_some()
+        || get_meta(doc, &[("name", "citation_conference")]).is_some()
+    {
+        return "conferencePaper".to_string();
+    }
+    if get_meta(doc, &[("name", "citation_dissertation_institution")]).is_some()
+        || get_meta(doc, &[("name", "citation_dissertation_name")]).is_some()
+    {
+        return "thesis".to_string();
+    }
+    if get_meta(doc, &[("name", "citation_inbook_title")]).is_some() {
+        return "bookSection".to_string();
+    }
+    if meta.isbn.is_some()
+        && meta.journal.is_none()
+        && get_meta(doc, &[("name", "citation_title")]).is_some()
+    {
+        return "book".to_string();
+    }
+    "journalArticle".to_string()
+}
+
+/// The `<html lang="…">` attribute, if present.
+fn html_lang(doc: &Html) -> Option<String> {
+    let sel = Selector::parse("html").ok()?;
+    let el = doc.select(&sel).next()?;
+    el.value()
+        .attr("lang")
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// The `<title>` text, if present and non-empty.
+fn doc_title(doc: &Html) -> Option<String> {
+    let sel = Selector::parse("title").ok()?;
+    let text = doc.select(&sel).next()?.text().collect::<String>();
+    let trimmed = text.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+/// The first `<h1>` text, if present and non-empty.
+fn first_h1(doc: &Html) -> Option<String> {
+    let sel = Selector::parse("h1").ok()?;
+    let text = doc.select(&sel).next()?.text().collect::<String>();
+    let trimmed = text.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 fn get_meta(doc: &Html, attrs: &[(&str, &str)]) -> Option<String> {
@@ -311,10 +489,13 @@ fn extract_jsonld(doc: &Html, meta: &mut ScrapedFields) {
             if meta.journal.is_none() {
                 meta.journal = item.is_part_of.and_then(|p| p.name);
             }
-            if meta.year.is_none()
-                && let Some(ref d) = item.date_published
-            {
-                meta.year = extract_year(d);
+            if let Some(ref d) = item.date_published {
+                if meta.year.is_none() {
+                    meta.year = extract_year(d);
+                }
+                if meta.date.is_none() {
+                    meta.date = Some(d.clone());
+                }
             }
             if meta.abstract_text.is_none() {
                 meta.abstract_text = item.description;

@@ -6,7 +6,7 @@ mod item;
 mod server;
 pub mod translators;
 
-pub use html_meta::extract_from_html;
+pub use html_meta::{extract_from_html, extract_zotero_item};
 pub use item::ZoteroItem;
 pub use server::TranslationServer;
 pub use translators::{TranslationContext, Translator, TranslatorRegistry};

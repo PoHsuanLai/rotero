@@ -3,7 +3,7 @@
 
 use crate::ZoteroItem;
 
-use super::{Translator, fetch_context};
+use super::{EmbeddedMetadata, Translator, fetch_context};
 
 /// Holds the set of in-process translators and dispatches web/import requests.
 pub struct TranslatorRegistry {
@@ -11,14 +11,13 @@ pub struct TranslatorRegistry {
 }
 
 impl TranslatorRegistry {
-    /// Construct a registry with the built-in translators registered.
-    ///
-    /// Empty for now — translators are added in later steps. An empty registry
-    /// makes [`translate_web`](Self::translate_web) return `None`, so callers
-    /// fall through to the existing Node/scrape path unchanged.
+    /// Construct a registry with the built-in translators registered. Any URL
+    /// not handled by a translator here returns `None` from
+    /// [`translate_web`](Self::translate_web), so callers fall through to the
+    /// Node/scrape tiers.
     pub fn with_builtins() -> Self {
         Self {
-            translators: Vec::new(),
+            translators: vec![Box::new(EmbeddedMetadata)],
         }
     }
 

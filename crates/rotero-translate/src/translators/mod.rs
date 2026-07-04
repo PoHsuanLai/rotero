@@ -13,8 +13,10 @@ use async_trait::async_trait;
 
 use crate::{TranslateError, ZoteroItem};
 
+mod embedded_metadata;
 mod registry;
 
+pub use embedded_metadata::EmbeddedMetadata;
 pub use registry::{TranslatorRegistry, has_usable};
 
 /// The document a translator operates on, plus its provenance.
