@@ -1,9 +1,11 @@
 //! Integration with the Zotero translation-server for metadata lookup, web
 //! scraping, and bibliography import/export via a managed Node.js subprocess.
 
+pub mod html_meta;
 mod server;
 mod translator;
 
+pub use html_meta::extract_from_html;
 pub use server::TranslationServer;
 pub use translator::ZoteroItem;
 
