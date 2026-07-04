@@ -6184,6 +6184,7 @@ dependencies = [
 name = "rotero-translate"
 version = "0.1.6"
 dependencies = [
+ "async-trait",
  "directories",
  "reqwest",
  "rotero-models",

@@ -2,16 +2,18 @@
 //! scraping, and bibliography import/export via a managed Node.js subprocess.
 
 pub mod html_meta;
+mod item;
 mod server;
-mod translator;
+pub mod translators;
 
 pub use html_meta::extract_from_html;
+pub use item::ZoteroItem;
 pub use server::TranslationServer;
-pub use translator::ZoteroItem;
+pub use translators::{TranslationContext, Translator, TranslatorRegistry};
 
 use rotero_models::Paper;
 
-/// Errors that can occur during translation server operations.
+/// Errors that can occur during translation and metadata extraction.
 #[derive(Debug, thiserror::Error)]
 pub enum TranslateError {
     /// An HTTP request to the translation server failed.
@@ -29,6 +31,16 @@ pub enum TranslateError {
     /// The translation server returned an error or unparseable response.
     #[error("Translation error: {0}")]
     Translation(String),
+    /// This translator does not apply to the given input; the registry should
+    /// skip it and try the next candidate.
+    #[error("Translator not applicable")]
+    NotApplicable,
+    /// A network request made by a native translator failed.
+    #[error("Request error: {0}")]
+    Request(#[from] reqwest::Error),
+    /// A response could not be parsed.
+    #[error("Parse error: {0}")]
+    Parse(#[from] serde_json::Error),
 }
 
 /// Translate a URL into paper metadata via the translation server.

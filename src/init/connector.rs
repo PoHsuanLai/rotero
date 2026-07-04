@@ -176,6 +176,7 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                         })
                     })),
                     translation_server: tokio::sync::RwLock::new(None),
+                    translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),
                 });
 
                 {

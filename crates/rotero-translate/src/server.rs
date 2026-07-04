@@ -3,7 +3,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
 use crate::TranslateError;
-use crate::translator::ZoteroItem;
+use crate::item::ZoteroItem;
 
 /// Manages a Zotero translation-server subprocess.
 pub struct TranslationServer {

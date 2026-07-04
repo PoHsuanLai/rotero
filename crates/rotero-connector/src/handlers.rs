@@ -133,36 +133,29 @@ pub async fn scrape(
     State(state): State<Arc<ConnectorState>>,
     Json(req): Json<ScrapeRequest>,
 ) -> Json<ScrapeResponse> {
-    // Try Zotero translation server first (much better coverage)
+    // Tier 1: in-process Rust translators (fast, no Node subprocess).
+    if let Some(items) = state.translator_registry.translate_web(&req.url).await
+        && let Some(result) = first_usable_result(&items)
+    {
+        return Json(ScrapeResponse {
+            success: true,
+            metadata: Some(result),
+            error: None,
+        });
+    }
+
+    // Tier 2: Zotero Node translation server (broad coverage for the long tail).
     {
         let ts_guard = state.translation_server.read().await;
         if let Some(ref ts) = *ts_guard {
             match ts.translate_web(&req.url).await {
                 Ok(items) => {
-                    if let Some(item) = items.iter().find(|i| {
-                        i.item_type != "note" && i.item_type != "attachment" && !i.title.is_empty()
-                    }) {
-                        let pdf_url = item.pdf_url();
-                        if let Some(p) = item.clone().into_paper() {
-                            return Json(ScrapeResponse {
-                                success: true,
-                                metadata: Some(ScrapeResult {
-                                    title: Some(p.title.clone()),
-                                    authors: p.authors.clone(),
-                                    doi: p.doi.clone(),
-                                    url: p.links.url.clone(),
-                                    pdf_url,
-                                    journal: p.publication.journal.clone(),
-                                    year: p.year,
-                                    volume: p.publication.volume.clone(),
-                                    issue: p.publication.issue.clone(),
-                                    pages: p.publication.pages.clone(),
-                                    publisher: p.publication.publisher.clone(),
-                                    abstract_text: p.abstract_text.clone(),
-                                }),
-                                error: None,
-                            });
-                        }
+                    if let Some(result) = first_usable_result(&items) {
+                        return Json(ScrapeResponse {
+                            success: true,
+                            metadata: Some(result),
+                            error: None,
+                        });
                     }
                     tracing::debug!(
                         "Translation server returned no usable results for {}, falling back",
@@ -179,24 +172,11 @@ pub async fn scrape(
         }
     }
 
-    // Fallback: meta-tag scraper
+    // Tier 3: generic meta-tag scraper (never structured-fails).
     match super::scrape::scrape_url(&req.url).await {
         Ok(p) => Json(ScrapeResponse {
             success: true,
-            metadata: Some(ScrapeResult {
-                title: Some(p.title.clone()),
-                authors: p.authors.clone(),
-                doi: p.doi.clone(),
-                url: p.links.url.clone(),
-                pdf_url: p.links.pdf_url.clone(),
-                journal: p.publication.journal.clone(),
-                year: p.year,
-                volume: p.publication.volume.clone(),
-                issue: p.publication.issue.clone(),
-                pages: p.publication.pages.clone(),
-                publisher: p.publication.publisher.clone(),
-                abstract_text: p.abstract_text.clone(),
-            }),
+            metadata: Some(paper_to_result(&p, p.links.pdf_url.clone())),
             error: None,
         }),
         Err(e) => Json(ScrapeResponse {
@@ -204,6 +184,35 @@ pub async fn scrape(
             metadata: None,
             error: Some(e),
         }),
+    }
+}
+
+/// Convert the first usable [`ZoteroItem`] (non-note, non-attachment, titled)
+/// into a [`ScrapeResult`], preserving its PDF attachment URL.
+fn first_usable_result(items: &[rotero_translate::ZoteroItem]) -> Option<ScrapeResult> {
+    let item = items
+        .iter()
+        .find(|i| i.item_type != "note" && i.item_type != "attachment" && !i.title.is_empty())?;
+    let pdf_url = item.pdf_url();
+    let paper = item.clone().into_paper()?;
+    Some(paper_to_result(&paper, pdf_url))
+}
+
+/// Convert a [`Paper`](rotero_models::Paper) into a [`ScrapeResult`].
+fn paper_to_result(p: &rotero_models::Paper, pdf_url: Option<String>) -> ScrapeResult {
+    ScrapeResult {
+        title: Some(p.title.clone()),
+        authors: p.authors.clone(),
+        doi: p.doi.clone(),
+        url: p.links.url.clone(),
+        pdf_url,
+        journal: p.publication.journal.clone(),
+        year: p.year,
+        volume: p.publication.volume.clone(),
+        issue: p.publication.issue.clone(),
+        pages: p.publication.pages.clone(),
+        publisher: p.publication.publisher.clone(),
+        abstract_text: p.abstract_text.clone(),
     }
 }
 

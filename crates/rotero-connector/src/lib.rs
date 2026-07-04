@@ -37,6 +37,8 @@ pub struct ConnectorState {
     pub on_get_papers_by_ids: Option<Box<GetPapersByIdsFn>>,
     /// Behind RwLock so it can be set after the connector starts.
     pub translation_server: tokio::sync::RwLock<Option<rotero_translate::TranslationServer>>,
+    /// In-process Rust translators, tried before the Node translation server.
+    pub translator_registry: rotero_translate::TranslatorRegistry,
 }
 
 /// Default port the connector listens on (`21984`).
