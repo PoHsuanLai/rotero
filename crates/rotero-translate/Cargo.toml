@@ -17,3 +17,12 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 directories = "6"
 scraper = "0.22"
 async-trait = "0.1"
+
+# The JS translator engine (phase 2). Off by default so lean builds stay small
+# and fast; the desktop app opts in. Runs upstream Zotero translators unmodified.
+boa_engine = { version = "0.21", optional = true }
+skyscraper = { version = "0.7", optional = true }
+
+[features]
+default = []
+translator-engine = ["dep:boa_engine", "dep:skyscraper"]

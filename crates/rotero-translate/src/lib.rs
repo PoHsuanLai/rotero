@@ -1,6 +1,10 @@
 //! Integration with the Zotero translation-server for metadata lookup, web
 //! scraping, and bibliography import/export via a managed Node.js subprocess.
 
+#[cfg(feature = "translator-engine")]
+pub mod dom;
+#[cfg(feature = "translator-engine")]
+pub mod engine;
 pub mod html_meta;
 mod item;
 mod server;
