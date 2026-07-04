@@ -105,7 +105,7 @@ body {
 .bi-layout-sidebar-inset::before { content: "\f460"; }
 .bi-arrow-bar-left::before { content: "\f101"; }
 .bi-arrow-bar-right::before { content: "\f105"; }
-.bi-collection::before { content: "\f2a4"; }
+.bi-collection::before { content: "\f2cc"; }
 .bi-funnel::before { content: "\f381"; }
 .bi-palette::before { content: "\f4c2"; }
 .bi-gear::before { content: "\f3e5"; }
