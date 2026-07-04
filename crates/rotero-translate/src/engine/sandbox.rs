@@ -58,18 +58,9 @@ ZU.trim = function (s) { return s == null ? "" : String(s).replace(/^\s+|\s+$/g,
 ZU.trimInternal = function (s) { return s == null ? "" : String(s).replace(/\s+/g, " ").replace(/^\s+|\s+$/g, ""); };
 ZU.superCleanString = function (s) { return ZU.trim(String(s).replace(/^[\s .,;:!?()\[\]{}]+|[\s .,;:!?()\[\]{}]+$/g, "")); };
 ZU.cleanDOI = function (s) { if (!s) return null; var m = String(s).match(/10(?:\.[0-9]{4,})?\/[^\s]*[^\s.,]/); return m ? m[0] : null; };
+// Delegates to the Rust ZU port (correct surname-particle handling).
 ZU.cleanAuthor = function (name, type, useComma) {
-    name = ZU.trimInternal(String(name || ""));
-    var first = "", last = name;
-    if (useComma && name.indexOf(",") !== -1) {
-        var parts = name.split(",");
-        last = ZU.trim(parts[0]);
-        first = ZU.trim(parts.slice(1).join(","));
-    } else {
-        var idx = name.lastIndexOf(" ");
-        if (idx !== -1) { first = name.slice(0, idx); last = name.slice(idx + 1); }
-    }
-    return { firstName: first, lastName: last, creatorType: type || "author" };
+    return JSON.parse(__cleanAuthor(String(name || ""), String(type || "author"), !!useComma));
 };
 ZU.capitalizeTitle = function (s) { return s == null ? "" : String(s); };
 ZU.getPageRange = function (s) {

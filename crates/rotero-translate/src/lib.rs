@@ -9,6 +9,7 @@ pub mod html_meta;
 mod item;
 mod server;
 pub mod translators;
+pub mod zu;
 
 pub use html_meta::{extract_from_html, extract_zotero_item};
 pub use item::ZoteroItem;

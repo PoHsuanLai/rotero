@@ -138,7 +138,34 @@ fn register_host_functions(ctx: &mut Context) -> Result<(), String> {
     ctx.register_global_callable(js_string!("__debug"), 1, debug)
         .map_err(|e| format!("register __debug: {e}"))?;
 
+    // __cleanAuthor(name, type, useComma): structured author via the Rust ZU
+    // port (correct surname-particle handling). Returns JSON.
+    let clean_author = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let name = arg_string(args, 0, ctx)?;
+        let ctype = arg_string(args, 1, ctx)?;
+        let use_comma = args.get(2).map(|v| v.to_boolean()).unwrap_or(false);
+        let a = crate::zu::clean_author(&name, &ctype, use_comma);
+        let json = serde_json::json!({
+            "firstName": a.first_name,
+            "lastName": a.last_name,
+            "creatorType": a.creator_type,
+        });
+        Ok(JsValue::from(js_string!(json.to_string())))
+    });
+    ctx.register_global_callable(js_string!("__cleanAuthor"), 3, clean_author)
+        .map_err(|e| format!("register __cleanAuthor: {e}"))?;
+
     Ok(())
+}
+
+/// Read argument `i` as a Rust string (empty if absent).
+fn arg_string(args: &[JsValue], i: usize, ctx: &mut Context) -> Result<String, boa_engine::JsError> {
+    Ok(args
+        .get(i)
+        .cloned()
+        .unwrap_or(JsValue::undefined())
+        .to_string(ctx)?
+        .to_std_string_escaped())
 }
 
 /// Render a Rust string as a JS string literal (JSON-encoding handles escaping).
