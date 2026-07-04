@@ -171,9 +171,13 @@ pub fn PdfViewer() -> Element {
             onmounted: move |evt| {
                 drop(evt.data().set_focus(true));
             },
+            // Viewer-local navigation keys (zoom, page/scroll). These operate on
+            // this component's scroll container and zoom state, so they stay
+            // local rather than going through the global keybinding table. They
+            // bubble to the root handler, which ignores them. Global shortcuts
+            // like Cmd+F (Find) are owned by `keybindings::BINDINGS`, not here.
             onkeydown: move |evt| {
-                let key = evt.key();
-                match key {
+                match evt.key() {
                     Key::Character(ref c) if c == "+" || c == "=" => {
                         let new_zoom = (zoom + 0.3_f32).min(5.0);
                         crate::state::commands::set_zoom(&mut tabs, tab_id, new_zoom);
@@ -213,14 +217,6 @@ pub fn PdfViewer() -> Element {
                             });
                         }
                     }
-                    Key::Character(ref c) if (c == "f") && (evt.modifiers().meta() || evt.modifiers().ctrl()) => {
-                        evt.prevent_default();
-                        tabs.with_mut(|m| {
-                            let t = m.tab_mut();
-                            t.search.visible = !t.search.visible;
-                        });
-                    }
-                    Key::Escape => {}
                     _ => {}
                 }
             },
