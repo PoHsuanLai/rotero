@@ -95,19 +95,19 @@ body {
 .bi-tags::before { content: "\f5b2"; }
 .bi-arrow-counterclockwise::before { content: "\f117"; }
 .bi-arrow-clockwise::before { content: "\f116"; }
-.bi-type-underline::before { content: "\f5ee"; }
-.bi-fonts::before { content: "\f3dc"; }
+.bi-type-underline::before { content: "\f5f6"; }
+.bi-fonts::before { content: "\f3da"; }
 .bi-zoom-in::before { content: "\f62c"; }
 .bi-zoom-out::before { content: "\f62d"; }
 .bi-chevron-left::before { content: "\f284"; }
 .bi-list::before { content: "\f479"; }
-.bi-layout-sidebar::before { content: "\f462"; }
-.bi-layout-sidebar-inset::before { content: "\f460"; }
-.bi-arrow-bar-left::before { content: "\f101"; }
-.bi-arrow-bar-right::before { content: "\f105"; }
+.bi-layout-sidebar::before { content: "\f45f"; }
+.bi-layout-sidebar-inset::before { content: "\f45d"; }
+.bi-arrow-bar-left::before { content: "\f113"; }
+.bi-arrow-bar-right::before { content: "\f114"; }
 .bi-collection::before { content: "\f2cc"; }
-.bi-funnel::before { content: "\f381"; }
-.bi-palette::before { content: "\f4c2"; }
+.bi-funnel::before { content: "\f3e1"; }
+.bi-palette::before { content: "\f4b1"; }
 .bi-gear::before { content: "\f3e5"; }
 .bi-archive::before { content: "\f10d"; }
 .bi-diagram-2::before { content: "\f2ec"; }
@@ -116,7 +116,7 @@ body {
 .bi-upload::before { content: "\f603"; }
 .bi-chat-left-dots::before { content: "\f24d"; }
 .bi-stop-fill::before { content: "\f592"; }
-.bi-exclamation-triangle::before { content: "\f33a"; }
+.bi-exclamation-triangle::before { content: "\f33b"; }
 .bi-arrow-up::before { content: "\f148"; }
 
 /* --- LaTeX / MathML --- */
