@@ -9,6 +9,8 @@ pub mod handlers;
 /// HTML meta-tag and JSON-LD scraper for extracting paper metadata from web pages.
 pub mod scrape;
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use axum::http::{Method, header};
@@ -19,18 +21,25 @@ use tower_http::cors::{Any, CorsLayer};
 use handlers::{CollectionInfo, TagInfo};
 use rotero_models::Paper;
 
-type OnPaperSavedFn = dyn Fn(Paper, Option<String>, Vec<String>, Option<String>) + Send + Sync;
-type SearchPapersFn = dyn Fn(&str) -> Vec<Paper> + Send + Sync;
-type GetPapersByIdsFn = dyn Fn(&[String]) -> Vec<Paper> + Send + Sync;
+/// Boxed future returned by async callbacks.
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+type OnPaperSavedFn = dyn Fn(Paper, Option<String>, Vec<String>, Option<String>) -> BoxFuture<'static, ()>
+    + Send
+    + Sync;
+type GetCollectionsFn = dyn Fn() -> BoxFuture<'static, Vec<CollectionInfo>> + Send + Sync;
+type GetTagsFn = dyn Fn() -> BoxFuture<'static, Vec<TagInfo>> + Send + Sync;
+type SearchPapersFn = dyn Fn(String) -> BoxFuture<'static, Vec<Paper>> + Send + Sync;
+type GetPapersByIdsFn = dyn Fn(Vec<String>) -> BoxFuture<'static, Vec<Paper>> + Send + Sync;
 
 /// Shared state for the connector server, holding callbacks into the main app.
 pub struct ConnectorState {
     /// Arguments: paper, collection_id, tag_ids, pdf_url
     pub on_paper_saved: Option<Box<OnPaperSavedFn>>,
     /// Callback to retrieve the user's collections for the save dialog.
-    pub on_get_collections: Option<Box<dyn Fn() -> Vec<CollectionInfo> + Send + Sync>>,
+    pub on_get_collections: Option<Box<GetCollectionsFn>>,
     /// Callback to retrieve the user's tags for the save dialog.
-    pub on_get_tags: Option<Box<dyn Fn() -> Vec<TagInfo> + Send + Sync>>,
+    pub on_get_tags: Option<Box<GetTagsFn>>,
     /// Callback to search papers by query string.
     pub on_search_papers: Option<Box<SearchPapersFn>>,
     /// Callback to fetch papers by their IDs.
