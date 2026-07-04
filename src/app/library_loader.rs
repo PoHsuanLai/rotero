@@ -177,7 +177,7 @@ pub fn LoadLibraryData() -> Element {
                 match view {
                     LibraryView::Collection(coll_id) => {
                         if let Ok(ids) =
-                            rotero_db::collections::list_paper_ids_in_collection(conn, &coll_id)
+                            rotero_db::collections::list_paper_ids_in_subtree(conn, &coll_id)
                                 .await
                         {
                             lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));

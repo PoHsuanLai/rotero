@@ -330,7 +330,7 @@ pub fn PaperContextMenu(
                                     for pid in &pids {
                                         let _ = rotero_db::collections::remove_paper_from_collection(db.conn(), pid, &cid).await;
                                     }
-                                    if let Ok(ids) = rotero_db::collections::list_paper_ids_in_collection(db.conn(), &cid).await {
+                                    if let Ok(ids) = rotero_db::collections::list_paper_ids_in_subtree(db.conn(), &cid).await {
                                         lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
                                     }
                                 });

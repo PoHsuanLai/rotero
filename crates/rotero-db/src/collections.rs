@@ -118,6 +118,89 @@ pub async fn list_paper_ids_in_collection(
     Ok(ids)
 }
 
+/// Return all paper IDs in a collection *and all of its descendant collections*,
+/// deduplicated. Viewing a parent collection aggregates its whole subtree.
+///
+/// turso does not yet support `WITH RECURSIVE` (see COMPAT.md / tursodatabase
+/// issue #6205), so the descendant walk is done in Rust via [`descendant_ids`].
+/// When recursive CTEs land, delete `descendant_ids` and replace this body with
+/// a single query:
+///
+/// ```sql
+/// WITH RECURSIVE subtree(id) AS (
+///     SELECT id FROM collections WHERE id = ?1
+///     UNION
+///     SELECT c.id FROM collections c JOIN subtree s ON c.parent_id = s.id
+/// )
+/// SELECT DISTINCT pc.paper_id
+/// FROM paper_collections pc JOIN subtree ON pc.collection_id = subtree.id
+/// ```
+pub async fn list_paper_ids_in_subtree(
+    conn: &Connection,
+    collection_id: &str,
+) -> Result<Vec<String>, turso::Error> {
+    let subtree = descendant_ids(conn, collection_id).await?;
+    if subtree.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // SELECT DISTINCT paper_id FROM paper_collections WHERE collection_id IN (?, ?, ...)
+    let placeholders = std::iter::repeat("?")
+        .take(subtree.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT DISTINCT paper_id FROM paper_collections WHERE collection_id IN ({placeholders})"
+    );
+    let params: Vec<Value> = subtree.into_iter().map(Value::Text).collect();
+
+    let mut rows = conn
+        .query(&sql, turso::params::Params::Positional(params))
+        .await?;
+    let mut ids = Vec::new();
+    while let Some(row) = rows.next().await? {
+        if let Some(id) = row.get_value(0).ok().and_then(|v| v.as_text().cloned()) {
+            ids.push(id);
+        }
+    }
+    Ok(ids)
+}
+
+/// Collect `collection_id` and every collection transitively parented under it.
+///
+/// Workaround for turso's missing `WITH RECURSIVE`: loads the flat collection
+/// list once and walks the `parent_id` tree in memory. A `visited` set guards
+/// against parent-pointer cycles so malformed data can't loop forever.
+async fn descendant_ids(
+    conn: &Connection,
+    root: &str,
+) -> Result<Vec<String>, turso::Error> {
+    let all = list_collections(conn).await?;
+
+    // Build parent -> children adjacency.
+    let mut children: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for coll in &all {
+        if let (Some(id), Some(parent)) = (coll.id.as_ref(), coll.parent_id.as_ref()) {
+            children.entry(parent.clone()).or_default().push(id.clone());
+        }
+    }
+
+    let mut visited = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_string()];
+    while let Some(id) = stack.pop() {
+        if !visited.insert(id.clone()) {
+            continue; // already seen — skip to break any cycle
+        }
+        if let Some(kids) = children.get(&id) {
+            stack.extend(kids.iter().cloned());
+        }
+        out.push(id);
+    }
+    Ok(out)
+}
+
 /// Add a paper to a collection (idempotent via INSERT OR IGNORE).
 pub async fn add_paper_to_collection(
     conn: &Connection,
