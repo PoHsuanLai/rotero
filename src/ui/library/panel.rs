@@ -45,11 +45,8 @@ pub fn LibraryPanel() -> Element {
                 LibraryView::Collection(coll_id) => {
                     let db = db_coll.clone();
                     spawn(async move {
-                        match rotero_db::collections::list_paper_ids_in_subtree(
-                            db.conn(),
-                            &coll_id,
-                        )
-                        .await
+                        match rotero_db::collections::list_paper_ids_in_subtree(db.conn(), &coll_id)
+                            .await
                         {
                             Ok(ids) => {
                                 lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));

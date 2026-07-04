@@ -24,10 +24,9 @@ use rotero_models::Paper;
 /// Boxed future returned by async callbacks.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-type OnPaperSavedFn =
-    dyn Fn(Paper, Option<String>, Vec<String>, Option<String>) -> BoxFuture<'static, ()>
-        + Send
-        + Sync;
+type OnPaperSavedFn = dyn Fn(Paper, Option<String>, Vec<String>, Option<String>) -> BoxFuture<'static, ()>
+    + Send
+    + Sync;
 type GetCollectionsFn = dyn Fn() -> BoxFuture<'static, Vec<CollectionInfo>> + Send + Sync;
 type GetTagsFn = dyn Fn() -> BoxFuture<'static, Vec<TagInfo>> + Send + Sync;
 type SearchPapersFn = dyn Fn(String) -> BoxFuture<'static, Vec<Paper>> + Send + Sync;

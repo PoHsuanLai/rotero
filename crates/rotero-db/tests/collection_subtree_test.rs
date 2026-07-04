@@ -62,17 +62,35 @@ async fn subtree_aggregates_descendants_and_dedupes() {
     let p_shared = new_paper(&conn, "in both NLP and Vision").await;
     let p_other = new_paper(&conn, "unrelated").await;
 
-    collections::add_paper_to_collection(&conn, &p_ml, &ml).await.unwrap();
-    collections::add_paper_to_collection(&conn, &p_nlp, &nlp).await.unwrap();
-    collections::add_paper_to_collection(&conn, &p_llm, &llm).await.unwrap();
-    collections::add_paper_to_collection(&conn, &p_vision, &vision).await.unwrap();
+    collections::add_paper_to_collection(&conn, &p_ml, &ml)
+        .await
+        .unwrap();
+    collections::add_paper_to_collection(&conn, &p_nlp, &nlp)
+        .await
+        .unwrap();
+    collections::add_paper_to_collection(&conn, &p_llm, &llm)
+        .await
+        .unwrap();
+    collections::add_paper_to_collection(&conn, &p_vision, &vision)
+        .await
+        .unwrap();
     // Shared paper lives in two subtree collections -> must be deduped
-    collections::add_paper_to_collection(&conn, &p_shared, &nlp).await.unwrap();
-    collections::add_paper_to_collection(&conn, &p_shared, &vision).await.unwrap();
-    collections::add_paper_to_collection(&conn, &p_other, &other).await.unwrap();
+    collections::add_paper_to_collection(&conn, &p_shared, &nlp)
+        .await
+        .unwrap();
+    collections::add_paper_to_collection(&conn, &p_shared, &vision)
+        .await
+        .unwrap();
+    collections::add_paper_to_collection(&conn, &p_other, &other)
+        .await
+        .unwrap();
 
     // ML: own paper + every descendant, deduped, excluding the unrelated root.
-    let got = sorted(collections::list_paper_ids_in_subtree(&conn, &ml).await.unwrap());
+    let got = sorted(
+        collections::list_paper_ids_in_subtree(&conn, &ml)
+            .await
+            .unwrap(),
+    );
     let want = sorted(vec![
         p_ml.clone(),
         p_nlp.clone(),
@@ -80,17 +98,37 @@ async fn subtree_aggregates_descendants_and_dedupes() {
         p_vision.clone(),
         p_shared.clone(),
     ]);
-    assert_eq!(got, want, "ML subtree = own + all descendant papers, deduped");
-    assert!(!got.contains(&p_other), "unrelated root's paper must be excluded");
+    assert_eq!(
+        got, want,
+        "ML subtree = own + all descendant papers, deduped"
+    );
+    assert!(
+        !got.contains(&p_other),
+        "unrelated root's paper must be excluded"
+    );
 
     // NLP: its own paper, the shared one, plus its LLM child — but not Vision's.
-    let nlp_got = sorted(collections::list_paper_ids_in_subtree(&conn, &nlp).await.unwrap());
+    let nlp_got = sorted(
+        collections::list_paper_ids_in_subtree(&conn, &nlp)
+            .await
+            .unwrap(),
+    );
     let nlp_want = sorted(vec![p_nlp.clone(), p_llm.clone(), p_shared.clone()]);
-    assert_eq!(nlp_got, nlp_want, "NLP subtree includes LLM child but not Vision");
-    assert!(!nlp_got.contains(&p_vision), "Vision's paper must not appear under NLP");
+    assert_eq!(
+        nlp_got, nlp_want,
+        "NLP subtree includes LLM child but not Vision"
+    );
+    assert!(
+        !nlp_got.contains(&p_vision),
+        "Vision's paper must not appear under NLP"
+    );
 
     // Vision leaf: only its two direct papers.
-    let vision_got = sorted(collections::list_paper_ids_in_subtree(&conn, &vision).await.unwrap());
+    let vision_got = sorted(
+        collections::list_paper_ids_in_subtree(&conn, &vision)
+            .await
+            .unwrap(),
+    );
     assert_eq!(vision_got, sorted(vec![p_vision, p_shared]));
 
     // A collection id that doesn't exist yields nothing (no panic on empty CTE seed).

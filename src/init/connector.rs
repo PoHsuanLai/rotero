@@ -63,13 +63,24 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                                 match rotero_db::papers::insert_paper(&conn, &paper).await {
                                     Ok(paper_id) => {
                                         if let Some(ref coll_id) = collection_id {
-                                            let _ = rotero_db::collections::add_paper_to_collection(&conn, &paper_id, coll_id).await;
+                                            let _ =
+                                                rotero_db::collections::add_paper_to_collection(
+                                                    &conn, &paper_id, coll_id,
+                                                )
+                                                .await;
                                         }
                                         for tag_id in &tag_ids {
-                                            let _ = rotero_db::tags::add_tag_to_paper(&conn, &paper_id, tag_id).await;
+                                            let _ = rotero_db::tags::add_tag_to_paper(
+                                                &conn, &paper_id, tag_id,
+                                            )
+                                            .await;
                                         }
                                         let _ = connector_tx.send(());
-                                        tracing::info!("Connector saved paper id={}: {}", paper_id, paper.title);
+                                        tracing::info!(
+                                            "Connector saved paper id={}: {}",
+                                            paper_id,
+                                            paper.title
+                                        );
 
                                         let paper_id_enrich = paper_id.clone();
                                         if let Some(pdf_url) = pdf_url {
@@ -87,7 +98,10 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                                                 )
                                                 .await
                                                 {
-                                                    tracing::error!("PDF download failed for paper id={}: {e}", paper_id);
+                                                    tracing::error!(
+                                                        "PDF download failed for paper id={}: {e}",
+                                                        paper_id
+                                                    );
                                                 } else {
                                                     let _ = connector_tx_pdf.send(());
                                                 }
@@ -97,11 +111,21 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                                         let conn_enrich = conn.clone();
                                         let connector_tx_enrich = connector_tx.clone();
                                         tokio::spawn(async move {
-                                            if let Some(enriched) = crate::metadata::enrich::enrich_paper(&paper).await
-                                                && rotero_db::papers::update_paper_metadata(&conn_enrich, &paper_id_enrich, &enriched).await.is_ok()
+                                            if let Some(enriched) =
+                                                crate::metadata::enrich::enrich_paper(&paper).await
+                                                && rotero_db::papers::update_paper_metadata(
+                                                    &conn_enrich,
+                                                    &paper_id_enrich,
+                                                    &enriched,
+                                                )
+                                                .await
+                                                .is_ok()
                                             {
                                                 let _ = connector_tx_enrich.send(());
-                                                tracing::info!("Connector enriched metadata for paper id={}", paper_id_enrich);
+                                                tracing::info!(
+                                                    "Connector enriched metadata for paper id={}",
+                                                    paper_id_enrich
+                                                );
                                             }
                                         });
                                     }

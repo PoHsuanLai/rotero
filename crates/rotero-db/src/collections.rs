@@ -145,8 +145,7 @@ pub async fn list_paper_ids_in_subtree(
     }
 
     // SELECT DISTINCT paper_id FROM paper_collections WHERE collection_id IN (?, ?, ...)
-    let placeholders = std::iter::repeat("?")
-        .take(subtree.len())
+    let placeholders = std::iter::repeat_n("?", subtree.len())
         .collect::<Vec<_>>()
         .join(", ");
     let sql = format!(
@@ -171,10 +170,7 @@ pub async fn list_paper_ids_in_subtree(
 /// Workaround for turso's missing `WITH RECURSIVE`: loads the flat collection
 /// list once and walks the `parent_id` tree in memory. A `visited` set guards
 /// against parent-pointer cycles so malformed data can't loop forever.
-async fn descendant_ids(
-    conn: &Connection,
-    root: &str,
-) -> Result<Vec<String>, turso::Error> {
+async fn descendant_ids(conn: &Connection, root: &str) -> Result<Vec<String>, turso::Error> {
     let all = list_collections(conn).await?;
 
     // Build parent -> children adjacency.
