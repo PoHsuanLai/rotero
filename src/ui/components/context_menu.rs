@@ -56,10 +56,16 @@ pub fn ContextMenuItem(
     icon: Option<String>,
     danger: Option<bool>,
     disabled: Option<bool>,
+    // When `Some(false)`, the click does not bubble up to the ContextMenu's
+    // auto-close handler. Use this for items whose `on_click` spawns async work
+    // and closes the menu itself when done — otherwise the bubbling close
+    // unmounts the menu component and cancels the in-flight spawned future.
+    close_on_click: Option<bool>,
     on_click: EventHandler<()>,
 ) -> Element {
     let is_danger = danger.unwrap_or(false);
     let is_disabled = disabled.unwrap_or(false);
+    let auto_close = close_on_click.unwrap_or(true);
 
     let mut class = String::from("context-menu-item");
     if is_danger {
@@ -72,7 +78,10 @@ pub fn ContextMenuItem(
     rsx! {
         div {
             class: "{class}",
-            onclick: move |_| {
+            onclick: move |evt: Event<MouseData>| {
+                if !auto_close {
+                    evt.stop_propagation();
+                }
                 if !is_disabled {
                     on_click.call(());
                 }

@@ -33,10 +33,11 @@ pub fn CollectionContextMenu(
                         r#type: "text",
                         value: "{rename_value}",
                         oninput: move |evt| rename_value.set(evt.value()),
-                        onkeypress: {
+                        onkeydown: {
                             let cid = coll_id.clone();
                             let db = db.clone();
-                            move |evt| {
+                            move |evt: Event<KeyboardData>| {
+                                evt.stop_propagation();
                                 if evt.key() == Key::Enter {
                                     let new_name = rename_value().trim().to_string();
                                     if !new_name.is_empty() {
@@ -95,6 +96,10 @@ pub fn CollectionContextMenu(
                     label: "Delete".to_string(),
                     icon: Some("bi-trash".to_string()),
                     danger: Some(true),
+                    // Keep the menu mounted while the delete runs; the spawn
+                    // closes it on completion. Otherwise the auto-close unmounts
+                    // this component and cancels the in-flight future.
+                    close_on_click: Some(false),
                     on_click: {
                         let cid = coll_id.clone();
                         let db = db.clone();
@@ -111,6 +116,7 @@ pub fn CollectionContextMenu(
                                         }
                                     });
                                 }
+                                on_close.call(());
                             });
                         }
                     },
@@ -157,10 +163,11 @@ pub fn SidebarTagContextMenu(
                         r#type: "text",
                         value: "{rename_value}",
                         oninput: move |evt| rename_value.set(evt.value()),
-                        onkeypress: {
+                        onkeydown: {
                             let tid = tag_id.clone();
                             let db = db.clone();
-                            move |evt| {
+                            move |evt: Event<KeyboardData>| {
+                                evt.stop_propagation();
                                 if evt.key() == Key::Enter {
                                     let new_name = rename_value().trim().to_string();
                                     if !new_name.is_empty() {
@@ -259,6 +266,9 @@ pub fn SidebarTagContextMenu(
                     label: "Delete".to_string(),
                     icon: Some("bi-trash".to_string()),
                     danger: Some(true),
+                    // See the collection Delete item: keep the menu mounted so
+                    // the spawned delete future isn't cancelled mid-flight.
+                    close_on_click: Some(false),
                     on_click: {
                         let tid = tag_id.clone();
                         let db = db.clone();
@@ -275,6 +285,7 @@ pub fn SidebarTagContextMenu(
                                         }
                                     });
                                 }
+                                on_close.call(());
                             });
                         }
                     },
