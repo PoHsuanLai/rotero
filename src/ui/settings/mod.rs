@@ -2,6 +2,9 @@ mod appearance;
 mod claude;
 mod connector;
 mod import;
+// Keybindings settings depend on `ui::keybindings`, which is desktop-only.
+#[cfg(feature = "desktop")]
+mod keybindings;
 mod pdf_viewer;
 mod sync;
 #[cfg(feature = "desktop")]
@@ -14,6 +17,8 @@ use dioxus::prelude::*;
 enum SettingsTab {
     General,
     PdfViewer,
+    #[cfg(feature = "desktop")]
+    Keybindings,
     AiAgent,
     Advanced,
 }
@@ -23,15 +28,19 @@ impl SettingsTab {
         match self {
             Self::General => "General",
             Self::PdfViewer => "PDF Viewer",
+            #[cfg(feature = "desktop")]
+            Self::Keybindings => "Keybindings",
             Self::AiAgent => "AI Agent",
             Self::Advanced => "Advanced",
         }
     }
 }
 
-const TABS: [SettingsTab; 4] = [
+const TABS: &[SettingsTab] = &[
     SettingsTab::General,
     SettingsTab::PdfViewer,
+    #[cfg(feature = "desktop")]
+    SettingsTab::Keybindings,
     SettingsTab::AiAgent,
     SettingsTab::Advanced,
 ];
@@ -76,7 +85,7 @@ fn SettingsPanel(on_close: EventHandler<()>) -> Element {
                 }
 
                 div { class: "settings-tabs",
-                    for tab in TABS {
+                    for tab in TABS.iter().copied() {
                         button {
                             class: if *active_tab.read() == tab { "settings-tab settings-tab--active" } else { "settings-tab" },
                             onclick: move |_| active_tab.set(tab),
@@ -96,6 +105,10 @@ fn SettingsPanel(on_close: EventHandler<()>) -> Element {
                         },
                         SettingsTab::PdfViewer => rsx! {
                             pdf_viewer::PdfViewerSection {}
+                        },
+                        #[cfg(feature = "desktop")]
+                        SettingsTab::Keybindings => rsx! {
+                            keybindings::KeybindingsSection {}
                         },
                         SettingsTab::AiAgent => rsx! {
                             claude::AgentSection {}

@@ -41,6 +41,7 @@ const DIALOGS_CSS: &str = include_str!("../../assets/dialogs.css");
 const THEME_CSS: &str = include_str!("../../assets/theme.css");
 const GRAPH_CSS: &str = include_str!("../../assets/graph.css");
 const GRAPH_JS: &str = include_str!("../../assets/graph.js");
+const KEYBINDINGS_JS: &str = include_str!("../../assets/keybindings.js");
 const CHAT_CSS: &str = include_str!("../../assets/chat.css");
 #[cfg(feature = "mobile")]
 const LONGPRESS_JS: &str = include_str!("../../assets/longpress.js");
@@ -179,6 +180,7 @@ pub fn App() -> Element {
                 document::Style { {GRAPH_CSS} }
                 document::Style { {CHAT_CSS} }
                 document::Script { {GRAPH_JS} }
+                document::Script { {KEYBINDINGS_JS} }
                 {longpress_script()}
                 LoadLibraryData {}
                 SyncLoop {}
