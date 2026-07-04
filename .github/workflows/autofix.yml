@@ -1,0 +1,70 @@
+name: Auto-fix
+
+# Runs cargo fmt + clippy --fix on PRs and commits any fixes back to the branch.
+# Pushes with a PAT (secrets.AUTOFIX_TOKEN) so the auto-fix commit re-triggers CI
+# and the fmt/clippy check jobs re-run on the fixed code (a commit pushed with the
+# default GITHUB_TOKEN would NOT re-trigger workflows).
+#
+# Setup: create a fine-grained PAT with "Contents: read & write" on this repo, then
+# add it as a repo secret named AUTOFIX_TOKEN
+# (Settings -> Secrets and variables -> Actions -> New repository secret).
+
+on:
+  pull_request:
+    branches: [master]
+
+# Only one auto-fix run per PR at a time; cancel stale runs.
+concurrency:
+  group: autofix-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  autofix:
+    name: Auto-fix
+    runs-on: ubuntu-latest
+    # Skip forks: the PAT can't push to a fork's branch.
+    #
+    # No explicit loop guard is needed: the PAT push re-triggers this workflow once
+    # more, but that re-run finds nothing to fix (git status is clean) and exits at
+    # the "Commit and push fixes" step without pushing, so it self-terminates after
+    # exactly one no-op run.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          # Use the PAT so the follow-up push is authenticated AND re-triggers CI.
+          token: ${{ secrets.AUTOFIX_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev
+
+      - name: cargo fmt
+        run: cargo fmt --all
+
+      - name: cargo clippy --fix
+        run: |
+          cargo clippy --workspace --fix --allow-dirty --allow-staged -- -W clippy::all
+
+      - name: Commit and push fixes
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No formatting or clippy fixes needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "style: auto-fix fmt/clippy"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
