@@ -83,12 +83,11 @@ pub fn PaperCard(
             },
             oncontextmenu: move |evt| {
                 evt.prevent_default();
+                // Open the menu targeting this paper WITHOUT changing the
+                // selection, so right-click doesn't pop the overview panel.
+                // The target id is carried in ctx_menu; the menu falls back to
+                // it when the paper isn't part of the current selection.
                 let coords = evt.client_coordinates();
-                lib_state.with_mut(|s| {
-                    if !s.is_selected(&pid_ctx) {
-                        s.select_one(pid_ctx.clone());
-                    }
-                });
                 ctx_menu.set(Some((pid_ctx.clone(), coords.x, coords.y)));
             },
 

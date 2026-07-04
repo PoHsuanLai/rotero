@@ -4,9 +4,13 @@ static CONTEXT_MENU_ID: &str = "rotero-context-menu";
 
 #[component]
 pub fn ContextMenu(x: f64, y: f64, on_close: EventHandler<()>, children: Element) -> Element {
-    use_hook(move || {
+    // Nudge the menu back inside the viewport if the click point is near an
+    // edge. This is a progressive enhancement: the menu is already visible at
+    // (x, y) from CSS, so it stays usable even if this JS never runs. Runs on
+    // every (x, y) change so re-opening at a new spot re-clamps.
+    use_effect(move || {
         let js = format!(
-            r#"setTimeout(() => {{
+            r#"requestAnimationFrame(() => {{
                 let el = document.getElementById('{CONTEXT_MENU_ID}');
                 if (!el) return;
                 let rect = el.getBoundingClientRect();
@@ -20,10 +24,11 @@ pub fn ContextMenu(x: f64, y: f64, on_close: EventHandler<()>, children: Element
                 if (y < 0) y = 4;
                 el.style.left = x + 'px';
                 el.style.top = y + 'px';
-                el.style.visibility = 'visible';
-            }}, 0)"#
+            }})"#
         );
-        document::eval(&js);
+        spawn(async move {
+            let _ = document::eval(&js).await;
+        });
     });
 
     rsx! {
@@ -38,7 +43,7 @@ pub fn ContextMenu(x: f64, y: f64, on_close: EventHandler<()>, children: Element
         div {
             id: CONTEXT_MENU_ID,
             class: "context-menu",
-            style: "left: {x}px; top: {y}px; visibility: hidden;",
+            style: "left: {x}px; top: {y}px;",
             onclick: move |_| on_close.call(()),
             {children}
         }
