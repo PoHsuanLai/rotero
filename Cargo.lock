@@ -6187,6 +6187,7 @@ dependencies = [
  "async-trait",
  "directories",
  "reqwest",
+ "rotero-bib",
  "rotero-models",
  "rotero-search",
  "scraper",

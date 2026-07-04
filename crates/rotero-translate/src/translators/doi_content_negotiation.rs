@@ -5,10 +5,9 @@
 
 use async_trait::async_trait;
 
-use rotero_models::Paper;
 use rotero_search::crossref;
 
-use crate::item::{ZoteroCreator, ZoteroItem};
+use crate::item::ZoteroItem;
 
 use super::{TranslationContext, Translator};
 
@@ -38,7 +37,7 @@ impl Translator for DoiContentNegotiation {
         let paper = crossref::fetch_by_doi(&doi)
             .await
             .map_err(crate::TranslateError::Translation)?;
-        Ok(vec![paper_to_zotero_item(paper)])
+        Ok(vec![ZoteroItem::from_paper(paper)])
     }
 }
 
@@ -104,49 +103,6 @@ fn take_doi(s: &str) -> Option<String> {
         Some(doi.to_string())
     } else {
         None
-    }
-}
-
-/// Shim a flat [`Paper`] into a [`ZoteroItem`] so the registry has one uniform
-/// return type. This is as lossy as CrossRef itself (no ISSN split, etc.) —
-/// acceptable and consistent with the `enrich_paper` path.
-fn paper_to_zotero_item(p: Paper) -> ZoteroItem {
-    let creators = p
-        .authors
-        .into_iter()
-        .map(|name| {
-            // CrossRef authors already arrive as "First Last"; keep a simple split.
-            match name.rsplit_once(' ') {
-                Some((first, last)) => ZoteroCreator {
-                    first_name: first.trim().to_string(),
-                    last_name: last.trim().to_string(),
-                    name: String::new(),
-                    creator_type: "author".to_string(),
-                },
-                None => ZoteroCreator {
-                    first_name: String::new(),
-                    last_name: String::new(),
-                    name,
-                    creator_type: "author".to_string(),
-                },
-            }
-        })
-        .collect();
-
-    ZoteroItem {
-        item_type: "journalArticle".to_string(),
-        title: p.title,
-        creators,
-        date: p.year.map(|y| y.to_string()).unwrap_or_default(),
-        doi: p.doi.unwrap_or_default(),
-        abstract_note: p.abstract_text.unwrap_or_default(),
-        publication_title: p.publication.journal.unwrap_or_default(),
-        volume: p.publication.volume.unwrap_or_default(),
-        issue: p.publication.issue.unwrap_or_default(),
-        pages: p.publication.pages.unwrap_or_default(),
-        publisher: p.publication.publisher.unwrap_or_default(),
-        url: p.links.url.unwrap_or_default(),
-        ..Default::default()
     }
 }
 

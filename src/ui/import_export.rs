@@ -86,23 +86,24 @@ fn ImportButton() -> Element {
                     if let Some(path) = file {
                         match std::fs::read_to_string(&path) {
                             Ok(content) => {
-                                let ext = path.extension()
-                                    .and_then(|e| e.to_str())
-                                    .unwrap_or("")
-                                    .to_lowercase();
-
                                 let bib_dir = path.parent().map(|p| p.to_path_buf());
 
-                                let parsed: Result<Vec<(rotero_models::Paper, Option<String>)>, String> = match ext.as_str() {
-                                    "ris" => rotero_bib::import_ris(&content)
-                                        .map(|papers| papers.into_iter().map(|p| (p, None)).collect()),
-                                    "json" => rotero_bib::import_csl_json(&content)
-                                        .map(|papers| papers.into_iter().map(|p| (p, None)).collect()),
-                                    "nbib" => rotero_bib::import_nbib(&content)
-                                        .map(|papers| papers.into_iter().map(|p| (p, None)).collect()),
-                                    _ => rotero_bib::import_bibtex(&content)
-                                        .map(|entries| entries.into_iter().map(|e| (e.paper, e.source_pdf)).collect()),
-                                };
+                                // One import path for all bibliography formats: the
+                                // registry sniffs RIS/BibTeX/CSL-JSON/NBIB and returns
+                                // items, with any local PDF preserved as an attachment.
+                                let registry = rotero_translate::TranslatorRegistry::with_builtins();
+                                let parsed: Result<Vec<(rotero_models::Paper, Option<String>)>, String> =
+                                    registry.translate_import(&content)
+                                        .map_err(|e| e.to_string())
+                                        .map(|items| {
+                                            items
+                                                .into_iter()
+                                                .filter_map(|item| {
+                                                    let source_pdf = item.pdf_path();
+                                                    item.into_paper().map(|p| (p, source_pdf))
+                                                })
+                                                .collect()
+                                        });
 
                                 match parsed {
                                     Ok(entries) => {

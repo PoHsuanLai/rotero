@@ -78,7 +78,7 @@ fn pdf_attachment(pdf_url: Option<String>) -> Vec<crate::item::ZoteroAttachment>
             title: "Full Text PDF".to_string(),
             url: u,
             mime_type: "application/pdf".to_string(),
-            snapshot: false,
+            ..Default::default()
         }],
         _ => Vec::new(),
     }

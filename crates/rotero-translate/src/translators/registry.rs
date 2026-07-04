@@ -1,9 +1,11 @@
 //! The translator registry: fetch a page once, dispatch to the highest-priority
 //! [`Translator`] that applies.
 
-use crate::ZoteroItem;
+use crate::{TranslateError, ZoteroItem};
 
-use super::{DoiContentNegotiation, EmbeddedMetadata, Translator, fetch_context};
+use super::{
+    DoiContentNegotiation, EmbeddedMetadata, ImportFormat, Translator, fetch_context, parse_import,
+};
 
 /// Holds the set of in-process translators and dispatches web/import requests.
 pub struct TranslatorRegistry {
@@ -60,6 +62,13 @@ impl TranslatorRegistry {
             }
         }
         None
+    }
+
+    /// Parse pasted/loaded bibliography text (RIS, BibTeX, CSL-JSON, NBIB) into
+    /// items, sniffing the format from the content. The returned items carry
+    /// local PDF paths (from BibTeX `file` fields) as attachments.
+    pub fn translate_import(&self, text: &str) -> Result<Vec<ZoteroItem>, TranslateError> {
+        parse_import(text, ImportFormat::sniff(text))
     }
 }
 

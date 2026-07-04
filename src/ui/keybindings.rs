@@ -676,12 +676,16 @@ fn action_import_bibtex(db: Database, mut lib_state: Signal<LibraryState>) {
     let file = crate::ui::pick_file(&["bib", "bibtex"], "Import BibTeX");
     if let Some(path) = file
         && let Ok(content) = std::fs::read_to_string(&path)
-        && let Ok(entries) = rotero_bib::import_bibtex(&content)
+        && let Ok(items) =
+            rotero_translate::TranslatorRegistry::with_builtins().translate_import(&content)
     {
         let bib_dir = path.parent().map(|p| p.to_path_buf());
         spawn(async move {
-            for entry in entries {
-                let rotero_bib::ImportedPaper { paper, source_pdf } = entry;
+            for item in items {
+                let source_pdf = item.pdf_path();
+                let Some(paper) = item.into_paper() else {
+                    continue;
+                };
                 if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
                     let mut paper = paper;
                     paper.id = Some(id.clone());
