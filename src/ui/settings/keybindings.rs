@@ -175,7 +175,9 @@ fn KeybindRow(
     let chip_label = if is_capturing {
         "Press keys\u{2026}".to_string()
     } else {
-        current.map(KeySpec::display).unwrap_or_else(|| "\u{2014}".to_string())
+        current
+            .map(KeySpec::display)
+            .unwrap_or_else(|| "\u{2014}".to_string())
     };
 
     let chip_class = if is_capturing {
