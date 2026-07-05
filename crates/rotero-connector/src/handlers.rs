@@ -133,58 +133,46 @@ pub struct ScrapeResult {
     pub abstract_text: Option<String>,
 }
 
-/// Handler for `POST /api/scrape`. Runs the in-process translators, then falls
-/// back to a generic HTML meta-tag scrape.
+/// Handler for `POST /api/scrape`. Runs the in-process translators over the
+/// page (the corpus JS engine plus the Rust hubs, one of which — Embedded
+/// Metadata — is the generic `<meta>`/JSON-LD extractor). A single fetch and a
+/// single extraction pass: the site translators, then Embedded Metadata as the
+/// always-applicable floor, all in one registry call.
 pub async fn scrape(
     State(state): State<Arc<ConnectorState>>,
     Json(req): Json<ScrapeRequest>,
 ) -> Json<ScrapeResponse> {
-    // Tier 1: in-process translators (the corpus JS engine + Rust hubs). Prefer
-    // the extension-supplied HTML (real, authenticated page) over a re-fetch.
-    let tier1 = match req.html.as_deref().filter(|h| !h.trim().is_empty()) {
+    // Prefer the extension-supplied HTML (real, authenticated page) over a
+    // server re-fetch. translate_html never fetches; translate_web fetches once.
+    let items = match req.html.as_deref().filter(|h| !h.trim().is_empty()) {
         Some(html) => state.translator_registry.translate_html(&req.url, html).await,
         None => state.translator_registry.translate_web(&req.url).await,
     };
-    if let Some(items) = tier1
-        && let Some(result) = first_usable_result(&items)
-    {
-        crate::telemetry::record(crate::telemetry::Tier::Builtin, &req.url);
-        return Json(ScrapeResponse {
-            success: true,
-            metadata: Some(result),
-            error: None,
-        });
-    }
 
-    // Tier 2: generic meta-tag scraper (never structured-fails). Reuse the
-    // extension HTML when present, else fetch.
-    let fallback = match req.html.as_deref().filter(|h| !h.trim().is_empty()) {
-        Some(html) => Ok(super::scrape::scrape_html(&req.url, html)),
-        None => super::scrape::scrape_url(&req.url).await,
-    };
-    match fallback {
-        Ok(p) => {
-            crate::telemetry::record(crate::telemetry::Tier::Scrape, &req.url);
+    match items.as_deref().and_then(best_result) {
+        Some(result) => {
+            crate::telemetry::record(crate::telemetry::Outcome::Hit, &req.url);
             Json(ScrapeResponse {
                 success: true,
-                metadata: Some(paper_to_result(&p, p.links.pdf_url.clone())),
+                metadata: Some(result),
                 error: None,
             })
         }
-        Err(e) => {
-            crate::telemetry::record(crate::telemetry::Tier::Miss, &req.url);
+        None => {
+            crate::telemetry::record(crate::telemetry::Outcome::Miss, &req.url);
             Json(ScrapeResponse {
                 success: false,
                 metadata: None,
-                error: Some(e),
+                error: Some(format!("no metadata extracted for {}", req.url)),
             })
         }
     }
 }
 
-/// Convert the first usable [`ZoteroItem`] (non-note, non-attachment, titled)
-/// into a [`ScrapeResult`], preserving its PDF attachment URL.
-fn first_usable_result(items: &[rotero_translate::ZoteroItem]) -> Option<ScrapeResult> {
+/// Pick the best [`ScrapeResult`] from a translator's items: the first usable
+/// (non-note, non-attachment, titled) record. Returns `None` if the list has
+/// nothing bibliographic.
+fn best_result(items: &[rotero_translate::ZoteroItem]) -> Option<ScrapeResult> {
     let item = items
         .iter()
         .find(|i| i.item_type != "note" && i.item_type != "attachment" && !i.title.is_empty())?;

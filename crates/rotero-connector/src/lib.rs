@@ -6,9 +6,7 @@
 
 /// Axum request handlers for all connector API endpoints.
 pub mod handlers;
-/// HTML meta-tag and JSON-LD scraper for extracting paper metadata from web pages.
-pub mod scrape;
-/// Scrape-tier hit-rate telemetry (in-process vs Node vs generic scraper).
+/// `/api/scrape` outcome telemetry (hit vs. miss).
 pub mod telemetry;
 
 use std::sync::Arc;
