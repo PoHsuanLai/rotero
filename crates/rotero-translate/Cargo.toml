@@ -5,6 +5,8 @@ edition.workspace = true
 
 [dependencies]
 rotero-models.workspace = true
+rotero-search.workspace = true
+rotero-bib.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -12,4 +14,27 @@ tokio.workspace = true
 tracing.workspace = true
 
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
-directories = "6"
+scraper = "0.22"
+async-trait = "0.1"
+
+# The JS translator engine (phase 2). Off by default so lean builds stay small
+# and fast; the desktop app opts in. Runs upstream Zotero translators unmodified.
+boa_engine = { version = "0.21", optional = true }
+skyscraper = { version = "0.7", optional = true }
+# CSS node handles for the engine's querySelector layer. ego-tree is already
+# built transitively via scraper; naming it lets the DOM adapter hold NodeIds.
+ego-tree = { version = "0.10", optional = true }
+# JsTranslator matches a page against the translator's `target` URL regex.
+regex = { version = "1", optional = true }
+
+[features]
+default = []
+# The engine's HTTP host functions (ZU.doGet/processDocuments) run synchronously
+# on a spawn_blocking thread, so they need reqwest's blocking client.
+translator-engine = [
+    "dep:boa_engine",
+    "dep:skyscraper",
+    "dep:ego-tree",
+    "dep:regex",
+    "reqwest/blocking",
+]

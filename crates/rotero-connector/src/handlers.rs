@@ -102,6 +102,12 @@ pub async fn tags(State(state): State<Arc<ConnectorState>>) -> Json<TagsResponse
 #[derive(Debug, Deserialize)]
 pub struct ScrapeRequest {
     pub url: String,
+    /// The page's rendered HTML, captured by the browser extension in the user's
+    /// (possibly authenticated) tab. When present, the connector translates it
+    /// directly instead of re-fetching server-side — sidestepping publisher
+    /// anti-bot walls that would block a bare server fetch.
+    #[serde(default)]
+    pub html: Option<String>,
 }
 
 /// JSON response for `POST /api/scrape`.
@@ -129,83 +135,74 @@ pub struct ScrapeResult {
     pub abstract_text: Option<String>,
 }
 
-/// Handler for `POST /api/scrape`. Tries the translation server first,
-/// then falls back to HTML meta-tag scraping.
+/// Handler for `POST /api/scrape`. Runs the in-process translators over the
+/// page (the corpus JS engine plus the Rust hubs, one of which — Embedded
+/// Metadata — is the generic `<meta>`/JSON-LD extractor). A single fetch and a
+/// single extraction pass: the site translators, then Embedded Metadata as the
+/// always-applicable floor, all in one registry call.
 pub async fn scrape(
     State(state): State<Arc<ConnectorState>>,
     Json(req): Json<ScrapeRequest>,
 ) -> Json<ScrapeResponse> {
-    // Try Zotero translation server first (much better coverage)
-    {
-        let ts_guard = state.translation_server.read().await;
-        if let Some(ref ts) = *ts_guard {
-            match ts.translate_web(&req.url).await {
-                Ok(items) => {
-                    if let Some(item) = items.iter().find(|i| {
-                        i.item_type != "note" && i.item_type != "attachment" && !i.title.is_empty()
-                    }) {
-                        let pdf_url = item.pdf_url();
-                        if let Some(p) = item.clone().into_paper() {
-                            return Json(ScrapeResponse {
-                                success: true,
-                                metadata: Some(ScrapeResult {
-                                    title: Some(p.title.clone()),
-                                    authors: p.authors.clone(),
-                                    doi: p.doi.clone(),
-                                    url: p.links.url.clone(),
-                                    pdf_url,
-                                    journal: p.publication.journal.clone(),
-                                    year: p.year,
-                                    volume: p.publication.volume.clone(),
-                                    issue: p.publication.issue.clone(),
-                                    pages: p.publication.pages.clone(),
-                                    publisher: p.publication.publisher.clone(),
-                                    abstract_text: p.abstract_text.clone(),
-                                }),
-                                error: None,
-                            });
-                        }
-                    }
-                    tracing::debug!(
-                        "Translation server returned no usable results for {}, falling back",
-                        req.url
-                    );
-                }
-                Err(e) => {
-                    tracing::debug!(
-                        "Translation server error for {}: {e}, falling back",
-                        req.url
-                    );
-                }
-            }
+    // Prefer the extension-supplied HTML (real, authenticated page) over a
+    // server re-fetch. translate_html never fetches; translate_web fetches once.
+    let items = match req.html.as_deref().filter(|h| !h.trim().is_empty()) {
+        Some(html) => {
+            state
+                .translator_registry
+                .translate_html(&req.url, html)
+                .await
+        }
+        None => state.translator_registry.translate_web(&req.url).await,
+    };
+
+    match items.as_deref().and_then(best_result) {
+        Some(result) => {
+            crate::telemetry::record(crate::telemetry::Outcome::Hit, &req.url);
+            Json(ScrapeResponse {
+                success: true,
+                metadata: Some(result),
+                error: None,
+            })
+        }
+        None => {
+            crate::telemetry::record(crate::telemetry::Outcome::Miss, &req.url);
+            Json(ScrapeResponse {
+                success: false,
+                metadata: None,
+                error: Some(format!("no metadata extracted for {}", req.url)),
+            })
         }
     }
+}
 
-    // Fallback: meta-tag scraper
-    match super::scrape::scrape_url(&req.url).await {
-        Ok(p) => Json(ScrapeResponse {
-            success: true,
-            metadata: Some(ScrapeResult {
-                title: Some(p.title.clone()),
-                authors: p.authors.clone(),
-                doi: p.doi.clone(),
-                url: p.links.url.clone(),
-                pdf_url: p.links.pdf_url.clone(),
-                journal: p.publication.journal.clone(),
-                year: p.year,
-                volume: p.publication.volume.clone(),
-                issue: p.publication.issue.clone(),
-                pages: p.publication.pages.clone(),
-                publisher: p.publication.publisher.clone(),
-                abstract_text: p.abstract_text.clone(),
-            }),
-            error: None,
-        }),
-        Err(e) => Json(ScrapeResponse {
-            success: false,
-            metadata: None,
-            error: Some(e),
-        }),
+/// Pick the best [`ScrapeResult`] from a translator's items: the first usable
+/// (non-note, non-attachment, titled) record. Returns `None` if the list has
+/// nothing bibliographic.
+fn best_result(items: &[rotero_translate::ZoteroItem]) -> Option<ScrapeResult> {
+    let item = items
+        .iter()
+        .find(|i| i.item_type != "note" && i.item_type != "attachment" && !i.title.is_empty())?;
+    let pdf_url = item.pdf_url();
+    let paper = item.clone().into_paper()?;
+    Some(paper_to_result(&paper, pdf_url))
+}
+
+/// Convert a [`Paper`](rotero_models::Paper) into a [`ScrapeResult`].
+fn paper_to_result(p: &rotero_models::Paper, pdf_url: Option<String>) -> ScrapeResult {
+    ScrapeResult {
+        title: Some(p.title.clone()),
+        authors: p.authors.clone(),
+        doi: p.doi.clone(),
+        url: p.links.url.clone(),
+        pdf_url,
+        journal: p.publication.journal.clone(),
+        year: p.year,
+        volume: p.publication.volume.clone(),
+        issue: p.publication.issue.clone(),
+        pages: p.publication.pages.clone(),
+        publisher: p.publication.publisher.clone(),
+        abstract_text: p.abstract_text.clone(),
     }
 }
 

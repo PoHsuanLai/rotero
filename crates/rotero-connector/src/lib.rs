@@ -6,8 +6,8 @@
 
 /// Axum request handlers for all connector API endpoints.
 pub mod handlers;
-/// HTML meta-tag and JSON-LD scraper for extracting paper metadata from web pages.
-pub mod scrape;
+/// `/api/scrape` outcome telemetry (hit vs. miss).
+pub mod telemetry;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -44,8 +44,9 @@ pub struct ConnectorState {
     pub on_search_papers: Option<Box<SearchPapersFn>>,
     /// Callback to fetch papers by their IDs.
     pub on_get_papers_by_ids: Option<Box<GetPapersByIdsFn>>,
-    /// Behind RwLock so it can be set after the connector starts.
-    pub translation_server: tokio::sync::RwLock<Option<rotero_translate::TranslationServer>>,
+    /// In-process translators (the corpus JS engine + Rust hubs) — the sole
+    /// metadata-extraction path for `/api/scrape`.
+    pub translator_registry: rotero_translate::TranslatorRegistry,
 }
 
 /// Default port the connector listens on (`21984`).

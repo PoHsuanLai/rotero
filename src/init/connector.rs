@@ -188,34 +188,8 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                                 .unwrap_or_default()
                         })
                     })),
-                    translation_server: tokio::sync::RwLock::new(None),
+                    translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),
                 });
-
-                {
-                    let state_clone = state.clone();
-                    tokio::spawn(async move {
-                        let result: Result<_, String> = (|| {
-                            let node_bin = crate::agent::node::find_or_install_node()?;
-                            let npm_bin = crate::agent::node::find_npm()?;
-                            Ok((node_bin, npm_bin))
-                        })();
-                        let (node_bin, npm_bin) = match result {
-                            Ok(bins) => bins,
-                            Err(e) => {
-                                tracing::warn!("Cannot start translation server: {e}");
-                                return;
-                            }
-                        };
-                        let ts = rotero_translate::TranslationServer::new(1969, node_bin, npm_bin);
-                        match ts.ensure_running().await {
-                            Ok(()) => {
-                                tracing::info!("Zotero translation server started");
-                                *state_clone.translation_server.write().await = Some(ts);
-                            }
-                            Err(e) => tracing::warn!("Failed to start translation server: {e}"),
-                        }
-                    });
-                }
 
                 if let Err(e) = rotero_connector::start_server(state, port).await {
                     tracing::error!("Browser connector error: {e}");

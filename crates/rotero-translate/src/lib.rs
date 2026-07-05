@@ -1,66 +1,37 @@
-//! Integration with the Zotero translation-server for metadata lookup, web
-//! scraping, and bibliography import/export via a managed Node.js subprocess.
+//! In-process metadata extraction: an embedded JS engine that runs upstream
+//! Zotero translators unmodified, plus hand-written Rust hub translators
+//! (Embedded Metadata, DOI content negotiation) and bibliography import.
 
-mod server;
-mod translator;
+#[cfg(feature = "translator-engine")]
+pub mod dom;
+#[cfg(feature = "translator-engine")]
+pub mod engine;
+pub mod html_meta;
+mod item;
+pub mod translators;
+pub mod zu;
 
-pub use server::TranslationServer;
-pub use translator::ZoteroItem;
+pub use html_meta::{extract_from_html, extract_zotero_item};
+pub use item::ZoteroItem;
+pub use translators::{TranslationContext, Translator, TranslatorRegistry};
 
-use rotero_models::Paper;
-
-/// Errors that can occur during translation server operations.
+/// Errors that can occur during translation and metadata extraction.
 #[derive(Debug, thiserror::Error)]
 pub enum TranslateError {
-    /// An HTTP request to the translation server failed.
+    /// An HTTP request failed.
     #[error("HTTP error: {0}")]
     Http(String),
-    /// The translation server process is not running.
-    #[error("Server not running")]
-    ServerNotRunning,
-    /// The translation returned no matching items.
-    #[error("No results found")]
-    NoResults,
-    /// Failed to install or start the translation server.
-    #[error("Setup error: {0}")]
-    Setup(String),
-    /// The translation server returned an error or unparseable response.
+    /// A translator returned an error or unparseable response.
     #[error("Translation error: {0}")]
     Translation(String),
-}
-
-/// Translate a URL into paper metadata via the translation server.
-pub async fn translate_url(
-    server: &TranslationServer,
-    url: &str,
-) -> Result<Vec<Paper>, TranslateError> {
-    let items = server.translate_web(url).await?;
-    Ok(items.into_iter().filter_map(|i| i.into_paper()).collect())
-}
-
-/// Look up metadata by identifier (DOI, ISBN, PMID, arXiv ID).
-pub async fn translate_search(
-    server: &TranslationServer,
-    identifier: &str,
-) -> Result<Vec<Paper>, TranslateError> {
-    let items = server.search(identifier).await?;
-    Ok(items.into_iter().filter_map(|i| i.into_paper()).collect())
-}
-
-/// Import bibliography text (BibTeX, RIS, etc.) into papers.
-pub async fn import_bibliography(
-    server: &TranslationServer,
-    text: &str,
-) -> Result<Vec<Paper>, TranslateError> {
-    let items = server.import(text).await?;
-    Ok(items.into_iter().filter_map(|i| i.into_paper()).collect())
-}
-
-/// Export papers to a bibliography format.
-pub async fn export_bibliography(
-    server: &TranslationServer,
-    items: &[ZoteroItem],
-    format: &str,
-) -> Result<String, TranslateError> {
-    server.export(items, format).await
+    /// This translator does not apply to the given input; the registry should
+    /// skip it and try the next candidate.
+    #[error("Translator not applicable")]
+    NotApplicable,
+    /// A network request made by an in-process translator failed.
+    #[error("Request error: {0}")]
+    Request(#[from] reqwest::Error),
+    /// A response could not be parsed.
+    #[error("Parse error: {0}")]
+    Parse(#[from] serde_json::Error),
 }

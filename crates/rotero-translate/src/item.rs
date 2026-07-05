@@ -1,8 +1,9 @@
 use rotero_models::PaperId;
 use serde::{Deserialize, Serialize};
 
-/// A Zotero item as returned by the translation server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A Zotero item — the uniform currency the translators produce (a serde mirror
+/// of the Zotero item JSON shape).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ZoteroItem {
     #[serde(default)]
@@ -72,13 +73,19 @@ pub struct ZoteroCreator {
 }
 
 /// A file attachment (typically a PDF) linked to a Zotero item.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Either `url` (a remote file, from web/API translators) or `path` (a local
+/// file, from bibliography imports) is set — the other is empty.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ZoteroAttachment {
     #[serde(default)]
     pub title: String,
     #[serde(default)]
     pub url: String,
+    /// Local file path (linked/imported file). Empty for remote attachments.
+    #[serde(default)]
+    pub path: String,
     #[serde(default)]
     pub mime_type: String,
     #[serde(default)]
@@ -86,15 +93,44 @@ pub struct ZoteroAttachment {
 }
 
 /// A keyword tag attached to a Zotero item.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Upstream translators emit tags either as a bare string (`"keyword"`) or as
+/// an object (`{ "tag": "keyword", "type": 1 }`); the custom [`Deserialize`]
+/// below accepts both. Serialization always uses the object form.
+#[derive(Debug, Clone, Serialize)]
 pub struct ZoteroTag {
     pub tag: String,
     #[serde(rename = "type", default)]
     pub tag_type: i32,
 }
 
+impl<'de> Deserialize<'de> for ZoteroTag {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // A tag is either a plain string or a { tag, type } object.
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            Str(String),
+            Obj {
+                #[serde(default)]
+                tag: String,
+                #[serde(rename = "type", default)]
+                tag_type: i32,
+            },
+        }
+        Ok(match Repr::deserialize(deserializer)? {
+            Repr::Str(tag) => ZoteroTag { tag, tag_type: 0 },
+            Repr::Obj { tag, tag_type } => ZoteroTag { tag, tag_type },
+        })
+    }
+}
+
 impl ZoteroItem {
-    /// Get the PDF download URL from attachments (populated by patched translation-server).
+    /// The first PDF attachment's download URL, if any. Engine-produced items
+    /// have relative URLs resolved against the page URL before this is read.
     pub fn pdf_url(&self) -> Option<String> {
         for att in &self.attachments {
             if att.mime_type == "application/pdf" && !att.url.is_empty() {
@@ -102,6 +138,76 @@ impl ZoteroItem {
             }
         }
         None
+    }
+
+    /// Get a local PDF file path from attachments, if one was set (imports).
+    pub fn pdf_path(&self) -> Option<String> {
+        for att in &self.attachments {
+            if !att.path.is_empty() {
+                return Some(att.path.clone());
+            }
+        }
+        None
+    }
+
+    /// Build a `ZoteroItem` from a flat [`Paper`](rotero_models::Paper), used by
+    /// the DOI-content-negotiation and bibliography-import translators. Authors
+    /// are split on the last space into first and last names.
+    pub fn from_paper(p: rotero_models::Paper) -> Self {
+        let creators = p
+            .authors
+            .into_iter()
+            .map(|name| match name.rsplit_once(' ') {
+                Some((first, last)) => ZoteroCreator {
+                    first_name: first.trim().to_string(),
+                    last_name: last.trim().to_string(),
+                    name: String::new(),
+                    creator_type: "author".to_string(),
+                },
+                None => ZoteroCreator {
+                    first_name: String::new(),
+                    last_name: String::new(),
+                    name,
+                    creator_type: "author".to_string(),
+                },
+            })
+            .collect();
+
+        // Preserve any PDF the Paper already carried, as an attachment.
+        let mut attachments = Vec::new();
+        if let Some(url) = p.links.pdf_url.filter(|s| !s.is_empty()) {
+            attachments.push(ZoteroAttachment {
+                title: "Full Text PDF".to_string(),
+                url,
+                mime_type: "application/pdf".to_string(),
+                ..Default::default()
+            });
+        }
+        if let Some(path) = p.links.pdf_path.filter(|s| !s.is_empty()) {
+            attachments.push(ZoteroAttachment {
+                title: "Full Text PDF".to_string(),
+                path,
+                mime_type: "application/pdf".to_string(),
+                ..Default::default()
+            });
+        }
+
+        ZoteroItem {
+            item_type: "journalArticle".to_string(),
+            title: p.title,
+            creators,
+            date: p.year.map(|y| y.to_string()).unwrap_or_default(),
+            doi: p.doi.unwrap_or_default(),
+            abstract_note: p.abstract_text.unwrap_or_default(),
+            publication_title: p.publication.journal.unwrap_or_default(),
+            volume: p.publication.volume.unwrap_or_default(),
+            issue: p.publication.issue.unwrap_or_default(),
+            pages: p.publication.pages.unwrap_or_default(),
+            publisher: p.publication.publisher.unwrap_or_default(),
+            url: p.links.url.unwrap_or_default(),
+            attachments,
+            ..Default::default()
+        }
     }
 
     /// Convert this Zotero item into a [`Paper`](rotero_models::Paper), returning
@@ -112,6 +218,11 @@ impl ZoteroItem {
         }
 
         let non_empty = |s: String| -> Option<String> { if s.is_empty() { None } else { Some(s) } };
+
+        // Carry a remote PDF URL through. A local attachment `path` is left out
+        // here: it's typically a relative path the caller must resolve/import
+        // against a base dir before it can be stored (see the import UI).
+        let pdf_url = self.pdf_url();
 
         let authors: Vec<String> = self
             .creators
@@ -150,6 +261,7 @@ impl ZoteroItem {
             },
             links: rotero_models::PaperLinks {
                 url: non_empty(self.url),
+                pdf_url,
                 ..Default::default()
             },
             ..Default::default()
@@ -220,36 +332,5 @@ mod tests {
         assert_eq!(paper.doi, Some("10.1234/test".into()));
         assert_eq!(paper.year, Some(2024));
         assert_eq!(paper.authors, vec!["John Doe"]);
-    }
-}
-
-impl Default for ZoteroItem {
-    fn default() -> Self {
-        Self {
-            item_type: String::new(),
-            title: String::new(),
-            creators: Vec::new(),
-            date: String::new(),
-            url: String::new(),
-            doi: String::new(),
-            isbn: String::new(),
-            issn: String::new(),
-            abstract_note: String::new(),
-            publication_title: String::new(),
-            volume: String::new(),
-            issue: String::new(),
-            pages: String::new(),
-            publisher: String::new(),
-            place: String::new(),
-            language: String::new(),
-            attachments: Vec::new(),
-            tags: Vec::new(),
-            extra: String::new(),
-            access_date: String::new(),
-            journal_abbreviation: String::new(),
-            short_title: String::new(),
-            series: String::new(),
-            extra_fields: serde_json::Map::new(),
-        }
     }
 }

@@ -86,23 +86,33 @@ fn ImportButton() -> Element {
                     if let Some(path) = file {
                         match std::fs::read_to_string(&path) {
                             Ok(content) => {
-                                let ext = path.extension()
+                                let bib_dir = path.parent().map(|p| p.to_path_buf());
+
+                                // Dispatch by extension to the rotero-bib parsers.
+                                // (rotero-bib is available on all targets; the
+                                // translator registry is desktop-only, so this
+                                // import path — reachable on mobile too — must not
+                                // go through it.)
+                                let ext = path
+                                    .extension()
                                     .and_then(|e| e.to_str())
                                     .unwrap_or("")
                                     .to_lowercase();
-
-                                let bib_dir = path.parent().map(|p| p.to_path_buf());
-
-                                let parsed: Result<Vec<(rotero_models::Paper, Option<String>)>, String> = match ext.as_str() {
-                                    "ris" => rotero_bib::import_ris(&content)
-                                        .map(|papers| papers.into_iter().map(|p| (p, None)).collect()),
-                                    "json" => rotero_bib::import_csl_json(&content)
-                                        .map(|papers| papers.into_iter().map(|p| (p, None)).collect()),
-                                    "nbib" => rotero_bib::import_nbib(&content)
-                                        .map(|papers| papers.into_iter().map(|p| (p, None)).collect()),
-                                    _ => rotero_bib::import_bibtex(&content)
-                                        .map(|entries| entries.into_iter().map(|e| (e.paper, e.source_pdf)).collect()),
-                                };
+                                let parsed: Result<Vec<(rotero_models::Paper, Option<String>)>, String> =
+                                    match ext.as_str() {
+                                        "ris" => rotero_bib::import_ris(&content)
+                                            .map(|ps| ps.into_iter().map(|p| (p, None)).collect()),
+                                        "json" => rotero_bib::import_csl_json(&content)
+                                            .map(|ps| ps.into_iter().map(|p| (p, None)).collect()),
+                                        "nbib" => rotero_bib::import_nbib(&content)
+                                            .map(|ps| ps.into_iter().map(|p| (p, None)).collect()),
+                                        _ => rotero_bib::import_bibtex(&content).map(|entries| {
+                                            entries
+                                                .into_iter()
+                                                .map(|e| (e.paper, e.source_pdf))
+                                                .collect()
+                                        }),
+                                    };
 
                                 match parsed {
                                     Ok(entries) => {
