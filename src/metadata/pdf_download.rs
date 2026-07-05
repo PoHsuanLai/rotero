@@ -17,15 +17,34 @@ impl fmt::Display for PdfDownloadError {
     }
 }
 
-/// Resolve candidate PDF URLs from the Zotero translation server, OpenAlex, and Unpaywall.
+/// Resolve candidate PDF URLs for a paper: the in-process translators (which
+/// often surface a direct publisher PDF link) first, then the open-access
+/// metadata APIs (OpenAlex, Semantic Scholar, Unpaywall).
 pub async fn resolve_pdf_urls(doi: Option<&str>, title: &str) -> Vec<String> {
     tracing::info!("resolve_pdf_urls: doi={:?}, title={:?}", doi, title);
     let mut urls = Vec::new();
 
-    // Open-access metadata APIs resolve a DOI/title to a direct PDF URL. (The
-    // Zotero translation server used to be consulted first for its site-specific
-    // PDF scrapers, but that subprocess was removed; the OA sources below cover
-    // the common case.)
+    // Translator scrape: resolve the DOI to its publisher page and let the site
+    // translator surface a direct PDF attachment (arXiv "Preprint PDF", a Nature
+    // full-text link, …). Runs against the local connector so it reuses the same
+    // registry the browser extension uses. Best for OA-friendly sites; gated
+    // publishers block the server-side fetch and simply return nothing, falling
+    // through to the OA APIs below.
+    #[cfg(feature = "desktop")]
+    if let Some(doi) = doi {
+        match translator_pdf_urls(doi).await {
+            Ok(scraped) if !scraped.is_empty() => {
+                tracing::info!("translator scrape returned {} URL(s)", scraped.len());
+                for url in scraped {
+                    if !urls.contains(&url) {
+                        urls.push(url);
+                    }
+                }
+            }
+            Ok(_) => tracing::info!("translator scrape returned no PDF URL"),
+            Err(e) => tracing::debug!("translator scrape unavailable: {e}"),
+        }
+    }
 
     // OpenAlex
     match rotero_search::openalex::find_oa_pdf(doi, title).await {
@@ -74,6 +93,58 @@ pub async fn resolve_pdf_urls(doi: Option<&str>, title: &str) -> Vec<String> {
         urls
     );
     urls
+}
+
+/// Ask the local connector to translate the DOI's publisher page and return any
+/// direct PDF URL its site translator surfaced. Uses `/api/scrape` so it shares
+/// the registry (and telemetry) with the browser extension. Errors — including
+/// the connector not running — are non-fatal: the caller falls through to the
+/// OA APIs.
+#[cfg(feature = "desktop")]
+async fn translator_pdf_urls(doi: &str) -> Result<Vec<String>, String> {
+    #[derive(serde::Serialize)]
+    struct ScrapeReq {
+        url: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct ScrapeResp {
+        success: bool,
+        metadata: Option<MetaOut>,
+    }
+    #[derive(serde::Deserialize)]
+    struct MetaOut {
+        pdf_url: Option<String>,
+    }
+
+    let endpoint = format!(
+        "http://127.0.0.1:{}/api/scrape",
+        rotero_connector::CONNECTOR_PORT
+    );
+    let resp = reqwest::Client::new()
+        .post(&endpoint)
+        .json(&ScrapeReq {
+            url: format!("https://doi.org/{doi}"),
+        })
+        .timeout(std::time::Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|e| format!("connector request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("connector HTTP {}", resp.status()));
+    }
+
+    let body: ScrapeResp = resp
+        .json()
+        .await
+        .map_err(|e| format!("connector response parse failed: {e}"))?;
+
+    Ok(body
+        .success
+        .then(|| body.metadata.and_then(|m| m.pdf_url))
+        .flatten()
+        .into_iter()
+        .collect())
 }
 
 /// Download a PDF from the first working URL and save it to the library.
