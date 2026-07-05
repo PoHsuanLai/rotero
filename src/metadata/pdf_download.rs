@@ -22,26 +22,12 @@ pub async fn resolve_pdf_urls(doi: Option<&str>, title: &str) -> Vec<String> {
     tracing::info!("resolve_pdf_urls: doi={:?}, title={:?}", doi, title);
     let mut urls = Vec::new();
 
-    // Try Zotero translation server first — it has site-specific scrapers that
-    // return direct PDF links far more reliably than OA metadata APIs.
-    #[cfg(feature = "desktop")]
-    if let Some(doi) = doi {
-        match zotero_pdf_urls(doi).await {
-            Ok(zotero_urls) => {
-                tracing::info!(
-                    "Zotero translation server returned {} URLs: {:?}",
-                    zotero_urls.len(),
-                    zotero_urls
-                );
-                urls.extend(zotero_urls);
-            }
-            Err(e) => tracing::warn!("Zotero translation server failed: {e}"),
-        }
-    } else {
-        tracing::info!("Skipping Zotero translation server (no DOI)");
-    }
+    // Open-access metadata APIs resolve a DOI/title to a direct PDF URL. (The
+    // Zotero translation server used to be consulted first for its site-specific
+    // PDF scrapers, but that subprocess was removed; the OA sources below cover
+    // the common case.)
 
-    // OpenAlex as secondary source
+    // OpenAlex
     match rotero_search::openalex::find_oa_pdf(doi, title).await {
         Ok(oa_urls) => {
             tracing::info!("OpenAlex returned {} URLs: {:?}", oa_urls.len(), oa_urls);
@@ -88,33 +74,6 @@ pub async fn resolve_pdf_urls(doi: Option<&str>, title: &str) -> Vec<String> {
         urls
     );
     urls
-}
-
-/// Query the local Zotero translation server for PDF attachment URLs.
-#[cfg(feature = "desktop")]
-async fn zotero_pdf_urls(doi: &str) -> Result<Vec<String>, String> {
-    let client = reqwest::Client::new();
-    let resp = client
-        .post("http://127.0.0.1:1969/search")
-        .header("Content-Type", "text/plain")
-        .body(doi.to_string())
-        .timeout(std::time::Duration::from_secs(15))
-        .send()
-        .await
-        .map_err(|e| format!("Translation server request failed: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("Translation server HTTP {}", resp.status()));
-    }
-
-    let items: Vec<rotero_translate::ZoteroItem> = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse translation server response: {e}"))?;
-
-    let urls: Vec<String> = items.iter().filter_map(|item| item.pdf_url()).collect();
-
-    Ok(urls)
 }
 
 /// Download a PDF from the first working URL and save it to the library.
