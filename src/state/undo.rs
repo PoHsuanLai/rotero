@@ -102,9 +102,7 @@ pub async fn reverse_action(
             ref id, ref old, ..
         } => {
             let opt = old.as_deref();
-            if let Ok(()) =
-                db.update_annotation_content(id, opt).await
-            {
+            if let Ok(()) = db.update_annotation_content(id, opt).await {
                 let id = id.clone();
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()
@@ -121,9 +119,7 @@ pub async fn reverse_action(
         UndoAction::UpdateColor {
             ref id, ref old, ..
         } => {
-            if let Ok(()) =
-                db.update_annotation_color(id, old).await
-            {
+            if let Ok(()) = db.update_annotation_color(id, old).await {
                 let id = id.clone();
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()
@@ -174,9 +170,7 @@ pub async fn forward_action(
             ref id, ref new, ..
         } => {
             let opt = new.as_deref();
-            if let Ok(()) =
-                db.update_annotation_content(id, opt).await
-            {
+            if let Ok(()) = db.update_annotation_content(id, opt).await {
                 let id = id.clone();
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()
@@ -193,9 +187,7 @@ pub async fn forward_action(
         UndoAction::UpdateColor {
             ref id, ref new, ..
         } => {
-            if let Ok(()) =
-                db.update_annotation_color(id, new).await
-            {
+            if let Ok(()) = db.update_annotation_color(id, new).await {
                 let id = id.clone();
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut()

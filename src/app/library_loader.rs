@@ -42,10 +42,7 @@ pub fn LoadLibraryData() -> Element {
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
                 loop {
-                    let needs_update = db
-                        .list_papers_needing_citations()
-                        .await
-                        .unwrap_or_default();
+                    let needs_update = db.list_papers_needing_citations().await.unwrap_or_default();
 
                     for (paper_id, doi) in needs_update {
                         let result = crate::metadata::semantic_scholar::fetch_by_doi(&doi).await;
@@ -112,8 +109,7 @@ pub fn LoadLibraryData() -> Element {
                         };
 
                         let key = rotero_bib::generate_unique_cite_key(&stub, &all_keys);
-                        if db.update_citation_key(paper_id, &key).await.is_ok()
-                        {
+                        if db.update_citation_key(paper_id, &key).await.is_ok() {
                             let pid = paper_id.clone();
                             lib_state.with_mut(|s| {
                                 if let Some(p) = s

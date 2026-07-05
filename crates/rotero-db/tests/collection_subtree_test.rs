@@ -16,7 +16,9 @@ async fn new_collection(db: &Database, name: &str, parent: Option<&str>) -> Stri
 }
 
 async fn new_paper(db: &Database, title: &str) -> String {
-    db.insert_paper(&Paper::new(title.to_string())).await.unwrap()
+    db.insert_paper(&Paper::new(title.to_string()))
+        .await
+        .unwrap()
 }
 
 fn sorted(mut v: Vec<String>) -> Vec<String> {
@@ -50,10 +52,14 @@ async fn subtree_aggregates_descendants_and_dedupes() {
     db.add_paper_to_collection(&p_ml, &ml).await.unwrap();
     db.add_paper_to_collection(&p_nlp, &nlp).await.unwrap();
     db.add_paper_to_collection(&p_llm, &llm).await.unwrap();
-    db.add_paper_to_collection(&p_vision, &vision).await.unwrap();
+    db.add_paper_to_collection(&p_vision, &vision)
+        .await
+        .unwrap();
     // Shared paper lives in two subtree collections -> must be deduped
     db.add_paper_to_collection(&p_shared, &nlp).await.unwrap();
-    db.add_paper_to_collection(&p_shared, &vision).await.unwrap();
+    db.add_paper_to_collection(&p_shared, &vision)
+        .await
+        .unwrap();
     db.add_paper_to_collection(&p_other, &other).await.unwrap();
 
     // ML: own paper + every descendant, deduped, excluding the unrelated root.
@@ -91,6 +97,9 @@ async fn subtree_aggregates_descendants_and_dedupes() {
     assert_eq!(vision_got, sorted(vec![p_vision, p_shared]));
 
     // A collection id that doesn't exist yields nothing (no panic on empty CTE seed).
-    let none = db.list_paper_ids_in_subtree("does-not-exist").await.unwrap();
+    let none = db
+        .list_paper_ids_in_subtree("does-not-exist")
+        .await
+        .unwrap();
     assert!(none.is_empty());
 }

@@ -2,8 +2,8 @@ use chrono::Utc;
 use rotero_models::{Annotation, AnnotationType};
 use turso::Value;
 
-use crate::queries;
 use crate::Database;
+use crate::queries;
 
 impl Database {
     /// Insert a new annotation and return its generated UUID.

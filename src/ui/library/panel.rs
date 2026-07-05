@@ -45,9 +45,7 @@ pub fn LibraryPanel() -> Element {
                 LibraryView::Collection(coll_id) => {
                     let db = db_coll.clone();
                     spawn(async move {
-                        match db.list_paper_ids_in_subtree(&coll_id)
-                            .await
-                        {
+                        match db.list_paper_ids_in_subtree(&coll_id).await {
                             Ok(ids) => {
                                 lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
                             }

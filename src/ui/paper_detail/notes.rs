@@ -14,9 +14,7 @@ pub fn NotesSection(paper_id: String) -> Element {
             let db = db.clone();
             let pid = pid.clone();
             spawn(async move {
-                if let Ok(paper_notes) =
-                    db.list_notes_for_paper(&pid).await
-                {
+                if let Ok(paper_notes) = db.list_notes_for_paper(&pid).await {
                     notes.set(paper_notes);
                 }
             });

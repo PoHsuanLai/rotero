@@ -154,32 +154,34 @@ async fn test_conflict_resolution_lww() {
         ]),
     ).await.unwrap();
     // Set up initial clock on B too
-    let _ = db_b.crr().track_insert(
-        "papers",
-        &id,
-        &[
-            "title",
-            "authors",
-            "year",
-            "doi",
-            "abstract_text",
-            "journal",
-            "volume",
-            "issue",
-            "pages",
-            "publisher",
-            "url",
-            "pdf_path",
-            "date_added",
-            "date_modified",
-            "is_favorite",
-            "is_read",
-            "extra_meta",
-            "citation_count",
-            "citation_key",
-        ],
-    )
-    .await;
+    let _ = db_b
+        .crr()
+        .track_insert(
+            "papers",
+            &id,
+            &[
+                "title",
+                "authors",
+                "year",
+                "doi",
+                "abstract_text",
+                "journal",
+                "volume",
+                "issue",
+                "pages",
+                "publisher",
+                "url",
+                "pdf_path",
+                "date_added",
+                "date_modified",
+                "is_favorite",
+                "is_read",
+                "extra_meta",
+                "citation_count",
+                "citation_key",
+            ],
+        )
+        .await;
 
     // Device A: update title (col_ver goes to 2)
     let mut paper_a = paper.clone();

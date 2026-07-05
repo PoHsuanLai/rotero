@@ -102,21 +102,27 @@ pub fn rotero_schema() -> Schema {
             ("created_at", SkeletonValue::NowRfc3339),
             ("modified_at", SkeletonValue::NowRfc3339),
         ]),
-        TableSpec::new("notes", ["paper_id", "title", "body", "created_at", "modified_at"])
-            .with_skeleton([
-                ("paper_id", empty_text()),
-                ("title", empty_text()),
-                ("body", empty_text()),
-                ("created_at", SkeletonValue::NowRfc3339),
-                ("modified_at", SkeletonValue::NowRfc3339),
-            ]),
+        TableSpec::new(
+            "notes",
+            ["paper_id", "title", "body", "created_at", "modified_at"],
+        )
+        .with_skeleton([
+            ("paper_id", empty_text()),
+            ("title", empty_text()),
+            ("body", empty_text()),
+            ("created_at", SkeletonValue::NowRfc3339),
+            ("modified_at", SkeletonValue::NowRfc3339),
+        ]),
         TableSpec::new("saved_searches", ["name", "query", "created_at"]).with_skeleton([
             ("name", empty_text()),
             ("query", empty_text()),
             ("created_at", SkeletonValue::NowRfc3339),
         ]),
-        TableSpec::new("paper_collections", [])
-            .with_pk(PkSpec::composite("paper_id", "collection_id", ':')),
+        TableSpec::new("paper_collections", []).with_pk(PkSpec::composite(
+            "paper_id",
+            "collection_id",
+            ':',
+        )),
         TableSpec::new("paper_tags", []).with_pk(PkSpec::composite("paper_id", "tag_id", ':')),
     ])
 }

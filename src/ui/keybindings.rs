@@ -700,8 +700,7 @@ fn action_import_bibtex(db: Database, mut lib_state: Signal<LibraryState>) {
                                 paper.year,
                             )
                         {
-                            let _ =
-                                db.update_pdf_path(&id, &rel_path).await;
+                            let _ = db.update_pdf_path(&id, &rel_path).await;
                             paper.links.pdf_path = Some(rel_path);
                         }
                     }

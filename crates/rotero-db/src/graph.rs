@@ -1,5 +1,5 @@
-use crate::queries;
 use crate::Database;
+use crate::queries;
 
 impl Database {
     /// Return all (paper_id, tag_id) pairs from the paper_tags junction table.
@@ -16,7 +16,9 @@ impl Database {
     }
 
     /// Return all (paper_id, collection_id) pairs from the paper_collections junction table.
-    pub async fn list_all_paper_collections(&self) -> Result<Vec<(String, String)>, crate::DbError> {
+    pub async fn list_all_paper_collections(
+        &self,
+    ) -> Result<Vec<(String, String)>, crate::DbError> {
         let conn = self.conn();
         let mut rows = conn.query(queries::GRAPH_ALL_PAPER_COLLECTIONS, ()).await?;
         let mut pairs = Vec::new();

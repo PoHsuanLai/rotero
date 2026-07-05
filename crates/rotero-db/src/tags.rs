@@ -1,8 +1,8 @@
 use rotero_models::Tag;
 use turso::Value;
 
-use crate::queries;
 use crate::Database;
+use crate::queries;
 
 impl Database {
     /// Find a tag by name, or create it with the given (or auto-generated) color. Returns its UUID.

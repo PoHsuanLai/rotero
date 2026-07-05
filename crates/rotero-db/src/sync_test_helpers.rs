@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 
-use crate::crr::ChangeRow;
 use crate::Database;
+use crate::crr::ChangeRow;
 
 /// Simulates a sync endpoint by exchanging JSON change files in a shared directory.
 pub struct TestSyncEngine {

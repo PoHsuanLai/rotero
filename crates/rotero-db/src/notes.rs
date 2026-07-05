@@ -47,7 +47,12 @@ impl Database {
     }
 
     /// Update a note's title and body, touching its modified timestamp.
-    pub async fn update_note(&self, id: &str, title: &str, body: &str) -> Result<(), crate::DbError> {
+    pub async fn update_note(
+        &self,
+        id: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<(), crate::DbError> {
         let conn = self.conn();
         conn.execute(
             queries::NOTE_UPDATE,

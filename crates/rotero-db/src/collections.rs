@@ -1,8 +1,8 @@
 use rotero_models::Collection;
 use turso::Value;
 
-use crate::queries;
 use crate::Database;
+use crate::queries;
 
 impl Database {
     /// Insert a new collection and return its generated UUID.
@@ -48,7 +48,9 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr().track_update("collections", id, &["name"]).await?;
+        self.crr()
+            .track_update("collections", id, &["name"])
+            .await?;
         Ok(())
     }
 

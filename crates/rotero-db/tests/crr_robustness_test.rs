@@ -1,8 +1,8 @@
 //! Robustness tests for CRR sync — edge cases, concurrent mutations,
 //! idempotency, out-of-order application, delete/resurrect, junction tables.
 
-use rotero_db::crr::ChangeRow;
 use rotero_db::Database;
+use rotero_db::crr::ChangeRow;
 use rotero_models::{Annotation, AnnotationType, Collection, Note, Paper};
 
 async fn open_test_db(dir: &std::path::Path) -> Database {
@@ -252,7 +252,10 @@ async fn test_junction_table_sync() {
     let db_b = open_test_db(dir_b.path()).await;
 
     // A: create paper, collection, add paper to collection
-    let paper_id = db_a.insert_paper(&new_paper("Junction Test")).await.unwrap();
+    let paper_id = db_a
+        .insert_paper(&new_paper("Junction Test"))
+        .await
+        .unwrap();
     let coll = Collection::new("Test Collection".to_string());
     let coll_id = db_a.insert_collection(&coll).await.unwrap();
     db_a.add_paper_to_collection(&paper_id, &coll_id)

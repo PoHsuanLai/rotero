@@ -2,8 +2,8 @@ use chrono::Utc;
 use rotero_models::{CitationInfo, LibraryStatus, Paper, PaperLinks, Publication};
 use turso::Value;
 
-use crate::queries;
 use crate::Database;
+use crate::queries;
 
 impl Database {
     /// Insert a new paper and return its generated UUID.
@@ -155,7 +155,9 @@ impl Database {
             [Value::Integer(favorite as i64), Value::Text(id.to_string())],
         )
         .await?;
-        self.crr().track_update("papers", id, &["is_favorite"]).await?;
+        self.crr()
+            .track_update("papers", id, &["is_favorite"])
+            .await?;
         Ok(())
     }
 
@@ -186,7 +188,11 @@ impl Database {
     }
 
     /// Update a paper's bibliographic metadata (title, authors, DOI, etc.).
-    pub async fn update_paper_metadata(&self, id: &str, paper: &Paper) -> Result<(), crate::DbError> {
+    pub async fn update_paper_metadata(
+        &self,
+        id: &str,
+        paper: &Paper,
+    ) -> Result<(), crate::DbError> {
         let conn = self.conn();
         use crate::opt_text;
         let authors_json =
@@ -263,7 +269,9 @@ impl Database {
             [Value::Text(now), Value::Text(id.to_string())],
         )
         .await?;
-        self.crr().track_update("papers", id, &["date_modified"]).await?;
+        self.crr()
+            .track_update("papers", id, &["date_modified"])
+            .await?;
         Ok(())
     }
 
@@ -378,7 +386,9 @@ impl Database {
             [Value::Integer(count), Value::Text(id.to_string())],
         )
         .await?;
-        self.crr().track_update("papers", id, &["citation_count"]).await?;
+        self.crr()
+            .track_update("papers", id, &["citation_count"])
+            .await?;
         Ok(())
     }
 
@@ -393,7 +403,9 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr().track_update("papers", id, &["citation_key"]).await?;
+        self.crr()
+            .track_update("papers", id, &["citation_key"])
+            .await?;
         Ok(())
     }
 

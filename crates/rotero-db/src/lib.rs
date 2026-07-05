@@ -109,7 +109,7 @@ use std::sync::Arc;
 use recrr::backends::TursoDb;
 use turso::Connection;
 
-use crate::crr::{rotero_schema, CrrStore};
+use crate::crr::{CrrStore, rotero_schema};
 
 /// Handle to the Rotero SQLite database, wrapping a turso connection and the library data directory.
 #[derive(Clone)]

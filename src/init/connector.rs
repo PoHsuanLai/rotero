@@ -170,15 +170,13 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                     })),
                     on_search_papers: Some(Box::new(move |query: String| {
                         let db = db_search.clone();
-                        Box::pin(async move {
-                            db.search_papers(&query).await.unwrap_or_default()
-                        })
+                        Box::pin(async move { db.search_papers(&query).await.unwrap_or_default() })
                     })),
                     on_get_papers_by_ids: Some(Box::new(move |ids: Vec<String>| {
                         let db = db_get_by_ids.clone();
-                        Box::pin(async move {
-                            db.get_papers_by_ids(&ids).await.unwrap_or_default()
-                        })
+                        Box::pin(
+                            async move { db.get_papers_by_ids(&ids).await.unwrap_or_default() },
+                        )
                     })),
                     translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),
                 });

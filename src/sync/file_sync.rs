@@ -5,8 +5,8 @@
 
 use std::path::{Path, PathBuf};
 
-use rotero_db::crr::ChangeRow;
 use rotero_db::Database;
+use rotero_db::crr::ChangeRow;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

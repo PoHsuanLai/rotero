@@ -3,8 +3,8 @@
 //! Uses the private CloudKit database with a custom zone "RoteroSync".
 //! Each changeset batch is stored as a CKRecord of type "Changeset".
 
-use rotero_db::crr::ChangeRow;
 use rotero_db::Database;
+use rotero_db::crr::ChangeRow;
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Bool, ProtocolObject};
