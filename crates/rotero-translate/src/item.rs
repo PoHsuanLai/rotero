@@ -2,7 +2,7 @@ use rotero_models::PaperId;
 use serde::{Deserialize, Serialize};
 
 /// A Zotero item as returned by the translation server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ZoteroItem {
     #[serde(default)]
@@ -302,36 +302,5 @@ mod tests {
         assert_eq!(paper.doi, Some("10.1234/test".into()));
         assert_eq!(paper.year, Some(2024));
         assert_eq!(paper.authors, vec!["John Doe"]);
-    }
-}
-
-impl Default for ZoteroItem {
-    fn default() -> Self {
-        Self {
-            item_type: String::new(),
-            title: String::new(),
-            creators: Vec::new(),
-            date: String::new(),
-            url: String::new(),
-            doi: String::new(),
-            isbn: String::new(),
-            issn: String::new(),
-            abstract_note: String::new(),
-            publication_title: String::new(),
-            volume: String::new(),
-            issue: String::new(),
-            pages: String::new(),
-            publisher: String::new(),
-            place: String::new(),
-            language: String::new(),
-            attachments: Vec::new(),
-            tags: Vec::new(),
-            extra: String::new(),
-            access_date: String::new(),
-            journal_abbreviation: String::new(),
-            short_title: String::new(),
-            series: String::new(),
-            extra_fields: serde_json::Map::new(),
-        }
     }
 }

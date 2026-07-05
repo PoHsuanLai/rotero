@@ -52,6 +52,42 @@ ZU.xpath = function (node, xpath) {
     return vals.map(function (s) { return { textContent: s, innerText: s, nodeValue: s }; });
 };
 
+// --- CSS-selector DOM API ---
+// A node is `{ __h: <handle> }` plus lazy textContent/getAttribute. Handle 0 is
+// the document root, so `doc` and returned nodes share one query path. Handles
+// index a Rust-side node table (see engine/dom).
+function __scopeHandle(node) {
+    if (node === doc || node == null) return 0;
+    return (typeof node.__h === "number") ? node.__h : 0;
+}
+function __wrapNode(handle) {
+    var n = { __h: handle };
+    Object.defineProperty(n, "textContent", { get: function () { return __nodeText(handle); } });
+    Object.defineProperty(n, "innerText", { get: function () { return __nodeText(handle); } });
+    n.getAttribute = function (name) { var v = __nodeAttr(handle, String(name)); return v === "" ? null : v; };
+    n.querySelector = function (sel) { return __querySelector(handle, sel); };
+    n.querySelectorAll = function (sel) { return __querySelectorAll(handle, sel); };
+    return n;
+}
+function __querySelectorAll(scope, sel) {
+    var handles = JSON.parse(__cssSelect(scope, String(sel)));
+    return handles.map(__wrapNode);
+}
+function __querySelector(scope, sel) {
+    var all = __querySelectorAll(scope, sel);
+    return all.length ? all[0] : null;
+}
+
+// translate.js globals: text(node, sel[, index]) and attr(node, sel, attr[, index]).
+function text(node, sel, index) {
+    return __cssText(__scopeHandle(node), String(sel), index ? index : 0);
+}
+function attr(node, sel, attribute, index) {
+    return __cssAttr(__scopeHandle(node), String(sel), String(attribute), index ? index : 0);
+}
+ZU.text = text;
+ZU.attr = attr;
+
 // String helpers (pure JS ports of the common ZU functions).
 ZU.trim = function (s) { return s == null ? "" : String(s).replace(/^\s+|\s+$/g, ""); };
 ZU.trimInternal = function (s) { return s == null ? "" : String(s).replace(/\s+/g, " ").replace(/^\s+|\s+$/g, ""); };
@@ -67,7 +103,16 @@ ZU.getPageRange = function (s) {
     return m ? [m[1], m[2]] : [s, s];
 };
 
-// A minimal `doc` placeholder — translators pass it back into ZU.xpath*, which
-// ignore it (the engine holds the real DOM). Present so `doc.location` etc. and
-// truthiness checks don't throw.
-var doc = { location: { href: "" }, documentElement: {}, title: "" };
+// The `doc` global. XPath host functions ignore the node arg (the engine holds
+// the real DOM), but CSS queries route through the shared node table with the
+// document root as scope 0. `location`/`title` are patched per-run by the engine
+// driver so `doc.location.href` / `doc.location.pathname` reflect the real URL.
+var doc = {
+    location: { href: "", pathname: "", search: "", hash: "" },
+    documentElement: {},
+    title: "",
+    querySelector: function (sel) { return __querySelector(0, sel); },
+    querySelectorAll: function (sel) { return __querySelectorAll(0, sel); },
+    getElementById: function (id) { return __querySelector(0, "#" + id); },
+    evaluate: undefined
+};

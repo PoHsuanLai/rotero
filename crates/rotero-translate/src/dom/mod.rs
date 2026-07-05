@@ -12,16 +12,35 @@ use skyscraper::xpath::XpathItemTree;
 use skyscraper::xpath::grammar::XpathItemTreeNode;
 use skyscraper::xpath::grammar::data_model::XpathItem;
 
-/// A parsed HTML document that the engine evaluates XPath against.
+mod css;
+
+pub use css::CssDom;
+
+/// A parsed HTML document the engine evaluates queries against. Holds both an
+/// XPath view ([`skyscraper`]) and a CSS view ([`CssDom`]) over the same source,
+/// since translators mix `ZU.xpath` and `doc.querySelector` freely.
 pub struct ParsedDom {
     tree: XpathItemTree,
+    css: CssDom,
 }
 
 impl ParsedDom {
-    /// Parse an HTML string into a queryable document.
+    /// Parse an HTML string into a queryable document (XPath + CSS).
     pub fn parse(html: &str) -> Result<Self, String> {
         let tree = skyscraper::html::parse(html).map_err(|e| format!("HTML parse error: {e:?}"))?;
-        Ok(Self { tree })
+        let css = CssDom::parse(html);
+        Ok(Self { tree, css })
+    }
+
+    /// Shared CSS view, for the engine's `doc.querySelector*` / `text` / `attr`
+    /// host functions.
+    pub fn css(&self) -> &CssDom {
+        &self.css
+    }
+
+    /// Mutable CSS view — `select` mints node handles, so it needs `&mut`.
+    pub fn css_mut(&mut self) -> &mut CssDom {
+        &mut self.css
     }
 
     /// Evaluate an XPath expression, returning matched nodes' string values

@@ -22,7 +22,10 @@ async-trait = "0.1"
 # and fast; the desktop app opts in. Runs upstream Zotero translators unmodified.
 boa_engine = { version = "0.21", optional = true }
 skyscraper = { version = "0.7", optional = true }
+# CSS node handles for the engine's querySelector layer. ego-tree is already
+# built transitively via scraper; naming it lets the DOM adapter hold NodeIds.
+ego-tree = { version = "0.10", optional = true }
 
 [features]
 default = []
-translator-engine = ["dep:boa_engine", "dep:skyscraper"]
+translator-engine = ["dep:boa_engine", "dep:skyscraper", "dep:ego-tree"]

@@ -42,11 +42,17 @@ pub fn run_web_translator(source: &str, html: &str, url: &str) -> Result<Vec<Zot
         ctx.eval(Source::from_bytes(source))
             .map_err(|e| format!("translator load error: {e}"))?;
 
-        // detectWeb(doc, url) → run doWeb only if truthy.
+        // Populate doc.location from the real URL, then detectWeb(doc, url) →
+        // run doWeb only if truthy. Translators read doc.location.pathname etc.
+        let (path, search, hash) = split_url(url);
         let driver = format!(
             r#"
             (function() {{
                 var __url = {url};
+                doc.location.href = __url;
+                doc.location.pathname = {path};
+                doc.location.search = {search};
+                doc.location.hash = {hash};
                 var __detected = (typeof detectWeb === 'function') ? detectWeb(doc, __url) : false;
                 if (__detected) {{
                     if (typeof doWeb === 'function') doWeb(doc, __url);
@@ -55,6 +61,9 @@ pub fn run_web_translator(source: &str, html: &str, url: &str) -> Result<Vec<Zot
             }})()
             "#,
             url = js_str_literal(url),
+            path = js_str_literal(&path),
+            search = js_str_literal(&search),
+            hash = js_str_literal(&hash),
         );
         ctx.eval(Source::from_bytes(driver.as_bytes()))
             .map_err(|e| format!("translator run error: {e}"))?;
@@ -125,6 +134,89 @@ fn register_host_functions(ctx: &mut Context) -> Result<(), String> {
     ctx.register_global_callable(js_string!("__xpathAll"), 1, xpath_all)
         .map_err(|e| format!("register __xpathAll: {e}"))?;
 
+    // --- CSS-selector host functions (doc.querySelector* / text() / attr()) ---
+    // Handles are integer indices into the DOM's per-run node table; handle 0 is
+    // the document root. text/attr take (scopeHandle, selector[, attr][, index]).
+
+    // __cssSelect(scope, selector): JSON array of node handles matching the
+    // selector within the scope node (0 = whole document).
+    let css_select = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let scope = arg_usize(args, 0, ctx)?;
+        let selector = arg_string(args, 1, ctx)?;
+        let handles = DOM.with(|d| {
+            d.borrow_mut()
+                .as_mut()
+                .map(|dom| dom.css_mut().select(scope, &selector))
+                .unwrap_or_default()
+        });
+        let json = serde_json::to_string(&handles).unwrap_or_else(|_| "[]".to_string());
+        Ok(JsValue::from(js_string!(json)))
+    });
+    ctx.register_global_callable(js_string!("__cssSelect"), 2, css_select)
+        .map_err(|e| format!("register __cssSelect: {e}"))?;
+
+    // __cssText(scope, selector, index): text of the index-th match, or "".
+    let css_text = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let scope = arg_usize(args, 0, ctx)?;
+        let selector = arg_string(args, 1, ctx)?;
+        let index = arg_usize(args, 2, ctx)?;
+        let out = DOM.with(|d| {
+            d.borrow()
+                .as_ref()
+                .map(|dom| dom.css().text(scope, &selector, index))
+                .unwrap_or_default()
+        });
+        Ok(JsValue::from(js_string!(out)))
+    });
+    ctx.register_global_callable(js_string!("__cssText"), 3, css_text)
+        .map_err(|e| format!("register __cssText: {e}"))?;
+
+    // __cssAttr(scope, selector, attr, index): attribute of the index-th match.
+    let css_attr = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let scope = arg_usize(args, 0, ctx)?;
+        let selector = arg_string(args, 1, ctx)?;
+        let attribute = arg_string(args, 2, ctx)?;
+        let index = arg_usize(args, 3, ctx)?;
+        let out = DOM.with(|d| {
+            d.borrow()
+                .as_ref()
+                .map(|dom| dom.css().attr(scope, &selector, &attribute, index))
+                .unwrap_or_default()
+        });
+        Ok(JsValue::from(js_string!(out)))
+    });
+    ctx.register_global_callable(js_string!("__cssAttr"), 4, css_attr)
+        .map_err(|e| format!("register __cssAttr: {e}"))?;
+
+    // __nodeText(handle): text content of the node handle itself.
+    let node_text = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let handle = arg_usize(args, 0, ctx)?;
+        let out = DOM.with(|d| {
+            d.borrow()
+                .as_ref()
+                .map(|dom| dom.css().node_text(handle))
+                .unwrap_or_default()
+        });
+        Ok(JsValue::from(js_string!(out)))
+    });
+    ctx.register_global_callable(js_string!("__nodeText"), 1, node_text)
+        .map_err(|e| format!("register __nodeText: {e}"))?;
+
+    // __nodeAttr(handle, attr): attribute value on the node handle itself.
+    let node_attr = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let handle = arg_usize(args, 0, ctx)?;
+        let attribute = arg_string(args, 1, ctx)?;
+        let out = DOM.with(|d| {
+            d.borrow()
+                .as_ref()
+                .map(|dom| dom.css().node_attr(handle, &attribute))
+                .unwrap_or_default()
+        });
+        Ok(JsValue::from(js_string!(out)))
+    });
+    ctx.register_global_callable(js_string!("__nodeAttr"), 2, node_attr)
+        .map_err(|e| format!("register __nodeAttr: {e}"))?;
+
     // __debug(msg): route translator debug output to tracing.
     let debug = NativeFunction::from_copy_closure(|_this, args, ctx| {
         if let Some(v) = args.first() {
@@ -164,6 +256,35 @@ fn arg_string(args: &[JsValue], i: usize, ctx: &mut Context) -> Result<String, b
         .unwrap_or(JsValue::undefined())
         .to_string(ctx)?
         .to_std_string_escaped())
+}
+
+/// Read argument `i` as a `usize` node handle / index (0 if absent or negative).
+fn arg_usize(args: &[JsValue], i: usize, ctx: &mut Context) -> Result<usize, boa_engine::JsError> {
+    let n = args
+        .get(i)
+        .cloned()
+        .unwrap_or(JsValue::undefined())
+        .to_number(ctx)?;
+    Ok(if n.is_finite() && n >= 0.0 {
+        n as usize
+    } else {
+        0
+    })
+}
+
+/// Split a URL into `(pathname, search, hash)` for `doc.location`. `search`
+/// includes the leading `?`, `hash` the leading `#`, matching the DOM `Location`
+/// API. Falls back to empty components if the URL doesn't parse.
+fn split_url(url: &str) -> (String, String, String) {
+    match reqwest::Url::parse(url) {
+        Ok(u) => {
+            let path = u.path().to_string();
+            let search = u.query().map(|q| format!("?{q}")).unwrap_or_default();
+            let hash = u.fragment().map(|f| format!("#{f}")).unwrap_or_default();
+            (path, search, hash)
+        }
+        Err(_) => (String::new(), String::new(), String::new()),
+    }
 }
 
 /// Render a Rust string as a JS string literal (JSON-encoding handles escaping).

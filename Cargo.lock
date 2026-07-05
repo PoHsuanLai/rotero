@@ -6550,6 +6550,7 @@ dependencies = [
  "async-trait",
  "boa_engine",
  "directories",
+ "ego-tree",
  "reqwest",
  "rotero-bib",
  "rotero-models",
