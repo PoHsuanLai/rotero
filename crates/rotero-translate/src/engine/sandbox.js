@@ -38,6 +38,57 @@ Zotero.setProgress = function () {};
 Zotero.getOption = function () { return undefined; };
 Zotero.getHiddenPref = function () { return undefined; };
 
+// --- loadTranslator delegation ---
+// A site translator delegates the actual extraction to a hub translator (most
+// often Embedded Metadata) via:
+//   var t = Zotero.loadTranslator("web");
+//   t.setTranslator(uuid); t.setDocument(doc);
+//   t.setHandler("itemDone", function (obj, item) { /* enrich */ item.complete(); });
+//   t.translate();
+// The Rust host runs the built-in hub for `uuid` against the current page and
+// returns its items; we replay them through the itemDone handler as live
+// Zotero.Item objects so the handler can enrich and complete them. If no
+// itemDone handler is set, items are completed as-is.
+Zotero.loadTranslator = function (type) {
+    var handlers = {};
+    var self = {
+        _uuid: "",
+        setTranslator: function (uuid) { self._uuid = String(uuid); },
+        setDocument: function () {},
+        setSearch: function () {},
+        setString: function () {},
+        setHandler: function (name, fn) { handlers[name] = fn; },
+        getTranslatorObject: function (cb) { if (cb) cb({}); },
+        translate: function () {
+            var items = [];
+            if (type === "web") {
+                try { items = JSON.parse(__loadTranslator(self._uuid)); } catch (e) { items = []; }
+            }
+            // else: search/import/export delegation not bridged yet → no items.
+            for (var i = 0; i < items.length; i++) {
+                var item = __reviveItem(items[i]);
+                if (handlers.itemDone) {
+                    handlers.itemDone(self, item);
+                } else {
+                    item.complete();
+                }
+            }
+            if (handlers.done) handlers.done();
+        }
+    };
+    return self;
+};
+
+// Rebuild a plain parsed item object into a live Zotero.Item so handlers can
+// mutate fields and call .complete().
+function __reviveItem(obj) {
+    var item = new Zotero.Item(obj.itemType || "");
+    for (var k in obj) {
+        if (obj.hasOwnProperty(k)) item[k] = obj[k];
+    }
+    return item;
+}
+
 // --- Utilities (ZU) ---
 var ZU = {};
 Zotero.Utilities = ZU;

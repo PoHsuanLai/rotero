@@ -3,7 +3,7 @@ use rotero_models::Paper;
 /// Fetches the given URL and extracts paper metadata from its HTML.
 ///
 /// The HTML-meta/JSON-LD extraction lives in `rotero_translate::html_meta` so it
-/// can be shared with the native translator registry; this function is the
+/// can be shared with the in-process translator registry; this function is the
 /// fetch wrapper (SSRF guard, redirect policy, User-Agent).
 pub async fn scrape_url(url: &str) -> Result<Paper, String> {
     // Validate URL scheme to prevent SSRF (file://, internal networks, etc.)

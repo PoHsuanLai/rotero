@@ -3,7 +3,7 @@
 //!
 //! This is the shared "Embedded Metadata"-style core. It lives here (rather than
 //! in `rotero-connector`) so both the connector's fetch-then-scrape path and the
-//! native translator registry can reuse it without a circular dependency.
+//! in-process translator registry can reuse it without a circular dependency.
 
 use rotero_models::Paper;
 use scraper::{Html, Selector};

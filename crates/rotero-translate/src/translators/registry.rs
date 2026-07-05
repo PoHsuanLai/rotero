@@ -80,7 +80,7 @@ impl Default for TranslatorRegistry {
 
 /// Whether an item list contains at least one usable item: a non-note,
 /// non-attachment item with a non-empty title. Applied identically across the
-/// native, Node, and scrape tiers.
+/// in-process, Node, and scrape tiers.
 pub fn has_usable(items: &[ZoteroItem]) -> bool {
     items
         .iter()
@@ -106,7 +106,7 @@ fn register_js_pilots(translators: &mut Vec<Box<dyn Translator>>) {
     }
 }
 
-/// No-op when the engine feature is off: the registry ships only the native
+/// No-op when the engine feature is off: the registry ships only the built-in
 /// hubs, identical to the pre-engine build.
 #[cfg(not(feature = "translator-engine"))]
 fn register_js_pilots(_translators: &mut Vec<Box<dyn Translator>>) {}

@@ -1,5 +1,5 @@
-//! In-process Rust translators for metadata extraction, an alternative to the
-//! Node translation-server subprocess.
+//! In-process translators for metadata extraction, an alternative to the Node
+//! translation-server subprocess.
 //!
 //! A [`Translator`] mirrors a Zotero translator's detect-then-extract shape,
 //! collapsed into one fallible call. The [`TranslatorRegistry`] fetches a page

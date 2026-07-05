@@ -2,9 +2,11 @@
 //! `boa` interpreter, backed by Rust host functions for the `Zotero.*` / `ZU.*`
 //! surface the translators call.
 //!
-//! Supports web translators that read the DOM via `ZU.xpath`/`ZU.xpathText` and
-//! emit items via `Zotero.Item` and `.complete()`. Not yet implemented: the
-//! full `ZU` utility set, `loadTranslator` delegation, and import/export IO.
+//! Supports web translators that read the DOM via `ZU.xpath`/`ZU.xpathText` /
+//! `doc.querySelector*`, emit items via `Zotero.Item` and `.complete()`, and
+//! delegate to built-in hub translators (Embedded Metadata) via a synchronous
+//! `Zotero.loadTranslator("web")` bridge. Not yet implemented: the full `ZU`
+//! utility set, search/import delegation (needs async HTTP), and export IO.
 
 mod sandbox;
 
@@ -20,6 +22,24 @@ thread_local! {
     static SINK: RefCell<Vec<ZoteroItem>> = const { RefCell::new(Vec::new()) };
     /// The DOM the current run's `ZU.xpath` host functions query.
     static DOM: RefCell<Option<ParsedDom>> = const { RefCell::new(None) };
+    /// The current run's raw HTML and URL, so `loadTranslator` delegation can
+    /// re-run a built-in hub translator (e.g. Embedded Metadata) over the page.
+    static PAGE: RefCell<Page> = const { RefCell::new(Page::empty()) };
+}
+
+/// The page context a delegated built-in translator needs.
+struct Page {
+    html: String,
+    url: String,
+}
+
+impl Page {
+    const fn empty() -> Self {
+        Self {
+            html: String::new(),
+            url: String::new(),
+        }
+    }
 }
 
 /// Run a translator's JavaScript against a document and collect emitted items.
@@ -31,6 +51,12 @@ pub fn run_web_translator(source: &str, html: &str, url: &str) -> Result<Vec<Zot
     let dom = ParsedDom::parse(html)?;
     DOM.with(|d| *d.borrow_mut() = Some(dom));
     SINK.with(|s| s.borrow_mut().clear());
+    PAGE.with(|p| {
+        *p.borrow_mut() = Page {
+            html: html.to_string(),
+            url: url.to_string(),
+        }
+    });
 
     let result = (|| {
         let mut ctx = Context::default();
@@ -72,8 +98,44 @@ pub fn run_web_translator(source: &str, html: &str, url: &str) -> Result<Vec<Zot
 
     let items = SINK.with(|s| std::mem::take(&mut *s.borrow_mut()));
     DOM.with(|d| *d.borrow_mut() = None);
+    PAGE.with(|p| *p.borrow_mut() = Page::empty());
     result?;
     Ok(items)
+}
+
+/// Run a built-in hub translator against the current page for `loadTranslator`
+/// delegation. Returns the extracted items as a JSON array, or `[]` if the
+/// target UUID isn't one with an in-process bridge (search/import delegates need
+/// async HTTP and aren't bridged yet).
+fn delegate_builtin(uuid: &str) -> String {
+    // Embedded Metadata — the dominant web delegation target. Its core extractor
+    // is synchronous, so it runs inline without the async registry path.
+    const EMBEDDED_METADATA: &str = "951c027d-74ac-47d4-a107-9c3069ab7b48";
+
+    let items: Vec<ZoteroItem> = match uuid {
+        EMBEDDED_METADATA => PAGE.with(|p| {
+            let page = p.borrow();
+            let item = crate::html_meta::extract_zotero_item(&page.html);
+            if item.title.is_empty() {
+                Vec::new()
+            } else {
+                let item = ZoteroItem {
+                    url: if item.url.is_empty() {
+                        page.url.clone()
+                    } else {
+                        item.url.clone()
+                    },
+                    ..item
+                };
+                vec![item]
+            }
+        }),
+        _ => {
+            tracing::debug!("loadTranslator: no in-process bridge for {uuid}");
+            Vec::new()
+        }
+    };
+    serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
 }
 
 /// Register the Rust-backed host functions the sandbox shim calls.
@@ -216,6 +278,17 @@ fn register_host_functions(ctx: &mut Context) -> Result<(), String> {
     });
     ctx.register_global_callable(js_string!("__nodeAttr"), 2, node_attr)
         .map_err(|e| format!("register __nodeAttr: {e}"))?;
+
+    // __loadTranslator(uuid): run the built-in hub translator for `uuid` against
+    // the current page and return its items as a JSON array (for the JS-side
+    // Zotero.loadTranslator delegation bridge). "[]" if there's no bridge.
+    let load_translator = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let uuid = arg_string(args, 0, ctx)?;
+        let json = delegate_builtin(&uuid);
+        Ok(JsValue::from(js_string!(json)))
+    });
+    ctx.register_global_callable(js_string!("__loadTranslator"), 1, load_translator)
+        .map_err(|e| format!("register __loadTranslator: {e}"))?;
 
     // __debug(msg): route translator debug output to tracing.
     let debug = NativeFunction::from_copy_closure(|_this, args, ctx| {

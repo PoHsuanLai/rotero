@@ -40,7 +40,7 @@ pub enum TranslateError {
     /// skip it and try the next candidate.
     #[error("Translator not applicable")]
     NotApplicable,
-    /// A network request made by a native translator failed.
+    /// A network request made by an in-process translator failed.
     #[error("Request error: {0}")]
     Request(#[from] reqwest::Error),
     /// A response could not be parsed.

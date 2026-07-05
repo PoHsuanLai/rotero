@@ -142,3 +142,60 @@ fn doc_location_is_populated_from_url() {
     let none = run_web_translator(LOCATION_TRANSLATOR, html, "https://arxiv.org/list/cs").expect("run");
     assert!(none.is_empty());
 }
+
+/// A site translator that delegates extraction to Embedded Metadata via
+/// Zotero.loadTranslator("web"), enriching the item in the itemDone handler —
+/// the dominant delegation pattern (~58% of upstream translators load another).
+const DELEGATING_TRANSLATOR: &str = r#"
+function detectWeb(doc, url) { return "journalArticle"; }
+function doWeb(doc, url) {
+    var translator = Zotero.loadTranslator("web");
+    translator.setTranslator("951c027d-74ac-47d4-a107-9c3069ab7b48"); // Embedded Metadata
+    translator.setDocument(doc);
+    translator.setHandler("itemDone", function (obj, item) {
+        // Enrich with something the meta tags didn't carry, then complete.
+        item.extra = "delegated";
+        item.complete();
+    });
+    translator.translate();
+}
+"#;
+
+const EMBEDDED_HTML: &str = r#"<html><head>
+    <meta name="citation_title" content="Delegated Extraction Works">
+    <meta name="citation_doi" content="10.1234/deleg.1">
+    <meta name="citation_author" content="Turing, Alan">
+</head><body></body></html>"#;
+
+#[test]
+fn load_translator_delegates_to_embedded_metadata() {
+    let items = run_web_translator(DELEGATING_TRANSLATOR, EMBEDDED_HTML, "https://pub.example.org/a")
+        .expect("run");
+    assert_eq!(items.len(), 1, "delegation should yield the hub's item");
+    let item = &items[0];
+    // Fields came from Embedded Metadata (the delegate)...
+    assert_eq!(item.title, "Delegated Extraction Works");
+    assert_eq!(item.doi, "10.1234/deleg.1");
+    assert_eq!(item.creators.len(), 1);
+    assert_eq!(item.creators[0].last_name, "Turing");
+    // ...and the itemDone handler's enrichment survived.
+    assert_eq!(item.extra, "delegated");
+}
+
+#[test]
+fn load_translator_unknown_uuid_yields_nothing() {
+    // A delegate we don't bridge (e.g. a search/import translator) → no items,
+    // so the outer translator produces nothing rather than crashing.
+    let src = r#"
+    function detectWeb(doc, url) { return "journalArticle"; }
+    function doWeb(doc, url) {
+        var t = Zotero.loadTranslator("web");
+        t.setTranslator("00000000-0000-0000-0000-000000000000");
+        t.setDocument(doc);
+        t.setHandler("itemDone", function (obj, item) { item.complete(); });
+        t.translate();
+    }
+    "#;
+    let items = run_web_translator(src, EMBEDDED_HTML, "https://pub.example.org/a").expect("run");
+    assert!(items.is_empty());
+}

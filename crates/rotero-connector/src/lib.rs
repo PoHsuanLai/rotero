@@ -8,7 +8,7 @@
 pub mod handlers;
 /// HTML meta-tag and JSON-LD scraper for extracting paper metadata from web pages.
 pub mod scrape;
-/// Scrape-tier hit-rate telemetry (native vs Node vs generic scraper).
+/// Scrape-tier hit-rate telemetry (in-process vs Node vs generic scraper).
 pub mod telemetry;
 
 use std::sync::Arc;

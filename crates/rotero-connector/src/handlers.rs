@@ -133,11 +133,11 @@ pub async fn scrape(
     State(state): State<Arc<ConnectorState>>,
     Json(req): Json<ScrapeRequest>,
 ) -> Json<ScrapeResponse> {
-    // Tier 1: in-process Rust translators (fast, no Node subprocess).
+    // Tier 1: in-process translators (fast, no Node subprocess).
     if let Some(items) = state.translator_registry.translate_web(&req.url).await
         && let Some(result) = first_usable_result(&items)
     {
-        crate::telemetry::record(crate::telemetry::Tier::Native, &req.url);
+        crate::telemetry::record(crate::telemetry::Tier::Builtin, &req.url);
         return Json(ScrapeResponse {
             success: true,
             metadata: Some(result),
