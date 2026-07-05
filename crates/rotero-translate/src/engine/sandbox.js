@@ -40,15 +40,22 @@ Zotero.getHiddenPref = function () { return undefined; };
 
 // --- loadTranslator delegation ---
 // A site translator delegates the actual extraction to a hub translator (most
-// often Embedded Metadata) via:
+// often Embedded Metadata). Two call styles are used upstream:
+//
+//   // (a) translate():
 //   var t = Zotero.loadTranslator("web");
 //   t.setTranslator(uuid); t.setDocument(doc);
 //   t.setHandler("itemDone", function (obj, item) { /* enrich */ item.complete(); });
 //   t.translate();
-// The Rust host runs the built-in hub for `uuid` against the current page and
-// returns its items; we replay them through the itemDone handler as live
-// Zotero.Item objects so the handler can enrich and complete them. If no
-// itemDone handler is set, items are completed as-is.
+//
+//   // (b) getTranslatorObject(): the caller drives the delegate's doWeb itself
+//   t.setHandler("itemDone", ...);
+//   t.getTranslatorObject(function (trans) { trans.doWeb(doc, url); });
+//
+// Both resolve to the same thing here: the Rust host runs the built-in hub for
+// `uuid` against the current page and returns its items; we replay them through
+// the itemDone handler as live Zotero.Item objects so the handler can enrich and
+// complete them. If no itemDone handler is set, items are completed as-is.
 Zotero.loadTranslator = function (type) {
     var handlers = {};
     var self = {
@@ -58,8 +65,18 @@ Zotero.loadTranslator = function (type) {
         setSearch: function () {},
         setString: function () {},
         setHandler: function (name, fn) { handlers[name] = fn; },
-        getTranslatorObject: function (cb) { if (cb) cb({}); },
-        translate: function () {
+        translate: function () { self._run(); },
+        // Hand back a translator-shaped object whose detectWeb/doWeb run the
+        // delegate. The caller's `trans.doWeb(doc, url)` therefore replays items
+        // through the itemDone handler exactly as translate() would.
+        getTranslatorObject: function (cb) {
+            var proxy = {
+                detectWeb: function () { return "journalArticle"; },
+                doWeb: function () { self._run(); }
+            };
+            if (cb) cb(proxy);
+        },
+        _run: function () {
             var items = [];
             if (type === "web") {
                 try { items = JSON.parse(__loadTranslator(self._uuid)); } catch (e) { items = []; }
@@ -153,6 +170,86 @@ ZU.getPageRange = function (s) {
     var m = String(s || "").match(/^\s*([0-9]+)\s*[-–]\s*([0-9]+)\s*$/);
     return m ? [m[1], m[2]] : [s, s];
 };
+
+// More pure-JS ZU ports (no host call needed). Faithful to upstream
+// utilities.js where behavior matters; simplified where a translator only needs
+// the common path. HTTP-backed helpers (processDocuments/doGet/doPost/HTTP) are
+// added separately with async host functions.
+ZU.cleanTags = function (s) {
+    if (s == null) return "";
+    return String(s).replace(/<[^>]+>/g, "");
+};
+ZU.unescapeHTML = function (s) {
+    if (s == null) return "";
+    return String(s)
+        .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+        .replace(/&#(\d+);/g, function (_, n) { return String.fromCharCode(parseInt(n, 10)); })
+        .replace(/&#x([0-9a-fA-F]+);/g, function (_, n) { return String.fromCharCode(parseInt(n, 16)); })
+        .replace(/&amp;/g, "&");
+};
+ZU.cleanISBN = function (s) {
+    if (!s) return false;
+    var digits = String(s).replace(/[^0-9Xx]/g, "").toUpperCase();
+    if (digits.length === 10 || digits.length === 13) return digits;
+    return false;
+};
+ZU.cleanISSN = function (s) {
+    if (!s) return false;
+    var m = String(s).replace(/[^0-9Xx]/g, "").toUpperCase();
+    return m.length === 8 ? m.substr(0, 4) + "-" + m.substr(4) : false;
+};
+ZU.removeDiacritics = function (s) {
+    if (s == null) return "";
+    return String(s).normalize ? String(s).normalize("NFD").replace(/[̀-ͯ]/g, "") : String(s);
+};
+ZU.capitalizeName = function (s) {
+    if (s == null) return "";
+    return String(s).toLowerCase().replace(/\b([a-z])/g, function (_, c) { return c.toUpperCase(); });
+};
+ZU.lpad = function (s, pad, len) {
+    s = String(s == null ? "" : s);
+    while (s.length < len) s = pad + s;
+    return s;
+};
+ZU.ellipsize = function (s, len) {
+    s = String(s == null ? "" : s);
+    return s.length > len ? s.substr(0, len) + "…" : s;
+};
+ZU.deepCopy = function (obj) { return JSON.parse(JSON.stringify(obj)); };
+ZU.arrayUnique = function (arr) {
+    var seen = {}, out = [];
+    for (var i = 0; i < arr.length; i++) {
+        if (!seen[arr[i]]) { seen[arr[i]] = true; out.push(arr[i]); }
+    }
+    return out;
+};
+// strToISO / strToDate: normalize a date string to ISO (YYYY-MM-DD, or a prefix).
+ZU.strToISO = function (s) {
+    if (!s) return "";
+    var str = String(s);
+    var iso = str.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+    if (iso) return iso[0];
+    var d = ZU.strToDate(str);
+    if (!d.year) return "";
+    var out = ZU.lpad(d.year, "0", 4);
+    if (d.month != null) out += "-" + ZU.lpad(d.month, "0", 2);
+    if (d.day != null) out += "-" + ZU.lpad(d.day, "0", 2);
+    return out;
+};
+ZU.strToDate = function (s) {
+    // Delegates to the Rust ZU date parser (multi-format). Returns
+    // { year, month, day } with month/day 1-based or absent. ZU.strToDate in
+    // upstream returns month 0-based; translators mostly consume via strToISO,
+    // so we keep 1-based here and strToISO compensates. Callers reading .month
+    // directly are rare.
+    var d = JSON.parse(__strToDate(String(s)));
+    return { year: d.year, month: d.month, day: d.day };
+};
+// Schema helpers: without the full schema we accept optimistically. Translators
+// use these to guard optional fields; returning true keeps the common path.
+ZU.fieldIsValidForType = function () { return true; };
+ZU.itemTypeExists = function () { return true; };
 
 // The `doc` global. XPath host functions ignore the node arg (the engine holds
 // the real DOM), but CSS queries route through the shared node table with the

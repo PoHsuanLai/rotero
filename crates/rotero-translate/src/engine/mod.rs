@@ -318,6 +318,22 @@ fn register_host_functions(ctx: &mut Context) -> Result<(), String> {
     ctx.register_global_callable(js_string!("__cleanAuthor"), 3, clean_author)
         .map_err(|e| format!("register __cleanAuthor: {e}"))?;
 
+    // __strToDate(s): parse a date string via the Rust ZU date port. Returns
+    // JSON { year, month, day } with null for absent components (month/day
+    // 1-based). Backs ZU.strToDate / ZU.strToISO in the sandbox.
+    let str_to_date = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let s = arg_string(args, 0, ctx)?;
+        let d = crate::zu::str_to_date(&s);
+        let json = serde_json::json!({
+            "year": d.year,
+            "month": d.month,
+            "day": d.day,
+        });
+        Ok(JsValue::from(js_string!(json.to_string())))
+    });
+    ctx.register_global_callable(js_string!("__strToDate"), 1, str_to_date)
+        .map_err(|e| format!("register __strToDate: {e}"))?;
+
     Ok(())
 }
 

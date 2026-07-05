@@ -182,6 +182,36 @@ fn load_translator_delegates_to_embedded_metadata() {
     assert_eq!(item.extra, "delegated");
 }
 
+/// The other delegation style: the caller gets the delegate's translator object
+/// via getTranslatorObject and drives its doWeb itself (as PLoS Journals does).
+const GET_TRANSLATOR_OBJECT_STYLE: &str = r#"
+function detectWeb(doc, url) { return "journalArticle"; }
+function doWeb(doc, url) {
+    var t = Zotero.loadTranslator("web");
+    t.setTranslator("951c027d-74ac-47d4-a107-9c3069ab7b48"); // Embedded Metadata
+    t.setDocument(doc);
+    t.setHandler("itemDone", function (obj, item) {
+        item.libraryCatalog = "Test Catalog";
+        item.complete();
+    });
+    t.getTranslatorObject(function (trans) { trans.doWeb(doc, url); });
+}
+"#;
+
+#[test]
+fn load_translator_get_translator_object_style() {
+    let html = r#"<html><head>
+        <meta name="citation_title" content="Via getTranslatorObject">
+        <meta name="citation_abstract" content="The delegated abstract survives.">
+    </head><body></body></html>"#;
+    let items = run_web_translator(GET_TRANSLATOR_OBJECT_STYLE, html, "https://pub.example.org/a")
+        .expect("run");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].title, "Via getTranslatorObject");
+    // The abstract must survive the getTranslatorObject delegation path.
+    assert_eq!(items[0].abstract_note, "The delegated abstract survives.");
+}
+
 #[test]
 fn load_translator_unknown_uuid_yields_nothing() {
     // A delegate we don't bridge (e.g. a search/import translator) → no items,
