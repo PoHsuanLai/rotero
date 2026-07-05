@@ -9,6 +9,7 @@ members = [
     "crates/rotero-db",
     "crates/rotero-mcp",
     "crates/rotero-translate",
+    "crates/rotero-typeset",
 ]
 resolver = "3"
 
@@ -37,6 +38,7 @@ rotero-graph = { path = "crates/rotero-graph" }
 rotero-db = { path = "crates/rotero-db" }
 rotero-mcp = { path = "crates/rotero-mcp" }
 rotero-translate = { path = "crates/rotero-translate" }
+rotero-typeset = { path = "crates/rotero-typeset" }
 
 [package]
 name = "rotero"
@@ -53,6 +55,7 @@ rotero-translate = { workspace = true, optional = true }
 rotero-graph.workspace = true
 rotero-db.workspace = true
 rotero-mcp.workspace = true
+rotero-typeset.workspace = true
 rmcp = { version = "1", features = ["server", "transport-streamable-http-server"] }
 
 dioxus = "0.7"

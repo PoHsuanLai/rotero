@@ -11,7 +11,7 @@ use crate::agent::types::{
 use crate::state::app_state::{LibraryState, PdfTabManager};
 
 pub use panel::ChatPanel;
-pub use resize_handle::ResizeHandle;
+pub use resize_handle::{ResizeDir, ResizeHandle};
 pub use toggle::ChatToggleButton;
 
 #[derive(Clone, Copy)]

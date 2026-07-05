@@ -74,15 +74,9 @@ pub(crate) fn PdfPageWithOverlay(
         AnnotationMode::None => "default",
     };
 
-    // Images are rendered at render_zoom (= zoom * dpr). We use CSS zoom on
-    // the wrapper to scale to display size. Unlike transform: scale(), CSS zoom
-    // affects layout — the element's flow size changes with the zoom factor,
-    // preventing page overlap.
-    let css_zoom = if render_zoom > 0.0 {
-        zoom / render_zoom
-    } else {
-        1.0
-    };
+    // Images are rendered at render_zoom (= zoom * dpr) and scaled to display
+    // size via CSS zoom on the wrapper (see `page_image`).
+    let css_zoom = super::page_image::css_zoom(zoom, render_zoom);
 
     // Not-yet-rendered slot: render a sized placeholder with the SAME element type,
     // wrapper class, and id as a rendered page so it reserves scroll height and the
@@ -105,15 +99,14 @@ pub(crate) fn PdfPageWithOverlay(
 
             {
                 let data_dir = config.read().effective_library_path();
-                let src = crate::cache::page_file_url(&data_dir, &pdf_path_for_cache, page_index, mime)
-                    .unwrap_or_else(|| format!("data:{mime};base64,{base64_data}"));
+                let src = crate::cache::page_file_url(&data_dir, &pdf_path_for_cache, page_index, mime);
                 rsx! {
-                    img {
-                        class: "pdf-page-img",
-                        src: "{src}",
-                        width: "{width}",
-                        height: "{height}",
-                        draggable: "false",
+                    super::page_image::PdfPageImage {
+                        base64_data: base64_data.clone(),
+                        mime,
+                        width,
+                        height,
+                        src,
                     }
                 }
             }

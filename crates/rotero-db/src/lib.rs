@@ -9,6 +9,7 @@ pub mod annotations;
 pub mod collections;
 /// Rotero's CRR (conflict-free replicated relations) schema configuration for sync.
 pub mod crr;
+pub mod documents;
 /// Graph queries for paper-tag and paper-collection relationships.
 pub mod graph;
 /// Per-paper note CRUD operations.

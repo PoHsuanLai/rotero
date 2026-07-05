@@ -7,6 +7,8 @@
 pub mod annotation;
 /// Hierarchical folder-like groupings for papers.
 pub mod collection;
+/// Standalone authored documents (summaries, reports, papers).
+pub mod document;
 /// Free-form notes attached to papers.
 pub mod note;
 /// Core paper metadata and helper methods.
@@ -20,6 +22,7 @@ pub mod tag;
 
 pub use annotation::{Annotation, AnnotationType};
 pub use collection::Collection;
+pub use document::{Document, DocumentKind};
 pub use note::Note;
 pub use paper::{CitationInfo, LibraryStatus, Paper, PaperId, PaperLinks, Publication};
 pub use saved_search::SavedSearch;

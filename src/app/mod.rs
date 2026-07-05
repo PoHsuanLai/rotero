@@ -43,6 +43,7 @@ const GRAPH_CSS: &str = include_str!("../../assets/graph.css");
 const GRAPH_JS: &str = include_str!("../../assets/graph.js");
 const KEYBINDINGS_JS: &str = include_str!("../../assets/keybindings.js");
 const CHAT_CSS: &str = include_str!("../../assets/chat.css");
+const DOCUMENTS_CSS: &str = include_str!("../../assets/documents.css");
 #[cfg(feature = "mobile")]
 const LONGPRESS_JS: &str = include_str!("../../assets/longpress.js");
 
@@ -70,6 +71,7 @@ pub fn App() -> Element {
         mgr.set_max_resident(config.read().max_resident_tabs);
         Signal::new(mgr)
     });
+    use_context_provider(|| Signal::new(crate::state::app_state::DocumentTabManager::default()));
     use_context_provider(|| {
         let cfg = config.read();
         Signal::new(ViewerToolState {
@@ -179,6 +181,7 @@ pub fn App() -> Element {
                 document::Style { {THEME_CSS} }
                 document::Style { {GRAPH_CSS} }
                 document::Style { {CHAT_CSS} }
+                document::Style { {DOCUMENTS_CSS} }
                 document::Script { {GRAPH_JS} }
                 document::Script { {KEYBINDINGS_JS} }
                 {longpress_script()}

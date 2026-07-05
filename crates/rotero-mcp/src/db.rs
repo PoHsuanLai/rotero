@@ -833,6 +833,68 @@ impl Database {
         self.notify();
         Ok(())
     }
+
+    // --- Authored documents ---
+
+    /// Directory where compiled document PDFs are written.
+    pub fn documents_dir(&self) -> std::path::PathBuf {
+        self.data_dir.join("documents")
+    }
+
+    /// Create a new document, returning its generated ID.
+    pub async fn insert_document(
+        &self,
+        doc: &rotero_models::Document,
+    ) -> Result<String, turso::Error> {
+        let id = rotero_db::documents::insert_document(&self.conn, doc).await?;
+        self.notify();
+        Ok(id)
+    }
+
+    /// List all documents, newest first.
+    pub async fn list_documents(&self) -> Result<Vec<rotero_models::Document>, turso::Error> {
+        rotero_db::documents::list_documents(&self.conn).await
+    }
+
+    /// Fetch a document by ID.
+    pub async fn get_document(
+        &self,
+        id: &str,
+    ) -> Result<Option<rotero_models::Document>, turso::Error> {
+        rotero_db::documents::get_document(&self.conn, id).await
+    }
+
+    /// Persist all editable fields of a document.
+    pub async fn update_document(
+        &self,
+        doc: &rotero_models::Document,
+    ) -> Result<(), turso::Error> {
+        rotero_db::documents::update_document(&self.conn, doc).await?;
+        self.notify();
+        Ok(())
+    }
+
+    /// Delete a document by ID.
+    pub async fn delete_document(&self, id: &str) -> Result<(), turso::Error> {
+        rotero_db::documents::delete_document(&self.conn, id).await?;
+        self.notify();
+        Ok(())
+    }
+
+    /// Fetch every paper belonging to a collection (for bibliography building).
+    pub async fn papers_in_collection(
+        &self,
+        collection_id: &str,
+    ) -> Result<Vec<Paper>, turso::Error> {
+        let ids = self.list_paper_ids_in_collection(collection_id).await?;
+        let mut papers = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(p) = self.get_paper_by_id(&id).await? {
+                papers.push(p);
+            }
+        }
+        Ok(papers)
+    }
 }
 
 fn get_opt_text(row: &turso::Row, idx: usize) -> Option<String> {

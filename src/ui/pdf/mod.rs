@@ -1,6 +1,7 @@
 mod annotation_panel;
 pub(crate) mod annotation_render;
 mod navigation;
+pub(crate) mod page_image;
 mod page_overlay;
 mod search_bar;
 mod tab_bar;

@@ -31,6 +31,8 @@ pub(crate) fn SidebarItem(
         "clock" => "bi bi-clock",
         "star" => "bi bi-star",
         "circle" => "bi bi-circle",
+        "pencil" => "bi bi-pencil-square",
+        "copy" => "bi bi-files",
         _ => "",
     };
 

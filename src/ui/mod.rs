@@ -1,6 +1,7 @@
 pub mod chat_panel;
 pub mod citation_dialog;
 pub mod components;
+pub mod documents;
 pub mod graph_view;
 pub mod helpers;
 pub mod import_export;

@@ -99,6 +99,13 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
 
     rsx! {
         div { class: "{sidebar_class}",
+            crate::ui::chat_panel::ResizeHandle {
+                target: "sidebar",
+                dir: crate::ui::chat_panel::ResizeDir::GrowRight,
+                min: 180.0,
+                max: 420.0,
+                selector: ".sidebar".to_string(),
+            }
             div { class: "sidebar-header",
                 h2 {
                     class: "sidebar-brand",
@@ -152,6 +159,16 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                     icon: "copy",
                     active: view == LibraryView::Duplicates,
                     view: LibraryView::Duplicates,
+                }
+            }
+
+            CollapsibleSection { title: "Documents", initially_open: true,
+                SidebarItem {
+                    label: "Documents".to_string(),
+                    count: None,
+                    icon: "pencil",
+                    active: matches!(view, LibraryView::Documents | LibraryView::Document(_)),
+                    view: LibraryView::Documents,
                 }
             }
 

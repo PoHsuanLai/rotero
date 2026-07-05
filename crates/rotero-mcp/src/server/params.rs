@@ -275,3 +275,40 @@ pub(super) struct LibraryStats {
     pub unread_count: u32,
     pub favorites_count: u32,
 }
+
+/// Parameters for the `create_document` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct CreateDocumentParams {
+    /// Document title.
+    pub title: String,
+    /// One of: summary, tutorial, research, manuscript, lit_review.
+    pub kind: Option<String>,
+    /// Collection whose papers supply citations (optional).
+    pub collection_id: Option<String>,
+    /// Typst template name ("article" default, or a Universe package).
+    pub template: Option<String>,
+    /// CSL bibliography style (e.g. apa, ieee, vancouver). Default apa.
+    pub csl_style: Option<String>,
+}
+
+/// Parameters for the `update_document` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct UpdateDocumentParams {
+    pub document_id: String,
+    /// New Markdown body. Write citations as `[@citekey]` or `@citekey`.
+    pub body: String,
+    /// Optionally update the title.
+    pub title: Option<String>,
+}
+
+/// Parameters for the `compile_document` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct CompileDocumentParams {
+    pub document_id: String,
+}
+
+/// Parameters for the `get_document` / `delete_document` tools.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct DocumentIdParams {
+    pub document_id: String,
+}

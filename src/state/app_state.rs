@@ -261,6 +261,88 @@ impl PdfTabManager {
     }
 }
 
+/// A tab holding an open authored document. Deliberately lightweight — the
+/// editor loads its own state from the DB by `doc_id`; the tab only carries what
+/// the shared tab bar needs to render and route.
+#[derive(Debug, Clone)]
+pub struct DocumentTab {
+    pub id: TabId,
+    pub doc_id: String,
+    pub title: String,
+}
+
+/// Parallel to [`PdfTabManager`] for document tabs. Shares the tab bar chrome
+/// but not the PDF render/memory machinery.
+#[derive(Debug, Clone, Default)]
+pub struct DocumentTabManager {
+    pub tabs: Vec<DocumentTab>,
+    pub active_tab_id: Option<TabId>,
+    next_id: u64,
+}
+
+impl DocumentTabManager {
+    fn next_id(&mut self) -> TabId {
+        self.next_id += 1;
+        self.next_id
+    }
+
+    pub fn find_by_doc_id(&self, doc_id: &str) -> Option<usize> {
+        self.tabs.iter().position(|t| t.doc_id == doc_id)
+    }
+
+    pub fn active_tab(&self) -> Option<&DocumentTab> {
+        self.active_tab_id
+            .and_then(|id| self.tabs.iter().find(|t| t.id == id))
+    }
+
+    /// Open a tab for `doc_id` (or switch to the existing one), making it active.
+    /// Returns the doc_id of the tab that should now be shown.
+    pub fn open_or_switch(&mut self, doc_id: String, title: String) -> String {
+        if let Some(idx) = self.find_by_doc_id(&doc_id) {
+            self.active_tab_id = Some(self.tabs[idx].id);
+        } else {
+            let id = self.next_id();
+            self.tabs.push(DocumentTab {
+                id,
+                doc_id: doc_id.clone(),
+                title,
+            });
+            self.active_tab_id = Some(id);
+        }
+        doc_id
+    }
+
+    pub fn switch_to(&mut self, tab_id: TabId) {
+        if self.tabs.iter().any(|t| t.id == tab_id) {
+            self.active_tab_id = Some(tab_id);
+        }
+    }
+
+    /// Update a tab's displayed title (e.g. after the doc's title is edited).
+    pub fn set_title(&mut self, doc_id: &str, title: String) {
+        if let Some(tab) = self.tabs.iter_mut().find(|t| t.doc_id == doc_id) {
+            tab.title = title;
+        }
+    }
+
+    /// Close a tab. Returns the doc_id now active (for view routing), or `None`
+    /// if no document tabs remain.
+    pub fn close_tab(&mut self, tab_id: TabId) -> Option<String> {
+        let Some(idx) = self.tabs.iter().position(|t| t.id == tab_id) else {
+            return self.active_tab().map(|t| t.doc_id.clone());
+        };
+        self.tabs.remove(idx);
+        if self.active_tab_id == Some(tab_id) {
+            self.active_tab_id = if self.tabs.is_empty() {
+                None
+            } else {
+                Some(self.tabs[idx.min(self.tabs.len() - 1)].id)
+            };
+        }
+        self.active_tab().map(|t| t.doc_id.clone())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ViewerToolState {
     pub annotation_mode: AnnotationMode,
@@ -290,7 +372,7 @@ pub enum AnnotationMode {
 }
 
 /// Uses `Arc<String>` for near-free cloning during Dioxus render cycles.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RenderedPageData {
     pub page_index: u32,
     pub base64_data: Arc<String>,
@@ -436,6 +518,10 @@ pub enum LibraryView {
     SavedSearch(String),
     PdfViewer,
     Graph,
+    /// The authored-documents list / editor.
+    Documents,
+    /// A single open document in the split-pane editor.
+    Document(String),
 }
 
 impl LibraryState {

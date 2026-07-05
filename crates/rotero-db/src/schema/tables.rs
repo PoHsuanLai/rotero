@@ -77,6 +77,19 @@ CREATE TABLE IF NOT EXISTS notes (
     modified_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS documents (
+    id            TEXT PRIMARY KEY,
+    title         TEXT NOT NULL DEFAULT '',
+    body          TEXT NOT NULL DEFAULT '',
+    collection_id TEXT REFERENCES collections(id) ON DELETE SET NULL,
+    template      TEXT NOT NULL DEFAULT 'article',
+    csl_style     TEXT NOT NULL DEFAULT 'apa',
+    kind          TEXT NOT NULL DEFAULT 'summary',
+    last_pdf_path TEXT,
+    created_at    TEXT NOT NULL,
+    modified_at   TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS saved_searches (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,

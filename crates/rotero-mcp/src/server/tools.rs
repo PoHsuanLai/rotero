@@ -555,6 +555,201 @@ impl RoteroMcp {
     }
 
     #[tool(
+        description = "Create a new standalone authored document (a summary, tutorial, research report, manuscript, or literature review). Optionally link it to a collection whose papers become its citation sources. Returns the document_id to write into with update_document."
+    )]
+    async fn create_document(
+        &self,
+        Parameters(params): Parameters<CreateDocumentParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let kind = rotero_models::DocumentKind::from_str_or_default(
+            params.kind.as_deref().unwrap_or("summary"),
+        );
+        let mut doc =
+            rotero_models::Document::new(params.title, kind, params.collection_id);
+        if let Some(t) = params.template {
+            doc.template = t;
+        }
+        if let Some(s) = params.csl_style {
+            doc.csl_style = s;
+        }
+        let id = self.db.insert_document(&doc).await.map_err(err)?;
+        json_result(&serde_json::json!({ "document_id": id, "success": true }))
+    }
+
+    #[tool(
+        description = "Replace a document's Markdown body (and optionally its title). This is how you write document content. Use standard Markdown; write in-text citations as [@citekey] for a parenthetical cite or @citekey for a prose cite — they resolve against the linked collection's bibliography when compiled."
+    )]
+    async fn update_document(
+        &self,
+        Parameters(params): Parameters<UpdateDocumentParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let mut doc = self
+            .db
+            .get_document(&params.document_id)
+            .await
+            .map_err(err)?
+            .ok_or_else(|| err(format!("No document with ID {}", params.document_id)))?;
+        doc.body = params.body;
+        if let Some(t) = params.title {
+            doc.title = t;
+        }
+        self.db.update_document(&doc).await.map_err(err)?;
+        json_result(&serde_json::json!({ "success": true }))
+    }
+
+    #[tool(
+        description = "Compile a document to a typeset PDF. Builds a bibliography from the linked collection's papers, renders the Markdown through Typst, writes the PDF to disk, and records its path on the document. Returns the pdf_path, or a compile diagnostic you can use to fix the Markdown and retry."
+    )]
+    async fn compile_document(
+        &self,
+        Parameters(params): Parameters<CompileDocumentParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let mut doc = self
+            .db
+            .get_document(&params.document_id)
+            .await
+            .map_err(err)?
+            .ok_or_else(|| err(format!("No document with ID {}", params.document_id)))?;
+
+        // Build a .bib from the linked collection (if any and it still exists).
+        let bib = match &doc.collection_id {
+            Some(cid) => {
+                let papers = self.db.papers_in_collection(cid).await.map_err(err)?;
+                if papers.is_empty() {
+                    None
+                } else {
+                    Some(rotero_bib::export_bibtex(&papers))
+                }
+            }
+            None => None,
+        };
+
+        let opts = rotero_typeset::CompileOptions {
+            title: doc.title.clone(),
+            authors: Vec::new(),
+            template: doc.template.clone(),
+            bib,
+            csl_style: doc.csl_style.clone(),
+        };
+
+        // Compile (blocking Typst work off the async runtime).
+        let body = doc.body.clone();
+        let pdf = tokio::task::spawn_blocking(move || {
+            rotero_typeset::compile_markdown(&body, &opts)
+        })
+        .await
+        .map_err(err)?;
+
+        let pdf = match pdf {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                return json_result(&serde_json::json!({
+                    "success": false,
+                    "error": e.to_string(),
+                }));
+            }
+        };
+
+        // Write to <data>/documents/<id>.pdf and record the path.
+        let dir = self.db.documents_dir();
+        std::fs::create_dir_all(&dir).map_err(err)?;
+        let path = dir.join(format!("{}.pdf", params.document_id));
+        std::fs::write(&path, &pdf).map_err(err)?;
+
+        let path_str = path.to_string_lossy().to_string();
+        doc.last_pdf_path = Some(path_str.clone());
+        self.db.update_document(&doc).await.map_err(err)?;
+
+        json_result(&serde_json::json!({
+            "success": true,
+            "pdf_path": path_str,
+            "bytes": pdf.len(),
+        }))
+    }
+
+    #[tool(description = "List all authored documents in the library.")]
+    async fn list_documents(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        let docs = self.db.list_documents().await.map_err(err)?;
+        let out: Vec<_> = docs
+            .iter()
+            .map(|d| {
+                serde_json::json!({
+                    "document_id": d.id,
+                    "title": d.title,
+                    "kind": d.kind.as_str(),
+                    "collection_id": d.collection_id,
+                    "template": d.template,
+                    "csl_style": d.csl_style,
+                    "has_pdf": d.last_pdf_path.is_some(),
+                })
+            })
+            .collect();
+        json_result(&out)
+    }
+
+    #[tool(description = "Fetch a document's full content (Markdown body and metadata) by ID.")]
+    async fn get_document(
+        &self,
+        Parameters(params): Parameters<DocumentIdParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let doc = self
+            .db
+            .get_document(&params.document_id)
+            .await
+            .map_err(err)?
+            .ok_or_else(|| err(format!("No document with ID {}", params.document_id)))?;
+        json_result(&serde_json::json!({
+            "document_id": doc.id,
+            "title": doc.title,
+            "body": doc.body,
+            "kind": doc.kind.as_str(),
+            "collection_id": doc.collection_id,
+            "template": doc.template,
+            "csl_style": doc.csl_style,
+            "last_pdf_path": doc.last_pdf_path,
+        }))
+    }
+
+    #[tool(description = "Delete a document by its ID.")]
+    async fn delete_document(
+        &self,
+        Parameters(params): Parameters<DocumentIdParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        self.db
+            .delete_document(&params.document_id)
+            .await
+            .map_err(err)?;
+        json_result(&serde_json::json!({ "success": true }))
+    }
+
+    #[tool(
+        description = "List document templates available from Typst Universe (paper/report category). Pass the returned \"name:version\" as a document's template. \"article\" is the built-in default and always available. Requires network access."
+    )]
+    async fn list_document_templates(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        let templates = tokio::task::spawn_blocking(rotero_typeset::list_templates)
+            .await
+            .map_err(err)?
+            .map_err(err)?;
+        let out: Vec<_> = templates
+            .iter()
+            .filter(|t| {
+                t.categories
+                    .iter()
+                    .any(|c| c == "paper" || c == "report" || c == "thesis")
+            })
+            .map(|t| {
+                serde_json::json!({
+                    "template": format!("{}:{}", t.name, t.version),
+                    "name": t.name,
+                    "description": t.description,
+                    "categories": t.categories,
+                })
+            })
+            .collect();
+        json_result(&out)
+    }
+
+    #[tool(
         description = "Download a PDF from a URL and attach it to an existing paper in the library. Use this when you find an open access PDF link for a paper that doesn't have a PDF yet."
     )]
     async fn download_pdf(
@@ -849,6 +1044,36 @@ impl ServerHandler for RoteroMcp {
                             .with_required(true),
                     ]),
                 ),
+                Prompt::new(
+                    "summarize-collection",
+                    Some("Write a typeset summary document of all papers in a collection"),
+                    Some(vec![
+                        rmcp::model::PromptArgument::new("collection_id")
+                            .with_description("Collection to summarize")
+                            .with_required(true),
+                    ]),
+                ),
+                Prompt::new(
+                    "write-tutorial",
+                    Some("Write a typeset tutorial synthesizing a collection's papers"),
+                    Some(vec![
+                        rmcp::model::PromptArgument::new("collection_id")
+                            .with_description("Collection to base the tutorial on")
+                            .with_required(true),
+                    ]),
+                ),
+                Prompt::new(
+                    "deep-research",
+                    Some("Produce a typeset, cited research report grounded in your library"),
+                    Some(vec![
+                        rmcp::model::PromptArgument::new("question")
+                            .with_description("Research question")
+                            .with_required(true),
+                        rmcp::model::PromptArgument::new("collection_id")
+                            .with_description("Optional collection to ground the report in")
+                            .with_required(false),
+                    ]),
+                ),
             ],
         })
     }
@@ -948,11 +1173,134 @@ impl ServerHandler for RoteroMcp {
                 )])
                 .with_description("Literature review"))
             }
+            "summarize-collection" => {
+                let cid = require_arg(&request, "collection_id")?;
+                let papers_ctx = self.collection_papers_context(cid).await?;
+                let prompt = format!(
+                    "Write a clear, well-structured **summary document** of the papers in this \
+                     collection.\n\n{papers_ctx}\n\
+                     Steps:\n\
+                     1. Call `create_document` with kind \"summary\" and collection_id \"{cid}\".\n\
+                     2. Write the summary as Markdown into the document with `update_document`. \
+                     Organize by theme, not paper-by-paper. Cite papers in-text as [@citekey] \
+                     using the keys listed above.\n\
+                     3. Call `compile_document` to produce the typeset PDF. If it returns an \
+                     error, fix the Markdown and retry.\n"
+                );
+                Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+                    PromptMessageRole::User,
+                    prompt,
+                )])
+                .with_description("Summarize a collection"))
+            }
+            "write-tutorial" => {
+                let cid = require_arg(&request, "collection_id")?;
+                let papers_ctx = self.collection_papers_context(cid).await?;
+                let prompt = format!(
+                    "Write a **step-by-step tutorial** that teaches the key ideas synthesized \
+                     from this collection's papers, building from fundamentals to advanced \
+                     concepts.\n\n{papers_ctx}\n\
+                     Steps:\n\
+                     1. Call `create_document` with kind \"tutorial\" and collection_id \"{cid}\".\n\
+                     2. Write the tutorial as Markdown with `update_document`: motivation, \
+                     prerequisites, then progressive sections with worked intuition. Cite \
+                     sources in-text as [@citekey].\n\
+                     3. Call `compile_document` and fix any errors it reports.\n"
+                );
+                Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+                    PromptMessageRole::User,
+                    prompt,
+                )])
+                .with_description("Write a tutorial"))
+            }
+            "deep-research" => {
+                let question = require_arg(&request, "question")?;
+                let cid = request
+                    .arguments
+                    .as_ref()
+                    .and_then(|a| a.get("collection_id"))
+                    .and_then(|v| v.as_str());
+                let ctx = match cid {
+                    Some(c) => self.collection_papers_context(c).await?,
+                    None => "No collection was specified; use search_papers and \
+                             get_papers_in_collection to gather relevant library papers.\n"
+                        .to_string(),
+                };
+                let create_hint = match cid {
+                    Some(c) => format!("collection_id \"{c}\""),
+                    None => "no collection_id (or set one you find most relevant)".to_string(),
+                };
+                let prompt = format!(
+                    "Produce a rigorous, **cited research report** answering: \"{question}\".\n\n\
+                     {ctx}\n\
+                     Steps:\n\
+                     1. Call `create_document` with kind \"research\" and {create_hint}.\n\
+                     2. Research thoroughly using the library tools (and your knowledge). Write \
+                     the report as Markdown with `update_document`: abstract, background, \
+                     analysis, and conclusion. Support every claim with an in-text [@citekey] \
+                     citation to a library paper.\n\
+                     3. Call `compile_document` to typeset it; fix any reported errors.\n"
+                );
+                Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+                    PromptMessageRole::User,
+                    prompt,
+                )])
+                .with_description("Deep research report"))
+            }
             _ => Err(rmcp::ErrorData::invalid_params(
                 format!("Unknown prompt: {}", request.name),
                 None,
             )),
         }
+    }
+}
+
+/// Extract a required string prompt argument or return an invalid-params error.
+fn require_arg<'a>(
+    request: &'a GetPromptRequestParams,
+    name: &str,
+) -> Result<&'a str, rmcp::ErrorData> {
+    request
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get(name))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| rmcp::ErrorData::invalid_params(format!("Missing {name} argument"), None))
+}
+
+impl RoteroMcp {
+    /// Build a context block listing a collection's papers with citation keys,
+    /// so a prompt can instruct the agent to cite them as `[@citekey]`.
+    async fn collection_papers_context(
+        &self,
+        collection_id: &str,
+    ) -> Result<String, rmcp::ErrorData> {
+        let papers = self
+            .db
+            .papers_in_collection(collection_id)
+            .await
+            .map_err(err)?;
+        if papers.is_empty() {
+            return Ok("This collection has no papers.\n".to_string());
+        }
+        let mut out = String::from("Papers in this collection (cite with the given [@key]):\n\n");
+        for p in &papers {
+            let key = p
+                .citation
+                .citation_key
+                .clone()
+                .filter(|k| !k.is_empty())
+                .unwrap_or_else(|| rotero_bib::generate_cite_key(p));
+            out.push_str(&format!(
+                "- [@{}] {} ({}) — {}\n",
+                key,
+                p.title,
+                p.year.map(|y| y.to_string()).unwrap_or_default(),
+                p.authors.join(", "),
+            ));
+        }
+        out.push('\n');
+        Ok(out)
     }
 }
 

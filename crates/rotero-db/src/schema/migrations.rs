@@ -5,7 +5,7 @@ use turso::Connection;
 use super::tables::{CREATE_FTS_INDEX, CREATE_TABLES};
 
 /// Current schema version; incremented with each migration.
-pub(super) const SCHEMA_VERSION: i64 = 9;
+pub(super) const SCHEMA_VERSION: i64 = 10;
 
 /// Create the application tables and run pending migrations.
 ///
@@ -125,6 +125,27 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
     if current_version < 9 {
         let _ = conn
             .execute("ALTER TABLE papers ADD COLUMN pdf_url TEXT", ())
+            .await;
+    }
+
+    if current_version < 10 {
+        // Standalone authored documents (summaries, reports, papers).
+        let _ = conn
+            .execute(
+                "CREATE TABLE IF NOT EXISTS documents (
+                    id            TEXT PRIMARY KEY,
+                    title         TEXT NOT NULL DEFAULT '',
+                    body          TEXT NOT NULL DEFAULT '',
+                    collection_id TEXT REFERENCES collections(id) ON DELETE SET NULL,
+                    template      TEXT NOT NULL DEFAULT 'article',
+                    csl_style     TEXT NOT NULL DEFAULT 'apa',
+                    kind          TEXT NOT NULL DEFAULT 'summary',
+                    last_pdf_path TEXT,
+                    created_at    TEXT NOT NULL,
+                    modified_at   TEXT NOT NULL
+                )",
+                (),
+            )
             .await;
     }
 

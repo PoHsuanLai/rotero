@@ -3,7 +3,9 @@ use dioxus::prelude::*;
 use super::super::chat_panel::ChatToggleButton;
 use super::super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use crate::app::RenderChannel;
-use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager, TabId};
+use crate::state::app_state::{
+    DocumentTabManager, LibraryState, LibraryView, PdfTabManager, TabId,
+};
 
 #[component]
 pub fn PdfTabBar() -> Element {
@@ -13,6 +15,11 @@ pub fn PdfTabBar() -> Element {
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
 
+    // A PDF tab is "active" only when the PDF viewer is the current view; a
+    // document tab is active only when its document is the current view.
+    let current_view = lib_state.read().view.clone();
+    let pdf_is_active_view = matches!(current_view, LibraryView::PdfViewer);
+
     let mgr = tabs.read();
     let tab_info: Vec<(TabId, String, bool, Option<String>)> = mgr
         .tabs
@@ -21,7 +28,7 @@ pub fn PdfTabBar() -> Element {
             (
                 t.id,
                 t.title.clone(),
-                mgr.active_tab_id == Some(t.id),
+                pdf_is_active_view && mgr.active_tab_id == Some(t.id),
                 t.paper_id.clone(),
             )
         })
@@ -55,6 +62,9 @@ pub fn PdfTabBar() -> Element {
                             },
                             onclick: move |_| {
                                 if is_active { return; }
+
+                                // Return to the PDF viewer (we may be on a doc tab).
+                                lib_state.with_mut(|s| s.view = LibraryView::PdfViewer);
 
                                 let old_tab_id = tabs.read().active_tab_id;
                                 let _ = document::eval(
@@ -114,12 +124,17 @@ pub fn PdfTabBar() -> Element {
                                 class: "pdf-tab-close",
                                 onclick: move |evt| {
                                     evt.stop_propagation();
+                                    // Whether the PDF viewer is what we're currently looking at.
+                                    let viewing_pdf = matches!(lib_state.read().view, LibraryView::PdfViewer);
                                     tabs.with_mut(|m| m.close_tab(tab_id));
                                     if tabs.read().tabs.is_empty() {
-                                        lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
+                                        // Only leave the viewer if we were in it (a doc may be open).
+                                        if viewing_pdf {
+                                            lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
+                                        }
                                         // No PDFs open — free the engine's cached file bytes.
                                         let _ = render_ch.sender().send(crate::state::commands::RenderRequest::ClearCache);
-                                    } else {
+                                    } else if viewing_pdf {
                                         let needs = tabs.read().active_tab().map(|t| t.needs_render()).unwrap_or(false);
                                         if needs {
                                             let new_id = tabs.read().active_tab_id.unwrap();
@@ -138,6 +153,8 @@ pub fn PdfTabBar() -> Element {
                     }
                 }
             }
+
+            DocumentTabs {}
 
             div { style: "flex: 1;" }
             div { style: "padding: 4px 8px 4px 0; display: flex; align-items: center;",
@@ -161,9 +178,12 @@ pub fn PdfTabBar() -> Element {
                                 label: "Close".to_string(),
                                 icon: Some("bi-x-lg".to_string()),
                                 on_click: move |_| {
+                                    let viewing_pdf = matches!(lib_state.read().view, LibraryView::PdfViewer);
                                     tabs.with_mut(|m| m.close_tab(ctx_tab_id));
                                     if tabs.read().tabs.is_empty() {
-                                        lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
+                                        if viewing_pdf {
+                                            lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
+                                        }
                                         let _ = render_ch.sender().send(crate::state::commands::RenderRequest::ClearCache);
                                     }
                                     tab_ctx.set(None);
@@ -212,6 +232,74 @@ pub fn PdfTabBar() -> Element {
                                     },
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Renders the open-document tabs inline in the same bar as the PDF tabs. A
+/// document tab is highlighted when its document is the current view; clicking
+/// switches to it, closing removes it and reroutes the view.
+#[component]
+fn DocumentTabs() -> Element {
+    let mut doc_tabs = use_context::<Signal<DocumentTabManager>>();
+    let mut lib_state = use_context::<Signal<LibraryState>>();
+
+    let active_doc = match lib_state.read().view.clone() {
+        LibraryView::Document(id) => Some(id),
+        _ => None,
+    };
+
+    let info: Vec<(TabId, String, String, bool)> = doc_tabs
+        .read()
+        .tabs
+        .iter()
+        .map(|t| {
+            (
+                t.id,
+                t.doc_id.clone(),
+                t.title.clone(),
+                active_doc.as_deref() == Some(t.doc_id.as_str()),
+            )
+        })
+        .collect();
+
+    rsx! {
+        for (tab_id, doc_id, title, is_active) in info {
+            {
+                let tab_class = if is_active { "pdf-tab pdf-tab--doc pdf-tab--active" } else { "pdf-tab pdf-tab--doc" };
+                let display_title = crate::ui::truncate_text(&title, 30);
+                let did_click = doc_id.clone();
+                rsx! {
+                    div {
+                        key: "doctab-{tab_id}",
+                        class: "{tab_class}",
+                        onclick: move |_| {
+                            if is_active { return; }
+                            doc_tabs.with_mut(|m| m.switch_to(tab_id));
+                            let id = did_click.clone();
+                            lib_state.with_mut(|s| s.view = LibraryView::Document(id));
+                        },
+                        i { class: "bi bi-pencil-square pdf-tab-icon" }
+                        span { class: "pdf-tab-title", "{display_title}" }
+                        button {
+                            class: "pdf-tab-close",
+                            onclick: move |evt| {
+                                evt.stop_propagation();
+                                let was_active = is_active;
+                                let now = doc_tabs.with_mut(|m| m.close_tab(tab_id));
+                                if was_active {
+                                    // Route to the next document tab, or back to the list.
+                                    match now {
+                                        Some(next_doc) => lib_state.with_mut(|s| s.view = LibraryView::Document(next_doc)),
+                                        None => lib_state.with_mut(|s| s.view = LibraryView::Documents),
+                                    }
+                                }
+                            },
+                            "\u{00d7}"
                         }
                     }
                 }

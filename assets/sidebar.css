@@ -4,7 +4,9 @@
    ==================================== */
 
 .sidebar {
+  position: relative;
   width: 240px;
+  flex-shrink: 0;
   background: var(--bg-sidebar);
   padding: var(--space-4) var(--space-3);
   overflow-y: auto;
@@ -13,6 +15,22 @@
   border-right: 1px solid var(--border);
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* Draggable strip on the sidebar's right edge to resize its width. */
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  transition: background var(--transition-fast);
+}
+.sidebar-resize-handle:hover {
+  background: var(--accent);
+  opacity: 0.4;
 }
 
 /* Labels aren't selectable, but inline text fields (e.g. new-collection,
