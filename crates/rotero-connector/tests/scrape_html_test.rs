@@ -15,7 +15,6 @@ fn test_state() -> Arc<ConnectorState> {
         on_get_tags: None,
         on_search_papers: None,
         on_get_papers_by_ids: None,
-        translation_server: tokio::sync::RwLock::new(None),
         translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),
     })
 }

@@ -133,14 +133,14 @@ pub struct ScrapeResult {
     pub abstract_text: Option<String>,
 }
 
-/// Handler for `POST /api/scrape`. Tries the translation server first,
-/// then falls back to HTML meta-tag scraping.
+/// Handler for `POST /api/scrape`. Runs the in-process translators, then falls
+/// back to a generic HTML meta-tag scrape.
 pub async fn scrape(
     State(state): State<Arc<ConnectorState>>,
     Json(req): Json<ScrapeRequest>,
 ) -> Json<ScrapeResponse> {
-    // Tier 1: in-process translators (fast, no Node subprocess). Prefer the
-    // extension-supplied HTML (real, authenticated page) over a server re-fetch.
+    // Tier 1: in-process translators (the corpus JS engine + Rust hubs). Prefer
+    // the extension-supplied HTML (real, authenticated page) over a re-fetch.
     let tier1 = match req.html.as_deref().filter(|h| !h.trim().is_empty()) {
         Some(html) => state.translator_registry.translate_html(&req.url, html).await,
         None => state.translator_registry.translate_web(&req.url).await,
@@ -156,42 +156,13 @@ pub async fn scrape(
         });
     }
 
-    // Tier 2: Zotero Node translation server (broad coverage for the long tail).
-    {
-        let ts_guard = state.translation_server.read().await;
-        if let Some(ref ts) = *ts_guard {
-            match ts.translate_web(&req.url).await {
-                Ok(items) => {
-                    if let Some(result) = first_usable_result(&items) {
-                        crate::telemetry::record(crate::telemetry::Tier::Node, &req.url);
-                        return Json(ScrapeResponse {
-                            success: true,
-                            metadata: Some(result),
-                            error: None,
-                        });
-                    }
-                    tracing::debug!(
-                        "Translation server returned no usable results for {}, falling back",
-                        req.url
-                    );
-                }
-                Err(e) => {
-                    tracing::debug!(
-                        "Translation server error for {}: {e}, falling back",
-                        req.url
-                    );
-                }
-            }
-        }
-    }
-
-    // Tier 3: generic meta-tag scraper (never structured-fails). Reuse the
+    // Tier 2: generic meta-tag scraper (never structured-fails). Reuse the
     // extension HTML when present, else fetch.
-    let tier3 = match req.html.as_deref().filter(|h| !h.trim().is_empty()) {
+    let fallback = match req.html.as_deref().filter(|h| !h.trim().is_empty()) {
         Some(html) => Ok(super::scrape::scrape_html(&req.url, html)),
         None => super::scrape::scrape_url(&req.url).await,
     };
-    match tier3 {
+    match fallback {
         Ok(p) => {
             crate::telemetry::record(crate::telemetry::Tier::Scrape, &req.url);
             Json(ScrapeResponse {

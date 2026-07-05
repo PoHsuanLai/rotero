@@ -22,7 +22,6 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
 
     if config.connector.connector_enabled {
         let port = config.connector.connector_port;
-        let use_node_ts = config.connector.use_node_translation_server;
         let lib_path = config.effective_library_path();
         let connector_tx = connector_tx.clone();
         std::thread::spawn(move || {
@@ -176,43 +175,8 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                             })
                         })
                     })),
-                    translation_server: tokio::sync::RwLock::new(None),
                     translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),
                 });
-
-                // The Node translation server is opt-in. In-process Rust
-                // translators cover the common case; only start Node (which
-                // clones a repo + runs npm install on first use) when the user
-                // has explicitly enabled it as a fallback for uncovered sites.
-                if use_node_ts {
-                    let state_clone = state.clone();
-                    tokio::spawn(async move {
-                        let result: Result<_, String> = (|| {
-                            let node_bin = crate::agent::node::find_or_install_node()?;
-                            let npm_bin = crate::agent::node::find_npm()?;
-                            Ok((node_bin, npm_bin))
-                        })();
-                        let (node_bin, npm_bin) = match result {
-                            Ok(bins) => bins,
-                            Err(e) => {
-                                tracing::warn!("Cannot start translation server: {e}");
-                                return;
-                            }
-                        };
-                        let ts = rotero_translate::TranslationServer::new(1969, node_bin, npm_bin);
-                        match ts.ensure_running().await {
-                            Ok(()) => {
-                                tracing::info!("Zotero translation server started");
-                                *state_clone.translation_server.write().await = Some(ts);
-                            }
-                            Err(e) => tracing::warn!("Failed to start translation server: {e}"),
-                        }
-                    });
-                } else {
-                    tracing::info!(
-                        "Node translation server disabled (using in-process Rust translators)"
-                    );
-                }
 
                 if let Err(e) = rotero_connector::start_server(state, port).await {
                     tracing::error!("Browser connector error: {e}");

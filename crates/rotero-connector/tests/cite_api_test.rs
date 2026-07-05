@@ -37,7 +37,6 @@ fn test_state() -> Arc<ConnectorState> {
                 })
                 .collect()
         })),
-        translation_server: tokio::sync::RwLock::new(None),
         translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),
     })
 }
