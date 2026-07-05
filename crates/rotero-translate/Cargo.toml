@@ -30,4 +30,12 @@ regex = { version = "1", optional = true }
 
 [features]
 default = []
-translator-engine = ["dep:boa_engine", "dep:skyscraper", "dep:ego-tree", "dep:regex"]
+# The engine's HTTP host functions (ZU.doGet/processDocuments) run synchronously
+# on a spawn_blocking thread, so they need reqwest's blocking client.
+translator-engine = [
+    "dep:boa_engine",
+    "dep:skyscraper",
+    "dep:ego-tree",
+    "dep:regex",
+    "reqwest/blocking",
+]

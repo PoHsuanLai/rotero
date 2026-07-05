@@ -73,6 +73,19 @@ impl ParsedDom {
             .map(|items| items.len())
             .unwrap_or(0)
     }
+
+    /// Attribute value of the `index`-th node matching `expr`, composed as
+    /// `expr/@attr`. Backs the `doc.evaluate(...).iterateNext().href` idiom.
+    pub fn xpath_node_attr(&self, expr: &str, index: usize, attr: &str) -> Option<String> {
+        let expr = format!("{expr}/@{attr}");
+        self.xpath_strings(&expr).into_iter().nth(index)
+    }
+
+    /// Text of the `index`-th node matching `expr`. Backs
+    /// `doc.evaluate(...).iterateNext().textContent`.
+    pub fn xpath_node_text(&self, expr: &str, index: usize) -> Option<String> {
+        self.xpath_strings(expr).into_iter().nth(index)
+    }
 }
 
 /// Extract a string value from a matched XPath item: the attribute value for

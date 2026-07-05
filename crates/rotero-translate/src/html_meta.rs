@@ -165,7 +165,10 @@ pub fn extract_zotero_item(html: &str) -> ZoteroItem {
         ],
     );
 
-    meta.authors = get_all_meta(
+    // Authors: take the first vocabulary that yields any. These are alternative
+    // namings of the *same* people; a page with both citation_author and
+    // dc.creator must not list everyone twice.
+    meta.authors = get_first_meta_group(
         &doc,
         &[
             ("name", "citation_author"),
@@ -365,20 +368,38 @@ fn get_meta(doc: &Html, attrs: &[(&str, &str)]) -> Option<String> {
 fn get_all_meta(doc: &Html, attrs: &[(&str, &str)]) -> Vec<String> {
     let mut results = Vec::new();
     for (attr, value) in attrs {
-        let selector_str = format!(r#"meta[{attr}="{value}"]"#);
-        let Ok(sel) = Selector::parse(&selector_str) else {
-            continue;
-        };
-        for el in doc.select(&sel) {
-            if let Some(content) = el.value().attr("content") {
-                let trimmed = content.trim();
-                if !trimmed.is_empty() {
-                    results.push(trimmed.to_string());
-                }
-            }
-        }
+        results.extend(meta_content_values(doc, attr, value));
     }
     results
+}
+
+/// Like [`get_all_meta`] but returns only the values of the *first* attribute
+/// variant that yields any — for fields where the variants are alternative
+/// vocabularies naming the *same* entities (e.g. authors as both
+/// `citation_author` and `dc.creator`), so a page carrying both doesn't double
+/// them.
+fn get_first_meta_group(doc: &Html, attrs: &[(&str, &str)]) -> Vec<String> {
+    for (attr, value) in attrs {
+        let values = meta_content_values(doc, attr, value);
+        if !values.is_empty() {
+            return values;
+        }
+    }
+    Vec::new()
+}
+
+/// All non-empty `content` values of `<meta [attr]="value">` tags.
+fn meta_content_values(doc: &Html, attr: &str, value: &str) -> Vec<String> {
+    let selector_str = format!(r#"meta[{attr}="{value}"]"#);
+    let Ok(sel) = Selector::parse(&selector_str) else {
+        return Vec::new();
+    };
+    doc.select(&sel)
+        .filter_map(|el| el.value().attr("content"))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 fn extract_year(s: &str) -> Option<i32> {

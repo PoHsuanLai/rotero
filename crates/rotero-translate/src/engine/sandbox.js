@@ -8,6 +8,25 @@
 // functions are used only where Rust must be involved (DOM/XPath, item output,
 // name-particle handling).
 
+// --- Polyfills for methods boa doesn't implement ---
+// boa (our JS engine) omits the legacy `String.prototype.substr`. Many upstream
+// translators (and a couple of ZU ports below) still use it, so provide a
+// spec-faithful implementation. Without this, `"...".substr(...)` throws
+// "TypeError: not a callable function" and aborts the whole translator run.
+if (typeof String.prototype.substr !== "function") {
+    String.prototype.substr = function (start, length) {
+        var str = String(this);
+        var size = str.length;
+        start = start === undefined ? 0 : Number(start);
+        if (isNaN(start)) start = 0;
+        if (start < 0) start = Math.max(size + start, 0);
+        var len = length === undefined ? Infinity : Number(length);
+        if (isNaN(len) || len < 0) len = 0;
+        var end = Math.min(start + len, size);
+        return start >= size || start >= end ? "" : str.slice(start, end);
+    };
+}
+
 var Zotero = {};
 
 // --- Item ---
@@ -37,6 +56,10 @@ Zotero.wait = function () {};
 Zotero.setProgress = function () {};
 Zotero.getOption = function () { return undefined; };
 Zotero.getHiddenPref = function () { return undefined; };
+// Multi-item selection isn't supported in this single-shot engine: return no
+// selection so the "multiple" path yields nothing (the single-article path,
+// which is what scraping a specific URL hits, doesn't call this).
+Zotero.selectItems = function (items, callback) { if (callback) callback(null); return null; };
 
 // --- loadTranslator delegation ---
 // A site translator delegates the actual extraction to a hub translator (most
@@ -63,7 +86,7 @@ Zotero.loadTranslator = function (type) {
         setTranslator: function (uuid) { self._uuid = String(uuid); },
         setDocument: function () {},
         setSearch: function () {},
-        setString: function () {},
+        setString: function (s) { self._string = String(s == null ? "" : s); },
         setHandler: function (name, fn) { handlers[name] = fn; },
         translate: function () { self._run(); },
         // Hand back a translator-shaped object whose detectWeb/doWeb run the
@@ -80,8 +103,12 @@ Zotero.loadTranslator = function (type) {
             var items = [];
             if (type === "web") {
                 try { items = JSON.parse(__loadTranslator(self._uuid)); } catch (e) { items = []; }
+            } else if (type === "import") {
+                // A site translator hands us a fetched RIS/BibTeX string via
+                // setString and drives its import translator; parse it host-side.
+                try { items = JSON.parse(__loadImportTranslator(self._uuid, self._string || "")); } catch (e) { items = []; }
             }
-            // else: search/import/export delegation not bridged yet → no items.
+            // else: search/export delegation not bridged yet → no items.
             for (var i = 0; i < items.length; i++) {
                 var item = __reviveItem(items[i]);
                 if (handlers.itemDone) {
@@ -90,6 +117,10 @@ Zotero.loadTranslator = function (type) {
                     item.complete();
                 }
             }
+            // If a delegated translator produced nothing, a caller that guards
+            // with an "error" handler (e.g. Nature's scrapeRIS) expects it to
+            // fire so its continuation still runs. Fire it once, then done.
+            if (!items.length && handlers.error) handlers.error();
             if (handlers.done) handlers.done();
         }
     };
@@ -105,6 +136,9 @@ function __reviveItem(obj) {
     }
     return item;
 }
+
+// `Z` is the conventional upstream alias for `Zotero`.
+var Z = Zotero;
 
 // --- Utilities (ZU) ---
 var ZU = {};
@@ -133,9 +167,34 @@ function __wrapNode(handle) {
     Object.defineProperty(n, "textContent", { get: function () { return __nodeText(handle); } });
     Object.defineProperty(n, "innerText", { get: function () { return __nodeText(handle); } });
     n.getAttribute = function (name) { var v = __nodeAttr(handle, String(name)); return v === "" ? null : v; };
+    // Live DOM elements expose an `.href` (resolved absolute) on <a>/<link>; many
+    // translators read it directly (e.g. `node.href`). Mirror that by resolving
+    // the raw href attribute against the page URL.
+    Object.defineProperty(n, "href", { get: function () {
+        var raw = __nodeAttr(handle, "href");
+        return raw === "" ? "" : __resolveUrl(raw);
+    } });
     n.querySelector = function (sel) { return __querySelector(handle, sel); };
     n.querySelectorAll = function (sel) { return __querySelectorAll(handle, sel); };
     return n;
+}
+// Resolve a possibly-relative URL against the current page URL. Falls back to
+// the raw value if resolution isn't possible.
+function __resolveUrl(raw) {
+    if (raw == null || raw === "") return raw || "";
+    var s = String(raw);
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(s) || s.indexOf("//") === 0) return s;
+    var base = (doc && doc.location && doc.location.href) || "";
+    if (!base) return s;
+    try {
+        if (s.charAt(0) === "/") {
+            var m = base.match(/^([a-zA-Z][\w+.-]*:\/\/[^\/]+)/);
+            return m ? m[1] + s : s;
+        }
+        var cut = base.replace(/[?#].*$/, "");
+        cut = cut.replace(/\/[^\/]*$/, "/");
+        return cut + s;
+    } catch (e) { return s; }
 }
 function __querySelectorAll(scope, sel) {
     var handles = JSON.parse(__cssSelect(scope, String(sel)));
@@ -251,16 +310,126 @@ ZU.strToDate = function (s) {
 ZU.fieldIsValidForType = function () { return true; };
 ZU.itemTypeExists = function () { return true; };
 
-// The `doc` global. XPath host functions ignore the node arg (the engine holds
-// the real DOM), but CSS queries route through the shared node table with the
-// document root as scope 0. `location`/`title` are patched per-run by the engine
-// driver so `doc.location.href` / `doc.location.pathname` reflect the real URL.
-var doc = {
-    location: { href: "", pathname: "", search: "", hash: "" },
-    documentElement: {},
-    title: "",
-    querySelector: function (sel) { return __querySelector(0, sel); },
-    querySelectorAll: function (sel) { return __querySelectorAll(0, sel); },
-    getElementById: function (id) { return __querySelector(0, "#" + id); },
-    evaluate: undefined
+// --- HTTP (blocking, via host functions) ---
+// Translators fetch over the network with callback-style helpers. The host does
+// a synchronous request (we run on a blocking thread) and we invoke the callback
+// with the body. Errors invoke the optional failure/`done` callback with "".
+
+// ZU.doGet(urls, processor, done, responseCharset, headers)
+ZU.doGet = function (urls, processor, done) {
+    var list = Array.isArray(urls) ? urls : [urls];
+    for (var i = 0; i < list.length; i++) {
+        var r = JSON.parse(__httpGet(String(list[i])));
+        if (r.ok && processor) processor(r.body, {}, String(list[i]));
+        else if (!r.ok) __debug("doGet failed: " + (r.error || ""));
+    }
+    if (done) done();
 };
+
+// ZU.doPost(url, body, onDone, headers)
+ZU.doPost = function (url, body, onDone, headers) {
+    var ct = (headers && (headers["Content-Type"] || headers["content-type"])) || "";
+    var r = JSON.parse(__httpPost(String(url), String(body == null ? "" : body), String(ct)));
+    if (r.ok && onDone) onDone(r.body, {});
+    else if (!r.ok) { __debug("doPost failed: " + (r.error || "")); if (onDone) onDone("", {}); }
+};
+
+// ZU.processDocuments(urls, processor, done): fetch each URL, make it the active
+// document, and hand a `doc` to the processor. Restores the original document
+// afterward so the outer translator's later queries are unaffected.
+ZU.processDocuments = function (urls, processor, done) {
+    var list = Array.isArray(urls) ? urls : [urls];
+    var savedHtml = __currentHtml();
+    var savedUrl = doc.location.href;
+    for (var i = 0; i < list.length; i++) {
+        var u = String(list[i]);
+        var r = JSON.parse(__httpGet(u));
+        if (!r.ok) { __debug("processDocuments failed: " + (r.error || "")); continue; }
+        if (__setActiveDom(r.body, u) && processor) {
+            var fetched = __makeDoc(u);
+            processor(fetched, u);
+        }
+    }
+    // Restore the original active document.
+    if (savedHtml !== "") __setActiveDom(savedHtml, savedUrl);
+    if (done) done();
+};
+
+// Promise-based request API (arXiv-style: `await requestText(url)`). Backed by
+// the same blocking host GET; resolves synchronously so the engine's microtask
+// drain completes the await.
+function requestText(url) {
+    var r = JSON.parse(__httpGet(String(url)));
+    if (r.ok) return Promise.resolve(r.body);
+    return Promise.reject(new Error(r.error || "request failed"));
+}
+function requestJSON(url) {
+    return requestText(url).then(function (t) { return JSON.parse(t); });
+}
+function requestDocument(url) {
+    var r = JSON.parse(__httpGet(String(url)));
+    if (!r.ok) return Promise.reject(new Error(r.error || "request failed"));
+    __setActiveDom(r.body, String(url));
+    return Promise.resolve(__makeDoc(String(url)));
+}
+ZU.requestText = requestText;
+ZU.requestJSON = requestJSON;
+ZU.requestDocument = requestDocument;
+
+// XPathResult ordering constants translators pass to doc.evaluate (ignored; we
+// always iterate in document order).
+var XPathResult = { ANY_TYPE: 0, ORDERED_NODE_ITERATOR_TYPE: 5, FIRST_ORDERED_NODE_TYPE: 9 };
+
+// A node returned by doc.evaluate: exposes textContent and attribute reads for
+// the (expr, index) it represents. `.href` is the common one translators read.
+function __xpathNode(expr, index) {
+    var n = {};
+    Object.defineProperty(n, "textContent", { get: function () { return __xpathNodeText(expr, index); } });
+    Object.defineProperty(n, "innerText", { get: function () { return __xpathNodeText(expr, index); } });
+    Object.defineProperty(n, "href", { get: function () { return __xpathNodeAttr(expr, index, "href"); } });
+    n.getAttribute = function (name) { var v = __xpathNodeAttr(expr, index, String(name)); return v === "" ? null : v; };
+    return n;
+}
+
+// doc.evaluate(expr, context, resolver, type, result) → an XPathResult with
+// iterateNext()/singleNodeValue over the matched nodes. Context/resolver/type
+// are ignored (single-document engine, always document-order).
+function __evaluate(expr) {
+    var count = __xpathCount(String(expr));
+    var i = 0;
+    return {
+        iterateNext: function () { return i < count ? __xpathNode(String(expr), i++) : null; },
+        get singleNodeValue() { return count > 0 ? __xpathNode(String(expr), 0) : null; },
+        snapshotLength: count,
+        snapshotItem: function (k) { return k < count ? __xpathNode(String(expr), k) : null; }
+    };
+}
+
+// A `doc`-shaped handle over whatever is currently the active DOM. The main
+// `doc` and every fetched document share this surface. (The active DOM is
+// swapped by __setActiveDom before a fetched doc is built.)
+function __makeDoc(url) {
+    return {
+        location: { href: url || "", pathname: "", search: "", hash: "" },
+        documentElement: {},
+        title: "",
+        querySelector: function (sel) { return __querySelector(0, sel); },
+        querySelectorAll: function (sel) { return __querySelectorAll(0, sel); },
+        getElementById: function (id) { return __querySelector(0, "#" + id); },
+        evaluate: function (expr) { return __evaluate(expr); }
+    };
+}
+
+// A minimal DOMParser: parseFromString swaps the active DOM to the given markup
+// and returns a doc handle over it. Enough for translators that fetch XML/HTML
+// and immediately query it (e.g. arXiv's Atom feed).
+function DOMParser() {}
+DOMParser.prototype.parseFromString = function (str, contentType) {
+    __setActiveDom(String(str), "");
+    return __makeDoc("");
+};
+
+// The `doc` global. XPath/CSS host functions query the active DOM; location/
+// title are patched per-run by the engine driver so doc.location.pathname etc.
+// reflect the real URL.
+var doc = __makeDoc("");

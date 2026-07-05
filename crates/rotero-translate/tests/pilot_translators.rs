@@ -13,6 +13,13 @@ const THEORY_OF_COMPUTING: &str = include_str!("../vendor/translators/Theory of 
 
 const V009A013_HTML: &str = include_str!("fixtures/theory_of_computing_v009a013.html");
 
+const NATURE_PUBLISHING_GROUP: &str =
+    include_str!("../vendor/translators/Nature Publishing Group.js");
+
+/// A trimmed real Nature article page (meta tags only, no citation-export link
+/// so the RIS fetch is skipped and the test stays offline).
+const NATURE_HTML: &str = include_str!("fixtures/nature_nature12373.html");
+
 #[tokio::test]
 async fn theory_of_computing_extracts_article() {
     let t = JsTranslator::from_source(THEORY_OF_COMPUTING).expect("parse vendored translator");
@@ -39,6 +46,38 @@ async fn theory_of_computing_extracts_article() {
 
     let last_names: Vec<&str> = item.creators.iter().map(|c| c.last_name.as_str()).collect();
     assert_eq!(last_names, ["Bhaskara", "Desai", "Srinivasan"]);
+}
+
+/// The Nature translator delegates extraction to the Embedded Metadata hub via
+/// `Zotero.loadTranslator("web")` + `getTranslatorObject().doWeb()`, enriches the
+/// item, and (offline) skips its RIS-supplement fetch. Regression guard: this
+/// exercises the `String.prototype.substr` polyfill (hit by ZU.cleanISSN), the
+/// element `.href` accessor, and the loadTranslator delegation completing an item
+/// even when the RIS scraper produces nothing.
+#[tokio::test]
+async fn nature_extracts_article_via_embedded_metadata() {
+    let t = JsTranslator::from_source(NATURE_PUBLISHING_GROUP)
+        .expect("parse vendored Nature translator");
+
+    let url = "https://www.nature.com/articles/nature12373";
+    assert!(t.matches_url(url), "Nature target regex should match");
+
+    let ctx = TranslationContext {
+        url: url.to_string(),
+        content_type: Some("text/html".to_string()),
+        body: Arc::from(NATURE_HTML),
+    };
+
+    let items = t.translate(&ctx).await.expect("translate");
+    assert_eq!(items.len(), 1, "one journal article expected");
+    let item = &items[0];
+    assert_eq!(item.item_type, "journalArticle");
+    assert_eq!(item.title, "Nanometre-scale thermometry in a living cell");
+    assert!(!item.creators.is_empty(), "expected at least one author");
+    assert!(
+        !item.abstract_note.is_empty(),
+        "expected a non-empty abstract"
+    );
 }
 
 #[tokio::test]

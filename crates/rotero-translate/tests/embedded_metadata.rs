@@ -146,3 +146,20 @@ fn empty_page_yields_empty_title() {
     let item = extract_zotero_item("<html><head></head><body></body></html>");
     assert_eq!(item.title, "");
 }
+
+#[test]
+fn authors_are_not_doubled_across_vocabularies() {
+    // A page that lists the same authors under both citation_author and
+    // dc.creator must not count them twice (as e.g. Nature pages do).
+    let html = r#"<html><head>
+        <meta name="citation_title" content="Two Vocabularies">
+        <meta name="citation_author" content="Kucsko, G.">
+        <meta name="citation_author" content="Maurer, P. C.">
+        <meta name="dc.creator" content="Kucsko, G.">
+        <meta name="dc.creator" content="Maurer, P. C.">
+    </head><body></body></html>"#;
+    let item = extract_zotero_item(html);
+    assert_eq!(item.creators.len(), 2, "authors should come from one vocabulary, not both");
+    assert_eq!(item.creators[0].last_name, "Kucsko");
+    assert_eq!(item.creators[1].last_name, "Maurer");
+}

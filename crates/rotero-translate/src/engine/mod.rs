@@ -8,6 +8,7 @@
 //! `Zotero.loadTranslator("web")` bridge. Not yet implemented: the full `ZU`
 //! utility set, search/import delegation (needs async HTTP), and export IO.
 
+mod http;
 mod sandbox;
 
 use std::cell::RefCell;
@@ -91,8 +92,22 @@ pub fn run_web_translator(source: &str, html: &str, url: &str) -> Result<Vec<Zot
             search = js_str_literal(&search),
             hash = js_str_literal(&hash),
         );
-        ctx.eval(Source::from_bytes(driver.as_bytes()))
-            .map_err(|e| format!("translator run error: {e}"))?;
+        if let Err(e) = ctx.eval(Source::from_bytes(driver.as_bytes())) {
+            return Err(format!("translator run error: {}", error_detail(&e, &mut ctx)));
+        }
+
+        // Drain the job queue so promises settle: `async doWeb` and
+        // `await requestText(...)` (as arXiv uses) only complete once their
+        // microtasks run. HTTP host functions are blocking, so this converges.
+        //
+        // A job error is non-fatal: a translator may run several async scrapers
+        // (e.g. Nature tries Embedded Metadata *and* an RIS fetch) and one path
+        // throwing must not discard items another path already emitted. Log and
+        // keep whatever reached the sink.
+        if let Err(e) = ctx.run_jobs() {
+            let detail = error_detail(&e, &mut ctx);
+            tracing::debug!("translator job error (keeping emitted items): {detail}");
+        }
         Ok::<(), String>(())
     })();
 
@@ -101,6 +116,25 @@ pub fn run_web_translator(source: &str, html: &str, url: &str) -> Result<Vec<Zot
     PAGE.with(|p| *p.borrow_mut() = Page::empty());
     result?;
     Ok(items)
+}
+
+/// Render a thrown JS error with its `message` and `stack` (if present) for
+/// diagnostics — boa's default `Display` gives only the type and message, which
+/// isn't enough to locate a failure inside a large translator.
+fn error_detail(err: &boa_engine::JsError, ctx: &mut Context) -> String {
+    let opaque = err.to_opaque(ctx);
+    let read = |key: &str, ctx: &mut Context| -> Option<String> {
+        opaque
+            .as_object()
+            .and_then(|o| o.get(js_string!(key), ctx).ok())
+            .filter(|v| !v.is_undefined() && !v.is_null())
+            .and_then(|v| v.to_string(ctx).ok())
+            .map(|s| s.to_std_string_escaped())
+    };
+    match read("stack", ctx) {
+        Some(stack) if !stack.is_empty() => format!("{err} | stack: {stack}"),
+        _ => err.to_string(),
+    }
 }
 
 /// Run a built-in hub translator against the current page for `loadTranslator`
@@ -132,6 +166,40 @@ fn delegate_builtin(uuid: &str) -> String {
         }),
         _ => {
             tracing::debug!("loadTranslator: no in-process bridge for {uuid}");
+            Vec::new()
+        }
+    };
+    serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Run a built-in *import* translator over a string for `loadTranslator('import')`
+/// delegation (e.g. a site translator that fetches an RIS/BibTeX citation and
+/// replays it through an import translator's `itemDone`). Returns the parsed
+/// items as a JSON array, or `[]` if the target UUID has no in-process bridge.
+fn delegate_import(uuid: &str, input: &str) -> String {
+    // RIS — the dominant import delegation target (Nature and many others fetch
+    // an RIS export and hand it to this translator).
+    const RIS: &str = "32d59d2d-b65a-4da4-b0a3-bdd3cfb979e7";
+    // BibTeX.
+    const BIBTEX: &str = "9cb70025-a888-4a29-a210-93ec52da40d4";
+
+    let papers = match uuid {
+        RIS => rotero_bib::import_ris::import_ris(input),
+        BIBTEX => rotero_bib::import_bibtex::import_bibtex(input)
+            .map(|imported| imported.into_iter().map(|p| p.paper).collect::<Vec<_>>()),
+        _ => {
+            tracing::debug!("loadTranslator(import): no in-process bridge for {uuid}");
+            Ok(Vec::new())
+        }
+    };
+    let items: Vec<ZoteroItem> = match papers {
+        Ok(papers) => papers
+            .into_iter()
+            .map(ZoteroItem::from_paper)
+            .filter(|it| !it.title.is_empty())
+            .collect(),
+        Err(e) => {
+            tracing::debug!("loadTranslator(import) parse failed: {e}");
             Vec::new()
         }
     };
@@ -195,6 +263,52 @@ fn register_host_functions(ctx: &mut Context) -> Result<(), String> {
     });
     ctx.register_global_callable(js_string!("__xpathAll"), 1, xpath_all)
         .map_err(|e| format!("register __xpathAll: {e}"))?;
+
+    // __xpathCount(expr): number of nodes matching an XPath (for doc.evaluate
+    // iteration bounds).
+    let xpath_count = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let expr = arg_string(args, 0, ctx)?;
+        let n = DOM.with(|d| {
+            d.borrow()
+                .as_ref()
+                .map(|dom| dom.xpath_count(&expr))
+                .unwrap_or(0)
+        });
+        Ok(JsValue::from(n as i32))
+    });
+    ctx.register_global_callable(js_string!("__xpathCount"), 1, xpath_count)
+        .map_err(|e| format!("register __xpathCount: {e}"))?;
+
+    // __xpathNodeAttr(expr, index, attr): attribute of the index-th XPath match.
+    let xpath_node_attr = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let expr = arg_string(args, 0, ctx)?;
+        let index = arg_usize(args, 1, ctx)?;
+        let attr = arg_string(args, 2, ctx)?;
+        let out = DOM.with(|d| {
+            d.borrow()
+                .as_ref()
+                .and_then(|dom| dom.xpath_node_attr(&expr, index, &attr))
+                .unwrap_or_default()
+        });
+        Ok(JsValue::from(js_string!(out)))
+    });
+    ctx.register_global_callable(js_string!("__xpathNodeAttr"), 3, xpath_node_attr)
+        .map_err(|e| format!("register __xpathNodeAttr: {e}"))?;
+
+    // __xpathNodeText(expr, index): text of the index-th XPath match.
+    let xpath_node_text = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let expr = arg_string(args, 0, ctx)?;
+        let index = arg_usize(args, 1, ctx)?;
+        let out = DOM.with(|d| {
+            d.borrow()
+                .as_ref()
+                .and_then(|dom| dom.xpath_node_text(&expr, index))
+                .unwrap_or_default()
+        });
+        Ok(JsValue::from(js_string!(out)))
+    });
+    ctx.register_global_callable(js_string!("__xpathNodeText"), 2, xpath_node_text)
+        .map_err(|e| format!("register __xpathNodeText: {e}"))?;
 
     // --- CSS-selector host functions (doc.querySelector* / text() / attr()) ---
     // Handles are integer indices into the DOM's per-run node table; handle 0 is
@@ -290,10 +404,58 @@ fn register_host_functions(ctx: &mut Context) -> Result<(), String> {
     ctx.register_global_callable(js_string!("__loadTranslator"), 1, load_translator)
         .map_err(|e| format!("register __loadTranslator: {e}"))?;
 
+    // __loadImportTranslator(uuid, string): parse `string` with the built-in
+    // import translator for `uuid` (RIS/BibTeX) and return items as a JSON array
+    // (for Zotero.loadTranslator('import') + setString delegation). "[]" if
+    // there's no bridge.
+    let load_import = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let uuid = arg_string(args, 0, ctx)?;
+        let input = arg_string(args, 1, ctx)?;
+        let json = delegate_import(&uuid, &input);
+        Ok(JsValue::from(js_string!(json)))
+    });
+    ctx.register_global_callable(js_string!("__loadImportTranslator"), 2, load_import)
+        .map_err(|e| format!("register __loadImportTranslator: {e}"))?;
+
+    // __setActiveDom(html, url): re-point the active DOM/page at a freshly
+    // fetched document, so a processDocuments/requestDocument callback that
+    // queries `doc` sees the fetched page. Returns "1" on success, "" on parse
+    // failure. The caller restores the original DOM afterward via the same fn.
+    let set_active_dom = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let html = arg_string(args, 0, ctx)?;
+        let url = arg_string(args, 1, ctx)?;
+        let ok = match ParsedDom::parse(&html) {
+            Ok(dom) => {
+                DOM.with(|d| *d.borrow_mut() = Some(dom));
+                PAGE.with(|p| *p.borrow_mut() = Page { html, url });
+                true
+            }
+            Err(e) => {
+                tracing::debug!("__setActiveDom parse failed: {e}");
+                false
+            }
+        };
+        Ok(JsValue::from(js_string!(if ok { "1" } else { "" })))
+    });
+    ctx.register_global_callable(js_string!("__setActiveDom"), 2, set_active_dom)
+        .map_err(|e| format!("register __setActiveDom: {e}"))?;
+
+    // __currentHtml(): the active page's HTML, so processDocuments can save and
+    // restore the original document around fetched ones.
+    let current_html = NativeFunction::from_copy_closure(|_this, _args, _ctx| {
+        let html = PAGE.with(|p| p.borrow().html.clone());
+        Ok(JsValue::from(js_string!(html)))
+    });
+    ctx.register_global_callable(js_string!("__currentHtml"), 0, current_html)
+        .map_err(|e| format!("register __currentHtml: {e}"))?;
+
     // __debug(msg): route translator debug output to tracing.
     let debug = NativeFunction::from_copy_closure(|_this, args, ctx| {
         if let Some(v) = args.first() {
             let s = v.to_string(ctx)?.to_std_string_escaped();
+            if std::env::var("ROTERO_ENGINE_DEBUG").is_ok() {
+                eprintln!("[engine] {s}");
+            }
             tracing::trace!("translator: {s}");
         }
         Ok(JsValue::undefined())
@@ -334,7 +496,50 @@ fn register_host_functions(ctx: &mut Context) -> Result<(), String> {
     ctx.register_global_callable(js_string!("__strToDate"), 1, str_to_date)
         .map_err(|e| format!("register __strToDate: {e}"))?;
 
+    // __httpGet(url): blocking GET. Returns a JSON { ok, body|error } so the JS
+    // shim can invoke the translator's success/failure callback appropriately.
+    let http_get = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let url = arg_string(args, 0, ctx)?;
+        Ok(JsValue::from(js_string!(http_result(http::get(&url)))))
+    });
+    ctx.register_global_callable(js_string!("__httpGet"), 1, http_get)
+        .map_err(|e| format!("register __httpGet: {e}"))?;
+
+    // __httpPost(url, body, contentType): blocking POST, same result shape.
+    let http_post = NativeFunction::from_copy_closure(|_this, args, ctx| {
+        let url = arg_string(args, 0, ctx)?;
+        let body = arg_string(args, 1, ctx)?;
+        let content_type = {
+            let c = arg_string(args, 2, ctx)?;
+            if c.is_empty() {
+                "application/x-www-form-urlencoded".to_string()
+            } else {
+                c
+            }
+        };
+        Ok(JsValue::from(js_string!(http_result(http::post(
+            &url,
+            &body,
+            &content_type
+        )))))
+    });
+    ctx.register_global_callable(js_string!("__httpPost"), 3, http_post)
+        .map_err(|e| format!("register __httpPost: {e}"))?;
+
     Ok(())
+}
+
+/// Serialize an HTTP host-function result to the `{ ok, body|error }` JSON the
+/// sandbox's ZU HTTP helpers consume.
+fn http_result(r: Result<String, String>) -> String {
+    let v = match r {
+        Ok(body) => serde_json::json!({ "ok": true, "body": body }),
+        Err(error) => {
+            tracing::debug!("engine http: {error}");
+            serde_json::json!({ "ok": false, "error": error })
+        }
+    };
+    v.to_string()
 }
 
 /// Read argument `i` as a Rust string (empty if absent).
