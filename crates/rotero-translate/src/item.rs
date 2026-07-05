@@ -128,7 +128,8 @@ impl<'de> Deserialize<'de> for ZoteroTag {
 }
 
 impl ZoteroItem {
-    /// Get the PDF download URL from attachments (populated by patched translation-server).
+    /// The first PDF attachment's download URL, if any. Engine-produced items
+    /// have relative URLs resolved against the page URL before this is read.
     pub fn pdf_url(&self) -> Option<String> {
         for att in &self.attachments {
             if att.mime_type == "application/pdf" && !att.url.is_empty() {

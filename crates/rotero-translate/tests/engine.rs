@@ -46,6 +46,63 @@ fn runs_meta_translator_end_to_end() {
     assert_eq!(item.creators[0].creator_type, "author");
 }
 
+/// A translator that emits a relative PDF attachment URL and a relative item
+/// URL. The engine must resolve both against the page URL so downstream
+/// consumers (the Find-PDF download) get fetchable absolute URLs.
+const RELATIVE_URL_TRANSLATOR: &str = r#"
+function detectWeb(doc, url) { return "journalArticle"; }
+function doWeb(doc, url) {
+    var item = new Zotero.Item("journalArticle");
+    item.title = "Relative Links";
+    item.url = "../abs/123";
+    item.attachments.push({ title: "Full Text PDF", url: "paper.pdf", mimeType: "application/pdf" });
+    item.complete();
+}
+"#;
+
+#[test]
+fn relative_attachment_urls_are_resolved_against_the_page() {
+    let items = run_web_translator(
+        RELATIVE_URL_TRANSLATOR,
+        "<html><body></body></html>",
+        "https://example.org/journal/pdf/123",
+    )
+    .expect("run");
+    assert_eq!(items.len(), 1);
+    let item = &items[0];
+    assert_eq!(
+        item.pdf_url().as_deref(),
+        Some("https://example.org/journal/pdf/paper.pdf"),
+        "relative PDF url should resolve against the page"
+    );
+    assert_eq!(item.url, "https://example.org/journal/abs/123");
+}
+
+/// Absolute attachment URLs must pass through unchanged.
+const ABSOLUTE_URL_TRANSLATOR: &str = r#"
+function detectWeb(doc, url) { return "preprint"; }
+function doWeb(doc, url) {
+    var item = new Zotero.Item("preprint");
+    item.title = "Absolute Links";
+    item.attachments.push({ title: "Preprint PDF", url: "https://arxiv.org/pdf/2201.00001", mimeType: "application/pdf" });
+    item.complete();
+}
+"#;
+
+#[test]
+fn absolute_attachment_urls_pass_through() {
+    let items = run_web_translator(
+        ABSOLUTE_URL_TRANSLATOR,
+        "<html><body></body></html>",
+        "https://arxiv.org/abs/2201.00001",
+    )
+    .expect("run");
+    assert_eq!(
+        items[0].pdf_url().as_deref(),
+        Some("https://arxiv.org/pdf/2201.00001")
+    );
+}
+
 #[test]
 fn detect_web_gates_do_web() {
     // Page without citation_title → detectWeb returns false → no items.

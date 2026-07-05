@@ -217,7 +217,15 @@ fn register_host_functions(ctx: &mut Context) -> Result<(), String> {
             .to_string(ctx)?
             .to_std_string_escaped();
         match serde_json::from_str::<ZoteroItem>(&json) {
-            Ok(item) => SINK.with(|s| s.borrow_mut().push(item)),
+            Ok(mut item) => {
+                // Translators often emit relative attachment URLs (e.g.
+                // "paper.pdf"); resolve them against the page URL so downstream
+                // consumers get a fetchable absolute URL. Real Zotero resolves
+                // attachment URLs against the document — this mirrors that.
+                let base = PAGE.with(|p| p.borrow().url.clone());
+                resolve_item_urls(&mut item, &base);
+                SINK.with(|s| s.borrow_mut().push(item));
+            }
             Err(e) => tracing::debug!("engine: failed to parse emitted item: {e}"),
         }
         Ok(JsValue::undefined())
@@ -584,4 +592,29 @@ fn split_url(url: &str) -> (String, String, String) {
 /// Render a Rust string as a JS string literal (JSON-encoding handles escaping).
 fn js_str_literal(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string())
+}
+
+/// Resolve an item's own URL and its attachment URLs against the page `base`,
+/// turning translator-emitted relative URLs (e.g. `paper.pdf`) into absolute
+/// ones. A `base` that doesn't parse, or already-absolute URLs, leave things
+/// unchanged.
+fn resolve_item_urls(item: &mut ZoteroItem, base: &str) {
+    let Ok(base_url) = reqwest::Url::parse(base) else {
+        return;
+    };
+    resolve_in_place(&mut item.url, &base_url);
+    for att in &mut item.attachments {
+        resolve_in_place(&mut att.url, &base_url);
+    }
+}
+
+/// Resolve `url` against `base` if it's relative; no-op for empty or already
+/// absolute URLs (`Url::join` returns the argument when it's absolute).
+fn resolve_in_place(url: &mut String, base: &reqwest::Url) {
+    if url.is_empty() {
+        return;
+    }
+    if let Ok(joined) = base.join(url) {
+        *url = joined.to_string();
+    }
 }
