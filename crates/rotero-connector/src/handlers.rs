@@ -100,6 +100,12 @@ pub async fn tags(State(state): State<Arc<ConnectorState>>) -> Json<TagsResponse
 #[derive(Debug, Deserialize)]
 pub struct ScrapeRequest {
     pub url: String,
+    /// The page's rendered HTML, captured by the browser extension in the user's
+    /// (possibly authenticated) tab. When present, the connector translates it
+    /// directly instead of re-fetching server-side — sidestepping publisher
+    /// anti-bot walls that would block a bare server fetch.
+    #[serde(default)]
+    pub html: Option<String>,
 }
 
 /// JSON response for `POST /api/scrape`.
@@ -133,8 +139,13 @@ pub async fn scrape(
     State(state): State<Arc<ConnectorState>>,
     Json(req): Json<ScrapeRequest>,
 ) -> Json<ScrapeResponse> {
-    // Tier 1: in-process translators (fast, no Node subprocess).
-    if let Some(items) = state.translator_registry.translate_web(&req.url).await
+    // Tier 1: in-process translators (fast, no Node subprocess). Prefer the
+    // extension-supplied HTML (real, authenticated page) over a server re-fetch.
+    let tier1 = match req.html.as_deref().filter(|h| !h.trim().is_empty()) {
+        Some(html) => state.translator_registry.translate_html(&req.url, html).await,
+        None => state.translator_registry.translate_web(&req.url).await,
+    };
+    if let Some(items) = tier1
         && let Some(result) = first_usable_result(&items)
     {
         crate::telemetry::record(crate::telemetry::Tier::Builtin, &req.url);
@@ -174,8 +185,13 @@ pub async fn scrape(
         }
     }
 
-    // Tier 3: generic meta-tag scraper (never structured-fails).
-    match super::scrape::scrape_url(&req.url).await {
+    // Tier 3: generic meta-tag scraper (never structured-fails). Reuse the
+    // extension HTML when present, else fetch.
+    let tier3 = match req.html.as_deref().filter(|h| !h.trim().is_empty()) {
+        Some(html) => Ok(super::scrape::scrape_html(&req.url, html)),
+        None => super::scrape::scrape_url(&req.url).await,
+    };
+    match tier3 {
         Ok(p) => {
             crate::telemetry::record(crate::telemetry::Tier::Scrape, &req.url);
             Json(ScrapeResponse {

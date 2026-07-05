@@ -42,3 +42,13 @@ pub async fn scrape_url(url: &str) -> Result<Paper, String> {
     paper.links.url = Some(final_url);
     Ok(paper)
 }
+
+/// Extract paper metadata from already-fetched HTML (e.g. the browser
+/// extension's captured page), without a network fetch.
+pub fn scrape_html(url: &str, html: &str) -> Paper {
+    let mut paper = rotero_translate::extract_from_html(html);
+    if paper.links.url.is_none() {
+        paper.links.url = Some(url.to_string());
+    }
+    paper
+}

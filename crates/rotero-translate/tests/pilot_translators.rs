@@ -113,3 +113,25 @@ async fn registry_dispatches_corpus_translator() {
         items.iter().map(|i| &i.title).collect::<Vec<_>>()
     );
 }
+
+/// translate_html dispatches caller-supplied HTML without any network fetch —
+/// the path the browser extension uses to hand the connector the real,
+/// authenticated page and sidestep publisher anti-bot walls.
+#[tokio::test]
+async fn translate_html_dispatches_without_fetch() {
+    use rotero_translate::translators::TranslatorRegistry;
+
+    let registry = TranslatorRegistry::with_builtins();
+    // A URL whose server-side fetch would be irrelevant here — only the passed
+    // HTML is used. Use the ToC fixture + a matching URL.
+    let items = registry
+        .translate_html("http://theoryofcomputing.org/articles/v009a013/", V009A013_HTML)
+        .await
+        .expect("translate_html should dispatch from the supplied HTML");
+    assert!(
+        items
+            .iter()
+            .any(|i| i.title == "Optimal Hitting Sets for Combinatorial Shapes"),
+        "translate_html should extract from the given HTML"
+    );
+}

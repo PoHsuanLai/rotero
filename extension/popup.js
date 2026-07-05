@@ -125,7 +125,10 @@ async function loadMetadata() {
       const scrapeResp = await fetch(`${API}/api/scrape`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: pageMetadata.url }),
+        // Send the captured page HTML so the connector translates it directly
+        // (real authenticated DOM) rather than re-fetching and hitting anti-bot
+        // walls. Falls back to a server fetch if html is absent.
+        body: JSON.stringify({ url: pageMetadata.url, html: pageMetadata.html }),
       });
       if (scrapeResp.ok) {
         const scrapeData = await scrapeResp.json();
@@ -147,6 +150,10 @@ async function loadMetadata() {
       }
     } catch {}
   }
+
+  // The captured HTML was only needed for the scrape request above; drop it so
+  // it doesn't bloat the later /api/save body (which spreads pageMetadata).
+  if (pageMetadata) delete pageMetadata.html;
 
   // If title is still empty/generic, try to derive from URL
   if (pageMetadata && (!pageMetadata.title || pageMetadata.title === 'Untitled')) {
@@ -177,6 +184,13 @@ async function loadMetadata() {
 
 function extractMetadata() {
   const meta = { url: window.location.href };
+
+  // Capture the rendered page HTML so the connector can translate it directly
+  // instead of re-fetching server-side (which publisher anti-bot walls block).
+  // This runs in the page context, so it's the real, authenticated DOM.
+  try {
+    meta.html = document.documentElement.outerHTML;
+  } catch {}
 
   // Helper: get content of first matching meta tag
   const getMeta = (...selectors) => {

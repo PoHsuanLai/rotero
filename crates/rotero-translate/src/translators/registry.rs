@@ -46,6 +46,22 @@ impl TranslatorRegistry {
         self.translate_context(&ctx).await
     }
 
+    /// Translate a page whose HTML the caller already has (e.g. the browser
+    /// extension captured the rendered, authenticated DOM), skipping the network
+    /// fetch. This sidesteps publisher anti-bot walls that block a server-side
+    /// re-fetch: the extension sees the real page, so the connector does too.
+    pub async fn translate_html(&self, url: &str, html: &str) -> Option<Vec<ZoteroItem>> {
+        if !self.translators.iter().any(|t| t.matches_url(url)) {
+            return None;
+        }
+        let ctx = TranslationContext {
+            url: url.to_string(),
+            content_type: Some("text/html".to_string()),
+            body: std::sync::Arc::from(html),
+        };
+        self.translate_context(&ctx).await
+    }
+
     /// Dispatch an already-fetched page: run the highest-priority applicable
     /// translator, falling through on `NotApplicable`, error, or an unusable
     /// result. Returns `None` if none produced a usable item.
