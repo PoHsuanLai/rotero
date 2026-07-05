@@ -2,7 +2,8 @@
 
 use std::path::PathBuf;
 
-use crate::crr::{self, ChangeRow};
+use crate::crr::ChangeRow;
+use crate::Database;
 
 /// Simulates a sync endpoint by exchanging JSON change files in a shared directory.
 pub struct TestSyncEngine {
@@ -21,19 +22,19 @@ impl TestSyncEngine {
     }
 
     /// Export changes to a JSON file. Returns count exported.
-    pub async fn export_changes(&self, conn: &turso::Connection) -> usize {
+    pub async fn export_changes(&self, db: &Database) -> usize {
         let state_path = self.dir.join(format!("{}_state.json", self.site_hex()));
         let last_ver: i64 = std::fs::read_to_string(&state_path)
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(0);
 
-        let changes = crr::changes_since(conn, last_ver).await.unwrap();
+        let changes = db.crr().changes_since(last_ver).await.unwrap();
         if changes.is_empty() {
             return 0;
         }
 
-        let current_ver = crr::current_db_version(conn).await.unwrap();
+        let current_ver = db.crr().current_db_version().await.unwrap();
         let filename = format!(
             "{}_{:08}_{:08}.json",
             self.site_hex(),
@@ -49,7 +50,7 @@ impl TestSyncEngine {
     }
 
     /// Import changes from other devices' JSON files. Returns count applied.
-    pub async fn import_changes(&self, conn: &turso::Connection) -> usize {
+    pub async fn import_changes(&self, db: &Database) -> usize {
         let my_hex = self.site_hex();
         let mut total = 0;
 
@@ -71,7 +72,7 @@ impl TestSyncEngine {
         for path in entries {
             let data = std::fs::read(&path).unwrap();
             let changes: Vec<ChangeRow> = serde_json::from_slice(&data).unwrap();
-            let result = crr::apply_changes(conn, &changes).await.unwrap();
+            let result = db.crr().apply_changes(&changes).await.unwrap();
             total += result.applied;
         }
 

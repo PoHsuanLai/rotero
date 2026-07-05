@@ -44,7 +44,7 @@ pub fn CollectionContextMenu(
                                         let db = db.clone();
                                         let cid = cid.clone();
                                         spawn(async move {
-                                            if let Ok(()) = rotero_db::collections::rename_collection(db.conn(), &cid, &new_name).await {
+                                            if let Ok(()) = db.rename_collection(&cid, &new_name).await {
                                                 let cid2 = cid.clone();
                                                 lib_state.with_mut(|s| {
                                                     if let Some(c) = s.collections.iter_mut().find(|c| c.id.as_deref() == Some(cid2.as_str())) {
@@ -107,7 +107,7 @@ pub fn CollectionContextMenu(
                             let db = db.clone();
                             let cid = cid.clone();
                             spawn(async move {
-                                if let Ok(()) = rotero_db::collections::delete_collection(db.conn(), &cid).await {
+                                if let Ok(()) = db.delete_collection(&cid).await {
                                     let cid2 = cid.clone();
                                     lib_state.with_mut(|s| {
                                         s.collections.retain(|c| c.id.as_deref() != Some(cid2.as_str()));
@@ -174,7 +174,7 @@ pub fn SidebarTagContextMenu(
                                         let db = db.clone();
                                         let tid = tid.clone();
                                         spawn(async move {
-                                            if let Ok(()) = rotero_db::tags::rename_tag(db.conn(), &tid, &new_name).await {
+                                            if let Ok(()) = db.rename_tag(&tid, &new_name).await {
                                                 let tid2 = tid.clone();
                                                 lib_state.with_mut(|s| {
                                                     if let Some(t) = s.tags.iter_mut().find(|t| t.id.as_deref() == Some(tid2.as_str())) {
@@ -233,7 +233,7 @@ pub fn SidebarTagContextMenu(
                                                 let db = db.clone();
                                                 let tid = tid.clone();
                                                 spawn(async move {
-                                                    if let Ok(()) = rotero_db::tags::update_tag_color(db.conn(), &tid, &c).await {
+                                                    if let Ok(()) = db.update_tag_color(&tid, &c).await {
                                                         let tid2 = tid.clone();
                                                         lib_state.with_mut(|s| {
                                                             if let Some(t) = s.tags.iter_mut().find(|t| t.id.as_deref() == Some(tid2.as_str())) {
@@ -276,7 +276,7 @@ pub fn SidebarTagContextMenu(
                             let db = db.clone();
                             let tid = tid.clone();
                             spawn(async move {
-                                if let Ok(()) = rotero_db::tags::delete_tag(db.conn(), &tid).await {
+                                if let Ok(()) = db.delete_tag(&tid).await {
                                     let tid2 = tid.clone();
                                     lib_state.with_mut(|s| {
                                         s.tags.retain(|t| t.id.as_deref() != Some(tid2.as_str()));

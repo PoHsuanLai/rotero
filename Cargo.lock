@@ -6133,6 +6133,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "recrr"
+version = "0.1.0"
+source = "git+https://github.com/PoHsuanLai/recrr?rev=0bbd8dc2be60b785db1599ee1bfa1b9e104077bd#0bbd8dc2be60b785db1599ee1bfa1b9e104077bd"
+dependencies = [
+ "async-trait",
+ "base64",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "turso",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6467,10 +6481,12 @@ name = "rotero-db"
 version = "0.1.6"
 dependencies = [
  "chrono",
+ "recrr",
  "rotero-models",
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "turso",

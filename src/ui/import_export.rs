@@ -122,7 +122,7 @@ fn ImportButton() -> Element {
                                         let mut needs_oa = Vec::new();
 
                                         for (paper, source_pdf) in entries {
-                                            if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
+                                            if let Ok(id) = db.insert_paper(&paper).await {
                                                 let mut paper = paper;
                                                 paper.id = Some(id.clone());
 
@@ -135,7 +135,7 @@ fn ImportButton() -> Element {
                                                             paper.authors.first().map(|a| a.as_str()),
                                                             paper.year,
                                                         ) {
-                                                            let _ = rotero_db::papers::update_pdf_path(db.conn(), &id, &rel_path).await;
+                                                            let _ = db.update_pdf_path(&id, &rel_path).await;
                                                             paper.links.pdf_path = Some(rel_path);
                                                             pdfs_found += 1;
                                                         }
@@ -230,7 +230,7 @@ fn OaPromptDialog(papers: Vec<OaPending>) -> Element {
                                 if let Ok(rel_path) = crate::metadata::pdf_download::download_and_save_pdf(
                                     &db, &urls, &p.title, p.first_author.as_deref(), p.year,
                                 ).await {
-                                    let _ = rotero_db::papers::update_pdf_path(db.conn(), &p.id, &rel_path).await;
+                                    let _ = db.update_pdf_path(&p.id, &rel_path).await;
                                     let pid = p.id.clone();
                                     lib_state.with_mut(|s| {
                                         if let Some(paper) = s.papers.iter_mut().find(|paper| paper.id.as_deref() == Some(pid.as_str())) {

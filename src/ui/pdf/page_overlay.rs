@@ -440,7 +440,7 @@ pub(crate) fn PdfPageWithOverlay(
                                 };
                                 let db = db.clone();
                                 spawn(async move {
-                                    if let Ok(id) = rotero_db::annotations::insert_annotation(db.conn(), &ann).await {
+                                    if let Ok(id) = db.insert_annotation(&ann).await {
                                         let mut ann = ann;
                                         ann.id = Some(id);
                                         undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Create(ann.clone())));

@@ -43,14 +43,14 @@ fn download_pdf_menu_item(
                 spawn(async move {
                     let lib_path = db.data_dir().join("pdfs");
                     match crate::download_and_import_pdf(
-                        db.conn(),
+                        &db,
                         &lib_path,
                         &pid,
                         &paper_clone,
                         &pdf_url,
                     ).await {
                         Ok(()) => {
-                            crate::state::commands::refresh_papers(db.conn(), &mut lib_state).await;
+                            crate::state::commands::refresh_papers(&db, &mut lib_state).await;
                         }
                         Err(e) => {
                             tracing::error!("Download PDF failed: {e}");
@@ -238,7 +238,7 @@ pub fn PaperContextMenu(
                         };
                         drop(state);
                         for pid in &pids {
-                            let _ = rotero_db::papers::set_favorite(db.conn(), pid, new_val).await;
+                            let _ = db.set_favorite(pid, new_val).await;
                         }
                         lib_state.with_mut(|s| {
                             for pid in &pids {
@@ -267,7 +267,7 @@ pub fn PaperContextMenu(
                         };
                         drop(state);
                         for pid in &pids {
-                            let _ = rotero_db::papers::set_read(db.conn(), pid, new_val).await;
+                            let _ = db.set_read(pid, new_val).await;
                         }
                         lib_state.with_mut(|s| {
                             for pid in &pids {
@@ -328,9 +328,9 @@ pub fn PaperContextMenu(
                                 let cid = cid.clone();
                                 spawn(async move {
                                     for pid in &pids {
-                                        let _ = rotero_db::collections::remove_paper_from_collection(db.conn(), pid, &cid).await;
+                                        let _ = db.remove_paper_from_collection(pid, &cid).await;
                                     }
-                                    if let Ok(ids) = rotero_db::collections::list_paper_ids_in_subtree(db.conn(), &cid).await {
+                                    if let Ok(ids) = db.list_paper_ids_in_subtree(&cid).await {
                                         lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
                                     }
                                 });

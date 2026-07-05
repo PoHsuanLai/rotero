@@ -77,7 +77,7 @@ pub async fn reverse_action(
     match action {
         UndoAction::Create(ref ann) => {
             let ann_id = ann.id.clone().unwrap_or_default();
-            if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &ann_id).await {
+            if let Ok(()) = db.delete_annotation(&ann_id).await {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {
                         t.annotations
@@ -87,7 +87,7 @@ pub async fn reverse_action(
             }
         }
         UndoAction::Delete(ref ann) => {
-            if let Ok(id) = rotero_db::annotations::insert_annotation(db.conn(), ann).await {
+            if let Ok(id) = db.insert_annotation(ann).await {
                 let mut ann = ann.clone();
                 ann.id = Some(id.clone());
                 undo_stack.with_mut(|s| s.patch_last_redo_id(id));
@@ -103,7 +103,7 @@ pub async fn reverse_action(
         } => {
             let opt = old.as_deref();
             if let Ok(()) =
-                rotero_db::annotations::update_annotation_content(db.conn(), id, opt).await
+                db.update_annotation_content(id, opt).await
             {
                 let id = id.clone();
                 tabs.with_mut(|m| {
@@ -122,7 +122,7 @@ pub async fn reverse_action(
             ref id, ref old, ..
         } => {
             if let Ok(()) =
-                rotero_db::annotations::update_annotation_color(db.conn(), id, old).await
+                db.update_annotation_color(id, old).await
             {
                 let id = id.clone();
                 tabs.with_mut(|m| {
@@ -148,7 +148,7 @@ pub async fn forward_action(
 ) {
     match action {
         UndoAction::Create(ref ann) => {
-            if let Ok(id) = rotero_db::annotations::insert_annotation(db.conn(), ann).await {
+            if let Ok(id) = db.insert_annotation(ann).await {
                 let mut ann = ann.clone();
                 ann.id = Some(id.clone());
                 undo_stack.with_mut(|s| s.patch_last_undo_id(id));
@@ -161,7 +161,7 @@ pub async fn forward_action(
         }
         UndoAction::Delete(ref ann) => {
             let ann_id = ann.id.clone().unwrap_or_default();
-            if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &ann_id).await {
+            if let Ok(()) = db.delete_annotation(&ann_id).await {
                 tabs.with_mut(|m| {
                     if let Some(t) = m.active_tab_mut() {
                         t.annotations
@@ -175,7 +175,7 @@ pub async fn forward_action(
         } => {
             let opt = new.as_deref();
             if let Ok(()) =
-                rotero_db::annotations::update_annotation_content(db.conn(), id, opt).await
+                db.update_annotation_content(id, opt).await
             {
                 let id = id.clone();
                 tabs.with_mut(|m| {
@@ -194,7 +194,7 @@ pub async fn forward_action(
             ref id, ref new, ..
         } => {
             if let Ok(()) =
-                rotero_db::annotations::update_annotation_color(db.conn(), id, new).await
+                db.update_annotation_color(id, new).await
             {
                 let id = id.clone();
                 tabs.with_mut(|m| {

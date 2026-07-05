@@ -93,11 +93,11 @@ pub(crate) fn TagSection(
                                                     let tid = tid_drop.clone();
                                                     spawn(async move {
                                                         for pid in &pids {
-                                                            let _ = rotero_db::tags::add_tag_to_paper(db.conn(), pid, &tid).await;
+                                                            let _ = db.add_tag_to_paper(pid, &tid).await;
                                                         }
                                                         let current_view = lib_state.read().view.clone();
                                                         if current_view == LibraryView::Tag(tid.clone())
-                                                            && let Ok(ids) = rotero_db::tags::list_paper_ids_by_tag(db.conn(), &tid).await {
+                                                            && let Ok(ids) = db.list_paper_ids_by_tag(&tid).await {
                                                                 lib_state.with_mut(|s| s.filter.tag_paper_ids = Some(ids));
                                                             }
                                                     });

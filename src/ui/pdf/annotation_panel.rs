@@ -61,7 +61,7 @@ pub(crate) fn AnnotationPanel(tab_id: TabId) -> Element {
                                             let title = format!("Annotations from {}", paper_title);
                                             let mut note = rotero_models::Note::new(pid, title);
                                             note.body = body;
-                                            let _ = rotero_db::notes::insert_note(db.conn(), &note).await;
+                                            let _ = db.insert_note(&note).await;
                                         }
                                     });
                                 },
@@ -130,7 +130,7 @@ pub(crate) fn AnnotationPanel(tab_id: TabId) -> Element {
                                                 let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id.as_deref() == Some(aid.as_str())).cloned();
                                                 let aid2 = aid.clone();
                                                 spawn(async move {
-                                                    if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &aid).await {
+                                                    if let Ok(()) = db.delete_annotation(&aid).await {
                                                         if let Some(ann) = deleted_ann {
                                                             undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Delete(ann)));
                                                         }
@@ -157,7 +157,7 @@ pub(crate) fn AnnotationPanel(tab_id: TabId) -> Element {
                                                             let aid = aid_save.clone();
                                                             spawn(async move {
                                                                 let opt = if nc.is_empty() { None } else { Some(nc.as_str()) };
-                                                                if let Ok(()) = rotero_db::annotations::update_annotation_content(db.conn(), &aid, opt).await {
+                                                                if let Ok(()) = db.update_annotation_content(&aid, opt).await {
                                                                     let old = if old_content.is_empty() { None } else { Some(old_content) };
                                                                     let new = if new_content.is_empty() { None } else { Some(new_content.clone()) };
                                                                     let aid2 = aid.clone();
@@ -295,7 +295,7 @@ pub(crate) fn AnnotationContextMenu() -> Element {
                                         let db = db_swatch.clone();
                                         let aid = aid_swatch.clone();
                                         spawn(async move {
-                                            if let Ok(()) = rotero_db::annotations::update_annotation_color(db.conn(), &aid, &c).await {
+                                            if let Ok(()) = db.update_annotation_color(&aid, &c).await {
                                                 let aid2 = aid.clone();
                                                 undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::UpdateColor { id: aid2, old: old_c, new: c.clone() }));
                                                 let aid3 = aid.clone();
@@ -329,7 +329,7 @@ pub(crate) fn AnnotationContextMenu() -> Element {
                         let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id.as_deref() == Some(aid.as_str())).cloned();
                         let aid2 = aid.clone();
                         spawn(async move {
-                            if let Ok(()) = rotero_db::annotations::delete_annotation(db.conn(), &aid).await {
+                            if let Ok(()) = db.delete_annotation(&aid).await {
                                 if let Some(ann) = deleted_ann {
                                     undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Delete(ann)));
                                 }

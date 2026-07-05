@@ -128,7 +128,7 @@ pub fn PaperCard(
                         let new_val = !is_fav;
                         let pid = pid.clone();
                         spawn(async move {
-                            if let Ok(()) = rotero_db::papers::set_favorite(db.conn(), &pid, new_val).await {
+                            if let Ok(()) = db.set_favorite(&pid, new_val).await {
                                 let pid2 = pid.clone();
                                 lib_state.with_mut(|s| {
                                     if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {

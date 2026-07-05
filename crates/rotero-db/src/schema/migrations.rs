@@ -7,12 +7,14 @@ use super::tables::{CREATE_FTS_INDEX, CREATE_TABLES};
 /// Current schema version; incremented with each migration.
 pub(super) const SCHEMA_VERSION: i64 = 9;
 
-/// Create tables, run pending migrations, and initialize CRR metadata.
+/// Create the application tables and run pending migrations.
+///
+/// CRR metadata tables are created separately by [`crate::Database::open`] via
+/// the `recrr` store's `init()`.
 pub async fn initialize_db(conn: &Connection) -> Result<(), turso::Error> {
     conn.execute_batch(CREATE_TABLES).await?;
 
     run_migrations(conn).await?;
-    crate::crr::init_crr_tables(conn).await?;
 
     Ok(())
 }

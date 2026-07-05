@@ -23,8 +23,7 @@ pub fn SyncLoop() -> Element {
                     continue;
                 }
 
-                let conn = db.conn();
-                let site_id = match rotero_db::crr::site_id(conn).await {
+                let site_id = match db.crr().site_id().await {
                     Ok(id) => id,
                     Err(_) => continue,
                 };
@@ -38,10 +37,10 @@ pub fn SyncLoop() -> Element {
                             std::path::PathBuf::from(folder),
                             site_id,
                         );
-                        if let Err(e) = engine.export_changes(conn).await {
+                        if let Err(e) = engine.export_changes(&db).await {
                             tracing::warn!("File sync export failed: {e}");
                         }
-                        let imported = match engine.import_changes(conn).await {
+                        let imported = match engine.import_changes(&db).await {
                             Ok(n) => n,
                             Err(e) => {
                                 tracing::warn!("File sync import failed: {e}");
@@ -65,10 +64,10 @@ pub fn SyncLoop() -> Element {
                                 crate::sync::cloudkit_sync::CloudKitSyncEngine::new(site_id.clone())
                                     .expect("Failed to init CloudKit")
                             });
-                            if let Err(e) = engine.export_changes(conn).await {
+                            if let Err(e) = engine.export_changes(&db).await {
                                 tracing::warn!("CloudKit export failed: {e}");
                             }
-                            match engine.import_changes(conn).await {
+                            match engine.import_changes(&db).await {
                                 Ok(n) => n,
                                 Err(e) => {
                                     tracing::warn!("CloudKit import failed: {e}");
@@ -86,11 +85,11 @@ pub fn SyncLoop() -> Element {
 
                 if applied > 0 {
                     tracing::info!("Sync imported {applied} changes, refreshing library");
-                    crate::state::commands::refresh_papers(conn, &mut lib_state).await;
-                    if let Ok(collections) = rotero_db::collections::list_collections(conn).await {
+                    crate::state::commands::refresh_papers(&db, &mut lib_state).await;
+                    if let Ok(collections) = db.list_collections().await {
                         lib_state.with_mut(|s| s.collections = collections);
                     }
-                    if let Ok(tags) = rotero_db::tags::list_tags(conn).await {
+                    if let Ok(tags) = db.list_tags().await {
                         lib_state.with_mut(|s| s.tags = tags);
                     }
                 }

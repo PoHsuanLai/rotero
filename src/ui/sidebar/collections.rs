@@ -121,7 +121,7 @@ pub(crate) fn CollectionTree(
                                     let db = db_for_drop.clone();
                                     let target = cid_drop.clone();
                                     spawn(async move {
-                                        if let Ok(()) = rotero_db::collections::reparent_collection(db.conn(), &dragged_id, Some(&target)).await {
+                                        if let Ok(()) = db.reparent_collection(&dragged_id, Some(&target)).await {
                                             let did = dragged_id.clone();
                                             let target2 = target.clone();
                                             lib_state.with_mut(|s| {
@@ -138,11 +138,11 @@ pub(crate) fn CollectionTree(
                                 let target = cid_drop.clone();
                                 spawn(async move {
                                     for paper_id in &paper_ids {
-                                        let _ = rotero_db::collections::add_paper_to_collection(db.conn(), paper_id, &target).await;
+                                        let _ = db.add_paper_to_collection(paper_id, &target).await;
                                     }
                                     let current_view = lib_state.read().view.clone();
                                     if current_view == LibraryView::Collection(target.clone())
-                                        && let Ok(ids) = rotero_db::collections::list_paper_ids_in_subtree(db.conn(), &target).await {
+                                        && let Ok(ids) = db.list_paper_ids_in_subtree(&target).await {
                                             lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
                                         }
                                 });
@@ -227,7 +227,7 @@ pub(crate) fn NewCollectionRow(parent_id: Option<String>, depth: u32) -> Element
                                 coll.parent_id = parent_id.clone();
                                 let db = db.clone();
                                 spawn(async move {
-                                    if let Ok(id) = rotero_db::collections::insert_collection(db.conn(), &coll).await {
+                                    if let Ok(id) = db.insert_collection(&coll).await {
                                         let mut coll = coll;
                                         coll.id = Some(id);
                                         lib_state.with_mut(|s| s.collections.push(coll));

@@ -67,7 +67,7 @@ pub(crate) fn ExternalResults(results: Vec<rotero_models::Paper>, searching: boo
                                                 && !doi.is_empty() && existing.contains(doi) {
                                                     continue;
                                                 }
-                                            if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
+                                            if let Ok(id) = db.insert_paper(&paper).await {
                                                 let mut paper = paper;
                                                 paper.id = Some(id.clone());
                                                 lib_state.with_mut(|s| s.papers.insert(0, paper.clone()));
@@ -149,7 +149,7 @@ pub(crate) fn ExternalResults(results: Vec<rotero_models::Paper>, searching: boo
                                                     // If we have a DOI but sparse metadata (autocomplete result),
                                                     // fetch full details first
                                                     let paper = enrich_before_import(paper).await;
-                                                    match rotero_db::papers::insert_paper(db.conn(), &paper).await {
+                                                    match db.insert_paper(&paper).await {
                                                         Ok(id) => {
                                                             let mut paper = paper;
                                                             paper.id = Some(id.clone());
@@ -192,7 +192,7 @@ async fn try_download_oa_pdf(
     .await
     {
         Ok(rel_path) => {
-            let _ = rotero_db::papers::update_pdf_path(db.conn(), paper_id, &rel_path).await;
+            let _ = db.update_pdf_path(paper_id, &rel_path).await;
             let pid = paper_id.to_string();
             lib_state.with_mut(|s| {
                 if let Some(p) = s

@@ -686,7 +686,7 @@ fn action_import_bibtex(db: Database, mut lib_state: Signal<LibraryState>) {
                 let Some(paper) = item.into_paper() else {
                     continue;
                 };
-                if let Ok(id) = rotero_db::papers::insert_paper(db.conn(), &paper).await {
+                if let Ok(id) = db.insert_paper(&paper).await {
                     let mut paper = paper;
                     paper.id = Some(id.clone());
 
@@ -701,7 +701,7 @@ fn action_import_bibtex(db: Database, mut lib_state: Signal<LibraryState>) {
                             )
                         {
                             let _ =
-                                rotero_db::papers::update_pdf_path(db.conn(), &id, &rel_path).await;
+                                db.update_pdf_path(&id, &rel_path).await;
                             paper.links.pdf_path = Some(rel_path);
                         }
                     }
@@ -994,7 +994,7 @@ fn action_toggle_favorite_selected(mut lib_state: Signal<LibraryState>, db: Data
     };
     spawn(async move {
         for pid in &ids {
-            let _ = rotero_db::papers::set_favorite(db.conn(), pid, new_val).await;
+            let _ = db.set_favorite(pid, new_val).await;
         }
         lib_state.with_mut(|s| {
             for pid in &ids {
@@ -1033,7 +1033,7 @@ fn action_toggle_read_selected(mut lib_state: Signal<LibraryState>, db: Database
     };
     spawn(async move {
         for pid in &ids {
-            let _ = rotero_db::papers::set_read(db.conn(), pid, new_val).await;
+            let _ = db.set_read(pid, new_val).await;
         }
         lib_state.with_mut(|s| {
             for pid in &ids {

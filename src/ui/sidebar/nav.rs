@@ -228,7 +228,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                         let db = db_unnest.clone();
                                         let did = dragged_id.clone();
                                         spawn(async move {
-                                            if let Ok(()) = rotero_db::collections::reparent_collection(db.conn(), &did, None).await {
+                                            if let Ok(()) = db.reparent_collection(&did, None).await {
                                                 let did2 = did.clone();
                                                 lib_state.with_mut(|s| {
                                                     if let Some(c) = s.collections.iter_mut().find(|c| c.id.as_deref() == Some(did2.as_str())) {
@@ -284,8 +284,8 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                             let db = db_del.clone();
                                             let sid = sid_del.clone();
                                             spawn(async move {
-                                                let _ = rotero_db::saved_searches::delete_saved_search(db.conn(), &sid).await;
-                                                if let Ok(searches) = rotero_db::saved_searches::list_saved_searches(db.conn()).await {
+                                                let _ = db.delete_saved_search(&sid).await;
+                                                if let Ok(searches) = db.list_saved_searches().await {
                                                     lib_state.with_mut(|s| s.saved_searches = searches);
                                                 }
                                             });

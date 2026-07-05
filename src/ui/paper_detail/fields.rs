@@ -20,7 +20,7 @@ pub fn AddToCollectionSelect(paper_id: String) -> Element {
                     let db = db.clone();
                     let pid = paper_id.clone();
                     spawn(async move {
-                        let _ = rotero_db::collections::add_paper_to_collection(db.conn(), &pid, &coll_id).await;
+                        let _ = db.add_paper_to_collection(&pid, &coll_id).await;
                     });
                 }
             },
@@ -60,9 +60,9 @@ pub fn TagEditor(paper_id: String) -> Element {
                         let db = db.clone();
                         let pid = paper_id.clone();
                         spawn(async move {
-                            if let Ok(tag_id) = rotero_db::tags::get_or_create_tag(db.conn(), &tag_name, None).await {
-                                let _ = rotero_db::tags::add_tag_to_paper(db.conn(), &pid, &tag_id).await;
-                                if let Ok(tags) = rotero_db::tags::list_tags(db.conn()).await {
+                            if let Ok(tag_id) = db.get_or_create_tag(&tag_name, None).await {
+                                let _ = db.add_tag_to_paper(&pid, &tag_id).await;
+                                if let Ok(tags) = db.list_tags().await {
                                     lib_state.with_mut(|s| s.tags = tags);
                                 }
                             }

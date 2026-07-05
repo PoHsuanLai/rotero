@@ -57,7 +57,7 @@ pub fn PdfViewer() -> Element {
                 let paper_id = tabs.read().active_tab().and_then(|t| t.paper_id.clone());
                 if let Some(ref pid) = paper_id {
                     let mut anns =
-                        rotero_db::annotations::list_annotations_for_paper(db.conn(), pid)
+                        db.list_annotations_for_paper(pid)
                             .await
                             .unwrap_or_default();
 
@@ -130,7 +130,7 @@ pub fn PdfViewer() -> Element {
                                 modified_at: now,
                             };
                             if let Ok(id) =
-                                rotero_db::annotations::insert_annotation(db.conn(), &ann).await
+                                db.insert_annotation(&ann).await
                             {
                                 let mut ann = ann;
                                 ann.id = Some(id);

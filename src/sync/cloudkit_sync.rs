@@ -3,7 +3,8 @@
 //! Uses the private CloudKit database with a custom zone "RoteroSync".
 //! Each changeset batch is stored as a CKRecord of type "Changeset".
 
-use rotero_db::crr::{self, ChangeRow};
+use rotero_db::crr::ChangeRow;
+use rotero_db::Database;
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Bool, ProtocolObject};
@@ -101,13 +102,12 @@ impl CloudKitSyncEngine {
     }
 
     /// Returns count of changes pushed.
-    pub async fn export_changes(
-        &mut self,
-        conn: &rotero_db::turso::Connection,
-    ) -> Result<usize, String> {
-        let last_ver = read_i64_state(conn, "cloudkit_last_exported_ver").await;
+    pub async fn export_changes(&mut self, db: &Database) -> Result<usize, String> {
+        let last_ver = read_i64_state(db, "cloudkit_last_exported_ver").await;
 
-        let changes = crr::changes_since(conn, last_ver)
+        let changes = db
+            .crr()
+            .changes_since(last_ver)
             .await
             .map_err(|e| format!("Failed to read changes: {e}"))?;
 
@@ -117,7 +117,9 @@ impl CloudKitSyncEngine {
 
         self.ensure_zone().await?;
 
-        let current_ver = crr::current_db_version(conn)
+        let current_ver = db
+            .crr()
+            .current_db_version()
             .await
             .map_err(|e| format!("Failed to read db_version: {e}"))?;
 
@@ -161,18 +163,15 @@ impl CloudKitSyncEngine {
         }
 
         let count = changes.len();
-        write_i64_state(conn, "cloudkit_last_exported_ver", current_ver).await;
+        write_i64_state(db, "cloudkit_last_exported_ver", current_ver).await;
         Ok(count)
     }
 
     /// Returns count of changes applied.
-    pub async fn import_changes(
-        &mut self,
-        conn: &rotero_db::turso::Connection,
-    ) -> Result<usize, String> {
+    pub async fn import_changes(&mut self, db: &Database) -> Result<usize, String> {
         self.ensure_zone().await?;
 
-        let token_bytes = crr::get_sync_state(conn, "cloudkit_server_token").await;
+        let token_bytes = db.crr().get_sync_state("cloudkit_server_token").await;
         let token = token_bytes.as_deref().and_then(deserialize_server_token);
 
         let (records, new_token) = self.fetch_zone_changes(token.as_deref()).await?;
@@ -215,7 +214,7 @@ impl CloudKitSyncEngine {
                     }
                 };
 
-                match crr::apply_changes(conn, &changes).await {
+                match db.crr().apply_changes(&changes).await {
                     Ok(result) => total_applied += result.applied,
                     Err(e) => tracing::warn!("Failed to apply CloudKit changes: {e}"),
                 }
@@ -224,7 +223,10 @@ impl CloudKitSyncEngine {
 
         if let Some(ref token) = new_token {
             if let Some(bytes) = serialize_server_token(token) {
-                let _ = crr::set_sync_state(conn, "cloudkit_server_token", &bytes).await;
+                let _ = db
+                    .crr()
+                    .set_sync_state("cloudkit_server_token", &bytes)
+                    .await;
             }
         }
 
@@ -354,8 +356,9 @@ impl CloudKitSyncEngine {
     }
 }
 
-async fn read_i64_state(conn: &rotero_db::turso::Connection, key: &str) -> i64 {
-    crr::get_sync_state(conn, key)
+async fn read_i64_state(db: &Database, key: &str) -> i64 {
+    db.crr()
+        .get_sync_state(key)
         .await
         .and_then(|bytes| {
             if bytes.len() >= 8 {
@@ -370,8 +373,8 @@ async fn read_i64_state(conn: &rotero_db::turso::Connection, key: &str) -> i64 {
         .unwrap_or(0)
 }
 
-async fn write_i64_state(conn: &rotero_db::turso::Connection, key: &str, value: i64) {
-    let _ = crr::set_sync_state(conn, key, &value.to_le_bytes()).await;
+async fn write_i64_state(db: &Database, key: &str, value: i64) {
+    let _ = db.crr().set_sync_state(key, &value.to_le_bytes()).await;
 }
 
 /// Serialize a CKServerChangeToken to bytes via NSKeyedArchiver.

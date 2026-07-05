@@ -87,7 +87,7 @@ pub async fn precache_pdf(
     data_dir: &std::path::Path,
     zoom: f32,
     paper_id: Option<String>,
-    db: Option<&rotero_db::turso::Connection>,
+    db: Option<&rotero_db::Database>,
 ) {
     if crate::cache::load_cached(data_dir, pdf_path, zoom).is_some() {
         return;
@@ -163,7 +163,7 @@ pub async fn precache_pdf(
         return;
     }
     if let Ok(text_data) = recv_reply(text_rx).await {
-        if let (Some(pid), Some(conn)) = (&paper_id, db) {
+        if let (Some(pid), Some(db)) = (&paper_id, db) {
             let mut pages_sorted: Vec<u32> = text_data.keys().copied().collect();
             pages_sorted.sort();
             let fulltext: String = pages_sorted
@@ -173,7 +173,7 @@ pub async fn precache_pdf(
                 .collect::<Vec<_>>()
                 .join("");
             if !fulltext.is_empty() {
-                let _ = rotero_db::papers::update_paper_fulltext(conn, pid, &fulltext).await;
+                let _ = db.update_paper_fulltext(pid, &fulltext).await;
             }
         }
         let dir = data_dir.to_path_buf();

@@ -110,7 +110,7 @@ pub fn PaperDetail() -> Element {
                                                         let db = db.clone();
                                                         let pid = paper_id.clone();
                                                         spawn(async move {
-                                                            let _ = rotero_db::papers::update_citation_key(db.conn(), &pid, &new_key).await;
+                                                            let _ = db.update_citation_key(&pid, &new_key).await;
                                                             let pid2 = pid.clone();
                                                             lib_state.with_mut(|s| {
                                                                 if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
@@ -133,7 +133,7 @@ pub fn PaperDetail() -> Element {
                                                 let db = db_key2.clone();
                                                 let pid = paper_id.clone();
                                                 spawn(async move {
-                                                    let _ = rotero_db::papers::update_citation_key(db.conn(), &pid, &new_key).await;
+                                                    let _ = db.update_citation_key(&pid, &new_key).await;
                                                     let pid2 = pid.clone();
                                                     lib_state.with_mut(|s| {
                                                         if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
@@ -335,7 +335,7 @@ pub fn PaperDetail() -> Element {
                                                 match crate::metadata::pdf_download::download_and_save_pdf(&db, &urls, &title, first_author, year).await {
                                                     Ok(rel_path) => {
                                                         let pid = paper_id.clone();
-                                                        let _ = rotero_db::papers::update_pdf_path(db.conn(), &pid, &rel_path).await;
+                                                        let _ = db.update_pdf_path(&pid, &rel_path).await;
                                                         let pid2 = pid.clone();
                                                         lib_state.with_mut(|s| {
                                                             if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
@@ -371,7 +371,7 @@ pub fn PaperDetail() -> Element {
                                 let db = db_del.clone();
                                 let pid = pid.clone();
                                 spawn(async move {
-                                    if let Ok(()) = rotero_db::papers::delete_paper(db.conn(), &pid).await {
+                                    if let Ok(()) = db.delete_paper(&pid).await {
                                         let pid2 = pid.clone();
                                         lib_state.with_mut(|s| {
                                             s.papers.retain(|p| p.id.as_deref() != Some(pid2.as_str()));

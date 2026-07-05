@@ -33,26 +33,27 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                 }
             };
             rt.block_on(async {
-                let (conn, _) = match SHARED_DB.get() {
+                let (conn, db_lib_path) = match SHARED_DB.get() {
                     Some(pair) => (pair.0.clone(), pair.1.clone()),
                     None => {
                         tracing::error!("Connector: SHARED_DB not initialized");
                         return;
                     }
                 };
+                let db = rotero_db::Database::from_conn(conn.clone(), db_lib_path);
 
-                let conn_collections = conn.clone();
-                let conn_tags = conn.clone();
-                let conn_save = conn.clone();
-                let conn_search = conn.clone();
-                let conn_get_by_ids = conn.clone();
+                let db_collections = db.clone();
+                let db_tags = db.clone();
+                let db_save = db.clone();
+                let db_search = db.clone();
+                let db_get_by_ids = db.clone();
 
                 let state = Arc::new(ConnectorState {
                     on_paper_saved: Some(Box::new({
                         let connector_tx = connector_tx.clone();
                         let lib_path = lib_path.clone();
                         move |paper, collection_id, tag_ids, pdf_url| {
-                            let conn = conn_save.clone();
+                            let db = db_save.clone();
                             let connector_tx = connector_tx.clone();
                             let lib_path = lib_path.clone();
                             Box::pin(async move {
@@ -60,20 +61,15 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                                 if let Some(ref url) = pdf_url {
                                     paper.links.pdf_url = Some(url.clone());
                                 }
-                                match rotero_db::papers::insert_paper(&conn, &paper).await {
+                                match db.insert_paper(&paper).await {
                                     Ok(paper_id) => {
                                         if let Some(ref coll_id) = collection_id {
-                                            let _ =
-                                                rotero_db::collections::add_paper_to_collection(
-                                                    &conn, &paper_id, coll_id,
-                                                )
+                                            let _ = db
+                                                .add_paper_to_collection(&paper_id, coll_id)
                                                 .await;
                                         }
                                         for tag_id in &tag_ids {
-                                            let _ = rotero_db::tags::add_tag_to_paper(
-                                                &conn, &paper_id, tag_id,
-                                            )
-                                            .await;
+                                            let _ = db.add_tag_to_paper(&paper_id, tag_id).await;
                                         }
                                         let _ = connector_tx.send(());
                                         tracing::info!(
@@ -84,13 +80,13 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
 
                                         let paper_id_enrich = paper_id.clone();
                                         if let Some(pdf_url) = pdf_url {
-                                            let conn_pdf = conn.clone();
+                                            let db_pdf = db.clone();
                                             let connector_tx_pdf = connector_tx.clone();
                                             let paper_clone = paper.clone();
                                             let lib_path = lib_path.clone();
                                             tokio::spawn(async move {
                                                 if let Err(e) = download_and_import_pdf(
-                                                    &conn_pdf,
+                                                    &db_pdf,
                                                     &lib_path,
                                                     &paper_id,
                                                     &paper_clone,
@@ -108,18 +104,18 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                                             });
                                         }
 
-                                        let conn_enrich = conn.clone();
+                                        let db_enrich = db.clone();
                                         let connector_tx_enrich = connector_tx.clone();
                                         tokio::spawn(async move {
                                             if let Some(enriched) =
                                                 crate::metadata::enrich::enrich_paper(&paper).await
-                                                && rotero_db::papers::update_paper_metadata(
-                                                    &conn_enrich,
-                                                    &paper_id_enrich,
-                                                    &enriched,
-                                                )
-                                                .await
-                                                .is_ok()
+                                                && db_enrich
+                                                    .update_paper_metadata(
+                                                        &paper_id_enrich,
+                                                        &enriched,
+                                                    )
+                                                    .await
+                                                    .is_ok()
                                             {
                                                 let _ = connector_tx_enrich.send(());
                                                 tracing::info!(
@@ -137,9 +133,9 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                         }
                     })),
                     on_get_collections: Some(Box::new(move || {
-                        let conn = conn_collections.clone();
+                        let db = db_collections.clone();
                         Box::pin(async move {
-                            match rotero_db::collections::list_collections(&conn).await {
+                            match db.list_collections().await {
                                 Ok(colls) => colls
                                     .into_iter()
                                     .filter_map(|c| {
@@ -155,9 +151,9 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                         })
                     })),
                     on_get_tags: Some(Box::new(move || {
-                        let conn = conn_tags.clone();
+                        let db = db_tags.clone();
                         Box::pin(async move {
-                            match rotero_db::tags::list_tags(&conn).await {
+                            match db.list_tags().await {
                                 Ok(tags) => tags
                                     .into_iter()
                                     .filter_map(|t| {
@@ -173,19 +169,15 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                         })
                     })),
                     on_search_papers: Some(Box::new(move |query: String| {
-                        let conn = conn_search.clone();
+                        let db = db_search.clone();
                         Box::pin(async move {
-                            rotero_db::papers::search_papers(&conn, &query)
-                                .await
-                                .unwrap_or_default()
+                            db.search_papers(&query).await.unwrap_or_default()
                         })
                     })),
                     on_get_papers_by_ids: Some(Box::new(move |ids: Vec<String>| {
-                        let conn = conn_get_by_ids.clone();
+                        let db = db_get_by_ids.clone();
                         Box::pin(async move {
-                            rotero_db::papers::get_papers_by_ids(&conn, &ids)
-                                .await
-                                .unwrap_or_default()
+                            db.get_papers_by_ids(&ids).await.unwrap_or_default()
                         })
                     })),
                     translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),
@@ -203,19 +195,18 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
 }
 
 pub async fn download_and_import_pdf(
-    conn: &rotero_db::turso::Connection,
-    lib_path: &std::path::Path,
+    db: &rotero_db::Database,
+    _lib_path: &std::path::Path,
     paper_id: &str,
     paper: &rotero_models::Paper,
     pdf_url: &str,
 ) -> Result<(), String> {
     tracing::info!(paper_id, pdf_url, "Downloading PDF");
 
-    let db = rotero_db::Database::from_conn(conn.clone(), lib_path.to_path_buf());
     let first_author = paper.authors.first().map(|s| s.as_str());
 
     let rel_path = crate::metadata::pdf_download::download_and_save_pdf(
-        &db,
+        db,
         &[pdf_url.to_string()],
         &paper.title,
         first_author,
@@ -224,7 +215,7 @@ pub async fn download_and_import_pdf(
     .await
     .map_err(|e| format!("{e}"))?;
 
-    rotero_db::papers::update_pdf_path(conn, paper_id, &rel_path)
+    db.update_pdf_path(paper_id, &rel_path)
         .await
         .map_err(|e| format!("Failed to update pdf_path: {e}"))?;
 

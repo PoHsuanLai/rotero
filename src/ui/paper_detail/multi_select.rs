@@ -40,7 +40,7 @@ pub fn MultiSelectSummary() -> Element {
                                 let ids = ids_fav.clone();
                                 spawn(async move {
                                     for pid in &ids {
-                                        let _ = rotero_db::papers::set_favorite(db.conn(), pid, true).await;
+                                        let _ = db.set_favorite(pid, true).await;
                                     }
                                     lib_state.with_mut(|s| {
                                         for pid in &ids {
@@ -68,7 +68,7 @@ pub fn MultiSelectSummary() -> Element {
                                 let ids = ids_read.clone();
                                 spawn(async move {
                                     for pid in &ids {
-                                        let _ = rotero_db::papers::set_read(db.conn(), pid, true).await;
+                                        let _ = db.set_read(pid, true).await;
                                     }
                                     lib_state.with_mut(|s| {
                                         for pid in &ids {

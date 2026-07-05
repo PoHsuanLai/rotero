@@ -7,7 +7,7 @@ use crate::state::app_state::LibraryState;
 
 pub async fn extract_and_fetch_metadata(
     render_tx: &std::sync::mpsc::Sender<RenderRequest>,
-    conn: &rotero_db::turso::Connection,
+    db: &rotero_db::Database,
     paper_id: &str,
     pdf_path: &str,
     auto_fetch: bool,
@@ -45,7 +45,7 @@ pub async fn extract_and_fetch_metadata(
         match crate::metadata::crossref::fetch_by_doi(doi_str).await {
             Ok(fetched) => {
                 tracing::info!(title = %fetched.title, authors = ?fetched.authors, "extract_and_fetch_metadata: CrossRef success");
-                if apply_fetched_metadata(conn, paper_id, &fetched, lib_state).await {
+                if apply_fetched_metadata(db, paper_id, &fetched, lib_state).await {
                     return;
                 }
             }
@@ -60,7 +60,7 @@ pub async fn extract_and_fetch_metadata(
         match crate::metadata::arxiv::fetch_by_arxiv_id(arxiv).await {
             Ok(fetched) => {
                 tracing::info!(title = %fetched.title, authors = ?fetched.authors, "extract_and_fetch_metadata: arXiv success");
-                if apply_fetched_metadata(conn, paper_id, &fetched, lib_state).await {
+                if apply_fetched_metadata(db, paper_id, &fetched, lib_state).await {
                     return;
                 }
             }
@@ -108,20 +108,17 @@ pub async fn extract_and_fetch_metadata(
         .find(|p| p.id.as_ref().map(|id| id.to_string()) == Some(paper_id.to_string()))
         .cloned();
     if let Some(paper) = paper_snapshot {
-        let _ = rotero_db::papers::update_paper_metadata(conn, paper_id, &paper).await;
+        let _ = db.update_paper_metadata(paper_id, &paper).await;
     }
 }
 
 async fn apply_fetched_metadata(
-    conn: &rotero_db::turso::Connection,
+    db: &rotero_db::Database,
     paper_id: &str,
     fetched: &rotero_models::Paper,
     lib_state: &mut Signal<LibraryState>,
 ) -> bool {
-    if rotero_db::papers::update_paper_metadata(conn, paper_id, fetched)
-        .await
-        .is_err()
-    {
+    if db.update_paper_metadata(paper_id, fetched).await.is_err() {
         return false;
     }
     lib_state.with_mut(|s| {
@@ -143,7 +140,7 @@ async fn apply_fetched_metadata(
         }
     });
     if let Some(count) = fetched.citation.citation_count {
-        let _ = rotero_db::papers::update_citation_count(conn, paper_id, count).await;
+        let _ = db.update_citation_count(paper_id, count).await;
     }
     true
 }
