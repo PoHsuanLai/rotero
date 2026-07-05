@@ -78,9 +78,9 @@ impl Default for TranslatorRegistry {
     }
 }
 
-/// Whether an item list contains at least one usable item — a non-note,
-/// non-attachment item with a non-empty title. This is the shared acceptance
-/// test applied identically across the native, Node, and scrape tiers.
+/// Whether an item list contains at least one usable item: a non-note,
+/// non-attachment item with a non-empty title. Applied identically across the
+/// native, Node, and scrape tiers.
 pub fn has_usable(items: &[ZoteroItem]) -> bool {
     items
         .iter()

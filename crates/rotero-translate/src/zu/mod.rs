@@ -1,10 +1,9 @@
-//! Pure-Rust ports of the load-bearing Zotero `Zotero.Utilities` (ZU) functions
-//! — the ones whose correctness matters most across translators: author-name
-//! splitting (with surname particles) and date parsing.
+//! Rust ports of Zotero `Zotero.Utilities` (ZU) functions where correctness is
+//! most important: author-name splitting (with surname particles) and date
+//! parsing.
 //!
-//! These are used by native translators directly and exposed to the JS engine
-//! as host functions so it can share one implementation. Kept deliberately
-//! close to the upstream behavior; each has focused unit tests.
+//! Native translators call these directly; the JS engine exposes them as host
+//! functions so both share one implementation.
 
 mod author;
 mod date;

@@ -120,9 +120,9 @@ impl ZoteroItem {
         None
     }
 
-    /// Build a `ZoteroItem` from a flat [`Paper`](rotero_models::Paper). Shared
-    /// by the DOI-content-negotiation and bibliography-import translators so the
-    /// registry has one uniform item type. Authors are split "First Last".
+    /// Build a `ZoteroItem` from a flat [`Paper`](rotero_models::Paper), used by
+    /// the DOI-content-negotiation and bibliography-import translators. Authors
+    /// are split on the last space into first and last names.
     pub fn from_paper(p: rotero_models::Paper) -> Self {
         let creators = p
             .authors

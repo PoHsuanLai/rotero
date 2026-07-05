@@ -1,7 +1,7 @@
-//! Scrape-tier telemetry: tracks which tier of the `/api/scrape` fallback chain
-//! served each request. This is the coverage meter that informs when the Node
-//! translation server can be retired by default — a high native-hit-rate means
-//! the in-process Rust translators cover real-world usage.
+//! Tracks which tier of the `/api/scrape` fallback chain served each request.
+//! The native-versus-Node hit rate indicates how much of real-world usage the
+//! in-process translators cover, and hence when the Node translation server can
+//! be disabled by default.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -62,9 +62,8 @@ impl Snapshot {
         self.native + self.node + self.scrape + self.miss
     }
 
-    /// Fraction of requests served with structured metadata by the native or
-    /// Node tier (i.e. not the generic scraper and not a miss). This is the
-    /// flip metric: when it clears the threshold, Node can default off.
+    /// Percentage of requests served with structured metadata by the native or
+    /// Node tier, excluding generic-scraper hits and misses.
     pub fn parity_pct(&self) -> f64 {
         let total = self.total();
         if total == 0 {

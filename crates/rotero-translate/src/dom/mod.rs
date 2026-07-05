@@ -1,12 +1,11 @@
-//! DOM + XPath adapter for the JS translator engine (phase 2).
+//! DOM and XPath adapter backing the translator engine's `ZU.xpath` /
+//! `ZU.xpathText` host functions.
 //!
-//! Wraps `skyscraper` (HTML parse + XPath) behind a small surface the sandbox's
-//! `ZU.xpath`/`ZU.xpathText` host functions call. This is the single place the
-//! `<tbody>` and namespace fidelity quirks are handled: skyscraper (like
-//! html5ever) inserts an implicit `<tbody>` per the WHATWG spec, which the
-//! Zotero translators (written against jsdom + wicked-good-xpath) do not expect.
-//! We rewrite `//table/tr` → `//table//tr` so a translator's table XPath still
-//! matches.
+//! Wraps `skyscraper` (HTML parse plus XPath) and normalizes the parser's
+//! `<tbody>` behavior: skyscraper, like html5ever, inserts an implicit
+//! `<tbody>` per the WHATWG spec, whereas Zotero translators are written against
+//! jsdom and `wicked-good-xpath`, which do not. Table XPath of the form
+//! `//table/tr` is rewritten to `//table//tr` so it matches regardless.
 
 use skyscraper::xpath;
 use skyscraper::xpath::XpathItemTree;

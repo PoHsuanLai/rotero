@@ -1,7 +1,7 @@
-//! DOI Content Negotiation: when a page carries a DOI, resolve full metadata
-//! from CrossRef rather than scraping the HTML. Mirrors Zotero's "DOI Content
-//! Negotiation" translator (which content-negotiates CSL-JSON for a DOI); here
-//! we reuse the existing CrossRef client, which is equivalent for our fields.
+//! Resolves full metadata from CrossRef when a page carries a DOI, rather than
+//! scraping the HTML. Mirrors Zotero's "DOI Content Negotiation" translator,
+//! which content-negotiates CSL-JSON for a DOI; the CrossRef client is
+//! equivalent for the fields the [`ZoteroItem`](crate::ZoteroItem) model holds.
 
 use async_trait::async_trait;
 

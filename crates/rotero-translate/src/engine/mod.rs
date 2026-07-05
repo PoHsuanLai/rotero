@@ -1,12 +1,10 @@
-//! The JS translator engine (phase 2): runs an upstream Zotero translator's
-//! JavaScript unmodified in an embedded `boa` interpreter, backed by Rust host
-//! functions for the `Zotero.*` / `ZU.*` surface the translators call.
+//! Runs an unmodified upstream Zotero translator's JavaScript in an embedded
+//! `boa` interpreter, backed by Rust host functions for the `Zotero.*` / `ZU.*`
+//! surface the translators call.
 //!
-//! Scope note (phase 2 vertical slice): this implements enough of the sandbox to
-//! run web translators that read the DOM via `ZU.xpath`/`ZU.xpathText` and emit
-//! items via `Zotero.Item` + `.complete()`. The full `ZU` utility set,
-//! `loadTranslator` delegation chaining, and import/export IO are scoped
-//! follow-on work — see the module-level TODOs and the plan roadmap.
+//! Supports web translators that read the DOM via `ZU.xpath`/`ZU.xpathText` and
+//! emit items via `Zotero.Item` and `.complete()`. Not yet implemented: the
+//! full `ZU` utility set, `loadTranslator` delegation, and import/export IO.
 
 mod sandbox;
 

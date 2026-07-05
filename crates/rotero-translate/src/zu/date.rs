@@ -1,8 +1,7 @@
-//! Date parsing, a pragmatic port of the common paths of Zotero's
-//! `Zotero.Date.strToDate`. Handles the formats real translators emit: ISO
-//! (`2020-05-01`), slash (`2020/05/01`, `05/01/2020`), month-name
-//! (`January 2020`, `1 Jan 2020`), and year-only. Enough to give correct
-//! `year`/`month`/`day` for the overwhelming majority of scholarly pages.
+//! Date parsing, ported from the common paths of Zotero's
+//! `Zotero.Date.strToDate`. Handles ISO (`2020-05-01`), slash
+//! (`2020/05/01`, `05/01/2020`), month-name (`January 2020`, `1 Jan 2020`), and
+//! year-only forms, producing `year`/`month`/`day` components.
 
 /// A parsed date. Fields are `None` when the input didn't specify them.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -74,8 +73,8 @@ fn parse_numeric(s: &str) -> Option<ParsedDate> {
             month: valid_month(*m),
             day: valid_day(*d),
         }),
-        // MM/DD/YYYY (US) or DD/MM/YYYY — ambiguous; assume MM/DD/YYYY (US),
-        // the dominant form in the citation metadata we see.
+        // MM/DD/YYYY (US) or DD/MM/YYYY is ambiguous; assume MM/DD/YYYY, the
+        // dominant form in scholarly citation metadata.
         [a, b, y] if is_year(*y) => Some(ParsedDate {
             year: Some(*y as i32),
             month: valid_month(*a).or_else(|| valid_month(*b)),

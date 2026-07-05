@@ -1,10 +1,9 @@
-//! The Embedded Metadata translator: extracts scholarly metadata from a page's
-//! `<meta>` tags (Highwire `citation_*`, Dublin Core, PRISM, bepress, eprints,
-//! OpenGraph) and JSON-LD. This mirrors Zotero's "Embedded Metadata" translator,
-//! the delegation target of the majority of site translators.
+//! Extracts scholarly metadata from a page's `<meta>` tags (Highwire
+//! `citation_*`, Dublin Core, PRISM, bepress, eprints, OpenGraph) and JSON-LD,
+//! mirroring Zotero's "Embedded Metadata" translator.
 //!
-//! Deliberately low priority so that site-specific translators (phase 2) win
-//! when both apply.
+//! Runs at low priority so site-specific translators take precedence when both
+//! apply.
 
 use async_trait::async_trait;
 
