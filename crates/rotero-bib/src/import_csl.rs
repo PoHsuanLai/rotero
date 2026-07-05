@@ -48,12 +48,14 @@ struct CslName {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 struct CslDate {
+    // CSL-JSON date-parts components may be either numbers or numeric strings
+    // (e.g. `["2013", 1, 1]`), so each element is a `StringOrNumber`.
     #[serde(default)]
-    date_parts: Vec<Vec<serde_json::Number>>,
+    date_parts: Vec<Vec<StringOrNumber>>,
     raw: Option<String>,
 }
 
-/// CSL-JSON sometimes uses strings, sometimes numbers for volume/issue.
+/// CSL-JSON sometimes uses strings, sometimes numbers (volume/issue, date-parts).
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum StringOrNumber {
@@ -66,6 +68,16 @@ impl std::fmt::Display for StringOrNumber {
         match self {
             StringOrNumber::Str(s) => write!(f, "{s}"),
             StringOrNumber::Num(n) => write!(f, "{n}"),
+        }
+    }
+}
+
+impl StringOrNumber {
+    /// The value as an `i32`, parsing a string component if needed.
+    fn as_i32(&self) -> Option<i32> {
+        match self {
+            StringOrNumber::Num(n) => n.as_i64().map(|v| v as i32),
+            StringOrNumber::Str(s) => s.trim().parse().ok(),
         }
     }
 }
@@ -99,7 +111,7 @@ impl CslItem {
             if let Some(parts) = d.date_parts.first()
                 && let Some(y) = parts.first()
             {
-                return y.as_i64().map(|v| v as i32);
+                return y.as_i32();
             }
             // Fallback: parse raw date string
             d.raw
@@ -183,5 +195,14 @@ mod tests {
         let papers = import_csl_json(input).unwrap();
         assert_eq!(papers[0].publication.volume.as_deref(), Some("5"));
         assert_eq!(papers[0].publication.issue.as_deref(), Some("12"));
+    }
+
+    #[test]
+    fn test_string_date_parts() {
+        // CSL-JSON allows the year component as a numeric string, not just a
+        // number (Zotero emits `["2013", 1, 1]`).
+        let input = r#"[{"title": "Test", "issued": {"date-parts": [["2013", 1, 1]]}}]"#;
+        let papers = import_csl_json(input).unwrap();
+        assert_eq!(papers[0].year, Some(2013));
     }
 }

@@ -42,6 +42,8 @@ fn test_state() -> Arc<ConnectorState> {
             })
         })),
         translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),
+        #[cfg(feature = "translator-engine")]
+        scrape_sessions: Default::default(),
     })
 }
 

@@ -201,41 +201,35 @@ async function loadMetadata() {
     }
   }
 
-  // Fallback: if client-side extraction found no DOI or authors, try server-side scrape
+  // Fallback: if client-side extraction found no DOI or authors, ask the
+  // connector's translators to scrape the page.
   if (pageMetadata && !pageMetadata.doi && (!pageMetadata.authors || pageMetadata.authors.length === 0)) {
     try {
-      const scrapeResp = await fetch(`${API}/api/scrape`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // Send the captured page HTML so the connector translates it directly
-        // (real authenticated DOM) rather than re-fetching and hitting anti-bot
-        // walls. Falls back to a server fetch if html is absent.
-        body: JSON.stringify({ url: pageMetadata.url, html: pageMetadata.html }),
-      });
-      if (scrapeResp.ok) {
-        const scrapeData = await scrapeResp.json();
-        const m = scrapeData.success ? scrapeData.metadata : null;
-        if (m) {
-          if (m.title) pageMetadata.title = m.title;
-          if (m.authors?.length) pageMetadata.authors = m.authors;
-          if (m.doi) pageMetadata.doi = m.doi;
-          if (m.pdf_url) pageMetadata.pdf_url = m.pdf_url;
-          if (m.url) pageMetadata.url = m.url;
-          if (m.journal) pageMetadata.journal = m.journal;
-          if (m.year) pageMetadata.year = m.year;
-          if (m.volume) pageMetadata.volume = m.volume;
-          if (m.issue) pageMetadata.issue = m.issue;
-          if (m.pages) pageMetadata.pages = m.pages;
-          if (m.publisher) pageMetadata.publisher = m.publisher;
-          if (m.abstract_text) pageMetadata.abstract_text = m.abstract_text;
-        }
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const m = await runScrape(tab?.id, pageMetadata);
+      if (m) {
+        if (m.title) pageMetadata.title = m.title;
+        if (m.authors?.length) pageMetadata.authors = m.authors;
+        if (m.doi) pageMetadata.doi = m.doi;
+        if (m.pdf_url) pageMetadata.pdf_url = m.pdf_url;
+        if (m.url) pageMetadata.url = m.url;
+        if (m.journal) pageMetadata.journal = m.journal;
+        if (m.year) pageMetadata.year = m.year;
+        if (m.volume) pageMetadata.volume = m.volume;
+        if (m.issue) pageMetadata.issue = m.issue;
+        if (m.pages) pageMetadata.pages = m.pages;
+        if (m.publisher) pageMetadata.publisher = m.publisher;
+        if (m.abstract_text) pageMetadata.abstract_text = m.abstract_text;
       }
     } catch {}
   }
 
   // The captured HTML was only needed for the scrape request above; drop it so
   // it doesn't bloat the later /api/save body (which spreads pageMetadata).
-  if (pageMetadata) delete pageMetadata.html;
+  if (pageMetadata) {
+    delete pageMetadata.html;
+    delete pageMetadata.rawHtml;
+  }
 
   // If title is still empty/generic, try to derive from URL
   if (pageMetadata && (!pageMetadata.title || pageMetadata.title === 'Untitled')) {
@@ -264,7 +258,77 @@ async function loadMetadata() {
   }
 }
 
-function extractMetadata() {
+// Maximum number of browser-proxied follow-up fetches for one scrape, a guard
+// against a translator that would otherwise loop indefinitely.
+const MAX_SCRAPE_HOPS = 20;
+
+// Run the connector scrape for a page and return its extracted metadata (or null
+// on a miss). Sends the captured page HTML so the connector translates the real
+// authenticated DOM instead of re-fetching and hitting anti-bot walls, with
+// raw_html for inline-<script> translators. When a site translator needs a
+// follow-up request the connector can't authenticate (a citation/export endpoint
+// behind session cookies), the connector pauses and asks us to perform the fetch
+// in the page context — where the tab's cookies apply — and continue.
+async function runScrape(tabId, meta) {
+  let resp = await fetch(`${API}/api/scrape`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: meta.url, html: meta.html, raw_html: meta.rawHtml }),
+  });
+  if (!resp.ok) return null;
+  let data = await resp.json();
+
+  let hops = 0;
+  while (!data.done && data.fetch && data.run_id != null) {
+    if (++hops > MAX_SCRAPE_HOPS || tabId == null) break;
+    const outcome = await performPageFetch(tabId, data.fetch);
+    resp = await fetch(`${API}/api/scrape/continue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ run_id: data.run_id, url: meta.url, response: outcome }),
+    });
+    if (!resp.ok) return null;
+    data = await resp.json();
+  }
+
+  return data.done && data.success ? data.metadata : null;
+}
+
+// Perform a connector-requested follow-up fetch inside the page's own context so
+// the tab's session cookies (including HttpOnly) authenticate it. Returns the
+// { ok, status, body } outcome the connector feeds back to its translator.
+async function performPageFetch(tabId, instruction) {
+  try {
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId },
+      args: [instruction],
+      func: async (f) => {
+        try {
+          const init = {
+            method: f.method || 'GET',
+            credentials: 'include',
+            redirect: 'follow',
+          };
+          if (f.headers?.length) init.headers = Object.fromEntries(f.headers);
+          if (f.method === 'POST') {
+            init.body = f.body || '';
+            init.headers = init.headers || {};
+            if (f.content_type) init.headers['Content-Type'] = f.content_type;
+          }
+          const r = await fetch(f.url, init);
+          return { ok: r.ok, status: r.status, body: await r.text() };
+        } catch (e) {
+          return { ok: false, status: 0, body: '', error: String(e) };
+        }
+      },
+    });
+    return res?.result || { ok: false, body: '', error: 'page fetch failed' };
+  } catch (e) {
+    return { ok: false, body: '', error: String(e) };
+  }
+}
+
+async function extractMetadata() {
   const meta = { url: window.location.href };
 
   // Capture the rendered page HTML so the connector can translate it directly
@@ -433,6 +497,28 @@ function extractMetadata() {
   if (arxiv) {
     meta.arxiv_id = arxiv[1];
     if (!meta.pdf_url) meta.pdf_url = `https://arxiv.org/pdf/${arxiv[1]}.pdf`;
+  }
+
+  // Raw server HTML for the connector's translators — only when client-side meta
+  // extraction fell short (no DOI or no authors), which is exactly when the
+  // connector scrape runs. Same-origin credentialed fetch → carries the tab's
+  // session cookies (incl. HttpOnly), so it works on gated sites; and unlike the
+  // rendered outerHTML it preserves inline <script> data (IEEE
+  // global.document.metadata, __NEXT_DATA__, JSON-LD) an SPA strips on hydration.
+  // Gated so well-behaved pages don't pay for an extra fetch. Best-effort.
+  if (!meta.doi || !meta.authors || meta.authors.length === 0) {
+    try {
+      const resp = await fetch(window.location.href, {
+        credentials: 'include',
+        redirect: 'follow',
+      });
+      if (resp.ok) {
+        const ct = resp.headers.get('content-type') || '';
+        if (ct.includes('html') || ct === '') {
+          meta.rawHtml = await resp.text();
+        }
+      }
+    } catch {}
   }
 
   return meta;

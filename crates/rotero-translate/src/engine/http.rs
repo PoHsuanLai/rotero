@@ -32,14 +32,32 @@ fn scheme_ok(url: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Apply caller-supplied request headers (e.g. `Referer`, which several gated
+/// publishers require on their citation endpoints). Malformed header names/values
+/// are skipped rather than failing the whole request.
+fn apply_headers(
+    mut req: reqwest::blocking::RequestBuilder,
+    headers: &[(String, String)],
+) -> reqwest::blocking::RequestBuilder {
+    use reqwest::header::{HeaderName, HeaderValue};
+    for (name, value) in headers {
+        if let (Ok(n), Ok(v)) = (
+            HeaderName::from_bytes(name.as_bytes()),
+            HeaderValue::from_str(value),
+        ) {
+            req = req.header(n, v);
+        }
+    }
+    req
+}
+
 /// Blocking GET returning the response body, or `Err(message)` on any failure.
 /// The engine surfaces the error to the translator as an empty result.
-pub fn get(url: &str) -> Result<String, String> {
+pub fn get(url: &str, headers: &[(String, String)]) -> Result<String, String> {
     if !scheme_ok(url) {
         return Err(format!("blocked non-http(s) URL: {url}"));
     }
-    let resp = client()
-        .get(url)
+    let resp = apply_headers(client().get(url), headers)
         .send()
         .map_err(|e| format!("GET {url}: {e}"))?;
     if !resp.status().is_success() {
@@ -50,14 +68,20 @@ pub fn get(url: &str) -> Result<String, String> {
 
 /// Blocking POST of `body` with an explicit `Content-Type`, returning the
 /// response body.
-pub fn post(url: &str, body: &str, content_type: &str) -> Result<String, String> {
+pub fn post(
+    url: &str,
+    body: &str,
+    content_type: &str,
+    headers: &[(String, String)],
+) -> Result<String, String> {
     if !scheme_ok(url) {
         return Err(format!("blocked non-http(s) URL: {url}"));
     }
-    let resp = client()
+    let req = client()
         .post(url)
         .header(reqwest::header::CONTENT_TYPE, content_type)
-        .body(body.to_string())
+        .body(body.to_string());
+    let resp = apply_headers(req, headers)
         .send()
         .map_err(|e| format!("POST {url}: {e}"))?;
     if !resp.status().is_success() {

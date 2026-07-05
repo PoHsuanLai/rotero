@@ -51,6 +51,8 @@ Zotero.Item.prototype.complete = function () {
 };
 
 Zotero.debug = function (msg) { try { __debug(String(msg)); } catch (e) {} };
+// upstream utilities.js reads Zotero.Prefs.get('capitalizeTitles'); default on.
+Zotero.Prefs = { get: function () { return true; } };
 Zotero.done = function () {};
 Zotero.wait = function () {};
 Zotero.setProgress = function () {};
@@ -154,14 +156,14 @@ var ZU = {};
 Zotero.Utilities = ZU;
 
 // DOM/XPath → host functions. `doc`/`node` args are ignored (single-document
-// engine); the expression is evaluated against the current page.
-ZU.xpathText = function (node, xpath) { var t = __xpathText(xpath); return t === "" ? null : t; };
-ZU.xpath = function (node, xpath) {
+// engine); the expression is evaluated against the current page. Installed onto
+// ZU by __applyZUOverrides after upstream utilities loads.
+function xpathNodes(node, xpath) {
     // Return an array of pseudo-nodes exposing textContent, which is what most
     // translators read after an xpath() call.
     var vals = JSON.parse(__xpathAll(xpath));
     return vals.map(function (s) { return { textContent: s, innerText: s, nodeValue: s }; });
-};
+}
 
 // --- CSS-selector DOM API ---
 // A node is `{ __h: <handle> }` plus lazy textContent/getAttribute. Handle 0 is
@@ -224,135 +226,117 @@ function attr(node, sel, attribute, index) {
 ZU.text = text;
 ZU.attr = attr;
 
-// String helpers (pure JS ports of the common ZU functions).
-ZU.trim = function (s) { return s == null ? "" : String(s).replace(/^\s+|\s+$/g, ""); };
-ZU.trimInternal = function (s) { return s == null ? "" : String(s).replace(/\s+/g, " ").replace(/^\s+|\s+$/g, ""); };
-ZU.superCleanString = function (s) { return ZU.trim(String(s).replace(/^[\s .,;:!?()\[\]{}]+|[\s .,;:!?()\[\]{}]+$/g, "")); };
-ZU.cleanDOI = function (s) { if (!s) return null; var m = String(s).match(/10(?:\.[0-9]{4,})?\/[^\s]*[^\s.,]/); return m ? m[0] : null; };
-// Delegates to the Rust ZU port (correct surname-particle handling).
-ZU.cleanAuthor = function (name, type, useComma) {
-    return JSON.parse(__cleanAuthor(String(name || ""), String(type || "author"), !!useComma));
-};
-ZU.capitalizeTitle = function (s) { return s == null ? "" : String(s); };
-ZU.getPageRange = function (s) {
-    var m = String(s || "").match(/^\s*([0-9]+)\s*[-–]\s*([0-9]+)\s*$/);
-    return m ? [m[1], m[2]] : [s, s];
-};
+// The pure-JS string utilities (trim, capitalizeTitle, cleanTags, cleanISBN,
+// removeDiacritics, …) come from the vendored upstream `utilities.js`, loaded
+// after this shim. Only the functions that must bridge to the Rust host — the
+// DOM (xpath/CSS), the blocking HTTP helpers, the Rust author/date ports, and the
+// schema stubs we can't answer without the item schema — are (re)installed onto
+// `Zotero.Utilities` by `__applyZUOverrides`, run once utilities.js has assigned
+// `Zotero.Utilities`. Keeping these as overrides means upstream's versions (which
+// assume a real DOM / app internals) never shadow the host-backed ones.
+function __applyZUOverrides() {
+    ZU = Zotero.Utilities;
 
-// More pure-JS ZU ports (no host call needed). Faithful to upstream
-// utilities.js where behavior matters; simplified where a translator only needs
-// the common path. HTTP-backed helpers (processDocuments/doGet/doPost/HTTP) are
-// added separately with async host functions.
-ZU.cleanTags = function (s) {
-    if (s == null) return "";
-    return String(s).replace(/<[^>]+>/g, "");
-};
-ZU.unescapeHTML = function (s) {
-    if (s == null) return "";
-    return String(s)
-        .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
-        .replace(/&#(\d+);/g, function (_, n) { return String.fromCharCode(parseInt(n, 10)); })
-        .replace(/&#x([0-9a-fA-F]+);/g, function (_, n) { return String.fromCharCode(parseInt(n, 16)); })
-        .replace(/&amp;/g, "&");
-};
-ZU.cleanISBN = function (s) {
-    if (!s) return false;
-    var digits = String(s).replace(/[^0-9Xx]/g, "").toUpperCase();
-    if (digits.length === 10 || digits.length === 13) return digits;
-    return false;
-};
-ZU.cleanISSN = function (s) {
-    if (!s) return false;
-    var m = String(s).replace(/[^0-9Xx]/g, "").toUpperCase();
-    return m.length === 8 ? m.substr(0, 4) + "-" + m.substr(4) : false;
-};
-ZU.removeDiacritics = function (s) {
-    if (s == null) return "";
-    return String(s).normalize ? String(s).normalize("NFD").replace(/[̀-ͯ]/g, "") : String(s);
-};
-ZU.capitalizeName = function (s) {
-    if (s == null) return "";
-    return String(s).toLowerCase().replace(/\b([a-z])/g, function (_, c) { return c.toUpperCase(); });
-};
-ZU.lpad = function (s, pad, len) {
-    s = String(s == null ? "" : s);
-    while (s.length < len) s = pad + s;
-    return s;
-};
-ZU.ellipsize = function (s, len) {
-    s = String(s == null ? "" : s);
-    return s.length > len ? s.substr(0, len) + "…" : s;
-};
-ZU.deepCopy = function (obj) { return JSON.parse(JSON.stringify(obj)); };
-ZU.arrayUnique = function (arr) {
-    var seen = {}, out = [];
-    for (var i = 0; i < arr.length; i++) {
-        if (!seen[arr[i]]) { seen[arr[i]] = true; out.push(arr[i]); }
-    }
-    return out;
-};
-// strToISO / strToDate: normalize a date string to ISO (YYYY-MM-DD, or a prefix).
-ZU.strToISO = function (s) {
-    if (!s) return "";
-    var str = String(s);
-    var iso = str.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
-    if (iso) return iso[0];
-    var d = ZU.strToDate(str);
-    if (!d.year) return "";
-    var out = ZU.lpad(d.year, "0", 4);
-    if (d.month != null) out += "-" + ZU.lpad(d.month, "0", 2);
-    if (d.day != null) out += "-" + ZU.lpad(d.day, "0", 2);
-    return out;
-};
-ZU.strToDate = function (s) {
-    // Delegates to the Rust ZU date parser (multi-format). Returns
-    // { year, month, day } with month/day 1-based or absent. ZU.strToDate in
-    // upstream returns month 0-based; translators mostly consume via strToISO,
-    // so we keep 1-based here and strToISO compensates. Callers reading .month
-    // directly are rare.
-    var d = JSON.parse(__strToDate(String(s)));
-    return { year: d.year, month: d.month, day: d.day };
-};
-// Schema helpers: without the full schema we accept optimistically. Translators
-// use these to guard optional fields; returning true keeps the common path.
-ZU.fieldIsValidForType = function () { return true; };
-ZU.itemTypeExists = function () { return true; };
+    // DOM access — upstream's xpath needs a real document; ours queries the
+    // engine's active DOM via host functions.
+    ZU.xpathText = function (node, xpath) { var t = __xpathText(xpath); return t === "" ? null : t; };
+    ZU.xpath = xpathNodes;
+    ZU.text = text;
+    ZU.attr = attr;
+
+    // Author/date parsing routes to the Rust ports (surname particles; the
+    // multi-format date parser). strToDate returns month/day 1-based (upstream is
+    // 0-based); translators mostly consume via strToISO, which compensates.
+    ZU.cleanAuthor = function (name, type, useComma) {
+        return JSON.parse(__cleanAuthor(String(name || ""), String(type || "author"), !!useComma));
+    };
+    ZU.strToDate = function (s) {
+        var d = JSON.parse(__strToDate(String(s)));
+        return { year: d.year, month: d.month, day: d.day };
+    };
+    ZU.strToISO = function (s) {
+        if (!s) return "";
+        var str = String(s);
+        var iso = str.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+        if (iso) return iso[0];
+        var d = ZU.strToDate(str);
+        if (!d.year) return "";
+        var out = ZU.lpad(d.year, "0", 4);
+        if (d.month != null) out += "-" + ZU.lpad(d.month, "0", 2);
+        if (d.day != null) out += "-" + ZU.lpad(d.day, "0", 2);
+        return out;
+    };
+
+    // Schema guards: without the item schema we accept optimistically, so a
+    // translator's optional-field checks take the common path.
+    ZU.fieldIsValidForType = function () { return true; };
+    ZU.itemTypeExists = function () { return true; };
+
+    // Blocking HTTP helpers (relative-URL resolution + header forwarding + the
+    // browser-proxy broker) — installed below as they depend on host functions.
+    __applyZUHttp();
+}
 
 // --- HTTP (blocking, via host functions) ---
 // Translators fetch over the network with callback-style helpers. The host does
 // a synchronous request (we run on a blocking thread) and we invoke the callback
 // with the body. Errors invoke the optional failure/`done` callback with "".
+//
+// Every URL is resolved against the page URL via `__resolveUrl` first: gated
+// publishers build *relative* follow-up URLs (IEEE `/rest/search/citation/...`,
+// Atypon `/action/downloadCitation`, JSTOR `/citation/ris/...`) and the host's
+// scheme guard rejects a bare path. Request `headers` (esp. `Referer`, which
+// several publishers require) are serialized to a JSON string and threaded to
+// the host GET/POST.
 
-// ZU.doGet(urls, processor, done, responseCharset, headers)
-ZU.doGet = function (urls, processor, done) {
+// Serialize a headers object to a JSON string the host fns parse, or "" if none.
+function __headersJson(h) {
+    if (!h || typeof h !== "object") return "";
+    try {
+        var out = {};
+        var any = false;
+        for (var k in h) {
+            if (Object.prototype.hasOwnProperty.call(h, k) && h[k] != null) {
+                out[k] = String(h[k]);
+                any = true;
+            }
+        }
+        return any ? JSON.stringify(out) : "";
+    } catch (e) { return ""; }
+}
+
+// doGet(urls, processor, done, responseCharset, headers)
+function doGet(urls, processor, done, responseCharset, headers) {
     var list = Array.isArray(urls) ? urls : [urls];
+    var hj = __headersJson(headers);
     for (var i = 0; i < list.length; i++) {
-        var r = JSON.parse(__httpGet(String(list[i])));
-        if (r.ok && processor) processor(r.body, {}, String(list[i]));
+        var u = __resolveUrl(String(list[i]));
+        var r = JSON.parse(__httpGet(u, hj));
+        if (r.ok && processor) processor(r.body, {}, u);
         else if (!r.ok) __debug("doGet failed: " + (r.error || ""));
     }
     if (done) done();
-};
+}
 
-// ZU.doPost(url, body, onDone, headers)
-ZU.doPost = function (url, body, onDone, headers) {
+// doPost(url, body, onDone, headers)
+function doPost(url, body, onDone, headers) {
     var ct = (headers && (headers["Content-Type"] || headers["content-type"])) || "";
-    var r = JSON.parse(__httpPost(String(url), String(body == null ? "" : body), String(ct)));
+    var u = __resolveUrl(String(url));
+    var r = JSON.parse(__httpPost(u, String(body == null ? "" : body), String(ct), __headersJson(headers)));
     if (r.ok && onDone) onDone(r.body, {});
     else if (!r.ok) { __debug("doPost failed: " + (r.error || "")); if (onDone) onDone("", {}); }
-};
+}
 
-// ZU.processDocuments(urls, processor, done): fetch each URL, make it the active
+// processDocuments(urls, processor, done): fetch each URL, make it the active
 // document, and hand a `doc` to the processor. Restores the original document
 // afterward so the outer translator's later queries are unaffected.
-ZU.processDocuments = function (urls, processor, done) {
+function processDocuments(urls, processor, done) {
     var list = Array.isArray(urls) ? urls : [urls];
     var savedHtml = __currentHtml();
     var savedUrl = doc.location.href;
     for (var i = 0; i < list.length; i++) {
-        var u = String(list[i]);
-        var r = JSON.parse(__httpGet(u));
+        var u = __resolveUrl(String(list[i]));
+        var r = JSON.parse(__httpGet(u, ""));
         if (!r.ok) { __debug("processDocuments failed: " + (r.error || "")); continue; }
         if (__setActiveDom(r.body, u) && processor) {
             var fetched = __makeDoc(u);
@@ -362,28 +346,41 @@ ZU.processDocuments = function (urls, processor, done) {
     // Restore the original active document.
     if (savedHtml !== "") __setActiveDom(savedHtml, savedUrl);
     if (done) done();
-};
+}
 
 // Promise-based request API (arXiv-style: `await requestText(url)`). Backed by
 // the same blocking host GET; resolves synchronously so the engine's microtask
-// drain completes the await.
-function requestText(url) {
-    var r = JSON.parse(__httpGet(String(url)));
+// drain completes the await. The optional `opts` mirrors Zotero's
+// `request(url, { headers, ... })` — we thread `opts.headers` (e.g. IEEE's
+// `{ headers: { Referer: url } }`) to the host.
+function requestText(url, opts) {
+    var hj = __headersJson(opts && opts.headers);
+    var r = JSON.parse(__httpGet(__resolveUrl(String(url)), hj));
     if (r.ok) return Promise.resolve(r.body);
     return Promise.reject(new Error(r.error || "request failed"));
 }
-function requestJSON(url) {
-    return requestText(url).then(function (t) { return JSON.parse(t); });
+function requestJSON(url, opts) {
+    return requestText(url, opts).then(function (t) { return JSON.parse(t); });
 }
-function requestDocument(url) {
-    var r = JSON.parse(__httpGet(String(url)));
+function requestDocument(url, opts) {
+    var hj = __headersJson(opts && opts.headers);
+    var u = __resolveUrl(String(url));
+    var r = JSON.parse(__httpGet(u, hj));
     if (!r.ok) return Promise.reject(new Error(r.error || "request failed"));
-    __setActiveDom(r.body, String(url));
-    return Promise.resolve(__makeDoc(String(url)));
+    __setActiveDom(r.body, u);
+    return Promise.resolve(__makeDoc(u));
 }
-ZU.requestText = requestText;
-ZU.requestJSON = requestJSON;
-ZU.requestDocument = requestDocument;
+// Install the host-backed HTTP helpers onto ZU (= Zotero.Utilities). Called by
+// __applyZUOverrides after upstream utilities loads, so these win over any
+// upstream network helpers (which assume Zotero's app HTTP stack).
+function __applyZUHttp() {
+    ZU.doGet = doGet;
+    ZU.doPost = doPost;
+    ZU.processDocuments = processDocuments;
+    ZU.requestText = requestText;
+    ZU.requestJSON = requestJSON;
+    ZU.requestDocument = requestDocument;
+}
 
 // XPathResult ordering constants translators pass to doc.evaluate (ignored; we
 // always iterate in document order).

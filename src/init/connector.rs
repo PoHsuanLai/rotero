@@ -179,6 +179,8 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                         )
                     })),
                     translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),
+                    #[cfg(feature = "translator-engine")]
+                    scrape_sessions: Default::default(),
                 });
 
                 if let Err(e) = rotero_connector::start_server(state, port).await {

@@ -18,6 +18,14 @@ scraper = "0.22"
 rotero-translate = { path = "../rotero-translate" }
 rotero-bib = { path = "../rotero-bib" }
 
+[features]
+default = []
+# Enable the in-process JS translator engine (the upstream `translators/*.js`
+# corpus) and, with it, the browser-proxied follow-up-fetch path for gated
+# publishers. Off by default: the connector then runs only the Rust hub
+# translators, exactly as before.
+translator-engine = ["rotero-translate/translator-engine"]
+
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 serde_json.workspace = true

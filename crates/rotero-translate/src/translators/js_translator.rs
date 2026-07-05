@@ -11,7 +11,7 @@
 use async_trait::async_trait;
 use regex::Regex;
 
-use crate::engine::run_web_translator;
+use crate::engine::run_web_translator_raw;
 use crate::item::ZoteroItem;
 
 use super::{TranslationContext, Translator};
@@ -93,15 +93,30 @@ impl Translator for JsTranslator {
         ctx: &TranslationContext,
     ) -> Result<Vec<ZoteroItem>, crate::TranslateError> {
         // boa's Context is !Send; run the synchronous engine on a blocking thread
-        // so the returned future stays Send (required by the async trait).
+        // so the returned future stays Send (required by the async trait). When
+        // the context carries a fetch queue, follow-up requests route through a
+        // channel broker to the browser-proxy driver; otherwise they fetch
+        // directly (anonymous).
         let source = self.source.clone();
         let body = ctx.body.to_string();
+        let raw_body = ctx.raw_body.as_ref().map(|r| r.to_string());
         let url = ctx.url.clone();
-        let result = tokio::task::spawn_blocking(move || run_web_translator(&source, &body, &url))
-            .await
-            .map_err(|e| {
-                crate::TranslateError::Translation(format!("engine task panicked: {e}"))
-            })?;
+        let broker: Option<Box<dyn crate::engine::FetchBroker>> = ctx
+            .fetch_queue
+            .clone()
+            .map(|q| Box::new(crate::engine::ChannelBroker::new(q)) as Box<_>);
+        let result = tokio::task::spawn_blocking(move || match broker {
+            Some(broker) => crate::engine::run_web_translator_with_broker(
+                &source,
+                &body,
+                raw_body.as_deref(),
+                &url,
+                broker,
+            ),
+            None => run_web_translator_raw(&source, &body, raw_body.as_deref(), &url),
+        })
+        .await
+        .map_err(|e| crate::TranslateError::Translation(format!("engine task panicked: {e}")))?;
 
         match result {
             Ok(items) if items.is_empty() => Err(crate::TranslateError::NotApplicable),
@@ -197,11 +212,12 @@ function doWeb() {}"#;
     #[tokio::test]
     async fn runs_against_a_page() {
         let t = JsTranslator::from_source(SAMPLE).expect("parse");
-        let ctx = TranslationContext {
-            url: "https://example.org/article/42".to_string(),
-            content_type: Some("text/html".to_string()),
-            body: std::sync::Arc::from("<html><body><h1>Hello</h1></body></html>"),
-        };
+        let ctx = TranslationContext::new(
+            "https://example.org/article/42".to_string(),
+            Some("text/html".to_string()),
+            std::sync::Arc::from("<html><body><h1>Hello</h1></body></html>"),
+            None,
+        );
         let items = t.translate(&ctx).await.expect("translate");
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].title, "Hello");

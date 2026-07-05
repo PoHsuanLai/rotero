@@ -92,3 +92,11 @@ desktop = ["dioxus/desktop", "dep:rfd", "dep:rotero-connector", "dep:rotero-tran
 mobile = ["dioxus/mobile", "dep:apple-utils"]
 cloudkit = ["dep:objc2", "dep:objc2-cloud-kit", "dep:objc2-foundation", "dep:block2"]
 pdfium-static = ["rotero-pdf/static"]
+# Opt-in: run the upstream `translators/*.js` corpus in-process (boa engine) and
+# proxy gated publishers' follow-up fetches through the browser. Requires
+# desktop. Off by default — the app then uses only the Rust hub translators.
+translator-engine = [
+    "desktop",
+    "rotero-connector/translator-engine",
+    "rotero-translate/translator-engine",
+]

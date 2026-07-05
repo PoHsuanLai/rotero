@@ -16,6 +16,8 @@ fn test_state() -> Arc<ConnectorState> {
         on_search_papers: None,
         on_get_papers_by_ids: None,
         translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),
+        #[cfg(feature = "translator-engine")]
+        scrape_sessions: Default::default(),
     })
 }
 
@@ -64,6 +66,9 @@ async fn scrape_uses_supplied_html_without_fetch() {
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["success"], true, "response: {json}");
+    // A page with no follow-up fetch completes in one shot, whether or not the
+    // brokered path is compiled in.
+    assert_eq!(json["done"], true, "response: {json}");
     let m = &json["metadata"];
     assert_eq!(m["title"], "Send HTML End To End");
     assert_eq!(m["doi"], "10.1234/sendhtml.1");

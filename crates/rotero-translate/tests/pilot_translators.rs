@@ -41,11 +41,12 @@ async fn theory_of_computing_extracts_article() {
         "target regex should match the article URL"
     );
 
-    let ctx = TranslationContext {
-        url: url.to_string(),
-        content_type: Some("text/html".to_string()),
-        body: Arc::from(V009A013_HTML),
-    };
+    let ctx = TranslationContext::new(
+        url.to_string(),
+        Some("text/html".to_string()),
+        Arc::from(V009A013_HTML),
+        None,
+    );
 
     let items = t.translate(&ctx).await.expect("translate");
     assert_eq!(items.len(), 1, "one article expected");
@@ -76,11 +77,12 @@ async fn nature_extracts_article_via_embedded_metadata() {
     let url = "https://www.nature.com/articles/nature12373";
     assert!(t.matches_url(url), "Nature target regex should match");
 
-    let ctx = TranslationContext {
-        url: url.to_string(),
-        content_type: Some("text/html".to_string()),
-        body: Arc::from(NATURE_HTML),
-    };
+    let ctx = TranslationContext::new(
+        url.to_string(),
+        Some("text/html".to_string()),
+        Arc::from(NATURE_HTML),
+        None,
+    );
 
     let items = t.translate(&ctx).await.expect("translate");
     assert_eq!(items.len(), 1, "one journal article expected");
@@ -109,11 +111,12 @@ async fn registry_dispatches_corpus_translator() {
     use rotero_translate::translators::TranslatorRegistry;
 
     let registry = TranslatorRegistry::with_builtins();
-    let ctx = TranslationContext {
-        url: "http://theoryofcomputing.org/articles/v009a013/".to_string(),
-        content_type: Some("text/html".to_string()),
-        body: Arc::from(V009A013_HTML),
-    };
+    let ctx = TranslationContext::new(
+        "http://theoryofcomputing.org/articles/v009a013/".to_string(),
+        Some("text/html".to_string()),
+        Arc::from(V009A013_HTML),
+        None,
+    );
 
     let items = registry
         .translate_context(&ctx)
@@ -169,11 +172,12 @@ async fn frontiers_extracts_both_authors_and_abstract() {
         "https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2011.00326/full";
     assert!(t.matches_url(url), "Frontiers target regex should match");
 
-    let ctx = TranslationContext {
-        url: url.to_string(),
-        content_type: Some("text/html".to_string()),
-        body: Arc::from(FRONTIERS_HTML),
-    };
+    let ctx = TranslationContext::new(
+        url.to_string(),
+        Some("text/html".to_string()),
+        Arc::from(FRONTIERS_HTML),
+        None,
+    );
 
     let items = t.translate(&ctx).await.expect("translate");
     assert_eq!(items.len(), 1, "one journal article expected");

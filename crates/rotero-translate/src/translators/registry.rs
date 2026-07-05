@@ -49,14 +49,56 @@ impl TranslatorRegistry {
     /// fetch. This sidesteps publisher anti-bot walls that block a server-side
     /// re-fetch: the extension sees the real page, so the connector does too.
     pub async fn translate_html(&self, url: &str, html: &str) -> Option<Vec<ZoteroItem>> {
+        self.translate_html_raw(url, html, None).await
+    }
+
+    /// Like [`translate_html`](Self::translate_html), but with optional *raw
+    /// server HTML* alongside the rendered `html`. Inline-`<script>` translators
+    /// (IEEE `global.document.metadata`, `__NEXT_DATA__`, JSON-LD) read data an
+    /// SPA drops during hydration; the raw HTML — a page-context fetch of the
+    /// page's own URL — still carries it, so JS translators parse against it.
+    pub async fn translate_html_raw(
+        &self,
+        url: &str,
+        html: &str,
+        raw_html: Option<&str>,
+    ) -> Option<Vec<ZoteroItem>> {
         if !self.translators.iter().any(|t| t.matches_url(url)) {
             return None;
         }
-        let ctx = TranslationContext {
-            url: url.to_string(),
-            content_type: Some("text/html".to_string()),
-            body: std::sync::Arc::from(html),
-        };
+        let ctx = TranslationContext::new(
+            url.to_string(),
+            Some("text/html".to_string()),
+            std::sync::Arc::from(html),
+            raw_html.map(std::sync::Arc::from),
+        );
+        self.translate_context(&ctx).await
+    }
+
+    /// Like [`translate_html_raw`](Self::translate_html_raw), but routes a JS
+    /// translator's follow-up HTTP requests through `fetch_queue` so they run in
+    /// the user's authenticated browser tab (via the connector's proxy driver).
+    /// Gated publishers fetch their citation data from a session-cookie-protected
+    /// endpoint; an anonymous server fetch gets a 403, but a request replayed in
+    /// the tab carries the login.
+    #[cfg(feature = "translator-engine")]
+    pub async fn translate_html_brokered(
+        &self,
+        url: &str,
+        html: &str,
+        raw_html: Option<&str>,
+        fetch_queue: tokio::sync::mpsc::UnboundedSender<crate::engine::BrokeredFetch>,
+    ) -> Option<Vec<ZoteroItem>> {
+        if !self.translators.iter().any(|t| t.matches_url(url)) {
+            return None;
+        }
+        let ctx = TranslationContext::new(
+            url.to_string(),
+            Some("text/html".to_string()),
+            std::sync::Arc::from(html),
+            raw_html.map(std::sync::Arc::from),
+        )
+        .with_fetch_queue(fetch_queue);
         self.translate_context(&ctx).await
     }
 
@@ -125,7 +167,10 @@ fn enrich_from_embedded_metadata(items: &mut [ZoteroItem], ctx: &TranslationCont
         return;
     }
 
-    let em = crate::html_meta::extract_zotero_item(&ctx.body);
+    // Prefer the raw server HTML for meta extraction: an SPA may strip the
+    // citation_* / Dublin Core tags from the rendered DOM.
+    let meta_html = ctx.raw_body.as_deref().unwrap_or(&ctx.body);
+    let em = crate::html_meta::extract_zotero_item(meta_html);
     // Nothing to contribute if the page has no scholarly metadata.
     if em.title.is_empty() {
         return;

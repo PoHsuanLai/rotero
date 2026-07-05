@@ -108,14 +108,50 @@ pub struct ScrapeRequest {
     /// anti-bot walls that would block a bare server fetch.
     #[serde(default)]
     pub html: Option<String>,
+    /// Optional *raw server HTML* — a page-context `fetch` of the page's own URL
+    /// captured by the extension. It carries inline `<script>` data (IEEE
+    /// `global.document.metadata`, `__NEXT_DATA__`, JSON-LD) that an SPA strips
+    /// from the rendered [`html`], so JS translators parse against it when present.
+    #[serde(default)]
+    pub raw_html: Option<String>,
 }
 
-/// JSON response for `POST /api/scrape`.
+/// JSON response for `POST /api/scrape` and `POST /api/scrape/continue`.
+///
+/// `done` distinguishes the two outcomes of a browser-proxied run: `true` carries
+/// the final `metadata` (or a miss), while `false` carries a `fetch` instruction
+/// the extension must perform in the authenticated tab, plus the `run_id` to
+/// resume under. The one-shot path (no follow-up fetch, or the engine disabled)
+/// always returns `done: true`, so an extension that ignores the new fields still
+/// works unchanged.
 #[derive(Debug, Serialize)]
 pub struct ScrapeResponse {
     pub success: bool,
+    pub done: bool,
     pub metadata: Option<ScrapeResult>,
     pub error: Option<String>,
+    /// Set when `done` is false: the follow-up fetch for the extension to perform.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg(feature = "translator-engine")]
+    pub fetch: Option<crate::scrape_session::FetchInstruction>,
+    /// Set when `done` is false: the session id to pass to `/api/scrape/continue`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<u64>,
+}
+
+impl ScrapeResponse {
+    /// A completed response carrying extracted metadata (or a miss).
+    fn done(success: bool, metadata: Option<ScrapeResult>, error: Option<String>) -> Self {
+        Self {
+            success,
+            done: true,
+            metadata,
+            error,
+            #[cfg(feature = "translator-engine")]
+            fetch: None,
+            run_id: None,
+        }
+    }
 }
 
 /// Scraped paper metadata returned inside [`ScrapeResponse`].
@@ -144,33 +180,146 @@ pub async fn scrape(
     State(state): State<Arc<ConnectorState>>,
     Json(req): Json<ScrapeRequest>,
 ) -> Json<ScrapeResponse> {
-    // Prefer the extension-supplied HTML (real, authenticated page) over a
-    // server re-fetch. translate_html never fetches; translate_web fetches once.
-    let items = match req.html.as_deref().filter(|h| !h.trim().is_empty()) {
+    let html = req.html.as_deref().filter(|h| !h.trim().is_empty());
+    let raw = req.raw_html.as_deref().filter(|h| !h.trim().is_empty());
+
+    // With the JS engine and extension-supplied HTML, run the brokered path: a
+    // site translator's follow-up fetch (IEEE's citation API, an Atypon RIS POST)
+    // is proxied back to the authenticated tab. The run may park mid-way, which
+    // yields a `done: false` response the extension continues.
+    #[cfg(feature = "translator-engine")]
+    if let Some(html) = html {
+        return Json(start_brokered_scrape(&state, &req.url, html, raw).await);
+    }
+
+    // Otherwise a single non-brokered pass: extension HTML if present (no
+    // follow-up proxying), else a server-side fetch.
+    let items = match html {
         Some(html) => {
             state
                 .translator_registry
-                .translate_html(&req.url, html)
+                .translate_html_raw(&req.url, html, raw)
                 .await
         }
         None => state.translator_registry.translate_web(&req.url).await,
     };
+    Json(finish_scrape(&req.url, items.as_deref()))
+}
 
-    match items.as_deref().and_then(best_result) {
+/// Build the terminal response for a completed run: `Hit` with metadata, or
+/// `Miss`. Records telemetry.
+fn finish_scrape(url: &str, items: Option<&[rotero_translate::ZoteroItem]>) -> ScrapeResponse {
+    match items.and_then(best_result) {
         Some(result) => {
-            crate::telemetry::record(crate::telemetry::Outcome::Hit, &req.url);
-            Json(ScrapeResponse {
-                success: true,
-                metadata: Some(result),
-                error: None,
-            })
+            crate::telemetry::record(crate::telemetry::Outcome::Hit, url);
+            ScrapeResponse::done(true, Some(result), None)
         }
         None => {
-            crate::telemetry::record(crate::telemetry::Outcome::Miss, &req.url);
-            Json(ScrapeResponse {
-                success: false,
+            crate::telemetry::record(crate::telemetry::Outcome::Miss, url);
+            ScrapeResponse::done(
+                false,
+                None,
+                Some(format!("no metadata extracted for {url}")),
+            )
+        }
+    }
+}
+
+/// Start a browser-proxied translation and drive it to its first park or to
+/// completion. If the run finishes without a follow-up fetch, returns a terminal
+/// response; if it parks, registers the session and returns a `fetch` for the
+/// extension plus the `run_id` to continue under.
+#[cfg(feature = "translator-engine")]
+async fn start_brokered_scrape(
+    state: &Arc<ConnectorState>,
+    url: &str,
+    html: &str,
+    raw_html: Option<&str>,
+) -> ScrapeResponse {
+    use crate::scrape_session::{Session, Step};
+
+    let (queue_tx, queue_rx) = tokio::sync::mpsc::unbounded_channel();
+
+    // Spawn the translation, routing its follow-up fetches to `queue_tx`. The
+    // task owns a clone of the shared state so it can outlive this request while
+    // the session is parked between round-trips.
+    let task_state = Arc::clone(state);
+    let url_owned = url.to_string();
+    let html_owned = html.to_string();
+    let raw_owned = raw_html.map(str::to_string);
+    let join = tokio::spawn(async move {
+        task_state
+            .translator_registry
+            .translate_html_brokered(&url_owned, &html_owned, raw_owned.as_deref(), queue_tx)
+            .await
+    });
+
+    let mut session = Session::new(join, queue_rx);
+    match session.drive().await {
+        Step::Done(items) => finish_scrape(url, items.as_deref()),
+        Step::Fetch(fetch) => {
+            let run_id = state.scrape_sessions.insert(session);
+            ScrapeResponse {
+                success: true,
+                done: false,
                 metadata: None,
-                error: Some(format!("no metadata extracted for {}", req.url)),
+                error: None,
+                fetch: Some(fetch),
+                run_id: Some(run_id),
+            }
+        }
+    }
+}
+
+/// JSON body for `POST /api/scrape/continue`: the extension's outcome for the
+/// fetch it was asked to perform, plus the session to resume.
+#[cfg(feature = "translator-engine")]
+#[derive(Debug, Deserialize)]
+pub struct ScrapeContinueRequest {
+    pub run_id: u64,
+    pub url: String,
+    pub response: crate::scrape_session::FetchOutcome,
+}
+
+/// Handler for `POST /api/scrape/continue`. Feeds the extension's fetched body to
+/// the parked engine and drives it to the next park or to completion.
+#[cfg(feature = "translator-engine")]
+pub async fn scrape_continue(
+    State(state): State<Arc<ConnectorState>>,
+    Json(req): Json<ScrapeContinueRequest>,
+) -> Json<ScrapeResponse> {
+    use crate::scrape_session::Step;
+
+    let Some(mut session) = state.scrape_sessions.take(req.run_id) else {
+        return Json(ScrapeResponse::done(
+            false,
+            None,
+            Some(format!("unknown scrape session {}", req.run_id)),
+        ));
+    };
+
+    if !session.resume(req.response) {
+        // No fetch was awaiting a reply — a stray or duplicate continue. Put the
+        // session back so a legitimate follow-up can still resume it.
+        state.scrape_sessions.put_back(req.run_id, session);
+        return Json(ScrapeResponse::done(
+            false,
+            None,
+            Some("no pending fetch for this session".to_string()),
+        ));
+    }
+
+    match session.drive().await {
+        Step::Done(items) => Json(finish_scrape(&req.url, items.as_deref())),
+        Step::Fetch(fetch) => {
+            state.scrape_sessions.put_back(req.run_id, session);
+            Json(ScrapeResponse {
+                success: true,
+                done: false,
+                metadata: None,
+                error: None,
+                fetch: Some(fetch),
+                run_id: Some(req.run_id),
             })
         }
     }
