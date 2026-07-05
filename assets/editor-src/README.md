@@ -25,5 +25,10 @@ npx esbuild editor.js \
 
 Keep the CodeMirror dependency versions pinned in `package.json`; bump
 deliberately and re-run the build. The Typst mode is a hand-written
-`StreamLanguage` tokenizer (Typst has no official Lezer grammar); a real
-language server (tinymist) is a future addition.
+`StreamLanguage` tokenizer (Typst has no official Lezer grammar).
+
+Diagnostics (compile errors/warnings as squiggles) are driven from Rust: the
+editor exposes `setDiagnostics(id, diags)`, fed by `rotero_typeset::diagnostics`
+(a debounced full Typst compile — no external language server needed, since the
+compiler already reports errors + warnings with spans). Richer intelligence
+(completion, hover) via tinymist-query would be a future addition.

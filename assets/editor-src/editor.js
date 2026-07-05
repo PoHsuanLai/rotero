@@ -33,6 +33,7 @@ import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import { markdown } from "@codemirror/lang-markdown";
 import { tags as t } from "@lezer/highlight";
+import { lintGutter, setDiagnostics as cmSetDiagnostics } from "@codemirror/lint";
 
 // --- Typst syntax mode --------------------------------------------------
 // Typst has no official Lezer grammar in CodeMirror, so we hand-roll a
@@ -174,6 +175,7 @@ const baseExtensions = () => [
   highlightActiveLine(),
   highlightSelectionMatches(),
   syntaxHighlighting(highlightStyle),
+  lintGutter(),
   theme,
   EditorView.lineWrapping,
   keymap.of([
@@ -238,6 +240,29 @@ window.__roteroEditor = {
     view.dispatch({
       changes: { from: 0, to: current.length, insert: doc || "" },
     });
+  },
+
+  // Replace the editor's diagnostics (red/yellow squiggles + lint gutter).
+  // `diags` is an array of { from, to, severity, message } where from/to are
+  // byte offsets into the current document. Offsets are clamped to the doc so a
+  // stale compile against slightly older text can't throw.
+  setDiagnostics(id, diags) {
+    const view = editors.get(id);
+    if (!view) return;
+    const len = view.state.doc.length;
+    const clamp = (n) => Math.max(0, Math.min(len, n | 0));
+    const mapped = (diags || []).map((d) => {
+      let from = clamp(d.from);
+      let to = clamp(d.to);
+      if (to < from) to = from;
+      return {
+        from,
+        to,
+        severity: d.severity || "error",
+        message: d.message || "",
+      };
+    });
+    view.dispatch(cmSetDiagnostics(view.state, mapped));
   },
 
   // Switch the active language mode without losing content.

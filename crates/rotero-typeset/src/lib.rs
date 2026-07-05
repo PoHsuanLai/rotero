@@ -16,9 +16,11 @@
 //! Typst's embedding API churns across minor versions, so all of it is confined
 //! to this crate (see `world.rs`). Package versions are pinned below.
 
+mod diagnostics;
 mod error;
-mod world;
+pub(crate) mod world;
 
+pub use diagnostics::{Diagnostic, diagnostics};
 pub use error::TypesetError;
 
 use world::RoteroWorld;
@@ -174,12 +176,24 @@ pub fn compile(body: &str, opts: &CompileOptions) -> Result<Vec<u8>, TypesetErro
             .map_err(|e| TypesetError::Compile(format!("write refs.bib: {e}")))?;
     }
 
-    let main = match opts.format {
-        DocumentFormat::Markdown => build_markdown_main(body, opts),
-        DocumentFormat::Typst => build_typst_main(body, opts),
-    };
+    let (main, _prologue_len) = build_main_with_prologue(body, opts);
     let world = RoteroWorld::new(&main, project.path().to_path_buf());
     world.compile_pdf()
+}
+
+/// Wrap `body` into a Typst main file, returning it alongside the byte length of
+/// any prologue prepended *before* the body.
+///
+/// For the Typst path the body is emitted verbatim after a prologue, so
+/// subtracting the prologue length maps a diagnostic's byte range back onto the
+/// body. For the Markdown path the body is embedded as an escaped string literal
+/// (no contiguous suffix), so `prologue_len` is reported as `usize::MAX` to mean
+/// "ranges don't map"; diagnostics there fall back to a document-start marker.
+pub(crate) fn build_main_with_prologue(body: &str, opts: &CompileOptions) -> (String, usize) {
+    match opts.format {
+        DocumentFormat::Markdown => (build_markdown_main(body, opts), usize::MAX),
+        DocumentFormat::Typst => build_typst_main(body, opts),
+    }
 }
 
 /// Compile a Markdown body to PDF bytes.
@@ -248,7 +262,10 @@ fn build_markdown_main(md: &str, opts: &CompileOptions) -> String {
 /// prepend a template `#show` (when the picker selected a Universe template and
 /// the body hasn't applied its own) and a title, and append a `#bibliography`
 /// when a `.bib` was supplied and the body didn't already declare one.
-fn build_typst_main(src: &str, opts: &CompileOptions) -> String {
+///
+/// Returns the wrapped source and the byte length of the prologue prepended
+/// before the verbatim body, so diagnostics can be shifted into body space.
+fn build_typst_main(src: &str, opts: &CompileOptions) -> (String, usize) {
     let mut out = String::new();
 
     // Only apply the picker's template if the author hasn't taken layout into
@@ -268,6 +285,8 @@ fn build_typst_main(src: &str, opts: &CompileOptions) -> String {
     if !out.is_empty() {
         out.push('\n');
     }
+    // Everything up to here is the prologue; the body starts at this offset.
+    let prologue_len = out.len();
     out.push_str(src);
 
     // Append the collection bibliography unless the author placed their own.
@@ -278,7 +297,7 @@ fn build_typst_main(src: &str, opts: &CompileOptions) -> String {
         ));
     }
 
-    out
+    (out, prologue_len)
 }
 
 /// The `#import`/`#show` line applying a Universe template, or `None` for the
@@ -424,7 +443,7 @@ fn typst_str(s: &str) -> String {
 }
 
 /// Create a uniquely-named temp directory (the `tempfile` crate is dev-only).
-fn tempdir() -> std::io::Result<TempDir> {
+pub(crate) fn tempdir() -> std::io::Result<TempDir> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -434,12 +453,12 @@ fn tempdir() -> std::io::Result<TempDir> {
 }
 
 /// Minimal self-cleaning temp dir.
-struct TempDir {
+pub(crate) struct TempDir {
     path: std::path::PathBuf,
 }
 
 impl TempDir {
-    fn path(&self) -> &std::path::Path {
+    pub(crate) fn path(&self) -> &std::path::Path {
         &self.path
     }
 }
@@ -497,6 +516,42 @@ mod tests {
         );
         // An email must be left alone.
         assert_eq!(rewrite_citations("mail a@b.com"), "mail a@b.com");
+    }
+
+    #[test]
+    fn clean_typst_has_no_diagnostics() {
+        let src = "= Title\n\nSome *text* and $x^2$.\n";
+        let opts = CompileOptions {
+            format: DocumentFormat::Typst,
+            ..Default::default()
+        };
+        assert!(diagnostics(src, &opts).is_empty());
+    }
+
+    #[test]
+    fn typst_error_diagnostic_points_into_body() {
+        // A prologue (title) is prepended; the error is in the body. Its range
+        // must map back into the body, not include the prologue.
+        let title = "My Paper";
+        let body = "= Intro\n\n#unknownfunc()\n";
+        let opts = CompileOptions {
+            format: DocumentFormat::Typst,
+            title: title.to_string(),
+            ..Default::default()
+        };
+        let diags = diagnostics(body, &opts);
+        assert!(!diags.is_empty(), "an undefined function should be flagged");
+        let d = &diags[0];
+        assert_eq!(d.severity, "error");
+        // The flagged span sits within the body's byte length.
+        assert!(d.to <= body.len(), "range must be body-relative, got {}..{} for body len {}", d.from, d.to, body.len());
+        // And it points at the `unknownfunc` occurrence, which starts after "= Intro\n\n#".
+        let expected_start = body.find("unknownfunc").unwrap();
+        assert!(
+            d.from <= expected_start && d.to >= expected_start,
+            "diagnostic {}..{} should cover the error site at {}",
+            d.from, d.to, expected_start
+        );
     }
 
     #[test]

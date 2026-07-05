@@ -163,6 +163,34 @@
     padding-left: 6px;
 }
 
+/* --- Lint diagnostics (compile errors/warnings) --- */
+/* Tooltip panel that appears on hovering a marker. */
+.code-editor-mount .cm-tooltip.cm-tooltip-lint {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    max-width: 380px;
+}
+.code-editor-mount .cm-diagnostic {
+    padding: 4px 8px;
+    white-space: pre-wrap;
+    border-left-width: 3px;
+}
+.code-editor-mount .cm-diagnostic-error {
+    border-left-color: var(--destructive, #ef4444);
+}
+.code-editor-mount .cm-diagnostic-warning {
+    border-left-color: var(--warning, #f59e0b);
+}
+/* Gutter markers. */
+.code-editor-mount .cm-lint-marker-error {
+    content: none;
+}
+
 .document-preview {
     flex: 1;
     min-width: 0;

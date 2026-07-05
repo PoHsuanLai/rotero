@@ -38,6 +38,11 @@
   --accent-subtle:      rgba(13, 148, 136, 0.2);
   --accent-danger-bg:   rgba(239, 68, 68, 0.15);
 
+  /* Editor syntax colors — brighter for a dark canvas */
+  --syntax-string:      #4ade80;       /* green-400 */
+  --syntax-math:        #a78bfa;       /* violet-400 */
+  --syntax-cite:        #fbbf24;       /* amber-400 */
+
   /* Shadows — stronger for dark */
   --shadow-xs:   0 1px 2px 0 rgba(0, 0, 0, 0.3);
   --shadow-sm:   0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px -1px rgba(0, 0, 0, 0.4);

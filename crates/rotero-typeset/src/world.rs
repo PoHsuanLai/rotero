@@ -60,6 +60,12 @@ impl RoteroWorld {
         }
     }
 
+    /// The [`FileId`] of the in-memory main source (used to filter diagnostics
+    /// to the authored document rather than imported packages).
+    pub fn main_id(&self) -> FileId {
+        self.main_id
+    }
+
     /// Compile to PDF bytes, surfacing the first diagnostics on failure.
     pub fn compile_pdf(&self) -> Result<Vec<u8>, TypesetError> {
         let Warned { output, warnings: _ } =

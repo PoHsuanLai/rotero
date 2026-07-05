@@ -30,6 +30,8 @@ pub fn DocumentEditorPanel(document_id: String) -> Element {
     // Out-of-band body to force into the CodeMirror editor (agent authoring).
     // The editor seeds from `value` on mount; later external rewrites arrive here.
     let mut external_body = use_signal(|| None::<String>);
+    // Live compile diagnostics shown as editor squiggles.
+    let mut diagnostics = use_signal(Vec::<rotero_typeset::Diagnostic>::new);
 
     // Fetch Universe paper templates once (best-effort; the curated list works
     // offline). Merged into the template picker when the fetch succeeds.
@@ -99,6 +101,63 @@ pub fn DocumentEditorPanel(document_id: String) -> Element {
                     }
                 }
             }
+        });
+    }
+
+    // Debounced live diagnostics: whenever the body/format/collection changes,
+    // wait for typing to settle, then compile off-thread and collect errors and
+    // warnings. A per-run generation token drops stale results.
+    {
+        let db = db.clone();
+        let debounce = use_signal(|| 0u64);
+        let mut debounce = debounce;
+        use_effect(move || {
+            // Subscribe to the fields that affect a compile.
+            let Some(d) = doc() else { return };
+            let body = d.body.clone();
+            let format = d.format;
+            let template = d.template.clone();
+            let csl_style = d.csl_style.clone();
+            let collection_id = d.collection_id.clone();
+            let title = d.title.clone();
+            let db = db.clone();
+
+            let run_id = debounce.with_mut(|g| {
+                *g += 1;
+                *g
+            });
+            spawn(async move {
+                // Settle typing before doing expensive work.
+                tokio::time::sleep(std::time::Duration::from_millis(450)).await;
+                if debounce() != run_id {
+                    return; // superseded by a newer edit
+                }
+
+                let bib = match &collection_id {
+                    Some(cid) => build_bib(&db, cid).await,
+                    None => None,
+                };
+                let opts = rotero_typeset::CompileOptions {
+                    format: match format {
+                        DocumentFormat::Markdown => rotero_typeset::DocumentFormat::Markdown,
+                        DocumentFormat::Typst => rotero_typeset::DocumentFormat::Typst,
+                    },
+                    title,
+                    authors: Vec::new(),
+                    template,
+                    bib,
+                    csl_style,
+                };
+                let result =
+                    tokio::task::spawn_blocking(move || rotero_typeset::diagnostics(&body, &opts))
+                        .await;
+                // Only apply if still the latest run.
+                if debounce() == run_id
+                    && let Ok(diags) = result
+                {
+                    diagnostics.set(diags);
+                }
+            });
         });
     }
 
@@ -330,6 +389,7 @@ pub fn DocumentEditorPanel(document_id: String) -> Element {
                         value: editor_seed,
                         language: editor_language,
                         external_doc: external_body(),
+                        diagnostics: diagnostics(),
                         on_change: on_body,
                     }
                 }

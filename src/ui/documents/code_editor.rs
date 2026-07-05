@@ -38,6 +38,8 @@ fn js_string(s: &str) -> String {
 ///   on every keystroke (that would fight the cursor); instead `external_doc`
 ///   drives out-of-band content replacement (live agent authoring).
 /// - `on_change` fires with the full document text on each edit.
+/// - `diagnostics` are compile errors/warnings (byte-ranged into the body) shown
+///   as squiggles + a lint gutter; replace the whole set each time.
 #[component]
 pub fn CodeEditor(
     value: String,
@@ -46,6 +48,9 @@ pub fn CodeEditor(
     /// When this changes, the editor content is replaced without disturbing the
     /// caret if the text already matches.
     external_doc: ReadSignal<Option<String>>,
+    /// Diagnostics to render. Serialized to JSON and handed to CodeMirror's lint
+    /// interface; an empty vec clears them.
+    diagnostics: ReadSignal<Vec<rotero_typeset::Diagnostic>>,
     on_change: EventHandler<String>,
 ) -> Element {
     // A stable, unique DOM id for this editor's mount point. `use_hook` runs once
@@ -113,6 +118,22 @@ pub fn CodeEditor(
                     ));
                 });
             }
+        });
+    }
+
+    // Push diagnostics into CodeMirror whenever they change. Serialized as a JSON
+    // array of { from, to, severity, message }.
+    {
+        let mount_id = mount_id.clone();
+        use_effect(move || {
+            let diags = diagnostics();
+            let json = serde_json::to_string(&diags).unwrap_or_else(|_| "[]".to_string());
+            let mount_id = mount_id.clone();
+            spawn(async move {
+                let _ = document::eval(&format!(
+                    r#"window.__roteroEditor && window.__roteroEditor.setDiagnostics("{mount_id}", {json})"#
+                ));
+            });
         });
     }
 
