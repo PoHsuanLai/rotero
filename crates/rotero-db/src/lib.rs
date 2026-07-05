@@ -7,7 +7,7 @@
 pub mod annotations;
 /// Collection (folder) CRUD and paper-collection membership.
 pub mod collections;
-/// Conflict-free replicated relations (CRR) change tracking and merge for sync.
+/// Rotero's CRR (conflict-free replicated relations) schema configuration for sync.
 pub mod crr;
 /// Graph queries for paper-tag and paper-collection relationships.
 pub mod graph;
@@ -28,6 +28,23 @@ pub use rotero_models::queries;
 
 // Re-export so the app crate doesn't need a direct turso dependency.
 pub use turso;
+
+/// Errors from the rotero database layer.
+///
+/// Unifies the underlying turso driver errors and the `recrr` CRR-sync errors so
+/// that both propagate through a single `?` in the db methods.
+#[derive(Debug, thiserror::Error)]
+pub enum DbError {
+    /// An error from the turso SQLite driver.
+    #[error(transparent)]
+    Turso(#[from] turso::Error),
+    /// An error from the CRR change-tracking / sync engine.
+    #[error(transparent)]
+    Crr(#[from] recrr::Error),
+}
+
+/// Convenience alias for results in the db layer.
+pub type DbResult<T> = Result<T, DbError>;
 
 /// Trait for deserializing a turso Row into a domain model.
 /// Each implementation maps column indices to struct fields based on the
@@ -87,13 +104,20 @@ pub fn opt_int(opt: Option<i64>) -> turso::Value {
 
 use std::path::{Path, PathBuf};
 
+use std::sync::Arc;
+
+use recrr::backends::TursoDb;
 use turso::Connection;
+
+use crate::crr::{CrrStore, rotero_schema};
 
 /// Handle to the Rotero SQLite database, wrapping a turso connection and the library data directory.
 #[derive(Clone)]
 pub struct Database {
     conn: Connection,
     data_dir: PathBuf,
+    /// CRR change-tracking store, shared across clones of this handle.
+    crr: Arc<CrrStore>,
 }
 
 impl PartialEq for Database {
@@ -129,17 +153,39 @@ impl Database {
             .await
             .map_err(|e| format!("Failed to initialize schema: {e}"))?;
 
-        Ok(Self { conn, data_dir })
+        let crr = Arc::new(CrrStore::new(TursoDb::new(conn.clone()), rotero_schema()));
+        crr.init()
+            .await
+            .map_err(|e| format!("Failed to initialize CRR: {e}"))?;
+
+        Ok(Self {
+            conn,
+            data_dir,
+            crr,
+        })
     }
 
     /// Wrap an existing connection and data directory into a `Database`.
+    ///
+    /// Assumes the schema and CRR metadata tables already exist (call
+    /// [`schema::initialize_db`] and construct via [`Database::open`] otherwise).
     pub fn from_conn(conn: Connection, data_dir: PathBuf) -> Self {
-        Self { conn, data_dir }
+        let crr = Arc::new(CrrStore::new(TursoDb::new(conn.clone()), rotero_schema()));
+        Self {
+            conn,
+            data_dir,
+            crr,
+        }
     }
 
     /// Returns a reference to the underlying turso connection.
     pub fn conn(&self) -> &Connection {
         &self.conn
+    }
+
+    /// Returns the CRR change-tracking store for sync operations.
+    pub fn crr(&self) -> &CrrStore {
+        &self.crr
     }
 
     /// Returns the root library data directory (contains `rotero.db` and `papers/`).

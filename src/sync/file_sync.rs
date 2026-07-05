@@ -5,7 +5,8 @@
 
 use std::path::{Path, PathBuf};
 
-use rotero_db::crr::{self, ChangeRow};
+use rotero_db::Database;
+use rotero_db::crr::ChangeRow;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,12 +75,11 @@ impl FileSyncEngine {
     }
 
     /// Returns the number of changes exported, or 0 if nothing to export.
-    pub async fn export_changes(
-        &self,
-        conn: &rotero_db::turso::Connection,
-    ) -> Result<usize, String> {
+    pub async fn export_changes(&self, db: &Database) -> Result<usize, String> {
         let mut state = self.load_state();
-        let changes = crr::changes_since(conn, state.last_exported_ver)
+        let changes = db
+            .crr()
+            .changes_since(state.last_exported_ver)
             .await
             .map_err(|e| format!("Failed to read changes: {e}"))?;
 
@@ -87,7 +87,9 @@ impl FileSyncEngine {
             return Ok(0);
         }
 
-        let current_ver = crr::current_db_version(conn)
+        let current_ver = db
+            .crr()
+            .current_db_version()
             .await
             .map_err(|e| format!("Failed to read db_version: {e}"))?;
 
@@ -121,10 +123,7 @@ impl FileSyncEngine {
     }
 
     /// Returns the total number of changes applied.
-    pub async fn import_changes(
-        &self,
-        conn: &rotero_db::turso::Connection,
-    ) -> Result<usize, String> {
+    pub async fn import_changes(&self, db: &Database) -> Result<usize, String> {
         let dir = self.changesets_dir();
         if !dir.exists() {
             return Ok(0);
@@ -170,7 +169,9 @@ impl FileSyncEngine {
             let changeset: Changeset = serde_json::from_slice(&data)
                 .map_err(|e| format!("Failed to parse {}: {e}", path.display()))?;
 
-            let result = crr::apply_changes(conn, &changeset.changes)
+            let result = db
+                .crr()
+                .apply_changes(&changeset.changes)
                 .await
                 .map_err(|e| format!("Failed to apply changes: {e}"))?;
 

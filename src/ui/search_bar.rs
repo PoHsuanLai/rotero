@@ -130,7 +130,7 @@ pub fn SearchBar() -> Element {
                         }
                         let db = db.clone();
                         spawn(async move {
-                            match rotero_db::papers::search_papers(db.conn(), &q).await {
+                            match db.search_papers(&q).await {
                                 Ok(results) => {
                                     lib_state.with_mut(|s| s.search.results = Some(results));
                                 }
@@ -157,8 +157,8 @@ pub fn SearchBar() -> Element {
                             let db = db_save.clone();
                             spawn(async move {
                                 let search = rotero_models::SavedSearch::new(q.clone(), q);
-                                let _ = rotero_db::saved_searches::insert_saved_search(db.conn(), &search).await;
-                                if let Ok(searches) = rotero_db::saved_searches::list_saved_searches(db.conn()).await {
+                                let _ = db.insert_saved_search(&search).await;
+                                if let Ok(searches) = db.list_saved_searches().await {
                                     lib_state.with_mut(|s| s.saved_searches = searches);
                                 }
                             });

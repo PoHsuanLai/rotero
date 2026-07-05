@@ -80,13 +80,8 @@ pub fn GraphView() -> Element {
             let tags = state.tags.clone();
             drop(state);
 
-            let conn = db.conn();
-            let tag_pairs = rotero_db::graph::list_all_paper_tags(conn)
-                .await
-                .unwrap_or_default();
-            let coll_pairs = rotero_db::graph::list_all_paper_collections(conn)
-                .await
-                .unwrap_or_default();
+            let tag_pairs = db.list_all_paper_tags().await.unwrap_or_default();
+            let coll_pairs = db.list_all_paper_collections().await.unwrap_or_default();
 
             let filter = mode.to_filter();
 

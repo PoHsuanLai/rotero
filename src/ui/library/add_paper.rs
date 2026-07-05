@@ -45,14 +45,14 @@ pub(crate) fn AddPaperButtons() -> Element {
                                     let meta_render_tx = render_ch.sender();
                                     let meta_db = db.clone();
 
-                                    match rotero_db::papers::insert_paper(db.conn(), &paper).await {
+                                    match db.insert_paper(&paper).await {
                                         Ok(id) => {
                                             paper.id = Some(id.clone());
                                             lib_state.with_mut(|s| s.papers.insert(0, paper));
                                             error_msg.set(None);
                                             spawn(async move {
                                                 crate::state::commands::extract_and_fetch_metadata(
-                                                    &meta_render_tx, meta_db.conn(), &id, &full_path, auto_fetch, &mut lib_state,
+                                                    &meta_render_tx, &meta_db, &id, &full_path, auto_fetch, &mut lib_state,
                                                 ).await;
                                             });
                                         }
@@ -110,7 +110,7 @@ pub(crate) fn AddPaperDOIInput() -> Element {
                         spawn(async move {
                             match crate::metadata::crossref::fetch_by_doi(&doi).await {
                                 Ok(paper) => {
-                                    match rotero_db::papers::insert_paper(db.conn(), &paper).await {
+                                    match db.insert_paper(&paper).await {
                                         Ok(id) => {
                                             let mut paper = paper;
                                             paper.id = Some(id);

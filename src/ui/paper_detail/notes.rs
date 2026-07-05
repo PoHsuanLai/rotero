@@ -14,9 +14,7 @@ pub fn NotesSection(paper_id: String) -> Element {
             let db = db.clone();
             let pid = pid.clone();
             spawn(async move {
-                if let Ok(paper_notes) =
-                    rotero_db::notes::list_notes_for_paper(db.conn(), &pid).await
-                {
+                if let Ok(paper_notes) = db.list_notes_for_paper(&pid).await {
                     notes.set(paper_notes);
                 }
             });
@@ -57,8 +55,8 @@ pub fn NotesSection(paper_id: String) -> Element {
                                     let nid = note_id.clone();
                                     let pid = pid.clone();
                                     spawn(async move {
-                                        let _ = rotero_db::notes::delete_note(db.conn(), &nid).await;
-                                        if let Ok(paper_notes) = rotero_db::notes::list_notes_for_paper(db.conn(), &pid).await {
+                                        let _ = db.delete_note(&nid).await;
+                                        if let Ok(paper_notes) = db.list_notes_for_paper(&pid).await {
                                             notes.set(paper_notes);
                                         }
                                     });

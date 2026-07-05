@@ -18,15 +18,14 @@ pub fn LoadLibraryData() -> Element {
                 tracing::info!("Database was modified externally, reloading...");
             }
 
-            let conn = db.conn();
-            crate::state::commands::refresh_papers(conn, &mut lib_state).await;
-            if let Ok(collections) = rotero_db::collections::list_collections(conn).await {
+            crate::state::commands::refresh_papers(&db, &mut lib_state).await;
+            if let Ok(collections) = db.list_collections().await {
                 lib_state.with_mut(|s| s.collections = collections);
             }
-            if let Ok(tags) = rotero_db::tags::list_tags(conn).await {
+            if let Ok(tags) = db.list_tags().await {
                 lib_state.with_mut(|s| s.tags = tags);
             }
-            if let Ok(searches) = rotero_db::saved_searches::list_saved_searches(conn).await {
+            if let Ok(searches) = db.list_saved_searches().await {
                 lib_state.with_mut(|s| s.saved_searches = searches);
             }
 
@@ -43,9 +42,7 @@ pub fn LoadLibraryData() -> Element {
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
                 loop {
-                    let needs_update = rotero_db::papers::list_papers_needing_citations(db.conn())
-                        .await
-                        .unwrap_or_default();
+                    let needs_update = db.list_papers_needing_citations().await.unwrap_or_default();
 
                     for (paper_id, doi) in needs_update {
                         let result = crate::metadata::semantic_scholar::fetch_by_doi(&doi).await;
@@ -53,12 +50,7 @@ pub fn LoadLibraryData() -> Element {
                         match result {
                             Ok(meta) => {
                                 if let Some(count) = meta.citation.citation_count {
-                                    let _ = rotero_db::papers::update_citation_count(
-                                        db.conn(),
-                                        &paper_id,
-                                        count,
-                                    )
-                                    .await;
+                                    let _ = db.update_citation_count(&paper_id, count).await;
                                     lib_state.with_mut(|s| {
                                         if let Some(p) = s
                                             .papers
@@ -98,14 +90,12 @@ pub fn LoadLibraryData() -> Element {
                 tokio::time::sleep(std::time::Duration::from_secs(4)).await;
 
                 loop {
-                    let existing_keys = rotero_db::papers::list_citation_keys(db.conn())
+                    let existing_keys = db.list_citation_keys().await.unwrap_or_default();
+
+                    let needs_keys = db
+                        .list_papers_needing_citation_keys()
                         .await
                         .unwrap_or_default();
-
-                    let needs_keys =
-                        rotero_db::papers::list_papers_needing_citation_keys(db.conn())
-                            .await
-                            .unwrap_or_default();
                     let mut keys_updated = false;
                     let mut all_keys = existing_keys;
 
@@ -119,10 +109,7 @@ pub fn LoadLibraryData() -> Element {
                         };
 
                         let key = rotero_bib::generate_unique_cite_key(&stub, &all_keys);
-                        if rotero_db::papers::update_citation_key(db.conn(), paper_id, &key)
-                            .await
-                            .is_ok()
-                        {
+                        if db.update_citation_key(paper_id, &key).await.is_ok() {
                             let pid = paper_id.clone();
                             lib_state.with_mut(|s| {
                                 if let Some(p) = s
@@ -171,20 +158,16 @@ pub fn LoadLibraryData() -> Element {
                 if rx.changed().await.is_err() {
                     break;
                 }
-                let conn = db.conn();
-                crate::state::commands::refresh_papers(conn, &mut lib_state).await;
+                crate::state::commands::refresh_papers(&db, &mut lib_state).await;
                 let view = lib_state.read().view.clone();
                 match view {
                     LibraryView::Collection(coll_id) => {
-                        if let Ok(ids) =
-                            rotero_db::collections::list_paper_ids_in_subtree(conn, &coll_id).await
-                        {
+                        if let Ok(ids) = db.list_paper_ids_in_subtree(&coll_id).await {
                             lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
                         }
                     }
                     LibraryView::Tag(tag_id) => {
-                        if let Ok(ids) = rotero_db::tags::list_paper_ids_by_tag(conn, &tag_id).await
-                        {
+                        if let Ok(ids) = db.list_paper_ids_by_tag(&tag_id).await {
                             lib_state.with_mut(|s| s.filter.tag_paper_ids = Some(ids));
                         }
                     }

@@ -1,65 +1,65 @@
 use chrono::Utc;
 use rotero_models::SavedSearch;
-use turso::{Connection, Value};
+use turso::Value;
 
-use crate::crr;
+use crate::Database;
 use crate::queries;
 
-/// Insert a new saved search and return its generated UUID.
-pub async fn insert_saved_search(
-    conn: &Connection,
-    search: &SavedSearch,
-) -> Result<String, turso::Error> {
-    let uuid = uuid::Uuid::now_v7().to_string();
-    conn.execute(
-        queries::SAVED_SEARCH_INSERT,
-        turso::params::Params::Positional(vec![
-            Value::Text(uuid.clone()),
-            Value::Text(search.name.clone()),
-            Value::Text(search.query.clone()),
-            Value::Text(search.created_at.to_rfc3339()),
-        ]),
-    )
-    .await?;
-
-    crr::track_insert(
-        conn,
-        "saved_searches",
-        &uuid,
-        &["name", "query", "created_at"],
-    )
-    .await?;
-
-    Ok(uuid)
-}
-
-/// List all saved searches.
-pub async fn list_saved_searches(conn: &Connection) -> Result<Vec<SavedSearch>, turso::Error> {
-    let mut rows = conn.query(queries::SAVED_SEARCH_LIST, ()).await?;
-    crate::collect_rows(&mut rows).await
-}
-
-/// Delete a saved search by ID.
-pub async fn delete_saved_search(conn: &Connection, id: &str) -> Result<(), turso::Error> {
-    conn.execute(queries::SAVED_SEARCH_DELETE, [Value::Text(id.to_string())])
+impl Database {
+    /// Insert a new saved search and return its generated UUID.
+    pub async fn insert_saved_search(
+        &self,
+        search: &SavedSearch,
+    ) -> Result<String, crate::DbError> {
+        let conn = self.conn();
+        let uuid = uuid::Uuid::now_v7().to_string();
+        conn.execute(
+            queries::SAVED_SEARCH_INSERT,
+            turso::params::Params::Positional(vec![
+                Value::Text(uuid.clone()),
+                Value::Text(search.name.clone()),
+                Value::Text(search.query.clone()),
+                Value::Text(search.created_at.to_rfc3339()),
+            ]),
+        )
         .await?;
-    crr::track_delete(conn, "saved_searches", id).await?;
-    Ok(())
-}
 
-/// Rename a saved search.
-pub async fn rename_saved_search(
-    conn: &Connection,
-    id: &str,
-    name: &str,
-) -> Result<(), turso::Error> {
-    conn.execute(
-        queries::SAVED_SEARCH_RENAME,
-        [Value::Text(name.to_string()), Value::Text(id.to_string())],
-    )
-    .await?;
-    crr::track_update(conn, "saved_searches", id, &["name"]).await?;
-    Ok(())
+        self.crr()
+            .track_insert("saved_searches", &uuid, &["name", "query", "created_at"])
+            .await?;
+
+        Ok(uuid)
+    }
+
+    /// List all saved searches.
+    pub async fn list_saved_searches(&self) -> Result<Vec<SavedSearch>, crate::DbError> {
+        let conn = self.conn();
+        let mut rows = conn.query(queries::SAVED_SEARCH_LIST, ()).await?;
+        Ok(crate::collect_rows(&mut rows).await?)
+    }
+
+    /// Delete a saved search by ID.
+    pub async fn delete_saved_search(&self, id: &str) -> Result<(), crate::DbError> {
+        let conn = self.conn();
+        conn.execute(queries::SAVED_SEARCH_DELETE, [Value::Text(id.to_string())])
+            .await?;
+        self.crr().track_delete("saved_searches", id).await?;
+        Ok(())
+    }
+
+    /// Rename a saved search.
+    pub async fn rename_saved_search(&self, id: &str, name: &str) -> Result<(), crate::DbError> {
+        let conn = self.conn();
+        conn.execute(
+            queries::SAVED_SEARCH_RENAME,
+            [Value::Text(name.to_string()), Value::Text(id.to_string())],
+        )
+        .await?;
+        self.crr()
+            .track_update("saved_searches", id, &["name"])
+            .await?;
+        Ok(())
+    }
 }
 
 impl crate::FromRow for SavedSearch {

@@ -36,12 +36,12 @@ pub fn DuplicatesView(groups: Vec<Vec<Paper>>) -> Element {
                                                 for p in group {
                                                     if let Some(ref id) = p.id
                                                         && *id != keep_id {
-                                                            let _ = rotero_db::papers::merge_papers(db.conn(), &keep_id, id).await;
+                                                            let _ = db.merge_papers(&keep_id, id).await;
                                                         }
                                                 }
                                             }
                                         }
-                                        crate::state::commands::refresh_papers_and_duplicates(db.conn(), &mut lib_state).await;
+                                        crate::state::commands::refresh_papers_and_duplicates(&db, &mut lib_state).await;
                                     });
                                 }
                             },
@@ -124,9 +124,9 @@ pub fn DuplicatesView(groups: Vec<Vec<Paper>>) -> Element {
                                                         let pid = pid2.clone();
                                                         spawn(async move {
                                                             for del_id in &other_ids {
-                                                                let _ = rotero_db::papers::merge_papers(db.conn(), &pid, del_id).await;
+                                                                let _ = db.merge_papers(&pid, del_id).await;
                                                             }
-                                                            crate::state::commands::refresh_papers_and_duplicates(db.conn(), &mut lib_state).await;
+                                                            crate::state::commands::refresh_papers_and_duplicates(&db, &mut lib_state).await;
                                                         });
                                                     }
                                                 },
@@ -142,8 +142,8 @@ pub fn DuplicatesView(groups: Vec<Vec<Paper>>) -> Element {
                                                         let db = db.clone();
                                                         let pid = pid2.clone();
                                                         spawn(async move {
-                                                            let _ = rotero_db::papers::delete_paper(db.conn(), &pid).await;
-                                                            crate::state::commands::refresh_papers_and_duplicates(db.conn(), &mut lib_state).await;
+                                                            let _ = db.delete_paper(&pid).await;
+                                                            crate::state::commands::refresh_papers_and_duplicates(&db, &mut lib_state).await;
                                                         });
                                                     }
                                                 },

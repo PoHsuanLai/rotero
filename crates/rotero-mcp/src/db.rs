@@ -16,6 +16,7 @@ pub struct Database {
     conn: Connection,
     data_dir: std::path::PathBuf,
     on_change: Option<OnChangeFn>,
+    crr: Arc<rotero_db::crr::CrrStore>,
 }
 
 impl Database {
@@ -34,20 +35,24 @@ impl Database {
             .connect()
             .map_err(|e| format!("Failed to connect: {e}"))?;
 
+        let crr = Arc::new(rotero_db::crr::make_crr_store(conn.clone()));
         Ok(Self {
             conn,
             data_dir,
             on_change: None,
+            crr,
         })
     }
 
     /// Create from an existing connection (for embedding in the main app).
     #[allow(dead_code)]
     pub fn from_conn(conn: Connection, data_dir: std::path::PathBuf) -> Self {
+        let crr = Arc::new(rotero_db::crr::make_crr_store(conn.clone()));
         Self {
             conn,
             data_dir,
             on_change: None,
+            crr,
         }
     }
 
@@ -527,34 +532,35 @@ impl Database {
             )
             .await?;
 
-        rotero_db::crr::tracking::track_insert(
-            &self.conn,
-            "papers",
-            &uuid,
-            &[
-                "title",
-                "authors",
-                "year",
-                "doi",
-                "abstract_text",
-                "journal",
-                "volume",
-                "issue",
-                "pages",
-                "publisher",
-                "url",
-                "pdf_path",
-                "date_added",
-                "date_modified",
-                "is_favorite",
-                "is_read",
-                "extra_meta",
-                "citation_count",
-                "citation_key",
-                "pdf_url",
-            ],
-        )
-        .await?;
+        self.crr
+            .track_insert(
+                "papers",
+                &uuid,
+                &[
+                    "title",
+                    "authors",
+                    "year",
+                    "doi",
+                    "abstract_text",
+                    "journal",
+                    "volume",
+                    "issue",
+                    "pages",
+                    "publisher",
+                    "url",
+                    "pdf_path",
+                    "date_added",
+                    "date_modified",
+                    "is_favorite",
+                    "is_read",
+                    "extra_meta",
+                    "citation_count",
+                    "citation_key",
+                    "pdf_url",
+                ],
+            )
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
 
         self.notify();
         Ok(uuid)
@@ -588,26 +594,27 @@ impl Database {
             )
             .await?;
 
-        rotero_db::crr::tracking::track_update(
-            &self.conn,
-            "papers",
-            id,
-            &[
-                "title",
-                "authors",
-                "year",
-                "doi",
-                "abstract_text",
-                "journal",
-                "volume",
-                "issue",
-                "pages",
-                "publisher",
-                "url",
-                "date_modified",
-            ],
-        )
-        .await?;
+        self.crr
+            .track_update(
+                "papers",
+                id,
+                &[
+                    "title",
+                    "authors",
+                    "year",
+                    "doi",
+                    "abstract_text",
+                    "journal",
+                    "volume",
+                    "issue",
+                    "pages",
+                    "publisher",
+                    "url",
+                    "date_modified",
+                ],
+            )
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
 
         self.notify();
         Ok(())
@@ -618,7 +625,10 @@ impl Database {
         self.conn
             .execute(queries::PAPER_DELETE, [Value::Text(id.to_string())])
             .await?;
-        rotero_db::crr::tracking::track_delete(&self.conn, "papers", id).await?;
+        self.crr
+            .track_delete("papers", id)
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }
@@ -639,7 +649,10 @@ impl Database {
             )
             .await?;
         let pk = format!("{paper_id}:{tag_id}");
-        rotero_db::crr::tracking::track_delete(&self.conn, "paper_tags", &pk).await?;
+        self.crr
+            .track_delete("paper_tags", &pk)
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }
@@ -664,13 +677,10 @@ impl Database {
                 ]),
             )
             .await?;
-        rotero_db::crr::tracking::track_insert(
-            &self.conn,
-            "collections",
-            &uuid,
-            &["name", "parent_id", "position"],
-        )
-        .await?;
+        self.crr
+            .track_insert("collections", &uuid, &["name", "parent_id", "position"])
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(uuid)
     }
@@ -691,13 +701,10 @@ impl Database {
             )
             .await?;
         let pk = format!("{paper_id}:{collection_id}");
-        rotero_db::crr::tracking::track_insert(
-            &self.conn,
-            "paper_collections",
-            &pk,
-            &["paper_id", "collection_id"],
-        )
-        .await?;
+        self.crr
+            .track_insert("paper_collections", &pk, &["paper_id", "collection_id"])
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }
@@ -718,7 +725,10 @@ impl Database {
             )
             .await?;
         let pk = format!("{paper_id}:{collection_id}");
-        rotero_db::crr::tracking::track_delete(&self.conn, "paper_collections", &pk).await?;
+        self.crr
+            .track_delete("paper_collections", &pk)
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }
@@ -728,7 +738,10 @@ impl Database {
         self.conn
             .execute(queries::COLLECTION_DELETE, [Value::Text(id.to_string())])
             .await?;
-        rotero_db::crr::tracking::track_delete(&self.conn, "collections", id).await?;
+        self.crr
+            .track_delete("collections", id)
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }
@@ -744,7 +757,10 @@ impl Database {
                 ]),
             )
             .await?;
-        rotero_db::crr::tracking::track_update(&self.conn, "collections", id, &["name"]).await?;
+        self.crr
+            .track_update("collections", id, &["name"])
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }
@@ -760,7 +776,10 @@ impl Database {
                 ]),
             )
             .await?;
-        rotero_db::crr::tracking::track_update(&self.conn, "tags", id, &["name"]).await?;
+        self.crr
+            .track_update("tags", id, &["name"])
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }
@@ -770,7 +789,10 @@ impl Database {
         self.conn
             .execute(queries::TAG_DELETE, [Value::Text(id.to_string())])
             .await?;
-        rotero_db::crr::tracking::track_delete(&self.conn, "tags", id).await?;
+        self.crr
+            .track_delete("tags", id)
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }
@@ -791,13 +813,10 @@ impl Database {
                 ]),
             )
             .await?;
-        rotero_db::crr::tracking::track_update(
-            &self.conn,
-            "papers",
-            paper_id,
-            &["pdf_path", "date_modified"],
-        )
-        .await?;
+        self.crr
+            .track_update("papers", paper_id, &["pdf_path", "date_modified"])
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }
@@ -807,7 +826,10 @@ impl Database {
         self.conn
             .execute(queries::NOTE_DELETE, [Value::Text(id.to_string())])
             .await?;
-        rotero_db::crr::tracking::track_delete(&self.conn, "notes", id).await?;
+        self.crr
+            .track_delete("notes", id)
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }

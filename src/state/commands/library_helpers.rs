@@ -1,37 +1,33 @@
 use dioxus::prelude::*;
 use rotero_db::Database;
-use rotero_db::turso::Connection;
 
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
 use crate::sync::engine::SyncConfig;
 
 /// Reload all papers from DB into the library state signal.
-pub async fn refresh_papers(conn: &Connection, lib_state: &mut Signal<LibraryState>) {
-    if let Ok(papers) = rotero_db::papers::list_papers(conn).await {
+pub async fn refresh_papers(db: &Database, lib_state: &mut Signal<LibraryState>) {
+    if let Ok(papers) = db.list_papers().await {
         lib_state.with_mut(|s| s.papers = papers);
     }
 }
 
 /// Reload duplicate groups from DB into the library state signal.
-pub async fn refresh_duplicates(conn: &Connection, lib_state: &mut Signal<LibraryState>) {
-    if let Ok(groups) = rotero_db::papers::find_duplicates(conn).await {
+pub async fn refresh_duplicates(db: &Database, lib_state: &mut Signal<LibraryState>) {
+    if let Ok(groups) = db.find_duplicates().await {
         lib_state.with_mut(|s| s.filter.duplicate_groups = Some(groups));
     }
 }
 
 /// Reload papers and clear duplicate groups, then re-detect duplicates.
 /// Used after merge/delete operations in the duplicates view.
-pub async fn refresh_papers_and_duplicates(
-    conn: &Connection,
-    lib_state: &mut Signal<LibraryState>,
-) {
-    if let Ok(papers) = rotero_db::papers::list_papers(conn).await {
+pub async fn refresh_papers_and_duplicates(db: &Database, lib_state: &mut Signal<LibraryState>) {
+    if let Ok(papers) = db.list_papers().await {
         lib_state.with_mut(|s| {
             s.papers = papers;
             s.filter.duplicate_groups = None;
         });
     }
-    refresh_duplicates(conn, lib_state).await;
+    refresh_duplicates(db, lib_state).await;
 }
 
 /// Open a PDF in the tab manager, switch to the viewer, and record the access time.
@@ -67,6 +63,6 @@ pub fn open_paper_pdf(
     });
     let db_touch = db.clone();
     spawn(async move {
-        let _ = rotero_db::papers::touch_paper(db_touch.conn(), &pid).await;
+        let _ = db_touch.touch_paper(&pid).await;
     });
 }

@@ -45,9 +45,7 @@ pub fn LibraryPanel() -> Element {
                 LibraryView::Collection(coll_id) => {
                     let db = db_coll.clone();
                     spawn(async move {
-                        match rotero_db::collections::list_paper_ids_in_subtree(db.conn(), &coll_id)
-                            .await
-                        {
+                        match db.list_paper_ids_in_subtree(&coll_id).await {
                             Ok(ids) => {
                                 lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
                             }
@@ -58,7 +56,7 @@ pub fn LibraryPanel() -> Element {
                 LibraryView::Tag(tag_id) => {
                     let db = db_coll.clone();
                     spawn(async move {
-                        match rotero_db::tags::list_paper_ids_by_tag(db.conn(), &tag_id).await {
+                        match db.list_paper_ids_by_tag(&tag_id).await {
                             Ok(ids) => {
                                 lib_state.with_mut(|s| s.filter.tag_paper_ids = Some(ids));
                             }
@@ -69,7 +67,7 @@ pub fn LibraryPanel() -> Element {
                 LibraryView::Duplicates => {
                     let db = db_coll.clone();
                     spawn(async move {
-                        match rotero_db::papers::find_duplicates(db.conn()).await {
+                        match db.find_duplicates().await {
                             Ok(groups) => {
                                 lib_state.with_mut(|s| s.filter.duplicate_groups = Some(groups));
                             }
@@ -81,7 +79,7 @@ pub fn LibraryPanel() -> Element {
                     if let Some(query) = search_query {
                         let db = db_coll.clone();
                         spawn(async move {
-                            match rotero_db::papers::search_papers(db.conn(), &query).await {
+                            match db.search_papers(&query).await {
                                 Ok(papers) => {
                                     lib_state.with_mut(|s| s.search.results = Some(papers));
                                 }
@@ -282,7 +280,7 @@ pub fn LibraryPanel() -> Element {
                                             },
                                             ..Default::default()
                                         };
-                                        let paper_id = match rotero_db::papers::insert_paper(db.conn(), &paper).await {
+                                        let paper_id = match db.insert_paper(&paper).await {
                                             Ok(id) => {
                                                 paper.id = Some(id.clone());
                                                 lib_state.with_mut(|s| s.papers.insert(0, paper));
@@ -306,12 +304,12 @@ pub fn LibraryPanel() -> Element {
                                         let meta_db = db.clone();
                                         let paper_id2 = paper_id.clone();
                                         spawn(async move {
-                                            crate::state::commands::precache_pdf(&render_tx, &full_path, &data_dir, zoom, paper_id, Some(db_for_cache.conn())).await;
+                                            crate::state::commands::precache_pdf(&render_tx, &full_path, &data_dir, zoom, paper_id, Some(&db_for_cache)).await;
                                         });
                                         if let Some(pid) = paper_id2 {
                                             spawn(async move {
                                                 crate::state::commands::extract_and_fetch_metadata(
-                                                    &meta_render_tx, meta_db.conn(), &pid, &meta_full_path, auto_fetch, &mut lib_state,
+                                                    &meta_render_tx, &meta_db, &pid, &meta_full_path, auto_fetch, &mut lib_state,
                                                 ).await;
                                             });
                                         }
@@ -426,7 +424,7 @@ pub fn LibraryPanel() -> Element {
                                 let ids = delete_ids.clone();
                                 spawn(async move {
                                     for pid in &ids {
-                                        let _ = rotero_db::papers::delete_paper(db.conn(), pid).await;
+                                        let _ = db.delete_paper(pid).await;
                                     }
                                     lib_state.with_mut(|s| {
                                         for pid in &ids {

@@ -1,128 +1,136 @@
 use chrono::Utc;
 use rotero_models::{Annotation, AnnotationType};
-use turso::{Connection, Value};
+use turso::Value;
 
-use crate::crr;
+use crate::Database;
 use crate::queries;
 
-/// Insert a new annotation and return its generated UUID.
-pub async fn insert_annotation(
-    conn: &Connection,
-    ann: &Annotation,
-) -> Result<String, turso::Error> {
-    let uuid = uuid::Uuid::now_v7().to_string();
-    let ann_type_str = match ann.ann_type {
-        AnnotationType::Highlight => "highlight",
-        AnnotationType::Note => "note",
-        AnnotationType::Area => "area",
-        AnnotationType::Underline => "underline",
-        AnnotationType::Ink => "ink",
-        AnnotationType::Text => "text",
-    };
-    let geometry = serde_json::to_string(&ann.geometry).unwrap_or_else(|_| "{}".to_string());
+impl Database {
+    /// Insert a new annotation and return its generated UUID.
+    pub async fn insert_annotation(&self, ann: &Annotation) -> Result<String, crate::DbError> {
+        let conn = self.conn();
+        let uuid = uuid::Uuid::now_v7().to_string();
+        let ann_type_str = match ann.ann_type {
+            AnnotationType::Highlight => "highlight",
+            AnnotationType::Note => "note",
+            AnnotationType::Area => "area",
+            AnnotationType::Underline => "underline",
+            AnnotationType::Ink => "ink",
+            AnnotationType::Text => "text",
+        };
+        let geometry = serde_json::to_string(&ann.geometry).unwrap_or_else(|_| "{}".to_string());
 
-    conn.execute(
-        queries::ANNOTATION_INSERT,
-        turso::params::Params::Positional(vec![
-            Value::Text(uuid.clone()),
-            Value::Text(ann.paper_id.clone()),
-            Value::Integer(ann.page as i64),
-            Value::Text(ann_type_str.to_string()),
-            Value::Text(ann.color.clone()),
-            ann.content
-                .as_ref()
-                .map(|s| Value::Text(s.clone()))
-                .unwrap_or(Value::Null),
-            Value::Text(geometry),
-            Value::Text(ann.created_at.to_rfc3339()),
-            Value::Text(ann.modified_at.to_rfc3339()),
-        ]),
-    )
-    .await?;
-
-    crr::track_insert(
-        conn,
-        "annotations",
-        &uuid,
-        &[
-            "paper_id",
-            "page",
-            "ann_type",
-            "color",
-            "content",
-            "geometry",
-            "created_at",
-            "modified_at",
-        ],
-    )
-    .await?;
-
-    Ok(uuid)
-}
-
-/// List all annotations belonging to a given paper.
-pub async fn list_annotations_for_paper(
-    conn: &Connection,
-    paper_id: &str,
-) -> Result<Vec<Annotation>, turso::Error> {
-    let mut rows = conn
-        .query(
-            queries::ANNOTATION_LIST_FOR_PAPER,
-            [Value::Text(paper_id.to_string())],
+        conn.execute(
+            queries::ANNOTATION_INSERT,
+            turso::params::Params::Positional(vec![
+                Value::Text(uuid.clone()),
+                Value::Text(ann.paper_id.clone()),
+                Value::Integer(ann.page as i64),
+                Value::Text(ann_type_str.to_string()),
+                Value::Text(ann.color.clone()),
+                ann.content
+                    .as_ref()
+                    .map(|s| Value::Text(s.clone()))
+                    .unwrap_or(Value::Null),
+                Value::Text(geometry),
+                Value::Text(ann.created_at.to_rfc3339()),
+                Value::Text(ann.modified_at.to_rfc3339()),
+            ]),
         )
         .await?;
 
-    crate::collect_rows(&mut rows).await
-}
+        self.crr()
+            .track_insert(
+                "annotations",
+                &uuid,
+                &[
+                    "paper_id",
+                    "page",
+                    "ann_type",
+                    "color",
+                    "content",
+                    "geometry",
+                    "created_at",
+                    "modified_at",
+                ],
+            )
+            .await?;
 
-/// Update an annotation's text content and touch its modified timestamp.
-pub async fn update_annotation_content(
-    conn: &Connection,
-    id: &str,
-    content: Option<&str>,
-) -> Result<(), turso::Error> {
-    let now = Utc::now().to_rfc3339();
-    conn.execute(
-        queries::ANNOTATION_UPDATE_CONTENT,
-        turso::params::Params::Positional(vec![
-            content
-                .map(|s| Value::Text(s.to_string()))
-                .unwrap_or(Value::Null),
-            Value::Text(now),
-            Value::Text(id.to_string()),
-        ]),
-    )
-    .await?;
-    crr::track_update(conn, "annotations", id, &["content", "modified_at"]).await?;
-    Ok(())
-}
+        Ok(uuid)
+    }
 
-/// Change an annotation's highlight color and touch its modified timestamp.
-pub async fn update_annotation_color(
-    conn: &Connection,
-    id: &str,
-    color: &str,
-) -> Result<(), turso::Error> {
-    let now = Utc::now().to_rfc3339();
-    conn.execute(
-        queries::ANNOTATION_UPDATE_COLOR,
-        turso::params::Params::Positional(vec![
-            Value::Text(color.to_string()),
-            Value::Text(now),
-            Value::Text(id.to_string()),
-        ]),
-    )
-    .await?;
-    crr::track_update(conn, "annotations", id, &["color", "modified_at"]).await?;
-    Ok(())
-}
+    /// List all annotations belonging to a given paper.
+    pub async fn list_annotations_for_paper(
+        &self,
+        paper_id: &str,
+    ) -> Result<Vec<Annotation>, crate::DbError> {
+        let conn = self.conn();
+        let mut rows = conn
+            .query(
+                queries::ANNOTATION_LIST_FOR_PAPER,
+                [Value::Text(paper_id.to_string())],
+            )
+            .await?;
 
-/// Delete an annotation by ID.
-pub async fn delete_annotation(conn: &Connection, id: &str) -> Result<(), turso::Error> {
-    conn.execute(queries::ANNOTATION_DELETE, [Value::Text(id.to_string())])
+        crate::collect_rows(&mut rows).await.map_err(Into::into)
+    }
+
+    /// Update an annotation's text content and touch its modified timestamp.
+    pub async fn update_annotation_content(
+        &self,
+        id: &str,
+        content: Option<&str>,
+    ) -> Result<(), crate::DbError> {
+        let conn = self.conn();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            queries::ANNOTATION_UPDATE_CONTENT,
+            turso::params::Params::Positional(vec![
+                content
+                    .map(|s| Value::Text(s.to_string()))
+                    .unwrap_or(Value::Null),
+                Value::Text(now),
+                Value::Text(id.to_string()),
+            ]),
+        )
         .await?;
-    crr::track_delete(conn, "annotations", id).await?;
-    Ok(())
+        self.crr()
+            .track_update("annotations", id, &["content", "modified_at"])
+            .await?;
+        Ok(())
+    }
+
+    /// Change an annotation's highlight color and touch its modified timestamp.
+    pub async fn update_annotation_color(
+        &self,
+        id: &str,
+        color: &str,
+    ) -> Result<(), crate::DbError> {
+        let conn = self.conn();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            queries::ANNOTATION_UPDATE_COLOR,
+            turso::params::Params::Positional(vec![
+                Value::Text(color.to_string()),
+                Value::Text(now),
+                Value::Text(id.to_string()),
+            ]),
+        )
+        .await?;
+        self.crr()
+            .track_update("annotations", id, &["color", "modified_at"])
+            .await?;
+        Ok(())
+    }
+
+    /// Delete an annotation by ID.
+    pub async fn delete_annotation(&self, id: &str) -> Result<(), crate::DbError> {
+        let conn = self.conn();
+        conn.execute(queries::ANNOTATION_DELETE, [Value::Text(id.to_string())])
+            .await?;
+        self.crr().track_delete("annotations", id).await?;
+        Ok(())
+    }
 }
 
 fn parse_ann_type(s: &str) -> AnnotationType {
