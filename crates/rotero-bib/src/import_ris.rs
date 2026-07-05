@@ -268,16 +268,16 @@ fn authors(record: &Record, kind: &ItemType) -> Vec<String> {
 }
 
 /// Render an RIS author into a "First Last" display name. RIS authors are written
-/// `Last, First`; the segment after the first comma is the given name kept
-/// verbatim so initials retain their periods and surname particles stay in place.
-/// A name with no comma is an institutional or single-field name and is passed
-/// through unchanged.
+/// `Last, First`; the given name (after the first comma) has bare initials
+/// expanded to spaced, period form, and surname particles stay in place. A name
+/// with no comma is an institutional or single-field name and is passed through
+/// unchanged.
 fn format_author(raw: &str) -> String {
     let raw = raw.trim();
     match raw.split_once(',') {
         Some((last, given)) => {
             let last = last.trim();
-            let given = given.trim();
+            let given = expand_initials(given.trim());
             if given.is_empty() {
                 last.to_string()
             } else {
@@ -286,6 +286,31 @@ fn format_author(raw: &str) -> String {
         }
         None => raw.to_string(),
     }
+}
+
+/// Expand bare initials in a given-name string to spaced, period form. A token of
+/// one or two uppercase ASCII letters with no period (`J`, `AB`) becomes `J.`,
+/// `A. B.`; RIS often writes initials this way. Longer all-caps tokens are treated
+/// as names (`JASON` stays `JASON`), and ordinary words (`Jane`, `van`) or tokens
+/// that already carry a period (`J.`, `A.S.`) are left unchanged. The two-letter
+/// cap keeps real names from being shattered into false initials.
+fn expand_initials(given: &str) -> String {
+    given
+        .split_whitespace()
+        .map(|tok| {
+            let is_bare_initials =
+                matches!(tok.len(), 1 | 2) && tok.chars().all(|c| c.is_ascii_uppercase());
+            if is_bare_initials {
+                tok.chars()
+                    .map(|c| format!("{c}."))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            } else {
+                tok.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Extract the publication year from the record's date tags. `DA` and `PY` carry
@@ -393,6 +418,19 @@ VL - 9999\nM1 - 9999\nPY - 2009\nER -\n";
         let input = "TY - JOUR\nTI - X\nAU - KONING, A. P. JASON de\nAU - Baldwin, S.A.\nER -\n";
         let p = &import_ris(input).unwrap()[0];
         assert_eq!(p.authors, vec!["A. P. JASON de KONING", "S.A. Baldwin"]);
+    }
+
+    /// Bare initials (no period) are expanded to spaced period form, while real
+    /// given names and already-punctuated initials pass through unchanged.
+    #[test]
+    fn test_bare_initials_expanded() {
+        let input = "TY  - JOUR\nTI  - X\nAU  - Jiang, J\nAU  - Smith, AB\n\
+AU  - Doe, Jane\nAU  - Chen, A.S.\nER  -\n";
+        let p = &import_ris(input).unwrap()[0];
+        assert_eq!(
+            p.authors,
+            vec!["J. Jiang", "A. B. Smith", "Jane Doe", "A.S. Chen"]
+        );
     }
 
     /// Non-author creator tags (`A2`/`A3`/`A4`/`TA`) never reach the author list.
