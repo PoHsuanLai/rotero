@@ -92,11 +92,39 @@ pub struct ZoteroAttachment {
 }
 
 /// A keyword tag attached to a Zotero item.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Upstream translators emit tags either as a bare string (`"keyword"`) or as
+/// an object (`{ "tag": "keyword", "type": 1 }`); the custom [`Deserialize`]
+/// below accepts both. Serialization always uses the object form.
+#[derive(Debug, Clone, Serialize)]
 pub struct ZoteroTag {
     pub tag: String,
     #[serde(rename = "type", default)]
     pub tag_type: i32,
+}
+
+impl<'de> Deserialize<'de> for ZoteroTag {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // A tag is either a plain string or a { tag, type } object.
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            Str(String),
+            Obj {
+                #[serde(default)]
+                tag: String,
+                #[serde(rename = "type", default)]
+                tag_type: i32,
+            },
+        }
+        Ok(match Repr::deserialize(deserializer)? {
+            Repr::Str(tag) => ZoteroTag { tag, tag_type: 0 },
+            Repr::Obj { tag, tag_type } => ZoteroTag { tag, tag_type },
+        })
+    }
 }
 
 impl ZoteroItem {

@@ -6551,6 +6551,7 @@ dependencies = [
  "boa_engine",
  "directories",
  "ego-tree",
+ "regex",
  "reqwest",
  "rotero-bib",
  "rotero-models",

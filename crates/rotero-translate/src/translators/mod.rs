@@ -14,11 +14,15 @@ use crate::{TranslateError, ZoteroItem};
 mod doi_content_negotiation;
 mod embedded_metadata;
 mod import_formats;
+#[cfg(feature = "translator-engine")]
+mod js_translator;
 mod registry;
 
 pub use doi_content_negotiation::DoiContentNegotiation;
 pub use embedded_metadata::EmbeddedMetadata;
 pub use import_formats::{ImportFormat, parse_import};
+#[cfg(feature = "translator-engine")]
+pub use js_translator::JsTranslator;
 pub use registry::{TranslatorRegistry, has_usable};
 
 /// The document a translator operates on, plus its provenance.

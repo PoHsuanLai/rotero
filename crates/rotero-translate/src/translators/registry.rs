@@ -18,12 +18,12 @@ impl TranslatorRegistry {
     /// [`translate_web`](Self::translate_web), so callers fall through to the
     /// Node/scrape tiers.
     pub fn with_builtins() -> Self {
-        Self {
-            translators: vec![
-                Box::new(DoiContentNegotiation),
-                Box::new(EmbeddedMetadata),
-            ],
-        }
+        let mut translators: Vec<Box<dyn Translator>> = vec![
+            Box::new(DoiContentNegotiation),
+            Box::new(EmbeddedMetadata),
+        ];
+        register_js_pilots(&mut translators);
+        Self { translators }
     }
 
     /// Translate a web URL. Fetches the page once, then runs the
@@ -86,3 +86,27 @@ pub fn has_usable(items: &[ZoteroItem]) -> bool {
         .iter()
         .any(|i| i.item_type != "note" && i.item_type != "attachment" && !i.title.is_empty())
 }
+
+/// Vendored upstream Zotero translators run in-process via the JS engine. Each
+/// entry is a full `.js` file (JSON header + body). Kept small deliberately —
+/// 2c replaces this hand-embedded pilot set with a loader over the
+/// `zotero/translators` submodule.
+#[cfg(feature = "translator-engine")]
+const JS_PILOTS: &[&str] = &[include_str!("../../vendor/translators/Theory of Computing.js")];
+
+/// Register the JS-engine pilot translators (feature-gated). Malformed sources
+/// are logged and skipped rather than aborting registry construction.
+#[cfg(feature = "translator-engine")]
+fn register_js_pilots(translators: &mut Vec<Box<dyn Translator>>) {
+    for src in JS_PILOTS {
+        match super::JsTranslator::from_source(src) {
+            Ok(t) => translators.push(Box::new(t)),
+            Err(e) => tracing::warn!("skipping malformed pilot translator: {e}"),
+        }
+    }
+}
+
+/// No-op when the engine feature is off: the registry ships only the native
+/// hubs, identical to the pre-engine build.
+#[cfg(not(feature = "translator-engine"))]
+fn register_js_pilots(_translators: &mut Vec<Box<dyn Translator>>) {}

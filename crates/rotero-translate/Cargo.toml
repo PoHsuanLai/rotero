@@ -25,7 +25,9 @@ skyscraper = { version = "0.7", optional = true }
 # CSS node handles for the engine's querySelector layer. ego-tree is already
 # built transitively via scraper; naming it lets the DOM adapter hold NodeIds.
 ego-tree = { version = "0.10", optional = true }
+# JsTranslator matches a page against the translator's `target` URL regex.
+regex = { version = "1", optional = true }
 
 [features]
 default = []
-translator-engine = ["dep:boa_engine", "dep:skyscraper", "dep:ego-tree"]
+translator-engine = ["dep:boa_engine", "dep:skyscraper", "dep:ego-tree", "dep:regex"]
