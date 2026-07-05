@@ -42,6 +42,9 @@ const THEME_CSS: &str = include_str!("../../assets/theme.css");
 const GRAPH_CSS: &str = include_str!("../../assets/graph.css");
 const GRAPH_JS: &str = include_str!("../../assets/graph.js");
 const KEYBINDINGS_JS: &str = include_str!("../../assets/keybindings.js");
+/// Pre-built CodeMirror 6 bundle powering the Documents editor. Exposes
+/// `window.__roteroEditor`; source + rebuild recipe live in `assets/editor-src/`.
+const EDITOR_JS: &str = include_str!("../../assets/editor.js");
 const CHAT_CSS: &str = include_str!("../../assets/chat.css");
 const DOCUMENTS_CSS: &str = include_str!("../../assets/documents.css");
 #[cfg(feature = "mobile")]
@@ -184,6 +187,7 @@ pub fn App() -> Element {
                 document::Style { {DOCUMENTS_CSS} }
                 document::Script { {GRAPH_JS} }
                 document::Script { {KEYBINDINGS_JS} }
+                document::Script { {EDITOR_JS} }
                 {longpress_script()}
                 LoadLibraryData {}
                 SyncLoop {}

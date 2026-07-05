@@ -42,7 +42,13 @@ pub fn DocumentsListPanel() -> Element {
         let db = db.clone();
         spawn(async move {
             let title = "Untitled Document".to_string();
-            let doc = Document::new(title.clone(), DocumentKind::Summary, None);
+            let mut doc = Document::new(title.clone(), DocumentKind::Summary, None);
+            // Seed a minimal Typst skeleton so the document compiles immediately
+            // and shows the author what the source language looks like.
+            doc.body = "= Untitled Document\n\n\
+                Start writing in Typst. Use `= Heading` for sections, `$x^2$` for \
+                math, and `@citekey` to cite papers from a linked collection.\n"
+                .to_string();
             if let Ok(id) = rotero_db::documents::insert_document(db.conn(), &doc).await {
                 generation.with_mut(|g| *g += 1);
                 doc_tabs.with_mut(|m| {

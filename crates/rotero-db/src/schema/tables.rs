@@ -87,7 +87,8 @@ CREATE TABLE IF NOT EXISTS documents (
     kind          TEXT NOT NULL DEFAULT 'summary',
     last_pdf_path TEXT,
     created_at    TEXT NOT NULL,
-    modified_at   TEXT NOT NULL
+    modified_at   TEXT NOT NULL,
+    format        TEXT NOT NULL DEFAULT 'typst'
 );
 
 CREATE TABLE IF NOT EXISTS saved_searches (

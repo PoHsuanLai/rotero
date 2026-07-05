@@ -54,6 +54,65 @@ async fn migration_from_v9_adds_documents_table() {
     assert!(documents::get_document(&conn, &id).await.unwrap().is_some());
 }
 
+/// A v10 `documents` table (no `format` column) upgrades to v11 by gaining the
+/// column, and rows written before it read back as the Typst default.
+#[tokio::test]
+async fn migration_from_v10_adds_format_column() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("v10.db");
+    let db = rotero_db::turso::Builder::new_local(&db_path.to_string_lossy())
+        .experimental_index_method(true)
+        .build()
+        .await
+        .unwrap();
+    let conn = db.connect().unwrap();
+
+    conn.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)", ())
+        .await
+        .unwrap();
+    conn.execute("INSERT INTO schema_version (version) VALUES (10)", ())
+        .await
+        .unwrap();
+    conn.execute(
+        "CREATE TABLE collections (id TEXT PRIMARY KEY, name TEXT NOT NULL, parent_id TEXT, position INTEGER NOT NULL DEFAULT 0)",
+        (),
+    )
+    .await
+    .unwrap();
+    // The v10 documents table — note: no `format` column.
+    conn.execute(
+        "CREATE TABLE documents (
+            id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
+            collection_id TEXT, template TEXT NOT NULL DEFAULT 'article',
+            csl_style TEXT NOT NULL DEFAULT 'apa', kind TEXT NOT NULL DEFAULT 'summary',
+            last_pdf_path TEXT, created_at TEXT NOT NULL, modified_at TEXT NOT NULL)",
+        (),
+    )
+    .await
+    .unwrap();
+    // A pre-migration row.
+    conn.execute(
+        "INSERT INTO documents (id, title, created_at, modified_at) VALUES ('old1', 'Legacy', '2020-01-01T00:00:00Z', '2020-01-01T00:00:00Z')",
+        (),
+    )
+    .await
+    .unwrap();
+
+    // Run the real startup migration path.
+    rotero_db::schema::initialize_db(&conn).await.unwrap();
+
+    // The legacy row reads back with the Typst default format.
+    let legacy = documents::get_document(&conn, "old1").await.unwrap().unwrap();
+    assert_eq!(legacy.format, rotero_models::DocumentFormat::Typst);
+
+    // And a new Markdown document round-trips its format.
+    let mut md = Document::new("Note".to_string(), DocumentKind::Summary, None);
+    md.format = rotero_models::DocumentFormat::Markdown;
+    let id = documents::insert_document(&conn, &md).await.unwrap();
+    let fetched = documents::get_document(&conn, &id).await.unwrap().unwrap();
+    assert_eq!(fetched.format, rotero_models::DocumentFormat::Markdown);
+}
+
 #[tokio::test]
 async fn document_crud_round_trip() {
     let dir = tempfile::tempdir().unwrap();

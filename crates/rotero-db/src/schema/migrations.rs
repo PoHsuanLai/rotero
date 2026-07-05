@@ -5,7 +5,7 @@ use turso::Connection;
 use super::tables::{CREATE_FTS_INDEX, CREATE_TABLES};
 
 /// Current schema version; incremented with each migration.
-pub(super) const SCHEMA_VERSION: i64 = 10;
+pub(super) const SCHEMA_VERSION: i64 = 11;
 
 /// Create the application tables and run pending migrations.
 ///
@@ -142,8 +142,21 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
                     kind          TEXT NOT NULL DEFAULT 'summary',
                     last_pdf_path TEXT,
                     created_at    TEXT NOT NULL,
-                    modified_at   TEXT NOT NULL
+                    modified_at   TEXT NOT NULL,
+                    format        TEXT NOT NULL DEFAULT 'typst'
                 )",
+                (),
+            )
+            .await;
+    }
+
+    if current_version < 11 {
+        // Documents gained an authoring-surface column (Typst vs Markdown).
+        // v10 installs predate it; a fresh v11 install already has it from the
+        // block above, so this ALTER may harmlessly fail there.
+        let _ = conn
+            .execute(
+                "ALTER TABLE documents ADD COLUMN format TEXT NOT NULL DEFAULT 'typst'",
                 (),
             )
             .await;

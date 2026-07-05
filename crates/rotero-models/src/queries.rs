@@ -164,28 +164,28 @@ pub const NOTE_DELETE: &str = "DELETE FROM notes WHERE id = ?1";
 /// Insert a new document.
 pub const DOCUMENT_INSERT: &str = "\
     INSERT INTO documents \
-    (id, title, body, collection_id, template, csl_style, kind, last_pdf_path, created_at, modified_at) \
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
+    (id, title, body, collection_id, template, csl_style, kind, last_pdf_path, created_at, modified_at, format) \
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
 
 /// List all documents, newest first.
 pub const DOCUMENT_LIST: &str = "\
-    SELECT id, title, body, collection_id, template, csl_style, kind, last_pdf_path, created_at, modified_at \
+    SELECT id, title, body, collection_id, template, csl_style, kind, last_pdf_path, created_at, modified_at, format \
     FROM documents ORDER BY modified_at DESC";
 
 /// List documents for a specific collection, newest first.
 pub const DOCUMENT_LIST_FOR_COLLECTION: &str = "\
-    SELECT id, title, body, collection_id, template, csl_style, kind, last_pdf_path, created_at, modified_at \
+    SELECT id, title, body, collection_id, template, csl_style, kind, last_pdf_path, created_at, modified_at, format \
     FROM documents WHERE collection_id = ?1 ORDER BY modified_at DESC";
 
 /// Get a single document by ID.
 pub const DOCUMENT_GET: &str = "\
-    SELECT id, title, body, collection_id, template, csl_style, kind, last_pdf_path, created_at, modified_at \
+    SELECT id, title, body, collection_id, template, csl_style, kind, last_pdf_path, created_at, modified_at, format \
     FROM documents WHERE id = ?1";
 
 /// Update a document's editable fields.
 pub const DOCUMENT_UPDATE: &str = "\
     UPDATE documents SET title = ?1, body = ?2, collection_id = ?3, template = ?4, \
-    csl_style = ?5, kind = ?6, last_pdf_path = ?7, modified_at = ?8 WHERE id = ?9";
+    csl_style = ?5, kind = ?6, last_pdf_path = ?7, modified_at = ?8, format = ?9 WHERE id = ?10";
 
 /// Delete a document by ID.
 pub const DOCUMENT_DELETE: &str = "DELETE FROM documents WHERE id = ?1";

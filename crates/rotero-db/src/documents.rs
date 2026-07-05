@@ -1,5 +1,5 @@
 use chrono::Utc;
-use rotero_models::{Document, DocumentKind};
+use rotero_models::{Document, DocumentFormat, DocumentKind};
 use turso::{Connection, Value};
 
 use crate::crr;
@@ -16,6 +16,7 @@ const TRACKED: &[&str] = &[
     "last_pdf_path",
     "created_at",
     "modified_at",
+    "format",
 ];
 
 fn opt_text(s: &Option<String>) -> Value {
@@ -38,6 +39,7 @@ pub async fn insert_document(conn: &Connection, doc: &Document) -> Result<String
             opt_text(&doc.last_pdf_path),
             Value::Text(doc.created_at.to_rfc3339()),
             Value::Text(doc.modified_at.to_rfc3339()),
+            Value::Text(doc.format.as_str().to_string()),
         ]),
     )
     .await?;
@@ -92,6 +94,7 @@ pub async fn update_document(conn: &Connection, doc: &Document) -> Result<(), tu
             Value::Text(doc.kind.as_str().to_string()),
             opt_text(&doc.last_pdf_path),
             Value::Text(Utc::now().to_rfc3339()),
+            Value::Text(doc.format.as_str().to_string()),
             Value::Text(id.clone()),
         ]),
     )
@@ -109,6 +112,7 @@ pub async fn update_document(conn: &Connection, doc: &Document) -> Result<(), tu
             "kind",
             "last_pdf_path",
             "modified_at",
+            "format",
         ],
     )
     .await?;
@@ -150,6 +154,9 @@ impl crate::FromRow for Document {
             last_pdf_path: text(7),
             created_at: parse_dt(8),
             modified_at: parse_dt(9),
+            // Column 10; rows written before the v11 migration read as empty and
+            // default to Typst.
+            format: DocumentFormat::from_str_or_default(&text_or(10)),
         }
     }
 }

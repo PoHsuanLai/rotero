@@ -289,6 +289,9 @@ pub struct CreateDocumentParams {
     pub template: Option<String>,
     /// CSL bibliography style (e.g. apa, ieee, vancouver). Default apa.
     pub csl_style: Option<String>,
+    /// Authoring surface: "typst" (default; real paper layout — figures,
+    /// columns, tables, native cites) or "markdown" (quick prose summaries).
+    pub format: Option<String>,
 }
 
 /// Parameters for the `update_document` tool.

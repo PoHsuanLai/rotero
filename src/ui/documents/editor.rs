@@ -1,9 +1,10 @@
-//! Split-pane document editor: Markdown left, compiled PDF preview right.
+//! Split-pane document editor: Typst/Markdown source left, compiled PDF preview right.
 
 use dioxus::prelude::*;
 use rotero_db::Database;
-use rotero_models::Document;
+use rotero_models::{Document, DocumentFormat};
 
+use super::code_editor::{CodeEditor, EditorLanguage};
 use super::preview::DocumentPreview;
 use crate::state::app_state::{LibraryState, LibraryView};
 
@@ -26,6 +27,9 @@ pub fn DocumentEditorPanel(document_id: String) -> Element {
     let mut preview_token = use_signal(|| 0u64);
     // Compile status message.
     let mut status = use_signal(String::new);
+    // Out-of-band body to force into the CodeMirror editor (agent authoring).
+    // The editor seeds from `value` on mount; later external rewrites arrive here.
+    let mut external_body = use_signal(|| None::<String>);
 
     // Fetch Universe paper templates once (best-effort; the curated list works
     // offline). Merged into the template picker when the fetch succeeds.
@@ -86,6 +90,8 @@ pub fn DocumentEditorPanel(document_id: String) -> Element {
                         rotero_db::documents::get_document(db.conn(), &id).await
                     {
                         let recompiled = fresh.last_pdf_path.is_some();
+                        // Push the agent's rewritten body into the live editor.
+                        external_body.set(Some(fresh.body.clone()));
                         doc.set(Some(fresh));
                         if recompiled {
                             preview_token.with_mut(|t| *t += 1);
@@ -114,11 +120,24 @@ pub fn DocumentEditorPanel(document_id: String) -> Element {
     let pdf_path = current.last_pdf_path.clone();
 
     // --- handlers ---
+    // The CodeMirror editor reports the full document text on each edit.
     let on_body = {
+        let save = save.clone();
+        move |text: String| {
+            let mut updated = doc().unwrap();
+            if updated.body == text {
+                return;
+            }
+            updated.body = text;
+            doc.set(Some(updated.clone()));
+            save(updated);
+        }
+    };
+    let on_format = {
         let save = save.clone();
         move |e: FormEvent| {
             let mut updated = doc().unwrap();
-            updated.body = e.value();
+            updated.format = DocumentFormat::from_str_or_default(&e.value());
             doc.set(Some(updated.clone()));
             save(updated);
         }
@@ -178,6 +197,10 @@ pub fn DocumentEditorPanel(document_id: String) -> Element {
                     None => None,
                 };
                 let opts = rotero_typeset::CompileOptions {
+                    format: match d.format {
+                        DocumentFormat::Markdown => rotero_typeset::DocumentFormat::Markdown,
+                        DocumentFormat::Typst => rotero_typeset::DocumentFormat::Typst,
+                    },
                     title: d.title.clone(),
                     authors: Vec::new(),
                     template: d.template.clone(),
@@ -186,7 +209,7 @@ pub fn DocumentEditorPanel(document_id: String) -> Element {
                 };
                 let body = d.body.clone();
                 let result =
-                    tokio::task::spawn_blocking(move || rotero_typeset::compile_markdown(&body, &opts))
+                    tokio::task::spawn_blocking(move || rotero_typeset::compile(&body, &opts))
                         .await;
 
                 match result {
@@ -216,6 +239,12 @@ pub fn DocumentEditorPanel(document_id: String) -> Element {
     let cur_template = current.template.clone();
     let cur_style = current.csl_style.clone();
     let cur_collection = current.collection_id.clone().unwrap_or_default();
+    let cur_format = current.format;
+    let editor_language = match cur_format {
+        DocumentFormat::Markdown => EditorLanguage::Markdown,
+        DocumentFormat::Typst => EditorLanguage::Typst,
+    };
+    let editor_seed = current.body.clone();
 
     rsx! {
         div { class: "document-editor",
@@ -272,6 +301,21 @@ pub fn DocumentEditorPanel(document_id: String) -> Element {
                         option { value: "{s}", selected: *s == cur_style, "{s}" }
                     }
                 }
+                select {
+                    class: "select document-select",
+                    title: "Source language — Typst for full paper control, Markdown for quick prose",
+                    onchange: on_format,
+                    option {
+                        value: "typst",
+                        selected: cur_format == DocumentFormat::Typst,
+                        "Typst"
+                    }
+                    option {
+                        value: "markdown",
+                        selected: cur_format == DocumentFormat::Markdown,
+                        "Markdown"
+                    }
+                }
                 button { class: "document-editor-compile", onclick: compile,
                     i { class: "bi bi-play-fill" }
                     " Compile"
@@ -281,12 +325,13 @@ pub fn DocumentEditorPanel(document_id: String) -> Element {
                 }
             }
             div { class: "document-editor-split",
-                textarea {
-                    class: "document-editor-body",
-                    value: "{current.body}",
-                    oninput: on_body,
-                    placeholder: "Write in Markdown. Use $math$ for equations and [@citekey] for citations.",
-                    spellcheck: false,
+                div { class: "document-editor-body",
+                    CodeEditor {
+                        value: editor_seed,
+                        language: editor_language,
+                        external_doc: external_body(),
+                        on_change: on_body,
+                    }
                 }
                 crate::ui::chat_panel::ResizeHandle {
                     target: "editor-split",

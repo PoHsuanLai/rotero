@@ -16,6 +16,34 @@ pub enum DocumentKind {
     LitReview,
 }
 
+/// The authoring surface a document's body is written in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum DocumentFormat {
+    /// Typst source — the paper-authoring surface (full layout control).
+    #[default]
+    Typst,
+    /// Markdown — the quick-summary / agent surface, rendered via cmarker.
+    Markdown,
+}
+
+impl DocumentFormat {
+    /// Stable string form stored in the database.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DocumentFormat::Typst => "typst",
+            DocumentFormat::Markdown => "markdown",
+        }
+    }
+
+    /// Parse from the stored string, defaulting to Typst on unknown input.
+    pub fn from_str_or_default(s: &str) -> Self {
+        match s {
+            "markdown" => DocumentFormat::Markdown,
+            _ => DocumentFormat::Typst,
+        }
+    }
+}
+
 impl DocumentKind {
     /// Stable string form stored in the database.
     pub fn as_str(self) -> &'static str {
@@ -47,8 +75,11 @@ impl DocumentKind {
 pub struct Document {
     pub id: Option<String>,
     pub title: String,
-    /// Markdown body (authored by the user and/or the agent).
+    /// Source body (authored by the user and/or the agent). The language is
+    /// given by [`Document::format`].
     pub body: String,
+    /// The authoring surface `body` is written in (Typst or Markdown).
+    pub format: DocumentFormat,
     /// Collection this document draws its papers/citations from, if any.
     pub collection_id: Option<String>,
     /// Typst template name (`"article"` default, or a Universe package).
@@ -70,6 +101,7 @@ impl Document {
             id: None,
             title,
             body: String::new(),
+            format: DocumentFormat::default(),
             collection_id,
             template: "article".to_string(),
             csl_style: "apa".to_string(),

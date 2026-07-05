@@ -22,7 +22,7 @@ pub mod tag;
 
 pub use annotation::{Annotation, AnnotationType};
 pub use collection::Collection;
-pub use document::{Document, DocumentKind};
+pub use document::{Document, DocumentFormat, DocumentKind};
 pub use note::Note;
 pub use paper::{CitationInfo, LibraryStatus, Paper, PaperId, PaperLinks, Publication};
 pub use saved_search::SavedSearch;

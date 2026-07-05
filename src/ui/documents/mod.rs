@@ -1,6 +1,7 @@
 //! The Documents feature: a list of authored documents and a split-pane editor
-//! (Markdown left, compiled Typst PDF preview right).
+//! (Typst/Markdown source left, compiled PDF preview right).
 
+mod code_editor;
 mod editor;
 mod list;
 mod preview;

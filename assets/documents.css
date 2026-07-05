@@ -135,24 +135,32 @@
     opacity: 0.4;
 }
 
+/* The editor body is now an inset card that hosts the CodeMirror editor; CM
+   manages its own padding/scrolling, so this is just the frame. */
 .document-editor-body {
     flex: 1;
     min-width: 0;
-    resize: none;
-    outline: none;
     margin: 12px;
-    padding: 16px 18px;
-    font-family: var(--font-mono);
-    font-size: var(--text-sm);
-    line-height: 1.6;
-    color: var(--text-primary);
     background: var(--bg-surface);
     border: 1px solid var(--border-default);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-sm);
+    overflow: hidden; /* clip CM's corners to the card radius */
+    display: flex;
 }
-.document-editor-body:focus {
+.document-editor-body:focus-within {
     border-color: var(--accent-ring);
+}
+/* CodeMirror mount point fills the card. */
+.code-editor-mount {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+.code-editor-mount .cm-editor {
+    height: 100%;
+    padding-left: 6px;
 }
 
 .document-preview {

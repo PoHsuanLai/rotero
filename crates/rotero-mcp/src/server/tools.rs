@@ -555,7 +555,7 @@ impl RoteroMcp {
     }
 
     #[tool(
-        description = "Create a new standalone authored document (a summary, tutorial, research report, manuscript, or literature review). Optionally link it to a collection whose papers become its citation sources. Returns the document_id to write into with update_document."
+        description = "Create a new standalone authored document (a summary, tutorial, research report, manuscript, or literature review). Choose a format: 'typst' (default) for real papers/manuscripts needing layout control, or 'markdown' for quick prose summaries. Optionally link it to a collection whose papers become its citation sources. Returns the document_id to write into with update_document."
     )]
     async fn create_document(
         &self,
@@ -572,12 +572,15 @@ impl RoteroMcp {
         if let Some(s) = params.csl_style {
             doc.csl_style = s;
         }
+        if let Some(f) = params.format {
+            doc.format = rotero_models::DocumentFormat::from_str_or_default(&f);
+        }
         let id = self.db.insert_document(&doc).await.map_err(err)?;
         json_result(&serde_json::json!({ "document_id": id, "success": true }))
     }
 
     #[tool(
-        description = "Replace a document's Markdown body (and optionally its title). This is how you write document content. Use standard Markdown; write in-text citations as [@citekey] for a parenthetical cite or @citekey for a prose cite — they resolve against the linked collection's bibliography when compiled."
+        description = "Replace a document's body (and optionally its title). This is how you write document content. The body language depends on the document's format: for a 'typst' document write Typst source (`= Heading`, `#figure(...)`, `$math$`, `@citekey`) for full paper layout control; for a 'markdown' document write Markdown (`# Heading`, `$math$`, `[@citekey]`). In-text citations resolve against the linked collection's bibliography when compiled. Prefer 'typst' for manuscripts/papers, 'markdown' for quick summaries."
     )]
     async fn update_document(
         &self,
@@ -598,7 +601,7 @@ impl RoteroMcp {
     }
 
     #[tool(
-        description = "Compile a document to a typeset PDF. Builds a bibliography from the linked collection's papers, renders the Markdown through Typst, writes the PDF to disk, and records its path on the document. Returns the pdf_path, or a compile diagnostic you can use to fix the Markdown and retry."
+        description = "Compile a document to a typeset PDF. Builds a bibliography from the linked collection's papers, renders the body through Typst (directly for a 'typst' document, or via cmarker for a 'markdown' one), writes the PDF to disk, and records its path on the document. Returns the pdf_path, or a compile diagnostic you can use to fix the body and retry."
     )]
     async fn compile_document(
         &self,
@@ -625,6 +628,10 @@ impl RoteroMcp {
         };
 
         let opts = rotero_typeset::CompileOptions {
+            format: match doc.format {
+                rotero_models::DocumentFormat::Markdown => rotero_typeset::DocumentFormat::Markdown,
+                rotero_models::DocumentFormat::Typst => rotero_typeset::DocumentFormat::Typst,
+            },
             title: doc.title.clone(),
             authors: Vec::new(),
             template: doc.template.clone(),
@@ -635,7 +642,7 @@ impl RoteroMcp {
         // Compile (blocking Typst work off the async runtime).
         let body = doc.body.clone();
         let pdf = tokio::task::spawn_blocking(move || {
-            rotero_typeset::compile_markdown(&body, &opts)
+            rotero_typeset::compile(&body, &opts)
         })
         .await
         .map_err(err)?;
@@ -1180,7 +1187,8 @@ impl ServerHandler for RoteroMcp {
                     "Write a clear, well-structured **summary document** of the papers in this \
                      collection.\n\n{papers_ctx}\n\
                      Steps:\n\
-                     1. Call `create_document` with kind \"summary\" and collection_id \"{cid}\".\n\
+                     1. Call `create_document` with kind \"summary\", format \"markdown\", and \
+                     collection_id \"{cid}\".\n\
                      2. Write the summary as Markdown into the document with `update_document`. \
                      Organize by theme, not paper-by-paper. Cite papers in-text as [@citekey] \
                      using the keys listed above.\n\
@@ -1201,7 +1209,8 @@ impl ServerHandler for RoteroMcp {
                      from this collection's papers, building from fundamentals to advanced \
                      concepts.\n\n{papers_ctx}\n\
                      Steps:\n\
-                     1. Call `create_document` with kind \"tutorial\" and collection_id \"{cid}\".\n\
+                     1. Call `create_document` with kind \"tutorial\", format \"markdown\", and \
+                     collection_id \"{cid}\".\n\
                      2. Write the tutorial as Markdown with `update_document`: motivation, \
                      prerequisites, then progressive sections with worked intuition. Cite \
                      sources in-text as [@citekey].\n\
@@ -1234,7 +1243,7 @@ impl ServerHandler for RoteroMcp {
                     "Produce a rigorous, **cited research report** answering: \"{question}\".\n\n\
                      {ctx}\n\
                      Steps:\n\
-                     1. Call `create_document` with kind \"research\" and {create_hint}.\n\
+                     1. Call `create_document` with kind \"research\", format \"markdown\", and {create_hint}.\n\
                      2. Research thoroughly using the library tools (and your knowledge). Write \
                      the report as Markdown with `update_document`: abstract, background, \
                      analysis, and conclusion. Support every claim with an in-text [@citekey] \

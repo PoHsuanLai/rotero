@@ -1,9 +1,15 @@
-//! Compile Markdown documents to typeset PDF via an embedded Typst 0.15 compiler.
+//! Compile authored documents to typeset PDF via an embedded Typst 0.15 compiler.
 //!
-//! The authoring surface is Markdown (AI-native, already Rotero's note format).
-//! Internally we wrap the Markdown in a small Typst main file that renders it
-//! through the `@preview/cmarker` package (CommonMark-in-Typst) with `@preview/mitex`
-//! for LaTeX math, optionally applies a Typst Universe template, and appends a
+//! Two authoring surfaces are supported (see [`DocumentFormat`]):
+//!
+//! - **Typst** — the body *is* Typst source, compiled directly. This is the
+//!   real paper-authoring surface: full layout control, Universe templates that
+//!   expect Typst input, native `#cite`/`#bibliography`.
+//! - **Markdown** — the body is Markdown, wrapped and rendered through the
+//!   `@preview/cmarker` package (CommonMark-in-Typst) with `@preview/mitex` for
+//!   LaTeX math. This is the AI-native quick-summary surface.
+//!
+//! Both paths optionally apply a Typst Universe template and append a
 //! Typst-native `#bibliography` (hayagriva under the hood) fed by a generated
 //! BibTeX string.
 //!
@@ -94,9 +100,39 @@ fn version_gt(a: &str, b: &str) -> bool {
     parse(a) > parse(b)
 }
 
+/// The authoring surface a document's body is written in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DocumentFormat {
+    /// The body is Typst source, compiled directly.
+    #[default]
+    Typst,
+    /// The body is Markdown, rendered through `@preview/cmarker`.
+    Markdown,
+}
+
+impl DocumentFormat {
+    /// Stable string form (matches [`rotero_models`]'s stored value).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DocumentFormat::Typst => "typst",
+            DocumentFormat::Markdown => "markdown",
+        }
+    }
+
+    /// Parse from the stored string, defaulting to Typst on unknown input.
+    pub fn from_str_or_default(s: &str) -> Self {
+        match s {
+            "markdown" => DocumentFormat::Markdown,
+            _ => DocumentFormat::Typst,
+        }
+    }
+}
+
 /// Options controlling a compile.
 #[derive(Debug, Clone)]
 pub struct CompileOptions {
+    /// The surface the body is written in.
+    pub format: DocumentFormat,
     /// Document title (rendered in the template header when supported).
     pub title: String,
     /// Author names.
@@ -114,6 +150,7 @@ pub struct CompileOptions {
 impl Default for CompileOptions {
     fn default() -> Self {
         Self {
+            format: DocumentFormat::default(),
             title: String::new(),
             authors: Vec::new(),
             template: DEFAULT_TEMPLATE.to_string(),
@@ -123,12 +160,12 @@ impl Default for CompileOptions {
     }
 }
 
-/// Compile a Markdown body to PDF bytes.
+/// Compile a document body to PDF bytes, dispatching on [`CompileOptions::format`].
 ///
 /// A temporary project directory is created to host the generated `refs.bib`
 /// (so `#bibliography` can resolve it) and to anchor Typst's file resolution;
 /// it is removed when the returned bytes are produced.
-pub fn compile_markdown(md: &str, opts: &CompileOptions) -> Result<Vec<u8>, TypesetError> {
+pub fn compile(body: &str, opts: &CompileOptions) -> Result<Vec<u8>, TypesetError> {
     let project = tempdir().map_err(|e| TypesetError::Compile(format!("tempdir: {e}")))?;
 
     if let Some(bib) = &opts.bib {
@@ -137,13 +174,28 @@ pub fn compile_markdown(md: &str, opts: &CompileOptions) -> Result<Vec<u8>, Type
             .map_err(|e| TypesetError::Compile(format!("write refs.bib: {e}")))?;
     }
 
-    let main = build_main(md, opts);
+    let main = match opts.format {
+        DocumentFormat::Markdown => build_markdown_main(body, opts),
+        DocumentFormat::Typst => build_typst_main(body, opts),
+    };
     let world = RoteroWorld::new(&main, project.path().to_path_buf());
     world.compile_pdf()
 }
 
-/// Build the synthetic Typst main file that wraps the Markdown body.
-fn build_main(md: &str, opts: &CompileOptions) -> String {
+/// Compile a Markdown body to PDF bytes.
+///
+/// Convenience wrapper over [`compile`] that forces [`DocumentFormat::Markdown`],
+/// regardless of `opts.format`.
+pub fn compile_markdown(md: &str, opts: &CompileOptions) -> Result<Vec<u8>, TypesetError> {
+    let opts = CompileOptions {
+        format: DocumentFormat::Markdown,
+        ..opts.clone()
+    };
+    compile(md, &opts)
+}
+
+/// Build the synthetic Typst main file that wraps a Markdown body.
+fn build_markdown_main(md: &str, opts: &CompileOptions) -> String {
     let mut out = String::new();
 
     // Imports: math renderer + markdown transpiler. cmarker calls the `math`
@@ -182,6 +234,46 @@ fn build_main(md: &str, opts: &CompileOptions) -> String {
     if opts.bib.is_some() {
         out.push_str(&format!(
             "#bibliography(\"refs.bib\", style: {})\n",
+            typst_str(&opts.csl_style)
+        ));
+    }
+
+    out
+}
+
+/// Build the Typst main file for a body that is *already* Typst source.
+///
+/// The body is emitted verbatim, so it may use the full Typst language — its own
+/// `#import`s, `#show` rules, `#figure`s, math, `@cite` refs, etc. We only
+/// prepend a template `#show` (when the picker selected a Universe template and
+/// the body hasn't applied its own) and a title, and append a `#bibliography`
+/// when a `.bib` was supplied and the body didn't already declare one.
+fn build_typst_main(src: &str, opts: &CompileOptions) -> String {
+    let mut out = String::new();
+
+    // Only apply the picker's template if the author hasn't taken layout into
+    // their own hands with a `#show:` rule (respecting hand-written documents).
+    let author_controls_layout = src.contains("#show:") || src.contains("#show :");
+    if !author_controls_layout
+        && let Some(import) = template_import(&opts.template)
+    {
+        out.push_str(&import);
+        out.push('\n');
+    }
+
+    if !opts.title.is_empty() && !src.contains("#set document(") {
+        out.push_str(&format!("#set document(title: {})\n", typst_str(&opts.title)));
+    }
+
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out.push_str(src);
+
+    // Append the collection bibliography unless the author placed their own.
+    if opts.bib.is_some() && !src.contains("#bibliography(") {
+        out.push_str(&format!(
+            "\n\n#bibliography(\"refs.bib\", style: {})\n",
             typst_str(&opts.csl_style)
         ));
     }
@@ -405,6 +497,36 @@ mod tests {
         );
         // An email must be left alone.
         assert_eq!(rewrite_citations("mail a@b.com"), "mail a@b.com");
+    }
+
+    #[test]
+    fn compiles_plain_typst_to_pdf() {
+        let src = "= Hello\n\nThis is *bold* and a formula $E = m c^2$.\n";
+        let opts = CompileOptions {
+            format: DocumentFormat::Typst,
+            title: "Test Doc".to_string(),
+            ..Default::default()
+        };
+        let pdf = compile(src, &opts).expect("typst compile should succeed");
+        assert!(pdf.starts_with(b"%PDF"), "output should be a PDF");
+        assert!(pdf.len() > 1000, "PDF should be non-trivial, got {}", pdf.len());
+    }
+
+    #[test]
+    fn typst_body_bibliography_appended_when_absent() {
+        // A Typst body with a `@cite` but no explicit `#bibliography` gets one
+        // appended from the supplied `.bib`.
+        let src = "= Survey\n\nTransformers @vaswani2017 led to BERT @devlin2019.\n";
+        let opts = CompileOptions {
+            format: DocumentFormat::Typst,
+            title: "Survey".to_string(),
+            bib: Some(SAMPLE_BIB.to_string()),
+            csl_style: "ieee".to_string(),
+            ..Default::default()
+        };
+        let pdf = compile(src, &opts).expect("typst compile with bib should succeed");
+        assert!(pdf.starts_with(b"%PDF"));
+        assert!(pdf.len() > 1000);
     }
 
     #[test]
