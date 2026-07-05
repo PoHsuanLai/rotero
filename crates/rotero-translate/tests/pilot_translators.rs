@@ -46,3 +46,31 @@ async fn theory_of_computing_ignores_unrelated_url() {
     let t = JsTranslator::from_source(THEORY_OF_COMPUTING).expect("parse");
     assert!(!t.matches_url("https://arxiv.org/abs/1234.5678"));
 }
+
+/// The full registry (built-in hubs + the loaded corpus) dispatches a Theory of
+/// Computing page to its translator and extracts the article — proving the
+/// corpus load, URL dispatch, and JS run compose end-to-end via with_builtins()
+/// and translate_context (offline, no network).
+#[tokio::test]
+async fn registry_dispatches_corpus_translator() {
+    use rotero_translate::translators::TranslatorRegistry;
+
+    let registry = TranslatorRegistry::with_builtins();
+    let ctx = TranslationContext {
+        url: "http://theoryofcomputing.org/articles/v009a013/".to_string(),
+        content_type: Some("text/html".to_string()),
+        body: Arc::from(V009A013_HTML),
+    };
+
+    let items = registry
+        .translate_context(&ctx)
+        .await
+        .expect("corpus should dispatch the Theory of Computing translator");
+    assert!(
+        items
+            .iter()
+            .any(|i| i.title == "Optimal Hitting Sets for Combinatorial Shapes"),
+        "expected the ToC translator's article, got: {:?}",
+        items.iter().map(|i| &i.title).collect::<Vec<_>>()
+    );
+}

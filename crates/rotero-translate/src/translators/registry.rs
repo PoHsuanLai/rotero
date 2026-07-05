@@ -4,7 +4,8 @@
 use crate::{TranslateError, ZoteroItem};
 
 use super::{
-    DoiContentNegotiation, EmbeddedMetadata, ImportFormat, Translator, fetch_context, parse_import,
+    DoiContentNegotiation, EmbeddedMetadata, ImportFormat, TranslationContext, Translator,
+    fetch_context, parse_import,
 };
 
 /// Holds the set of in-process translators and dispatches web/import requests.
@@ -22,13 +23,12 @@ impl TranslatorRegistry {
             Box::new(DoiContentNegotiation),
             Box::new(EmbeddedMetadata),
         ];
-        register_js_pilots(&mut translators);
+        register_js_translators(&mut translators);
         Self { translators }
     }
 
-    /// Translate a web URL. Fetches the page once, then runs the
-    /// highest-priority applicable translator, falling through on
-    /// `NotApplicable`, error, or an unusable result. Returns `None` if no
+    /// Translate a web URL. Fetches the page once, then dispatches via
+    /// [`translate_context`](Self::translate_context). Returns `None` if no
     /// translator produced a usable item.
     pub async fn translate_web(&self, url: &str) -> Option<Vec<ZoteroItem>> {
         // Cheap URL prefilter before paying for a fetch.
@@ -43,17 +43,27 @@ impl TranslatorRegistry {
                 return None;
             }
         };
+        self.translate_context(&ctx).await
+    }
 
+    /// Dispatch an already-fetched page: run the highest-priority applicable
+    /// translator, falling through on `NotApplicable`, error, or an unusable
+    /// result. Returns `None` if none produced a usable item.
+    ///
+    /// Separated from [`translate_web`](Self::translate_web) so callers with a
+    /// page already in hand (offline tests, the differential harness) can
+    /// dispatch without a network fetch.
+    pub async fn translate_context(&self, ctx: &TranslationContext) -> Option<Vec<ZoteroItem>> {
         let mut candidates: Vec<&dyn Translator> = self
             .translators
             .iter()
             .map(Box::as_ref)
-            .filter(|t| t.matches_url(&ctx.url) && t.detect(&ctx))
+            .filter(|t| t.matches_url(&ctx.url) && t.detect(ctx))
             .collect();
         candidates.sort_by_key(|t| std::cmp::Reverse(t.priority()));
 
         for t in candidates {
-            match t.translate(&ctx).await {
+            match t.translate(ctx).await {
                 Ok(items) if has_usable(&items) => return Some(items),
                 Ok(_) => continue,
                 Err(e) => {
@@ -87,26 +97,21 @@ pub fn has_usable(items: &[ZoteroItem]) -> bool {
         .any(|i| i.item_type != "note" && i.item_type != "attachment" && !i.title.is_empty())
 }
 
-/// Vendored upstream Zotero translators run in-process via the JS engine. Each
-/// entry is a full `.js` file (JSON header + body). Kept small deliberately —
-/// 2c replaces this hand-embedded pilot set with a loader over the
-/// `zotero/translators` submodule.
+/// Load the upstream `zotero/translators` corpus (feature-gated) from disk and
+/// register each as a [`JsTranslator`]. A missing corpus directory yields no JS
+/// translators — the registry then behaves like the pre-engine build.
 #[cfg(feature = "translator-engine")]
-const JS_PILOTS: &[&str] = &[include_str!("../../vendor/translators/Theory of Computing.js")];
-
-/// Register the JS-engine pilot translators (feature-gated). Malformed sources
-/// are logged and skipped rather than aborting registry construction.
-#[cfg(feature = "translator-engine")]
-fn register_js_pilots(translators: &mut Vec<Box<dyn Translator>>) {
-    for src in JS_PILOTS {
-        match super::JsTranslator::from_source(src) {
-            Ok(t) => translators.push(Box::new(t)),
-            Err(e) => tracing::warn!("skipping malformed pilot translator: {e}"),
-        }
+fn register_js_translators(translators: &mut Vec<Box<dyn Translator>>) {
+    let Some(dir) = super::loader::corpus_dir() else {
+        tracing::info!("no translator corpus found; using built-in hubs only");
+        return;
+    };
+    for t in super::loader::load_from_dir(&dir) {
+        translators.push(Box::new(t));
     }
 }
 
 /// No-op when the engine feature is off: the registry ships only the built-in
 /// hubs, identical to the pre-engine build.
 #[cfg(not(feature = "translator-engine"))]
-fn register_js_pilots(_translators: &mut Vec<Box<dyn Translator>>) {}
+fn register_js_translators(_translators: &mut Vec<Box<dyn Translator>>) {}

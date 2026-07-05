@@ -61,6 +61,12 @@ impl JsTranslator {
             source: body.to_string(),
         })
     }
+
+    /// Whether this translator has a usable `target` URL regex. A web translator
+    /// without one can never be dispatched, so the loader drops it.
+    pub fn has_target(&self) -> bool {
+        self.target.is_some()
+    }
 }
 
 #[async_trait]

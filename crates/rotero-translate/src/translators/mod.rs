@@ -16,6 +16,8 @@ mod embedded_metadata;
 mod import_formats;
 #[cfg(feature = "translator-engine")]
 mod js_translator;
+#[cfg(feature = "translator-engine")]
+mod loader;
 mod registry;
 
 pub use doi_content_negotiation::DoiContentNegotiation;
