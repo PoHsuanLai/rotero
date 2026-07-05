@@ -319,21 +319,20 @@ fn assert_coverage(
 }
 
 // Coverage floors are ratchets pinned to the current passing counts over the
-// fields our flat `Paper` models. Most of the shortfall is model scope (Zotero's
-// items carry creator types — Series Editor, Producer — and fields we don't
-// store), but the diagnostics also surface real `rotero-bib` bugs to fix: RIS
-// leaks a "- " list prefix into fields and drops surname particles. Raise a floor
-// whenever an importer fix lifts its pass count; a drop below the floor is a
-// regression.
+// fields our flat `Paper` models. The remaining shortfall is model scope (Zotero
+// items carry creator roles and fields the flat `Paper` doesn't store) plus a few
+// backend-level edge cases (e.g. `biblatex` collapsing distinct TeX escapes, or
+// rejecting inputs Zotero's line-tolerant parser accepts). Raise a floor whenever
+// an importer fix lifts its pass count; a drop below the floor is a regression.
 
 #[test]
 fn ris_import_coverage() {
-    assert_coverage("RIS.js", 4, rotero_bib::import_ris);
+    assert_coverage("RIS.js", 11, rotero_bib::import_ris);
 }
 
 #[test]
 fn nbib_import_coverage() {
-    assert_coverage("MEDLINEnbib.js", 1, rotero_bib::import_nbib);
+    assert_coverage("MEDLINEnbib.js", 9, rotero_bib::import_nbib);
 }
 
 #[test]
@@ -343,7 +342,7 @@ fn csl_json_import_coverage() {
 
 #[test]
 fn bibtex_import_coverage() {
-    assert_coverage("BibTeX.js", 6, |input| {
+    assert_coverage("BibTeX.js", 17, |input| {
         rotero_bib::import_bibtex(input)
             .map(|entries| entries.into_iter().map(|e| e.paper).collect())
     });
