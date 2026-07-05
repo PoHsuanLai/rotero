@@ -101,7 +101,8 @@ pub(crate) fn CollectionTree(
                         ondragstart: move |_| {
                             drag_coll.set(Some(cid_drag.clone()));
                         },
-                        ondragenter: move |_| {
+                        ondragenter: move |evt: Event<DragData>| {
+                            evt.prevent_default();
                             drop_hover.set(Some(format!("coll-{}", cid_enter)));
                         },
                         ondragleave: move |_| {
@@ -141,7 +142,7 @@ pub(crate) fn CollectionTree(
                                     }
                                     let current_view = lib_state.read().view.clone();
                                     if current_view == LibraryView::Collection(target.clone())
-                                        && let Ok(ids) = rotero_db::collections::list_paper_ids_in_collection(db.conn(), &target).await {
+                                        && let Ok(ids) = rotero_db::collections::list_paper_ids_in_subtree(db.conn(), &target).await {
                                             lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
                                         }
                                 });
@@ -212,8 +213,11 @@ pub(crate) fn NewCollectionRow(parent_id: Option<String>, depth: u32) -> Element
                 placeholder: "Collection name",
                 value: "{name_value}",
                 oninput: move |evt| name_value.set(evt.value()),
-                onmounted: move |evt| { drop(evt.set_focus(true)); },
+                onmounted: move |evt| async move {
+                    let _ = evt.set_focus(true).await;
+                },
                 onkeydown: move |evt| {
+                    evt.stop_propagation();
                     match evt.key() {
                         Key::Enter => {
                             let name = name_value().trim().to_string();

@@ -55,124 +55,137 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                             let conn = conn_save.clone();
                             let connector_tx = connector_tx.clone();
                             let lib_path = lib_path.clone();
-                            tokio::task::block_in_place(|| {
-                                tokio::runtime::Handle::current().block_on(async {
-                                    let mut paper = paper;
-                                    if let Some(ref url) = pdf_url {
-                                        paper.links.pdf_url = Some(url.clone());
-                                    }
-                                    match rotero_db::papers::insert_paper(&conn, &paper).await {
-                                        Ok(paper_id) => {
-                                            if let Some(ref coll_id) = collection_id {
-                                                let _ = rotero_db::collections::add_paper_to_collection(&conn, &paper_id, coll_id).await;
-                                            }
-                                            for tag_id in &tag_ids {
-                                                let _ = rotero_db::tags::add_tag_to_paper(&conn, &paper_id, tag_id).await;
-                                            }
-                                            let _ = connector_tx.send(());
-                                            tracing::info!("Connector saved paper id={}: {}", paper_id, paper.title);
+                            Box::pin(async move {
+                                let mut paper = paper;
+                                if let Some(ref url) = pdf_url {
+                                    paper.links.pdf_url = Some(url.clone());
+                                }
+                                match rotero_db::papers::insert_paper(&conn, &paper).await {
+                                    Ok(paper_id) => {
+                                        if let Some(ref coll_id) = collection_id {
+                                            let _ =
+                                                rotero_db::collections::add_paper_to_collection(
+                                                    &conn, &paper_id, coll_id,
+                                                )
+                                                .await;
+                                        }
+                                        for tag_id in &tag_ids {
+                                            let _ = rotero_db::tags::add_tag_to_paper(
+                                                &conn, &paper_id, tag_id,
+                                            )
+                                            .await;
+                                        }
+                                        let _ = connector_tx.send(());
+                                        tracing::info!(
+                                            "Connector saved paper id={}: {}",
+                                            paper_id,
+                                            paper.title
+                                        );
 
-                                            let paper_id_enrich = paper_id.clone();
-                                            if let Some(pdf_url) = pdf_url {
-                                                let conn_pdf = conn.clone();
-                                                let connector_tx_pdf = connector_tx.clone();
-                                                let paper_clone = paper.clone();
-                                                let lib_path = lib_path.clone();
-                                                tokio::spawn(async move {
-                                                    if let Err(e) = download_and_import_pdf(
-                                                        &conn_pdf,
-                                                        &lib_path,
-                                                        &paper_id,
-                                                        &paper_clone,
-                                                        &pdf_url,
-                                                    )
-                                                    .await
-                                                    {
-                                                        tracing::error!("PDF download failed for paper id={}: {e}", paper_id);
-                                                    } else {
-                                                        let _ = connector_tx_pdf.send(());
-                                                    }
-                                                });
-                                            }
-
-                                            let conn_enrich = conn.clone();
-                                            let connector_tx_enrich = connector_tx.clone();
+                                        let paper_id_enrich = paper_id.clone();
+                                        if let Some(pdf_url) = pdf_url {
+                                            let conn_pdf = conn.clone();
+                                            let connector_tx_pdf = connector_tx.clone();
+                                            let paper_clone = paper.clone();
+                                            let lib_path = lib_path.clone();
                                             tokio::spawn(async move {
-                                                if let Some(enriched) = crate::metadata::enrich::enrich_paper(&paper).await
-                                                    && rotero_db::papers::update_paper_metadata(&conn_enrich, &paper_id_enrich, &enriched).await.is_ok()
+                                                if let Err(e) = download_and_import_pdf(
+                                                    &conn_pdf,
+                                                    &lib_path,
+                                                    &paper_id,
+                                                    &paper_clone,
+                                                    &pdf_url,
+                                                )
+                                                .await
                                                 {
-                                                    let _ = connector_tx_enrich.send(());
-                                                    tracing::info!("Connector enriched metadata for paper id={}", paper_id_enrich);
+                                                    tracing::error!(
+                                                        "PDF download failed for paper id={}: {e}",
+                                                        paper_id
+                                                    );
+                                                } else {
+                                                    let _ = connector_tx_pdf.send(());
                                                 }
                                             });
                                         }
-                                        Err(e) => {
-                                            tracing::error!("Connector failed to save paper: {e}");
-                                        }
+
+                                        let conn_enrich = conn.clone();
+                                        let connector_tx_enrich = connector_tx.clone();
+                                        tokio::spawn(async move {
+                                            if let Some(enriched) =
+                                                crate::metadata::enrich::enrich_paper(&paper).await
+                                                && rotero_db::papers::update_paper_metadata(
+                                                    &conn_enrich,
+                                                    &paper_id_enrich,
+                                                    &enriched,
+                                                )
+                                                .await
+                                                .is_ok()
+                                            {
+                                                let _ = connector_tx_enrich.send(());
+                                                tracing::info!(
+                                                    "Connector enriched metadata for paper id={}",
+                                                    paper_id_enrich
+                                                );
+                                            }
+                                        });
                                     }
-                                })
-                            });
+                                    Err(e) => {
+                                        tracing::error!("Connector failed to save paper: {e}");
+                                    }
+                                }
+                            })
                         }
                     })),
                     on_get_collections: Some(Box::new(move || {
                         let conn = conn_collections.clone();
-                        tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                match rotero_db::collections::list_collections(&conn).await {
-                                    Ok(colls) => colls
-                                        .into_iter()
-                                        .filter_map(|c| {
-                                            Some(rotero_connector::handlers::CollectionInfo {
-                                                id: c.id.clone()?,
-                                                name: c.name,
-                                            })
+                        Box::pin(async move {
+                            match rotero_db::collections::list_collections(&conn).await {
+                                Ok(colls) => colls
+                                    .into_iter()
+                                    .filter_map(|c| {
+                                        Some(rotero_connector::handlers::CollectionInfo {
+                                            id: c.id.clone()?,
+                                            name: c.name,
+                                            parent_id: c.parent_id,
                                         })
-                                        .collect(),
-                                    Err(_) => Vec::new(),
-                                }
-                            })
+                                    })
+                                    .collect(),
+                                Err(_) => Vec::new(),
+                            }
                         })
                     })),
                     on_get_tags: Some(Box::new(move || {
                         let conn = conn_tags.clone();
-                        tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                match rotero_db::tags::list_tags(&conn).await {
-                                    Ok(tags) => tags
-                                        .into_iter()
-                                        .filter_map(|t| {
-                                            Some(rotero_connector::handlers::TagInfo {
-                                                id: t.id.clone()?,
-                                                name: t.name,
-                                                color: t.color,
-                                            })
+                        Box::pin(async move {
+                            match rotero_db::tags::list_tags(&conn).await {
+                                Ok(tags) => tags
+                                    .into_iter()
+                                    .filter_map(|t| {
+                                        Some(rotero_connector::handlers::TagInfo {
+                                            id: t.id.clone()?,
+                                            name: t.name,
+                                            color: t.color,
                                         })
-                                        .collect(),
-                                    Err(_) => Vec::new(),
-                                }
-                            })
+                                    })
+                                    .collect(),
+                                Err(_) => Vec::new(),
+                            }
                         })
                     })),
-                    on_search_papers: Some(Box::new(move |query: &str| {
+                    on_search_papers: Some(Box::new(move |query: String| {
                         let conn = conn_search.clone();
-                        let query = query.to_string();
-                        tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                rotero_db::papers::search_papers(&conn, &query)
-                                    .await
-                                    .unwrap_or_default()
-                            })
+                        Box::pin(async move {
+                            rotero_db::papers::search_papers(&conn, &query)
+                                .await
+                                .unwrap_or_default()
                         })
                     })),
-                    on_get_papers_by_ids: Some(Box::new(move |ids: &[String]| {
+                    on_get_papers_by_ids: Some(Box::new(move |ids: Vec<String>| {
                         let conn = conn_get_by_ids.clone();
-                        let ids = ids.to_vec();
-                        tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                rotero_db::papers::get_papers_by_ids(&conn, &ids)
-                                    .await
-                                    .unwrap_or_default()
-                            })
+                        Box::pin(async move {
+                            rotero_db::papers::get_papers_by_ids(&conn, &ids)
+                                .await
+                                .unwrap_or_default()
                         })
                     })),
                     translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),

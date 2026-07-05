@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "Save papers to Rotero from your browser",
   "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["http://127.0.0.1:21984/*"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {

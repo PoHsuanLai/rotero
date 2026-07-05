@@ -6,7 +6,7 @@ const main = document.getElementById('main');
 const paperTitle = document.getElementById('paperTitle');
 const paperAuthors = document.getElementById('paperAuthors');
 const paperDoi = document.getElementById('paperDoi');
-const folderSelect = document.getElementById('folderSelect');
+const collList = document.getElementById('collList');
 const tagsSection = document.getElementById('tagsSection');
 const tagChips = document.getElementById('tagChips');
 const addBtn = document.getElementById('addBtn');
@@ -14,6 +14,14 @@ const result = document.getElementById('result');
 
 let pageMetadata = null;
 let selectedTagIds = new Set();
+let selectedCollectionId = null; // null = Library (no collection)
+let selectedCollectionName = 'Library';
+
+// Bootstrap-icon-style folder glyphs as inline SVG (extension has no icon font)
+const ICON_FOLDER = '<svg class="coll-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M.54 3.87.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31zM2.19 4a1 1 0 0 0-.996 1.09l.637 7a1 1 0 0 0 .995.91h10.348a1 1 0 0 0 .995-.91l.637-7A1 1 0 0 0 14.81 4z"/></svg>';
+const ICON_FOLDER_FILL = '<svg class="coll-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3m-8.322.12q.322-.119.684-.12h5.396l-.707-.707A1 1 0 0 0 6.172 2H2.5a1 1 0 0 0-1 .981z"/></svg>';
+const ICON_FOLDER_OPEN = '<svg class="coll-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M9.828 4a3 3 0 0 1-2.12-.879l-.83-.828A1 1 0 0 0 6.173 2H2.5a1 1 0 0 0-1 .981L1.546 4zm-8.322.12C1.72 3.042 1.95 3 2.19 3h5.396l-.707-.707A1 1 0 0 0 6.172 2H2.5a1 1 0 0 0-1 .981zM0 5c0-.552.446-1 .996-1h14.008A1 1 0 0 1 16 5.19l-.637 7A1.5 1.5 0 0 1 13.87 13.5H2.13A1.5 1.5 0 0 1 .637 12.19z"/></svg>';
+const ICON_LIBRARY = '<svg class="coll-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2.5 3.5a.5.5 0 0 1 0-1h11a.5.5 0 0 1 0 1zm2-2a.5.5 0 0 1 0-1h7a.5.5 0 0 1 0 1zM0 13a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 16 13V6a1.5 1.5 0 0 0-1.5-1.5h-13A1.5 1.5 0 0 0 0 6zm1.5.5A.5.5 0 0 1 1 13V6a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5z"/></svg>';
 
 // Check connection and load collections + tags
 async function init() {
@@ -33,18 +41,92 @@ async function init() {
   disconnected.style.display = 'block';
 }
 
-// Fetch collections from Rotero
+// Fetch collections from Rotero and render as a nested folder tree
 async function loadCollections() {
+  let collections = [];
   try {
     const resp = await fetch(`${API}/api/collections`);
     const data = await resp.json();
-    for (const coll of data.collections) {
-      const opt = document.createElement('option');
-      opt.value = coll.id;
-      opt.textContent = coll.name;
-      folderSelect.appendChild(opt);
+    collections = data.collections || [];
+  } catch {
+    return;
+  }
+
+  // Group by parent for tree traversal
+  const childrenOf = new Map();
+  for (const c of collections) {
+    const key = c.parent_id || null;
+    if (!childrenOf.has(key)) childrenOf.set(key, []);
+    childrenOf.get(key).push(c);
+  }
+
+  collList.innerHTML = '';
+
+  // "Library (no collection)" root row
+  collList.appendChild(makeCollRow(null, 'Library (no collection)', 0, false));
+
+  const seen = new Set();
+  const renderLevel = (parentId, depth) => {
+    const kids = childrenOf.get(parentId) || [];
+    for (const c of kids) {
+      if (seen.has(c.id)) continue; // guard against cycles
+      seen.add(c.id);
+      const hasChildren = (childrenOf.get(c.id) || []).length > 0;
+      collList.appendChild(makeCollRow(c.id, c.name, depth, hasChildren));
+      renderLevel(c.id, depth + 1);
     }
-  } catch {}
+  };
+  renderLevel(null, 0);
+
+  // Select the Library row by default
+  selectCollection(null, 'Library');
+}
+
+function makeCollRow(id, name, depth, hasChildren) {
+  const key = id === null ? '' : id;
+  const row = document.createElement('div');
+  row.className = 'coll-item';
+  row.dataset.collId = key;
+  row.dataset.hasChildren = hasChildren ? '1' : '';
+  row.style.paddingLeft = `${12 + depth * 16}px`;
+
+  const iconSvg = id === null
+    ? ICON_LIBRARY
+    : (hasChildren ? ICON_FOLDER_FILL : ICON_FOLDER);
+  row.innerHTML = iconSvg + `<span class="coll-name">${escapeHtml(name)}</span>`;
+
+  row.addEventListener('click', () => selectCollection(id, name));
+  return row;
+}
+
+function selectCollection(id, name) {
+  selectedCollectionId = id;
+  selectedCollectionName = id === null ? 'Library' : name;
+
+  const key = id === null ? '' : id;
+  for (const row of collList.querySelectorAll('.coll-item')) {
+    const isSel = row.dataset.collId === key;
+    row.classList.toggle('selected', isSel);
+    // Active collections with children show the "open folder" glyph
+    if (row.dataset.hasChildren) {
+      const svg = row.querySelector('.coll-icon');
+      if (svg) svg.outerHTML = isSel ? ICON_FOLDER_OPEN : ICON_FOLDER_FILL;
+    }
+  }
+
+  updateAddBtnLabel();
+}
+
+function updateAddBtnLabel() {
+  addBtn.textContent = selectedCollectionId
+    ? `Add to "${selectedCollectionName}"`
+    : 'Add to Library';
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
 }
 
 // Fetch tags from Rotero
@@ -71,7 +153,7 @@ async function loadTags() {
       chip.appendChild(label);
 
       chip.addEventListener('click', () => {
-        const id = parseInt(chip.dataset.tagId);
+        const id = chip.dataset.tagId;
         if (selectedTagIds.has(id)) {
           selectedTagIds.delete(id);
           chip.classList.remove('selected');
@@ -356,14 +438,6 @@ function extractMetadata() {
   return meta;
 }
 
-// Update button text based on folder selection
-folderSelect.addEventListener('change', () => {
-  const selected = folderSelect.options[folderSelect.selectedIndex];
-  addBtn.textContent = folderSelect.value
-    ? `Add to "${selected.textContent}"`
-    : 'Add to Library';
-});
-
 // Save paper
 addBtn.addEventListener('click', async () => {
   if (!pageMetadata) return;
@@ -372,10 +446,8 @@ addBtn.addEventListener('click', async () => {
   addBtn.textContent = 'Adding...';
   result.style.display = 'none';
 
-  const collectionId = folderSelect.value ? parseInt(folderSelect.value) : null;
-  const selectedName = folderSelect.value
-    ? folderSelect.options[folderSelect.selectedIndex].textContent
-    : 'Library';
+  const collectionId = selectedCollectionId;
+  const selectedName = selectedCollectionName;
 
   try {
     const resp = await fetch(`${API}/api/save`, {
@@ -405,10 +477,7 @@ addBtn.addEventListener('click', async () => {
   }
 
   addBtn.disabled = false;
-  const selected = folderSelect.options[folderSelect.selectedIndex];
-  addBtn.textContent = folderSelect.value
-    ? `Add to "${selected.textContent}"`
-    : 'Add to Library';
+  updateAddBtnLabel();
 });
 
 init();

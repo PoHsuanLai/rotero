@@ -96,7 +96,7 @@ pub const COLLECTION_REPARENT: &str = "UPDATE collections SET parent_id = ?1 WHE
 /// Delete a collection by ID.
 pub const COLLECTION_DELETE: &str = "DELETE FROM collections WHERE id = ?1";
 
-/// List paper IDs belonging to a collection.
+/// List paper IDs belonging directly to a single collection.
 pub const COLLECTION_PAPER_IDS: &str =
     "SELECT paper_id FROM paper_collections WHERE collection_id = ?1";
 /// Add a paper to a collection (idempotent).

@@ -19,8 +19,16 @@
     .paper-doi { font-size: 11px; color: #999; }
 
     .field-section { margin-bottom: 12px; }
-    .field-label { font-size: 12px; font-weight: 500; color: #666; margin-bottom: 4px; }
-    .field-select { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; background: white; color: #1a1a1a; }
+    .field-label { font-size: 12px; font-weight: 500; color: #64748b; margin-bottom: 6px; }
+
+    /* Collection list — matches the main app's sidebar collection rows */
+    .coll-list { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+    .coll-item { height: 32px; padding: 0 12px; display: flex; align-items: center; gap: 8px; cursor: pointer; border-radius: 6px; font-size: 14px; color: #334155; transition: background 0.15s, color 0.15s; user-select: none; }
+    .coll-item:hover { background: #f1f5f9; color: #0f172a; }
+    .coll-item.selected { background: #e2e8f0; color: #0f172a; font-weight: 500; }
+    .coll-item .coll-icon { flex-shrink: 0; color: #64748b; }
+    .coll-item.selected .coll-icon { color: #0d9488; }
+    .coll-item .coll-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     .tag-chips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 28px; }
     .tag-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 12px; font-size: 12px; cursor: pointer; border: 1.5px solid #d1d5db; background: white; color: #555; transition: all 0.15s; user-select: none; }
@@ -59,9 +67,7 @@
 
     <div class="field-section">
       <div class="field-label">Collection</div>
-      <select id="folderSelect" class="field-select">
-        <option value="">Library (no collection)</option>
-      </select>
+      <div id="collList" class="coll-list"></div>
     </div>
 
     <div class="field-section" id="tagsSection" style="display:none;">

@@ -10,32 +10,36 @@ fn test_state() -> Arc<ConnectorState> {
         on_paper_saved: None,
         on_get_collections: None,
         on_get_tags: None,
-        on_search_papers: Some(Box::new(|query: &str| {
-            if query.contains("attention") {
-                let mut p = Paper::new("Attention Is All You Need".to_string());
-                p.id = Some("paper-001".to_string());
-                p.authors = vec!["Vaswani".to_string()];
-                p.year = Some(2017);
-                vec![p]
-            } else {
-                Vec::new()
-            }
+        on_search_papers: Some(Box::new(|query: String| {
+            Box::pin(async move {
+                if query.contains("attention") {
+                    let mut p = Paper::new("Attention Is All You Need".to_string());
+                    p.id = Some("paper-001".to_string());
+                    p.authors = vec!["Vaswani".to_string()];
+                    p.year = Some(2017);
+                    vec![p]
+                } else {
+                    Vec::new()
+                }
+            })
         })),
-        on_get_papers_by_ids: Some(Box::new(|ids: &[String]| {
-            ids.iter()
-                .filter_map(|id| {
-                    if id == "paper-001" {
-                        let mut p = Paper::new("Attention Is All You Need".to_string());
-                        p.id = Some("paper-001".to_string());
-                        p.authors = vec!["Vaswani".to_string()];
-                        p.year = Some(2017);
-                        p.publication.journal = Some("NeurIPS".to_string());
-                        Some(p)
-                    } else {
-                        None
-                    }
-                })
-                .collect()
+        on_get_papers_by_ids: Some(Box::new(|ids: Vec<String>| {
+            Box::pin(async move {
+                ids.iter()
+                    .filter_map(|id| {
+                        if id == "paper-001" {
+                            let mut p = Paper::new("Attention Is All You Need".to_string());
+                            p.id = Some("paper-001".to_string());
+                            p.authors = vec!["Vaswani".to_string()];
+                            p.year = Some(2017);
+                            p.publication.journal = Some("NeurIPS".to_string());
+                            Some(p)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            })
         })),
         translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),
     })

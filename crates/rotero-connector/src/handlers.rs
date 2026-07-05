@@ -45,6 +45,8 @@ pub struct StatusResponse {
 pub struct CollectionInfo {
     pub id: String,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
 }
 
 /// JSON response for `GET /api/collections`.
@@ -79,7 +81,7 @@ pub async fn status() -> Json<StatusResponse> {
 /// Handler for `GET /api/collections`. Returns the user's collection list.
 pub async fn collections(State(state): State<Arc<ConnectorState>>) -> Json<CollectionsResponse> {
     let collections = if let Some(ref callback) = state.on_get_collections {
-        callback()
+        callback().await
     } else {
         Vec::new()
     };
@@ -89,7 +91,7 @@ pub async fn collections(State(state): State<Arc<ConnectorState>>) -> Json<Colle
 /// Handler for `GET /api/tags`. Returns the user's tag list.
 pub async fn tags(State(state): State<Arc<ConnectorState>>) -> Json<TagsResponse> {
     let tags = if let Some(ref callback) = state.on_get_tags {
-        callback()
+        callback().await
     } else {
         Vec::new()
     };
@@ -308,7 +310,7 @@ pub async fn cite_search(
     Query(query): Query<CiteSearchQuery>,
 ) -> Json<CiteSearchResponse> {
     let papers = if let Some(ref callback) = state.on_search_papers {
-        callback(&query.q)
+        callback(query.q).await
     } else {
         Vec::new()
     };
@@ -346,7 +348,7 @@ pub async fn cite_format(
     };
 
     let papers = if let Some(ref callback) = state.on_get_papers_by_ids {
-        callback(&req.paper_ids)
+        callback(req.paper_ids.clone()).await
     } else {
         Vec::new()
     };
@@ -396,7 +398,7 @@ pub async fn cite_bibliography(
     };
 
     let papers = if let Some(ref callback) = state.on_get_papers_by_ids {
-        callback(&req.paper_ids)
+        callback(req.paper_ids.clone()).await
     } else {
         Vec::new()
     };
@@ -459,7 +461,8 @@ pub async fn save_paper(
             req.collection_id,
             req.tag_ids.unwrap_or_default(),
             req.pdf_url,
-        );
+        )
+        .await;
     }
 
     Json(SavePaperResponse {
