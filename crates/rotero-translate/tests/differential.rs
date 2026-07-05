@@ -20,13 +20,30 @@ use rotero_models::Paper;
 use rotero_translate::translators::{fetch_context, TranslatorRegistry};
 use rotero_translate::TranslationServer;
 
-/// URLs to compare. Chosen to span translator shapes: a pure-XPath site, a
-/// citation-meta hub, a delegating site, and a preprint server.
+/// URLs to compare. Spans translator shapes (pure-XPath, citation-meta hub,
+/// web→EM delegation, import/RIS delegation, async-HTTP+DOMParser) and a broad
+/// set of publishers, so parity isn't judged on a handful of sites. URLs are
+/// taken from each translator's own upstream test cases (known-good, single
+/// article). Some publishers gate bots/paywall content — those show up as a
+/// shared MISS (both paths fail), which is fine: the metric is *relative*
+/// agreement where Node extracts something.
 const CORPUS: &[&str] = &[
+    // Original pilots (XPath / hub / web-delegation / async).
     "http://theoryofcomputing.org/articles/v009a013/",
     "https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0173664",
     "https://www.nature.com/articles/nature12373",
     "https://arxiv.org/abs/1706.03762",
+    // Broader publisher set (each a distinct dedicated translator).
+    "https://www.sciencedirect.com/science/article/pii/S016748890800116X",
+    "https://journals.sagepub.com/doi/abs/10.1177/1754073910380971",
+    "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2377243/",
+    "https://pubs.acs.org/doi/10.1021/es103607c",
+    "https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2011.00326/full",
+    "https://link.springer.com/chapter/10.1007/978-3-540-88682-2_1",
+    "https://www.mdpi.com/2076-3387/3/3/32",
+    "https://www.cambridge.org/core/journals/journal-of-american-studies/article/abs/samo-as-an-escape-clause-jean-michel-basquiats-engagement-with-a-commodified-american-africanism/1E4368D610A957B84F6DA3A58B8BF164",
+    "https://onlinelibrary.wiley.com/doi/10.1002/9781118269381.notes",
+    "https://www.jstor.org/stable/1593514",
 ];
 
 /// The fields compared, each as an extractor returning a normalized string.
