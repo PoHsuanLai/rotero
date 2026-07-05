@@ -1,7 +1,8 @@
 use rotero_models::PaperId;
 use serde::{Deserialize, Serialize};
 
-/// A Zotero item as returned by the translation server.
+/// A Zotero item — the uniform currency the translators produce (a serde mirror
+/// of the Zotero item JSON shape).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ZoteroItem {

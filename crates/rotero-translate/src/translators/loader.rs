@@ -21,7 +21,7 @@ const VENDOR_SUBDIR: &str = "vendor/translators";
 ///    which covers tests and dev runs.
 ///
 /// Returns `None` if neither exists, so the registry simply loads no JS
-/// translators and falls back to the built-in hubs + Node tier.
+/// translators and runs with only the built-in Rust hubs.
 pub fn corpus_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("ROTERO_TRANSLATORS_DIR") {
         let p = PathBuf::from(dir);

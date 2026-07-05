@@ -1,5 +1,5 @@
-//! In-process translators for metadata extraction, an alternative to the Node
-//! translation-server subprocess.
+//! In-process translators for metadata extraction — the corpus JS engine plus
+//! hand-written Rust hub translators, dispatched by a shared registry.
 //!
 //! A [`Translator`] mirrors a Zotero translator's detect-then-extract shape,
 //! collapsed into one fallible call. The [`TranslatorRegistry`] fetches a page

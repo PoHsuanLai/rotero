@@ -14,10 +14,10 @@ pub struct TranslatorRegistry {
 }
 
 impl TranslatorRegistry {
-    /// Construct a registry with the built-in translators registered. Any URL
-    /// not handled by a translator here returns `None` from
-    /// [`translate_web`](Self::translate_web), so callers fall through to the
-    /// Node/scrape tiers.
+    /// Construct a registry with the built-in translators registered (the Rust
+    /// hubs plus, when the engine feature is on, the loaded JS corpus). A URL no
+    /// translator handles returns `None` from
+    /// [`translate_web`](Self::translate_web).
     pub fn with_builtins() -> Self {
         let mut translators: Vec<Box<dyn Translator>> =
             vec![Box::new(DoiContentNegotiation), Box::new(EmbeddedMetadata)];
@@ -169,8 +169,7 @@ fn enrich_from_embedded_metadata(items: &mut [ZoteroItem], ctx: &TranslationCont
 }
 
 /// Whether an item list contains at least one usable item: a non-note,
-/// non-attachment item with a non-empty title. Applied identically across the
-/// in-process, Node, and scrape tiers.
+/// non-attachment item with a non-empty title.
 pub fn has_usable(items: &[ZoteroItem]) -> bool {
     items
         .iter()
