@@ -20,6 +20,17 @@ const NATURE_PUBLISHING_GROUP: &str =
 /// so the RIS fetch is skipped and the test stays offline).
 const NATURE_HTML: &str = include_str!("fixtures/nature_nature12373.html");
 
+const FRONTIERS: &str = include_str!("../vendor/translators/Frontiers.js");
+
+/// A real Frontiers article page (meta tags include two `citation_author`s and a
+/// `citation_abstract`).
+const FRONTIERS_HTML: &str = include_str!("fixtures/frontiers_fpsyg_2011_00326.html");
+
+/// A real PubMed Central article page. Its `citation_firstpage` has no matching
+/// `citation_lastpage`, and the abstract is rendered in the page body (the only
+/// abstract meta is a truncated `description` snippet).
+const PMC_HTML: &str = include_str!("fixtures/pmc_PMC2377243.html");
+
 #[tokio::test]
 async fn theory_of_computing_extracts_article() {
     let t = JsTranslator::from_source(THEORY_OF_COMPUTING).expect("parse vendored translator");
@@ -134,4 +145,85 @@ async fn translate_html_dispatches_without_fetch() {
             .any(|i| i.title == "Optimal Hitting Sets for Combinatorial Shapes"),
         "translate_html should extract from the given HTML"
     );
+}
+
+
+/// The Frontiers translator delegates extraction to the Embedded Metadata hub
+/// via the *promise* form `let em = await translator.getTranslatorObject();
+/// await em.doWeb(...)` — unlike Nature, which uses the callback form. Before the
+/// shim returned the delegate proxy from `getTranslatorObject()`, that `await`
+/// yielded `undefined`, `em.doWeb` threw, the delegation dropped every field, the
+/// translator returned nothing, and the registry fell through to a CrossRef
+/// lookup that reports only one author for this DOI. Regression guard: the two
+/// `citation_author`s and the `citation_abstract` must survive the delegation.
+#[tokio::test]
+async fn frontiers_extracts_both_authors_and_abstract() {
+    let t = JsTranslator::from_source(FRONTIERS).expect("parse vendored Frontiers translator");
+
+    let url = "https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2011.00326/full";
+    assert!(t.matches_url(url), "Frontiers target regex should match");
+
+    let ctx = TranslationContext {
+        url: url.to_string(),
+        content_type: Some("text/html".to_string()),
+        body: Arc::from(FRONTIERS_HTML),
+    };
+
+    let items = t.translate(&ctx).await.expect("translate");
+    assert_eq!(items.len(), 1, "one journal article expected");
+    let item = &items[0];
+
+    let last_names: Vec<&str> = item.creators.iter().map(|c| c.last_name.as_str()).collect();
+    assert_eq!(
+        last_names,
+        ["Crouzet", "Serre"],
+        "both citation_authors must survive the Embedded Metadata delegation"
+    );
+    assert!(
+        !item.abstract_note.is_empty(),
+        "citation_abstract must survive the delegation"
+    );
+}
+
+/// The PMC page dispatches to the vendored `PubMed Central.js` (priority 100),
+/// which mines its bibliographic data from an NLM efetch XML fetch. Two fields —
+/// `pages` (from `fpage`) and the abstract — don't survive that path in the
+/// engine's XPath, but the page itself carries `citation_firstpage` and a body
+/// abstract. The registry's embedded-metadata enrichment backfills exactly those
+/// empty fields, so the final item has pages and a full abstract.
+///
+/// Runs offline: with no network the efetch fails and the registry falls through
+/// to the Embedded Metadata hub, which reads the same page fields — so the item
+/// still carries pages and abstract either way.
+#[tokio::test]
+async fn pmc_registry_backfills_pages_and_abstract() {
+    use rotero_translate::translators::TranslatorRegistry;
+
+    let registry = TranslatorRegistry::with_builtins();
+    let items = registry
+        .translate_html(
+            "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2377243/",
+            PMC_HTML,
+        )
+        .await
+        .expect("PMC page should produce an item");
+    let item = &items[0];
+
+    assert_eq!(item.item_type, "journalArticle");
+    assert!(
+        item.pages.contains("37"),
+        "pages should be backfilled from citation_firstpage, got {:?}",
+        item.pages
+    );
+    assert!(
+        item.abstract_note.contains("long-term oxygen therapy")
+            && item.abstract_note.contains("guinea pig"),
+        "abstract should be the full body text"
+    );
+    assert!(
+        item.abstract_note.len() > 1000,
+        "expected the full body abstract (not the truncated meta snippet), got {} chars",
+        item.abstract_note.len()
+    );
+    assert_eq!(item.creators.len(), 7, "seven authors expected");
 }

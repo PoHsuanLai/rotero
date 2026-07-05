@@ -80,7 +80,10 @@ impl TranslatorRegistry {
 
         for t in candidates {
             match t.translate(ctx).await {
-                Ok(items) if has_usable(&items) => return Some(items),
+                Ok(mut items) if has_usable(&items) => {
+                    enrich_from_embedded_metadata(&mut items, ctx);
+                    return Some(items);
+                }
                 Ok(_) => continue,
                 Err(e) => {
                     tracing::debug!("translator {} failed for {}: {e}", t.id(), ctx.url);
@@ -101,6 +104,69 @@ impl TranslatorRegistry {
 impl Default for TranslatorRegistry {
     fn default() -> Self {
         Self::with_builtins()
+    }
+}
+
+/// Fill fields a site translator left empty from the page's embedded metadata
+/// (Highwire `citation_*` / Dublin Core / body abstract). Site translators are
+/// authoritative — this only *adds* to empty fields, never overwrites — so it's
+/// a safe, general backstop for the fields a translator's own parse dropped
+/// (e.g. our engine's XPath missing `fpage`/`abstract` on PMC's efetch XML,
+/// where the page still carries `citation_firstpage` and a body abstract).
+///
+/// No-ops for non-HTML contexts (import/RIS/BibTeX) and when the page has no
+/// usable embedded metadata.
+fn enrich_from_embedded_metadata(items: &mut [ZoteroItem], ctx: &TranslationContext) {
+    // Only HTML pages carry the meta tags / body abstract this reads.
+    let is_html = ctx
+        .content_type
+        .as_deref()
+        .map(|ct| ct.contains("html"))
+        .unwrap_or(true);
+    if !is_html {
+        return;
+    }
+
+    let em = crate::html_meta::extract_zotero_item(&ctx.body);
+    // Nothing to contribute if the page has no scholarly metadata.
+    if em.title.is_empty() {
+        return;
+    }
+
+    let fill = |dst: &mut String, src: &str| {
+        if dst.is_empty() && !src.is_empty() {
+            *dst = src.to_string();
+        }
+    };
+
+    for item in items.iter_mut() {
+        // Don't enrich notes/attachments — they aren't bibliographic records.
+        if item.item_type == "note" || item.item_type == "attachment" {
+            continue;
+        }
+        fill(&mut item.abstract_note, &em.abstract_note);
+        fill(&mut item.pages, &em.pages);
+        fill(&mut item.volume, &em.volume);
+        fill(&mut item.issue, &em.issue);
+        fill(&mut item.date, &em.date);
+        fill(&mut item.doi, &em.doi);
+        fill(&mut item.issn, &em.issn);
+        fill(&mut item.isbn, &em.isbn);
+        fill(&mut item.publication_title, &em.publication_title);
+        fill(&mut item.publisher, &em.publisher);
+        fill(&mut item.language, &em.language);
+        if item.creators.is_empty() {
+            item.creators = em.creators.clone();
+        }
+        // The DOI-content-negotiation translator (and CrossRef) always stamps
+        // "journalArticle"; trust the page when it declares something more
+        // specific (conferencePaper, bookSection, …).
+        if item.item_type == "journalArticle"
+            && !em.item_type.is_empty()
+            && em.item_type != "journalArticle"
+        {
+            item.item_type = em.item_type.clone();
+        }
     }
 }
 

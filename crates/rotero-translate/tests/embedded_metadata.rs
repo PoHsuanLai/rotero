@@ -163,3 +163,84 @@ fn authors_are_not_doubled_across_vocabularies() {
     assert_eq!(item.creators[0].last_name, "Kucsko");
     assert_eq!(item.creators[1].last_name, "Maurer");
 }
+
+#[test]
+fn firstpage_only_yields_single_page() {
+    // A page with citation_firstpage but no citation_lastpage should still yield
+    // pages set to the first page (Zotero/Node behavior), not drop it.
+    let html = r#"<html><head>
+        <meta name="citation_title" content="First Page Only">
+        <meta name="citation_firstpage" content="37">
+    </head><body></body></html>"#;
+    let item = extract_zotero_item(html);
+    assert_eq!(item.pages, "37");
+}
+
+#[test]
+fn body_abstract_replaces_truncated_meta() {
+    // When the only abstract meta is a truncated description snippet, the fuller
+    // abstract rendered in the page body should win.
+    let html = r#"<html><head>
+        <meta name="citation_title" content="Body Abstract">
+        <meta name="description" content="Short truncated snippet of the abstract text goes here and then ...">
+    </head><body>
+        <section class="abstract" id="abstract1"><h2>Abstract</h2>
+        <p>This is the complete abstract paragraph rendered in the page body. It is substantially longer than the truncated meta snippet and contains the full text a reader would want.</p>
+        </section>
+    </body></html>"#;
+    let item = extract_zotero_item(html);
+    assert!(
+        item.abstract_note.starts_with("This is the complete abstract"),
+        "body abstract should win over truncated meta, got: {:?}",
+        item.abstract_note
+    );
+    // The bare "Abstract" heading is dropped, not included as content.
+    assert!(!item.abstract_note.to_lowercase().starts_with("abstract"));
+}
+
+#[test]
+fn body_abstract_used_when_no_meta_abstract() {
+    let html = r#"<html><head>
+        <meta name="citation_title" content="No Meta Abstract">
+    </head><body>
+        <div class="abstract"><p>The abstract lives only in the body of this document and there is no meta tag carrying it at all.</p></div>
+    </body></html>"#;
+    let item = extract_zotero_item(html);
+    assert!(item.abstract_note.starts_with("The abstract lives only in the body"));
+}
+
+#[test]
+fn full_meta_abstract_not_overridden_by_body() {
+    // A complete (non-truncated) meta abstract must be preserved even if a body
+    // abstract element is also present — meta is authoritative when complete.
+    let html = r#"<html><head>
+        <meta name="citation_title" content="Full Meta Abstract">
+        <meta name="citation_abstract" content="Complete abstract from meta tag.">
+    </head><body>
+        <section class="abstract"><p>A different, longer body abstract that should be ignored because the meta abstract is already complete.</p></section>
+    </body></html>"#;
+    let item = extract_zotero_item(html);
+    assert_eq!(item.abstract_note, "Complete abstract from meta tag.");
+}
+
+#[test]
+fn pmc_fixture_hub_yields_pages_and_body_abstract() {
+    // Regression for the PMC gap: the article HTML has citation_firstpage but no
+    // citation_lastpage, and renders the full abstract in a <section
+    // class="abstract"> (the meta description is only a truncated snippet).
+    let item = extract_zotero_item(include_str!("fixtures/pmc_PMC2377243.html"));
+    assert_eq!(item.pages, "37", "firstpage-only should yield pages=37");
+    assert!(
+        item.abstract_note.contains("long-term oxygen therapy")
+            && item.abstract_note.contains("guinea pig"),
+        "body abstract should be extracted in full"
+    );
+    assert!(
+        item.abstract_note.len() > 1000,
+        "expected the full body abstract, not the truncated meta snippet; got {} chars",
+        item.abstract_note.len()
+    );
+    // Sanity: the truncated meta snippet ended in an ellipsis; the body version
+    // must not.
+    assert!(!item.abstract_note.trim_end().ends_with("..."));
+}

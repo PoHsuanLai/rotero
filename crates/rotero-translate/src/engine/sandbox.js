@@ -92,12 +92,21 @@ Zotero.loadTranslator = function (type) {
         // Hand back a translator-shaped object whose detectWeb/doWeb run the
         // delegate. The caller's `trans.doWeb(doc, url)` therefore replays items
         // through the itemDone handler exactly as translate() would.
+        //
+        // Upstream supports two call forms: the callback form
+        // `t.getTranslatorObject(function (trans) { ... })` and the
+        // promise form `let trans = await t.getTranslatorObject()`. Both must
+        // yield the proxy: return it *and* invoke the callback if present, so a
+        // translator that `await`s the result (e.g. Frontiers, whose EM
+        // delegation drops all fields otherwise) gets a real object rather than
+        // `undefined`.
         getTranslatorObject: function (cb) {
             var proxy = {
                 detectWeb: function () { return "journalArticle"; },
-                doWeb: function () { self._run(); }
+                doWeb: function () { return self._run(); }
             };
             if (cb) cb(proxy);
+            return Promise.resolve(proxy);
         },
         _run: function () {
             var items = [];

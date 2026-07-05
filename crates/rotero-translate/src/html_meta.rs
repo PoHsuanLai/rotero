@@ -245,6 +245,19 @@ pub fn extract_zotero_item(html: &str) -> ZoteroItem {
             ("property", "og:description"),
         ],
     );
+    // The `description`/`og:description` meta is frequently a truncated snippet
+    // (ending in an ellipsis), and some pages carry no abstract meta at all but
+    // render the full abstract in the body (e.g. `<section class="abstract">`).
+    // Prefer the body text when it's a fuller version of what the meta holds.
+    if let Some(body_abstract) = extract_body_abstract(&doc) {
+        let take_body = match &meta.abstract_text {
+            None => true,
+            Some(meta_abs) => is_truncated(meta_abs) && body_abstract.len() > meta_abs.len(),
+        };
+        if take_body {
+            meta.abstract_text = Some(body_abstract);
+        }
+    }
 
     meta.isbn = get_meta(&doc, &[("name", "citation_isbn")]);
     meta.issn = get_meta(
@@ -347,6 +360,75 @@ fn first_h1(doc: &Html) -> Option<String> {
     let text = doc.select(&sel).next()?.text().collect::<String>();
     let trimmed = text.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+/// Whether a string looks like a truncated snippet — the shape a `description`
+/// meta takes when it's an excerpt of a longer abstract (typically ending in an
+/// ellipsis). Used to decide whether a fuller body abstract should win.
+fn is_truncated(s: &str) -> bool {
+    let t = s.trim_end();
+    t.ends_with("...") || t.ends_with('…')
+}
+
+/// Extract the full abstract from the page body when it's rendered there rather
+/// than (or in addition to) an inline meta tag. Looks for the common scholarly
+/// abstract containers (`<section|div class="abstract">`, `id` starting with
+/// "abstract") and joins their paragraph/heading text, dropping a leading
+/// standalone "Abstract" heading. General across publishers — returns `None`
+/// when no such container is present, so pages that only carry a meta abstract
+/// are unaffected.
+fn extract_body_abstract(doc: &Html) -> Option<String> {
+    // Ordered by specificity; the first container that yields text wins.
+    const SELECTORS: &[&str] = &[
+        "section.abstract",
+        "div.abstract",
+        "[id^=\"abstract\"]",
+        "section[class~=\"abstract\"]",
+        "div[class~=\"abstract\"]",
+    ];
+    for sel_str in SELECTORS {
+        let Ok(sel) = Selector::parse(sel_str) else {
+            continue;
+        };
+        let Some(el) = doc.select(&sel).next() else {
+            continue;
+        };
+        let text = abstract_element_text(el);
+        if text.len() >= 40 {
+            return Some(text);
+        }
+    }
+    None
+}
+
+/// Collect readable text from an abstract container: join the block-level pieces
+/// (headings and paragraphs) with newlines, dropping a leading "Abstract" label.
+fn abstract_element_text(el: scraper::ElementRef) -> String {
+    let block_sel = Selector::parse("h1, h2, h3, h4, h5, h6, p").ok();
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(sel) = &block_sel {
+        for node in el.select(sel) {
+            let t = node.text().collect::<String>();
+            let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
+            if !t.is_empty() {
+                parts.push(t);
+            }
+        }
+    }
+    // Fall back to the flattened text if the container has no block children.
+    if parts.is_empty() {
+        let t = el.text().collect::<String>();
+        let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
+        return t;
+    }
+    // Drop a leading bare "Abstract" heading — it's a label, not content.
+    if parts
+        .first()
+        .is_some_and(|p| p.trim().eq_ignore_ascii_case("abstract"))
+    {
+        parts.remove(0);
+    }
+    parts.join("\n")
 }
 
 fn get_meta(doc: &Html, attrs: &[(&str, &str)]) -> Option<String> {
