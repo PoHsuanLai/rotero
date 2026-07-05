@@ -12,18 +12,30 @@ pub struct ParsedDate {
 }
 
 const MONTHS: &[(&str, u32)] = &[
-    ("january", 1), ("jan", 1),
-    ("february", 2), ("feb", 2),
-    ("march", 3), ("mar", 3),
-    ("april", 4), ("apr", 4),
+    ("january", 1),
+    ("jan", 1),
+    ("february", 2),
+    ("feb", 2),
+    ("march", 3),
+    ("mar", 3),
+    ("april", 4),
+    ("apr", 4),
     ("may", 5),
-    ("june", 6), ("jun", 6),
-    ("july", 7), ("jul", 7),
-    ("august", 8), ("aug", 8),
-    ("september", 9), ("sep", 9), ("sept", 9),
-    ("october", 10), ("oct", 10),
-    ("november", 11), ("nov", 11),
-    ("december", 12), ("dec", 12),
+    ("june", 6),
+    ("jun", 6),
+    ("july", 7),
+    ("jul", 7),
+    ("august", 8),
+    ("aug", 8),
+    ("september", 9),
+    ("sep", 9),
+    ("sept", 9),
+    ("october", 10),
+    ("oct", 10),
+    ("november", 11),
+    ("nov", 11),
+    ("december", 12),
+    ("dec", 12),
 ];
 
 /// Parse a date string into a [`ParsedDate`]. Returns an all-`None` date if
@@ -60,7 +72,10 @@ fn parse_numeric(s: &str) -> Option<ParsedDate> {
 
     match nums.as_slice() {
         // YYYY
-        [y] if is_year(*y) => Some(ParsedDate { year: Some(*y as i32), ..Default::default() }),
+        [y] if is_year(*y) => Some(ParsedDate {
+            year: Some(*y as i32),
+            ..Default::default()
+        }),
         // YYYY-MM
         [y, m] if is_year(*y) => Some(ParsedDate {
             year: Some(*y as i32),
@@ -133,16 +148,20 @@ fn valid_day(n: i64) -> Option<u32> {
 
 /// Whether `haystack` contains `word` as a whole word (bounded by non-letters).
 fn word_contains(haystack: &str, word: &str) -> bool {
-    haystack
-        .match_indices(word)
-        .any(|(i, _)| {
-            let before_ok = i == 0
-                || !haystack[..i].chars().next_back().is_some_and(|c| c.is_alphabetic());
-            let after = i + word.len();
-            let after_ok = after >= haystack.len()
-                || !haystack[after..].chars().next().is_some_and(|c| c.is_alphabetic());
-            before_ok && after_ok
-        })
+    haystack.match_indices(word).any(|(i, _)| {
+        let before_ok = i == 0
+            || !haystack[..i]
+                .chars()
+                .next_back()
+                .is_some_and(|c| c.is_alphabetic());
+        let after = i + word.len();
+        let after_ok = after >= haystack.len()
+            || !haystack[after..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphabetic());
+        before_ok && after_ok
+    })
 }
 
 /// First 4-digit run in 1000..=2100.
@@ -169,14 +188,31 @@ mod tests {
     use super::*;
 
     fn ymd(y: i32, m: u32, d: u32) -> ParsedDate {
-        ParsedDate { year: Some(y), month: Some(m), day: Some(d) }
+        ParsedDate {
+            year: Some(y),
+            month: Some(m),
+            day: Some(d),
+        }
     }
 
     #[test]
     fn iso() {
         assert_eq!(str_to_date("2020-05-01"), ymd(2020, 5, 1));
-        assert_eq!(str_to_date("2019-12"), ParsedDate { year: Some(2019), month: Some(12), day: None });
-        assert_eq!(str_to_date("2021"), ParsedDate { year: Some(2021), ..Default::default() });
+        assert_eq!(
+            str_to_date("2019-12"),
+            ParsedDate {
+                year: Some(2019),
+                month: Some(12),
+                day: None
+            }
+        );
+        assert_eq!(
+            str_to_date("2021"),
+            ParsedDate {
+                year: Some(2021),
+                ..Default::default()
+            }
+        );
     }
 
     #[test]
@@ -187,7 +223,14 @@ mod tests {
 
     #[test]
     fn month_names() {
-        assert_eq!(str_to_date("January 2020"), ParsedDate { year: Some(2020), month: Some(1), day: None });
+        assert_eq!(
+            str_to_date("January 2020"),
+            ParsedDate {
+                year: Some(2020),
+                month: Some(1),
+                day: None
+            }
+        );
         assert_eq!(str_to_date("1 Jan 2020"), ymd(2020, 1, 1));
         assert_eq!(str_to_date("Jan 15, 2020"), ymd(2020, 1, 15));
         assert_eq!(str_to_date("15 September 2019"), ymd(2019, 9, 15));
@@ -195,7 +238,13 @@ mod tests {
 
     #[test]
     fn year_only_and_junk() {
-        assert_eq!(str_to_date("published in 2018"), ParsedDate { year: Some(2018), ..Default::default() });
+        assert_eq!(
+            str_to_date("published in 2018"),
+            ParsedDate {
+                year: Some(2018),
+                ..Default::default()
+            }
+        );
         assert_eq!(str_to_date("no date here"), ParsedDate::default());
         assert_eq!(str_to_date(""), ParsedDate::default());
     }

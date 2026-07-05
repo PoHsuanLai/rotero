@@ -99,7 +99,9 @@ impl Translator for JsTranslator {
         let url = ctx.url.clone();
         let result = tokio::task::spawn_blocking(move || run_web_translator(&source, &body, &url))
             .await
-            .map_err(|e| crate::TranslateError::Translation(format!("engine task panicked: {e}")))?;
+            .map_err(|e| {
+                crate::TranslateError::Translation(format!("engine task panicked: {e}"))
+            })?;
 
         match result {
             Ok(items) if items.is_empty() => Err(crate::TranslateError::NotApplicable),
@@ -113,9 +115,7 @@ impl Translator for JsTranslator {
 /// the JavaScript body. The header is the first top-level `{...}` object;
 /// everything after its closing brace is the body.
 fn split_header(full: &str) -> Result<(&str, &str), String> {
-    let start = full
-        .find('{')
-        .ok_or("translator file has no JSON header")?;
+    let start = full.find('{').ok_or("translator file has no JSON header")?;
     let bytes = full.as_bytes();
     let mut depth = 0i32;
     let mut in_string = false;

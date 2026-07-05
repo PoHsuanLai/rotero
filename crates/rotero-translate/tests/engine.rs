@@ -126,7 +126,8 @@ function doWeb(doc, url) {
 #[test]
 fn table_xpath_matches_through_tbody_rewrite() {
     // Source HTML has no <tbody>; the adapter's rewrite lets //table/tr match.
-    let html = r#"<html><body><table><tr><td>Paper Title</td><td>2020</td></tr></table></body></html>"#;
+    let html =
+        r#"<html><body><table><tr><td>Paper Title</td><td>2020</td></tr></table></body></html>"#;
     let items = run_web_translator(TABLE_TRANSLATOR, html, "https://example.org/t").expect("run");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].title, "Paper Title");
@@ -166,7 +167,10 @@ fn runs_css_translator_end_to_end() {
         .expect("engine run");
     assert_eq!(items.len(), 1, "expected one emitted item");
     let item = &items[0];
-    assert_eq!(item.title, "On CSS Selectors", "text() should collapse whitespace");
+    assert_eq!(
+        item.title, "On CSS Selectors",
+        "text() should collapse whitespace"
+    );
     assert_eq!(item.doi, "10.1000/css.42");
     assert_eq!(item.creators.len(), 2, "scoped querySelectorAll + text()");
     assert_eq!(item.creators[0].first_name, "Ada");
@@ -190,13 +194,18 @@ function doWeb(doc, url) {
 #[test]
 fn doc_location_is_populated_from_url() {
     let html = r#"<html><body></body></html>"#;
-    let items = run_web_translator(LOCATION_TRANSLATOR, html, "https://arxiv.org/abs/1234.5678?x=1")
-        .expect("run");
+    let items = run_web_translator(
+        LOCATION_TRANSLATOR,
+        html,
+        "https://arxiv.org/abs/1234.5678?x=1",
+    )
+    .expect("run");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].title, "loc:/abs/1234.5678");
 
     // A non-/abs/ path should gate doWeb off.
-    let none = run_web_translator(LOCATION_TRANSLATOR, html, "https://arxiv.org/list/cs").expect("run");
+    let none =
+        run_web_translator(LOCATION_TRANSLATOR, html, "https://arxiv.org/list/cs").expect("run");
     assert!(none.is_empty());
 }
 
@@ -226,8 +235,12 @@ const EMBEDDED_HTML: &str = r#"<html><head>
 
 #[test]
 fn load_translator_delegates_to_embedded_metadata() {
-    let items = run_web_translator(DELEGATING_TRANSLATOR, EMBEDDED_HTML, "https://pub.example.org/a")
-        .expect("run");
+    let items = run_web_translator(
+        DELEGATING_TRANSLATOR,
+        EMBEDDED_HTML,
+        "https://pub.example.org/a",
+    )
+    .expect("run");
     assert_eq!(items.len(), 1, "delegation should yield the hub's item");
     let item = &items[0];
     // Fields came from Embedded Metadata (the delegate)...
@@ -261,8 +274,12 @@ fn load_translator_get_translator_object_style() {
         <meta name="citation_title" content="Via getTranslatorObject">
         <meta name="citation_abstract" content="The delegated abstract survives.">
     </head><body></body></html>"#;
-    let items = run_web_translator(GET_TRANSLATOR_OBJECT_STYLE, html, "https://pub.example.org/a")
-        .expect("run");
+    let items = run_web_translator(
+        GET_TRANSLATOR_OBJECT_STYLE,
+        html,
+        "https://pub.example.org/a",
+    )
+    .expect("run");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].title, "Via getTranslatorObject");
     // The abstract must survive the getTranslatorObject delegation path.

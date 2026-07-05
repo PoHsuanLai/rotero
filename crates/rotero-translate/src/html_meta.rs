@@ -49,7 +49,9 @@ impl ScrapedFields {
             })
             .collect();
         ZoteroItem {
-            item_type: self.item_type.unwrap_or_else(|| "journalArticle".to_string()),
+            item_type: self
+                .item_type
+                .unwrap_or_else(|| "journalArticle".to_string()),
             title: self.title.unwrap_or_default(),
             creators,
             date: self.date.unwrap_or_default(),

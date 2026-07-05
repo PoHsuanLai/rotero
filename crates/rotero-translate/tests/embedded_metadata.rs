@@ -126,7 +126,10 @@ fn jsonld_only_page_extracts_scholarly_article() {
     let item = extract_zotero_item(JSONLD_ONLY);
     assert_eq!(item.title, "Deep Residual Learning");
     assert_eq!(item.publication_title, "CVPR");
-    assert_eq!(item.abstract_note, "We present a residual learning framework.");
+    assert_eq!(
+        item.abstract_note,
+        "We present a residual learning framework."
+    );
     assert_eq!(item.creators.len(), 2);
     // structured (givenName/familyName) and name-only both handled
     assert_eq!(item.creators[0].last_name, "He");
@@ -159,7 +162,11 @@ fn authors_are_not_doubled_across_vocabularies() {
         <meta name="dc.creator" content="Maurer, P. C.">
     </head><body></body></html>"#;
     let item = extract_zotero_item(html);
-    assert_eq!(item.creators.len(), 2, "authors should come from one vocabulary, not both");
+    assert_eq!(
+        item.creators.len(),
+        2,
+        "authors should come from one vocabulary, not both"
+    );
     assert_eq!(item.creators[0].last_name, "Kucsko");
     assert_eq!(item.creators[1].last_name, "Maurer");
 }
@@ -190,7 +197,8 @@ fn body_abstract_replaces_truncated_meta() {
     </body></html>"#;
     let item = extract_zotero_item(html);
     assert!(
-        item.abstract_note.starts_with("This is the complete abstract"),
+        item.abstract_note
+            .starts_with("This is the complete abstract"),
         "body abstract should win over truncated meta, got: {:?}",
         item.abstract_note
     );
@@ -206,7 +214,10 @@ fn body_abstract_used_when_no_meta_abstract() {
         <div class="abstract"><p>The abstract lives only in the body of this document and there is no meta tag carrying it at all.</p></div>
     </body></html>"#;
     let item = extract_zotero_item(html);
-    assert!(item.abstract_note.starts_with("The abstract lives only in the body"));
+    assert!(
+        item.abstract_note
+            .starts_with("The abstract lives only in the body")
+    );
 }
 
 #[test]

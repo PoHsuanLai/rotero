@@ -147,7 +147,12 @@ pub async fn scrape(
     // Prefer the extension-supplied HTML (real, authenticated page) over a
     // server re-fetch. translate_html never fetches; translate_web fetches once.
     let items = match req.html.as_deref().filter(|h| !h.trim().is_empty()) {
-        Some(html) => state.translator_registry.translate_html(&req.url, html).await,
+        Some(html) => {
+            state
+                .translator_registry
+                .translate_html(&req.url, html)
+                .await
+        }
         None => state.translator_registry.translate_web(&req.url).await,
     };
 

@@ -93,7 +93,10 @@ pub fn run_web_translator(source: &str, html: &str, url: &str) -> Result<Vec<Zot
             hash = js_str_literal(&hash),
         );
         if let Err(e) = ctx.eval(Source::from_bytes(driver.as_bytes())) {
-            return Err(format!("translator run error: {}", error_detail(&e, &mut ctx)));
+            return Err(format!(
+                "translator run error: {}",
+                error_detail(&e, &mut ctx)
+            ));
         }
 
         // Drain the job queue so promises settle: `async doWeb` and
@@ -551,7 +554,11 @@ fn http_result(r: Result<String, String>) -> String {
 }
 
 /// Read argument `i` as a Rust string (empty if absent).
-fn arg_string(args: &[JsValue], i: usize, ctx: &mut Context) -> Result<String, boa_engine::JsError> {
+fn arg_string(
+    args: &[JsValue],
+    i: usize,
+    ctx: &mut Context,
+) -> Result<String, boa_engine::JsError> {
     Ok(args
         .get(i)
         .cloned()

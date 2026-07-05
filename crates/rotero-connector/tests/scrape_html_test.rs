@@ -4,7 +4,7 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use rotero_connector::{router, ConnectorState};
+use rotero_connector::{ConnectorState, router};
 use std::sync::Arc;
 use tower::ServiceExt;
 

@@ -96,9 +96,7 @@ fn take_doi(s: &str) -> Option<String> {
     // A valid DOI has a "10.NNNN/" prefix then a suffix.
     let rest = &doi[3..];
     let (registrant, suffix) = rest.split_once('/')?;
-    if registrant.len() >= 4
-        && registrant.bytes().all(|b| b.is_ascii_digit())
-        && !suffix.is_empty()
+    if registrant.len() >= 4 && registrant.bytes().all(|b| b.is_ascii_digit()) && !suffix.is_empty()
     {
         Some(doi.to_string())
     } else {

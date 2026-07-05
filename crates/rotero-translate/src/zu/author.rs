@@ -14,8 +14,8 @@ pub struct CleanedAuthor {
 
 /// Surname particles that stay with the last name. Lowercased for comparison.
 const PARTICLES: &[&str] = &[
-    "van", "von", "der", "den", "de", "del", "della", "di", "da", "la", "le",
-    "du", "des", "el", "al", "bin", "ibn", "ter", "ten", "af", "zu",
+    "van", "von", "der", "den", "de", "del", "della", "di", "da", "la", "le", "du", "des", "el",
+    "al", "bin", "ibn", "ter", "ten", "af", "zu",
 ];
 
 /// Split `name` into a structured author of the given `creator_type`.
@@ -95,30 +95,50 @@ mod tests {
 
     #[test]
     fn comma_form() {
-        assert_eq!(clean_author("Vaswani, Ashish", "author", true), ca("Ashish", "Vaswani"));
-        assert_eq!(clean_author("van der Berg, Jan", "author", true), ca("Jan", "van der Berg"));
+        assert_eq!(
+            clean_author("Vaswani, Ashish", "author", true),
+            ca("Ashish", "Vaswani")
+        );
+        assert_eq!(
+            clean_author("van der Berg, Jan", "author", true),
+            ca("Jan", "van der Berg")
+        );
     }
 
     #[test]
     fn space_form() {
-        assert_eq!(clean_author("Ashish Vaswani", "author", false), ca("Ashish", "Vaswani"));
-        assert_eq!(clean_author("John Ronald Reuel Tolkien", "author", false),
-                   ca("John Ronald Reuel", "Tolkien"));
+        assert_eq!(
+            clean_author("Ashish Vaswani", "author", false),
+            ca("Ashish", "Vaswani")
+        );
+        assert_eq!(
+            clean_author("John Ronald Reuel Tolkien", "author", false),
+            ca("John Ronald Reuel", "Tolkien")
+        );
     }
 
     #[test]
     fn particles_stay_with_surname() {
-        assert_eq!(clean_author("Ludwig van Beethoven", "author", false),
-                   ca("Ludwig", "van Beethoven"));
-        assert_eq!(clean_author("Charles de la Vallée Poussin", "author", false),
-                   ca("Charles", "de la Vallée Poussin"));
-        assert_eq!(clean_author("Vincent van der Waals", "author", false),
-                   ca("Vincent", "van der Waals"));
+        assert_eq!(
+            clean_author("Ludwig van Beethoven", "author", false),
+            ca("Ludwig", "van Beethoven")
+        );
+        assert_eq!(
+            clean_author("Charles de la Vallée Poussin", "author", false),
+            ca("Charles", "de la Vallée Poussin")
+        );
+        assert_eq!(
+            clean_author("Vincent van der Waals", "author", false),
+            ca("Vincent", "van der Waals")
+        );
     }
 
     #[test]
     fn single_and_empty() {
-        assert_eq!(clean_author("Aristotle", "author", false), ca("", "Aristotle"));
+        assert_eq!(
+            clean_author("Aristotle", "author", false),
+            ca("", "Aristotle")
+        );
         assert_eq!(clean_author("", "author", false), ca("", ""));
     }
 
@@ -130,6 +150,9 @@ mod tests {
 
     #[test]
     fn collapses_whitespace() {
-        assert_eq!(clean_author("  Ashish   Vaswani  ", "author", false), ca("Ashish", "Vaswani"));
+        assert_eq!(
+            clean_author("  Ashish   Vaswani  ", "author", false),
+            ca("Ashish", "Vaswani")
+        );
     }
 }

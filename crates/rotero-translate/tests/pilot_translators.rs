@@ -36,7 +36,10 @@ async fn theory_of_computing_extracts_article() {
     let t = JsTranslator::from_source(THEORY_OF_COMPUTING).expect("parse vendored translator");
 
     let url = "http://toc.nada.kth.se/articles/v009a013/index.html";
-    assert!(t.matches_url(url), "target regex should match the article URL");
+    assert!(
+        t.matches_url(url),
+        "target regex should match the article URL"
+    );
 
     let ctx = TranslationContext {
         url: url.to_string(),
@@ -136,7 +139,10 @@ async fn translate_html_dispatches_without_fetch() {
     // A URL whose server-side fetch would be irrelevant here — only the passed
     // HTML is used. Use the ToC fixture + a matching URL.
     let items = registry
-        .translate_html("http://theoryofcomputing.org/articles/v009a013/", V009A013_HTML)
+        .translate_html(
+            "http://theoryofcomputing.org/articles/v009a013/",
+            V009A013_HTML,
+        )
         .await
         .expect("translate_html should dispatch from the supplied HTML");
     assert!(
@@ -146,7 +152,6 @@ async fn translate_html_dispatches_without_fetch() {
         "translate_html should extract from the given HTML"
     );
 }
-
 
 /// The Frontiers translator delegates extraction to the Embedded Metadata hub
 /// via the *promise* form `let em = await translator.getTranslatorObject();
@@ -160,7 +165,8 @@ async fn translate_html_dispatches_without_fetch() {
 async fn frontiers_extracts_both_authors_and_abstract() {
     let t = JsTranslator::from_source(FRONTIERS).expect("parse vendored Frontiers translator");
 
-    let url = "https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2011.00326/full";
+    let url =
+        "https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2011.00326/full";
     assert!(t.matches_url(url), "Frontiers target regex should match");
 
     let ctx = TranslationContext {

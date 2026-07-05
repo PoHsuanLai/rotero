@@ -86,11 +86,26 @@ mod tests {
 
     #[test]
     fn sniffs_formats() {
-        assert_eq!(ImportFormat::sniff("TY  - JOUR\nTI  - X\nER  -"), ImportFormat::Ris);
-        assert_eq!(ImportFormat::sniff("PMID- 12345\nTI  - X"), ImportFormat::Nbib);
-        assert_eq!(ImportFormat::sniff("[{\"title\":\"x\"}]"), ImportFormat::CslJson);
-        assert_eq!(ImportFormat::sniff("  {\"title\":\"x\"}"), ImportFormat::CslJson);
-        assert_eq!(ImportFormat::sniff("@article{k, title={X}}"), ImportFormat::BibTeX);
+        assert_eq!(
+            ImportFormat::sniff("TY  - JOUR\nTI  - X\nER  -"),
+            ImportFormat::Ris
+        );
+        assert_eq!(
+            ImportFormat::sniff("PMID- 12345\nTI  - X"),
+            ImportFormat::Nbib
+        );
+        assert_eq!(
+            ImportFormat::sniff("[{\"title\":\"x\"}]"),
+            ImportFormat::CslJson
+        );
+        assert_eq!(
+            ImportFormat::sniff("  {\"title\":\"x\"}"),
+            ImportFormat::CslJson
+        );
+        assert_eq!(
+            ImportFormat::sniff("@article{k, title={X}}"),
+            ImportFormat::BibTeX
+        );
     }
 
     #[test]
@@ -110,6 +125,9 @@ mod tests {
             .attachments
             .iter()
             .any(|a| a.path.ends_with("x.pdf"));
-        assert!(has_local_pdf, "expected local PDF attachment from bibtex file field");
+        assert!(
+            has_local_pdf,
+            "expected local PDF attachment from bibtex file field"
+        );
     }
 }

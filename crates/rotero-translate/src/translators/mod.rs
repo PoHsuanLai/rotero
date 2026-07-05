@@ -67,18 +67,15 @@ pub trait Translator: Send + Sync {
 
     /// Extract items. Return [`TranslateError::NotApplicable`] to signal the
     /// registry to skip this translator and try the next candidate.
-    async fn translate(
-        &self,
-        ctx: &TranslationContext,
-    ) -> Result<Vec<ZoteroItem>, TranslateError>;
+    async fn translate(&self, ctx: &TranslationContext) -> Result<Vec<ZoteroItem>, TranslateError>;
 }
 
 /// Fetch a URL and build a [`TranslationContext`]. Shared by the registry and
 /// the connector's scrape path: validates the scheme (SSRF guard), follows up
 /// to 10 redirects, and uses a browser-like User-Agent.
 pub async fn fetch_context(url: &str) -> Result<TranslationContext, TranslateError> {
-    let parsed = reqwest::Url::parse(url)
-        .map_err(|e| TranslateError::Http(format!("Invalid URL: {e}")))?;
+    let parsed =
+        reqwest::Url::parse(url).map_err(|e| TranslateError::Http(format!("Invalid URL: {e}")))?;
     match parsed.scheme() {
         "http" | "https" => {}
         scheme => {
@@ -102,7 +99,10 @@ pub async fn fetch_context(url: &str) -> Result<TranslationContext, TranslateErr
         .await?;
 
     if !resp.status().is_success() {
-        return Err(TranslateError::Http(format!("HTTP {} for {url}", resp.status())));
+        return Err(TranslateError::Http(format!(
+            "HTTP {} for {url}",
+            resp.status()
+        )));
     }
 
     let content_type = resp

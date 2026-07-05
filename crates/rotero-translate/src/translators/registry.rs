@@ -19,10 +19,8 @@ impl TranslatorRegistry {
     /// [`translate_web`](Self::translate_web), so callers fall through to the
     /// Node/scrape tiers.
     pub fn with_builtins() -> Self {
-        let mut translators: Vec<Box<dyn Translator>> = vec![
-            Box::new(DoiContentNegotiation),
-            Box::new(EmbeddedMetadata),
-        ];
+        let mut translators: Vec<Box<dyn Translator>> =
+            vec![Box::new(DoiContentNegotiation), Box::new(EmbeddedMetadata)];
         register_js_translators(&mut translators);
         Self { translators }
     }
