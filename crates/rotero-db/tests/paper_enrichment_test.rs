@@ -4,10 +4,69 @@
 //! a bare `Vec<String>`.
 
 use rotero_db::Database;
+use rotero_db::turso;
 use rotero_models::{Creator, CreatorRole, Paper};
 
 async fn open_test_db(dir: &std::path::Path) -> Database {
     Database::open(dir.to_path_buf()).await.unwrap()
+}
+
+/// A DB whose `schema_version` counter reached 11 but whose `papers` table never
+/// gained the `item_type` column (the version advanced while the ALTER didn't
+/// land). The `item_type` add must be idempotent — gated on the *column*, not the
+/// version — or every `PAPER_SELECT_COLS` read fails with "no such column" and the
+/// library silently loads empty. Regression guard for that exact state.
+#[tokio::test]
+async fn heals_v11_db_missing_item_type_column() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("rotero.db");
+    let raw = turso::Builder::new_local(&db_path.to_string_lossy())
+        .experimental_index_method(true)
+        .build()
+        .await
+        .unwrap();
+    let conn = raw.connect().unwrap();
+
+    // A minimal papers table WITHOUT item_type, plus a version counter at 11.
+    conn.execute(
+        "CREATE TABLE papers (
+            id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '',
+            authors TEXT NOT NULL DEFAULT '[]', year INTEGER, doi TEXT,
+            abstract_text TEXT, journal TEXT, volume TEXT, issue TEXT, pages TEXT,
+            publisher TEXT, url TEXT, pdf_path TEXT,
+            date_added TEXT NOT NULL, date_modified TEXT NOT NULL,
+            is_favorite INTEGER NOT NULL DEFAULT 0, is_read INTEGER NOT NULL DEFAULT 0,
+            extra_meta TEXT, fulltext TEXT, citation_count INTEGER,
+            citation_key TEXT, pdf_url TEXT
+        )",
+        (),
+    )
+    .await
+    .unwrap();
+    conn.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)", ())
+        .await
+        .unwrap();
+    conn.execute("INSERT INTO schema_version (version) VALUES (11)", ())
+        .await
+        .unwrap();
+    conn.execute(
+        "INSERT INTO papers (id, title, authors, date_added, date_modified) \
+         VALUES ('p1', 'Stuck At V11', '[\"Jane Doe\"]', \
+         '2020-01-01T00:00:00Z', '2020-01-01T00:00:00Z')",
+        (),
+    )
+    .await
+    .unwrap();
+
+    // Run migrations as the app does; the idempotent ensure block must add the
+    // missing column even though the version is already at 11.
+    rotero_db::schema::initialize_db(&conn).await.unwrap();
+
+    let db = Database::from_conn(conn, dir.path().to_path_buf());
+    let papers = db.list_papers().await.expect("list_papers must not error");
+    assert_eq!(papers.len(), 1);
+    assert_eq!(papers[0].item_type, "journalArticle");
+    assert_eq!(papers[0].author_names(), vec!["Jane Doe"]);
 }
 
 #[tokio::test]
