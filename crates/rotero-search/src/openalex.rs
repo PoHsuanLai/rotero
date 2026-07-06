@@ -1,4 +1,4 @@
-use rotero_models::{CitationInfo, Paper, Publication};
+use rotero_models::{CitationInfo, Paper, ProviderKind, Publication, SearchRank};
 use serde::Deserialize;
 
 const OPENALEX_API: &str = "https://api.openalex.org/works";
@@ -16,6 +16,7 @@ struct OpenAlexWork {
     abstract_inverted_index: Option<serde_json::Value>,
     cited_by_count: Option<i64>,
     open_access: Option<OpenAlexOA>,
+    relevance_score: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,13 +94,21 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, Stri
         .results
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|work| {
+        .enumerate()
+        .filter_map(|(position, work)| {
             let doi = work
                 .doi
                 .as_deref()
                 .unwrap_or("")
                 .replace("https://doi.org/", "");
-            work_to_paper(work, &doi).ok()
+            let raw_score = work.relevance_score;
+            let mut paper = work_to_paper(work, &doi).ok()?;
+            paper.search_rank = Some(SearchRank {
+                source: ProviderKind::OpenAlex,
+                raw_score,
+                position,
+            });
+            Some(paper)
         })
         .collect();
     Ok(results)
@@ -183,7 +192,7 @@ pub async fn autocomplete(query: &str) -> Result<Vec<Paper>, String> {
         .map_err(|e| format!("Failed to parse autocomplete response: {e}"))?;
 
     let mut results = Vec::new();
-    for item in data.results.unwrap_or_default() {
+    for (position, item) in data.results.unwrap_or_default().into_iter().enumerate() {
         let title = item.display_name.unwrap_or_default();
         if title.is_empty() {
             continue;
@@ -204,6 +213,12 @@ pub async fn autocomplete(query: &str) -> Result<Vec<Paper>, String> {
                 citation_count: item.cited_by_count,
                 ..Default::default()
             },
+            // Autocomplete has no relevance score → rank by position.
+            search_rank: Some(SearchRank {
+                source: ProviderKind::OpenAlex,
+                raw_score: None,
+                position,
+            }),
             ..Default::default()
         });
     }

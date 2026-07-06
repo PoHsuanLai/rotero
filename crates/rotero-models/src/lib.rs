@@ -7,6 +7,8 @@
 pub mod annotation;
 /// Hierarchical folder-like groupings for papers.
 pub mod collection;
+/// Merge, dedup, and rank web-search results across providers.
+pub mod merge;
 /// Free-form notes attached to papers.
 pub mod note;
 /// Core paper metadata and helper methods.
@@ -20,7 +22,11 @@ pub mod tag;
 
 pub use annotation::{Annotation, AnnotationType};
 pub use collection::Collection;
+pub use merge::merge_and_rank;
 pub use note::Note;
-pub use paper::{CitationInfo, LibraryStatus, Paper, PaperId, PaperLinks, Publication};
+pub use paper::{
+    local_relevance_score, normalize_title, rank_local_results, CitationInfo, LibraryStatus, Paper,
+    PaperId, PaperLinks, Publication, ProviderKind, SearchRank,
+};
 pub use saved_search::SavedSearch;
 pub use tag::Tag;

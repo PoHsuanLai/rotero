@@ -84,12 +84,35 @@ impl Database {
         self.papers_dir().join(rel_path)
     }
 
-    /// Search papers by query string, trying FTS first and falling back to LIKE.
+    /// Search papers by query string. Identifiers are looked up directly;
+    /// otherwise BM25 full-text search runs, re-ranked so exact/prefix title
+    /// matches lead; falls back to LIKE if FTS is unavailable.
     pub async fn search_papers(&self, query: &str) -> Result<Vec<Paper>, turso::Error> {
-        match self.search_papers_fts(query).await {
-            Ok(results) => Ok(results),
-            Err(_) => self.search_papers_like(query).await,
+        let trimmed = query.trim();
+        if let Some(pid) = rotero_models::PaperId::parse(trimmed) {
+            let hits = self.search_papers_by_doi(&pid.to_stored_string()).await?;
+            if !hits.is_empty() {
+                return Ok(hits);
+            }
         }
+        let candidates = match self.search_papers_fts(query).await {
+            Ok(results) => results,
+            Err(_) => self.search_papers_like(query).await?,
+        };
+        Ok(rotero_models::rank_local_results(candidates, query))
+    }
+
+    async fn search_papers_by_doi(&self, stored_id: &str) -> Result<Vec<Paper>, turso::Error> {
+        let sql = queries::PAPER_SEARCH_BY_DOI.replace("{COLS}", queries::PAPER_SELECT_COLS);
+        let mut rows = self
+            .conn
+            .query(&sql, [Value::Text(stored_id.to_string())])
+            .await?;
+        let mut papers = Vec::new();
+        while let Some(row) = rows.next().await? {
+            papers.push(Paper::from_row(&row));
+        }
+        Ok(papers)
     }
 
     async fn search_papers_fts(&self, query: &str) -> Result<Vec<Paper>, turso::Error> {

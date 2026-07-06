@@ -101,13 +101,15 @@ pub fn LibraryPanel() -> Element {
 
     let state = lib_state.read();
 
-    let is_external = state.search.source != crate::state::app_state::SearchSource::Local;
-    let external_results = state.search.external_results.clone();
-    let external_searching = state.search.external_searching;
-    let is_searching = state.search.results.is_some();
+    // A query is active whenever the search box is non-empty. The local list
+    // then shows `search.results` (which may briefly be None until the local
+    // DB task returns); the "From the web" section renders alongside it.
+    let query_active = state.search.is_active();
+    let is_searching = query_active;
+    let web_searching = state.search.web_searching();
 
-    let mut filtered: Vec<_> = if is_searching {
-        state.search.results.as_ref().unwrap().clone()
+    let mut filtered: Vec<_> = if query_active {
+        state.search.results.clone().unwrap_or_default()
     } else {
         match &state.view {
             LibraryView::AllPapers => state.papers.clone(),
@@ -350,37 +352,65 @@ pub fn LibraryPanel() -> Element {
                 SortButton {}
             }
 
-            if is_external {
-                ExternalResults {
-                    results: external_results.clone().unwrap_or_default(),
-                    searching: external_searching,
+            if query_active {
+                div { class: "search-scroll",
+                    section { class: "search-section",
+                        h3 { class: "search-section-title", "In your library" }
+                        div { class: "library-list",
+                            if filtered.is_empty() {
+                                div { class: "search-section-empty", "No matches in your library." }
+                            } else {
+                                for paper in filtered.iter() {
+                                    {
+                                        let paper_id = paper.id.clone().unwrap_or_default();
+                                        let selected = state.is_selected(&paper_id);
+                                        rsx! {
+                                            super::paper_card::PaperCard {
+                                                key: "{paper_id}",
+                                                paper: paper.clone(),
+                                                selected,
+                                                ctx_menu,
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    section { class: "search-section",
+                        h3 { class: "search-section-title",
+                            "From the web"
+                            if web_searching {
+                                i { class: "bi bi-arrow-repeat external-spinner search-section-spinner" }
+                            }
+                        }
+                        ExternalResults {}
+                    }
                 }
-            }
-
-            if !is_external {
-            div { class: "library-list",
-                if filtered.is_empty() {
-                    LibraryEmptyState { view: state.view.clone(), is_searching }
-                } else if let Some(ref groups) = duplicate_groups {
-                    DuplicatesView { groups: groups.clone() }
-                } else {
-                    for paper in filtered.iter() {
-                        {
-                            let paper_id = paper.id.clone().unwrap_or_default();
-                            let selected = state.is_selected(&paper_id);
-                            rsx! {
-                                super::paper_card::PaperCard {
-                                    key: "{paper_id}",
-                                    paper: paper.clone(),
-                                    selected,
-                                    ctx_menu,
+            } else {
+                div { class: "library-list",
+                    if filtered.is_empty() {
+                        LibraryEmptyState { view: state.view.clone(), is_searching }
+                    } else if let Some(ref groups) = duplicate_groups {
+                        DuplicatesView { groups: groups.clone() }
+                    } else {
+                        for paper in filtered.iter() {
+                            {
+                                let paper_id = paper.id.clone().unwrap_or_default();
+                                let selected = state.is_selected(&paper_id);
+                                rsx! {
+                                    super::paper_card::PaperCard {
+                                        key: "{paper_id}",
+                                        paper: paper.clone(),
+                                        selected,
+                                        ctx_menu,
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-            } // end if !is_external
 
             if let Some((menu_paper_id, mx, my)) = ctx_menu() {
                 {

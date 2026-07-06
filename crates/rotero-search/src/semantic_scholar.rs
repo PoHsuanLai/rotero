@@ -1,9 +1,9 @@
-use rotero_models::{CitationInfo, Paper, PaperId, Publication};
+use rotero_models::{CitationInfo, Paper, PaperId, ProviderKind, Publication, SearchRank};
 use serde::Deserialize;
 
 const S2_API: &str = "https://api.semanticscholar.org/graph/v1/paper";
 const S2_FIELDS: &str =
-    "title,authors,year,abstract,venue,externalIds,publicationVenue,citationCount,openAccessPdf";
+    "title,authors,year,abstract,venue,externalIds,publicationVenue,citationCount,openAccessPdf,matchScore";
 
 #[derive(Debug, Deserialize)]
 struct S2Paper {
@@ -21,6 +21,8 @@ struct S2Paper {
     citation_count: Option<i64>,
     #[serde(rename = "openAccessPdf")]
     open_access_pdf: Option<S2OpenAccessPdf>,
+    #[serde(rename = "matchScore")]
+    match_score: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -80,13 +82,19 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, Stri
 
     let papers = data.data.unwrap_or_default();
     let mut results = Vec::new();
-    for paper in papers {
+    for (position, paper) in papers.into_iter().enumerate() {
         let doi = paper
             .external_ids
             .as_ref()
             .and_then(|e| e.doi.clone())
             .unwrap_or_default();
-        if let Ok(p) = s2_to_paper(paper, &doi) {
+        let raw_score = paper.match_score;
+        if let Ok(mut p) = s2_to_paper(paper, &doi) {
+            p.search_rank = Some(SearchRank {
+                source: ProviderKind::SemanticScholar,
+                raw_score,
+                position,
+            });
             results.push(p);
         }
     }

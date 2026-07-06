@@ -87,81 +87,46 @@
   color: var(--text-primary);
 }
 
-/* --- Search Source Dropdown --- */
-.search-source-wrapper {
-  position: relative;
+/* --- Unified Search Sections --- */
+.search-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
-.search-source-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-main);
-  color: var(--text-secondary);
+/* Inside a search section the outer .search-scroll owns scrolling, so the
+   per-section lists grow to their content height instead of each becoming
+   their own scroll area. */
+.search-scroll .library-list {
+  flex: none;
+  overflow-y: visible;
+}
+
+.search-section:not(:last-child) {
+  border-bottom: 1px solid var(--border);
+}
+
+.search-section-title {
+  margin: 0;
+  padding: 10px 16px 6px;
   font-size: var(--text-xs);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: border-color var(--transition-fast), color var(--transition-fast);
-}
-
-.search-source-btn:hover {
-  border-color: var(--text-tertiary);
-  color: var(--text-primary);
-}
-
-.search-source-btn--active {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg-main));
-}
-
-.search-source-chevron {
-  font-size: 10px;
-}
-
-.search-source-dropdown {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 4px;
-  background: var(--bg-main);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  z-index: 100;
-  min-width: 160px;
-  overflow: hidden;
-}
-
-.search-source-option {
-  display: block;
-  width: 100%;
-  padding: 8px 14px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: var(--text-sm);
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.search-source-option:hover {
-  background: var(--bg-muted);
-}
-
-.search-source-option--active {
-  color: var(--accent);
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
 }
 
-.search-source-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 99;
+.search-section-empty,
+.external-provider-empty {
+  padding: 6px 16px 10px;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
+.search-section-spinner {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
 }
 
 /* --- Search + Sort Row --- */
