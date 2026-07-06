@@ -16,6 +16,7 @@ pub fn save_config(config: &mut Signal<SyncConfig>, f: impl FnOnce(&mut SyncConf
 pub fn item_type_label(item_type: &str) -> &'static str {
     match item_type {
         "journalArticle" => "Article",
+        "preprint" => "Preprint",
         "conferencePaper" => "Conf",
         "book" => "Book",
         "bookSection" => "Chapter",
@@ -53,6 +54,7 @@ pub fn item_type_icon(item_type: &str) -> &'static str {
     match item_type {
         "book" | "bookSection" | "encyclopediaArticle" | "dictionaryEntry" => "bi-book",
         "conferencePaper" | "presentation" => "bi-easel",
+        "preprint" => "bi-file-earmark-text",
         "thesis" => "bi-mortarboard",
         "report" => "bi-clipboard-data",
         "dataset" => "bi-database",
@@ -83,6 +85,7 @@ pub fn item_type_is_special(item_type: &str) -> bool {
 pub fn venue_label(item_type: &str) -> &'static str {
     match item_type {
         "journalArticle" => "Journal",
+        "preprint" => "Repository",
         "conferencePaper" => "Conference",
         "book" | "bookSection" => "Book Title",
         "thesis" => "University",
