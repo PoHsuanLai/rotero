@@ -484,8 +484,15 @@ async fn search_papers_fts(
     conn: &turso::Connection,
     query: &str,
 ) -> Result<Vec<Paper>, crate::DbError> {
+    // Require every query token (AND) rather than any (turso's bare-token OR
+    // default), so common words like "a" don't match the whole library and let
+    // BM25 surface an unrelated high-frequency document.
+    let match_query = rotero_models::build_fts_match_query(query);
+    if match_query.is_empty() {
+        return Ok(Vec::new());
+    }
     let sql = queries::PAPER_SEARCH_FTS.replace("{COLS}", queries::PAPER_SELECT_COLS);
-    let mut rows = conn.query(&sql, [Value::Text(query.to_string())]).await?;
+    let mut rows = conn.query(&sql, [Value::Text(match_query)]).await?;
     crate::collect_rows(&mut rows).await.map_err(Into::into)
 }
 

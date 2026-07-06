@@ -11,6 +11,9 @@ use rotero_db::Database;
 pub struct OaPending {
     pub id: String,
     pub doi: Option<String>,
+    /// A direct PDF link the paper already carries (arXiv `pdf_url`, an OA
+    /// location), tried first during download.
+    pub pdf_url: Option<String>,
     pub title: String,
     pub first_author: Option<String>,
     pub year: Option<i32>,
@@ -145,6 +148,7 @@ fn ImportButton() -> Element {
                                                     needs_oa.push(OaPending {
                                                         id,
                                                         doi: paper.doi.clone(),
+                                                        pdf_url: paper.links.pdf_url.clone(),
                                                         title: paper.title.clone(),
                                                         first_author: paper.authors.first().cloned(),
                                                         year: paper.year,
@@ -225,7 +229,7 @@ fn OaPromptDialog(papers: Vec<OaPending>) -> Element {
                                     break;
                                 }
                                 oa_state.set(Some(OaState::Downloading { done: i + 1, total, downloaded }));
-                                let urls = crate::metadata::pdf_download::resolve_pdf_urls(p.doi.as_deref(), &p.title).await;
+                                let urls = crate::metadata::pdf_download::resolve_pdf_urls(p.pdf_url.as_deref(), p.doi.as_deref(), &p.title).await;
                                 if cancelled.load(Ordering::Relaxed) { break; }
                                 if let Ok(rel_path) = crate::metadata::pdf_download::download_and_save_pdf(
                                     &db, &urls, &p.title, p.first_author.as_deref(), p.year,

@@ -28,7 +28,12 @@ pub fn SearchBar() -> Element {
             while let Some(msg) = rx.next().await {
                 let query = match msg {
                     SearchMsg::Clear => {
-                        lib_state.with_mut(|s| s.search.reset_results());
+                        lib_state.with_mut(|s| {
+                            s.search.reset_results();
+                            // Drop any web-result preview: its source list is
+                            // gone, so the detail panel shouldn't keep showing it.
+                            s.previewed_web = None;
+                        });
                         continue;
                     }
                     SearchMsg::Query(q) => drain_latest(&mut rx, q),
@@ -137,6 +142,7 @@ pub fn SearchBar() -> Element {
                         lib_state.with_mut(|s| {
                             s.search.query.clear();
                             s.search.reset_results();
+                            s.previewed_web = None;
                         });
                     },
                     i { class: "bi bi-x-lg" }

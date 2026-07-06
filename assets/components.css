@@ -307,9 +307,32 @@
   opacity: 0.7;
 }
 
+.external-result-card--selected {
+  background: rgba(13, 148, 136, 0.06);
+}
+
+.external-result-card--selected:hover {
+  background: rgba(13, 148, 136, 0.09);
+}
+
 .external-result-card--imported {
   opacity: 0.55;
   border-left-color: var(--text-tertiary);
+}
+
+/* "From the web" tag on the read-only web-result preview panel. */
+.detail-web-badge {
+  align-self: flex-start;
+  margin: 0 var(--space-4) var(--space-2);
+  padding: 2px var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+  border-radius: var(--radius-sm);
 }
 
 .external-imported-btn {

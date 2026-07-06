@@ -116,11 +116,15 @@ impl Database {
     }
 
     async fn search_papers_fts(&self, query: &str) -> Result<Vec<Paper>, turso::Error> {
+        // AND-join query tokens so all terms must be present (turso defaults to
+        // OR, which lets a common word match the whole library). Mirrors
+        // rotero-db's search so both consumers rank identically.
+        let match_query = rotero_models::build_fts_match_query(query);
+        if match_query.is_empty() {
+            return Ok(Vec::new());
+        }
         let sql = queries::PAPER_SEARCH_FTS.replace("{COLS}", queries::PAPER_SELECT_COLS);
-        let mut rows = self
-            .conn
-            .query(&sql, [Value::Text(query.to_string())])
-            .await?;
+        let mut rows = self.conn.query(&sql, [Value::Text(match_query)]).await?;
         let mut papers = Vec::new();
         while let Some(row) = rows.next().await? {
             papers.push(Paper::from_row(&row));

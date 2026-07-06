@@ -25,8 +25,8 @@ pub use collection::Collection;
 pub use merge::merge_and_rank;
 pub use note::Note;
 pub use paper::{
-    local_relevance_score, normalize_title, rank_local_results, CitationInfo, LibraryStatus, Paper,
-    PaperId, PaperLinks, Publication, ProviderKind, SearchRank,
+    build_fts_match_query, local_relevance_score, normalize_title, rank_local_results,
+    CitationInfo, LibraryStatus, Paper, PaperId, PaperLinks, Publication, ProviderKind, SearchRank,
 };
 pub use saved_search::SavedSearch;
 pub use tag::Tag;

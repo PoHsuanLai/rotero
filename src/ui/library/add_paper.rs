@@ -80,13 +80,10 @@ pub(crate) fn AddPaperButtons() -> Element {
 
 #[component]
 pub(crate) fn AddPaperDOIInput() -> Element {
-    let mut lib_state = use_context::<Signal<LibraryState>>();
-    let db = use_context::<rotero_db::Database>();
+    let import_channel = use_context::<crate::state::commands::ImportChannel>();
     let mut error_msg = use_context::<Signal<Option<String>>>();
     let mut show_doi_input = use_context::<Signal<bool>>();
     let mut doi_value = use_signal(String::new);
-
-    let db_for_doi = db.clone();
 
     rsx! {
         if show_doi_input() {
@@ -105,22 +102,16 @@ pub(crate) fn AddPaperDOIInput() -> Element {
                         if doi.is_empty() {
                             return;
                         }
-                        let db = db_for_doi.clone();
-
+                        // Fetch metadata, then hand off to the import coroutine,
+                        // which inserts and downloads the OA PDF (same path as a
+                        // web-result import) — outliving this input closing.
                         spawn(async move {
                             match crate::metadata::crossref::fetch_by_doi(&doi).await {
                                 Ok(paper) => {
-                                    match db.insert_paper(&paper).await {
-                                        Ok(id) => {
-                                            let mut paper = paper;
-                                            paper.id = Some(id);
-                                            lib_state.with_mut(|s| s.papers.insert(0, paper));
-                                            show_doi_input.set(false);
-                                            doi_value.set(String::new());
-                                            error_msg.set(None);
-                                        }
-                                        Err(e) => error_msg.set(Some(format!("{e}"))),
-                                    }
+                                    import_channel.import(paper);
+                                    show_doi_input.set(false);
+                                    doi_value.set(String::new());
+                                    error_msg.set(None);
                                 }
                                 Err(e) => error_msg.set(Some(e)),
                             }

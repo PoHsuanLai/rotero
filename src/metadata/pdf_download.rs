@@ -17,12 +17,33 @@ impl fmt::Display for PdfDownloadError {
     }
 }
 
-/// Resolve candidate PDF URLs for a paper: the in-process translators (which
-/// often surface a direct publisher PDF link) first, then the open-access
-/// metadata APIs (OpenAlex, Semantic Scholar, Unpaywall).
-pub async fn resolve_pdf_urls(doi: Option<&str>, title: &str) -> Vec<String> {
-    tracing::info!("resolve_pdf_urls: doi={:?}, title={:?}", doi, title);
+/// Resolve candidate PDF URLs for a paper, in priority order: a direct PDF link
+/// the paper already carries (e.g. arXiv's `pdf_url`, an OA hit's location),
+/// then the in-process translators (which often surface a direct publisher PDF
+/// link), then the open-access metadata APIs (OpenAlex, Semantic Scholar,
+/// Unpaywall).
+///
+/// The direct link matters most for arXiv results: their DOI is a pseudo-DOI
+/// (`arXiv:ID`) the OA APIs don't resolve, so without it the download finds
+/// nothing even though a public PDF exists.
+pub async fn resolve_pdf_urls(
+    direct_url: Option<&str>,
+    doi: Option<&str>,
+    title: &str,
+) -> Vec<String> {
+    tracing::info!(
+        "resolve_pdf_urls: direct_url={:?}, doi={:?}, title={:?}",
+        direct_url,
+        doi,
+        title
+    );
     let mut urls = Vec::new();
+
+    if let Some(url) = direct_url
+        && !url.is_empty()
+    {
+        urls.push(url.to_string());
+    }
 
     // Translator scrape: resolve the DOI to its publisher page and let the site
     // translator surface a direct PDF attachment (arXiv "Preprint PDF", a Nature
@@ -218,13 +239,18 @@ async fn try_download_pdf(client: &reqwest::Client, url: &str) -> Result<Vec<u8>
 }
 
 /// Resolve URLs and download in one call.
+///
+/// `direct_url` is any PDF link the paper already carries (arXiv `pdf_url`, an
+/// OA location); it is tried first before falling back to translator scraping
+/// and the OA metadata APIs.
 pub async fn find_and_download_pdf(
     db: &Database,
+    direct_url: Option<&str>,
     doi: Option<&str>,
     title: &str,
     first_author: Option<&str>,
     year: Option<i32>,
 ) -> Result<String, PdfDownloadError> {
-    let urls = resolve_pdf_urls(doi, title).await;
+    let urls = resolve_pdf_urls(direct_url, doi, title).await;
     download_and_save_pdf(db, &urls, title, first_author, year).await
 }

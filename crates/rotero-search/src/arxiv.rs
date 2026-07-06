@@ -123,6 +123,9 @@ fn parse_arxiv_atom(xml: &str, arxiv_id: &str) -> Result<Paper, String> {
         },
         links: PaperLinks {
             url: Some(format!("https://arxiv.org/abs/{arxiv_id}")),
+            // Direct PDF so import can download it without hitting the OA APIs,
+            // which don't resolve arXiv's pseudo-DOI.
+            pdf_url: Some(format!("https://arxiv.org/pdf/{arxiv_id}")),
             ..Default::default()
         },
         ..Default::default()

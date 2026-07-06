@@ -4,6 +4,8 @@ use crate::state::app_state::LibraryState;
 use rotero_db::Database;
 use rotero_models::Paper;
 
+use super::DetailShell;
+
 #[component]
 pub fn MultiSelectSummary() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
@@ -16,7 +18,7 @@ pub fn MultiSelectSummary() -> Element {
     drop(state);
 
     rsx! {
-        div { class: "paper-detail",
+        DetailShell {
             div { class: "detail-header",
                 h3 { class: "detail-heading", "{count} papers selected" }
                 button {

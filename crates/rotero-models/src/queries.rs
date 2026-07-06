@@ -19,6 +19,11 @@ pub const PAPER_SEARCH_BY_DOI: &str = "SELECT {COLS} FROM papers WHERE doi = ?1 
 /// `(cols) MATCH ?` operator form is not supported and errors). Both take the
 /// same argument order: the indexed columns, then the query string. The score
 /// is the trailing column, read separately from the model columns.
+///
+/// The bound query string is expected to already be an AND-joined match
+/// expression (see [`build_fts_match_query`](crate::build_fts_match_query)):
+/// turso combines bare tokens with OR and keeps stopwords, so a raw multi-word
+/// query would match nearly the whole library on a common word like "a".
 pub const PAPER_SEARCH_FTS: &str = "\
     SELECT {COLS}, fts_score(title, authors, abstract_text, journal, fulltext, ?1) AS score \
     FROM papers \

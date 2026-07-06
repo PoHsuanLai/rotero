@@ -266,6 +266,42 @@ pub fn normalize_title(title: &str) -> String {
         .join(" ")
 }
 
+/// Build the match string passed to turso's `fts_match()` from a raw user query.
+///
+/// turso combines bare space-separated tokens with **OR**, and does not strip
+/// stopwords — so `a bitter lesson` matches any paper containing "a", which is
+/// nearly all of them, and BM25 then surfaces long documents that merely repeat
+/// common words rather than papers about the actual topic. Joining the tokens
+/// with `AND` requires every term to be present, which is the behavior users
+/// expect from a search box (and correctly returns nothing when the searched
+/// title isn't in the library, rather than a confident wrong answer).
+///
+/// Each token is quoted so punctuation (hyphens, colons) and the FTS operator
+/// keywords (`AND`/`OR`/`NOT`) a user might type are treated as literal terms,
+/// not query syntax. Returns an empty string when the query has no usable
+/// tokens, which callers should treat as "no FTS query".
+pub fn build_fts_match_query(query: &str) -> String {
+    query
+        .split_whitespace()
+        .map(|tok| {
+            // Keep alphanumerics; drop other punctuation so a token like
+            // "low-rank" becomes the phrase "low rank" and colons/quotes can't
+            // break out of the quoted term.
+            let cleaned: String = tok
+                .chars()
+                .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+                .collect::<String>()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            cleaned
+        })
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("\"{t}\""))
+        .collect::<Vec<_>>()
+        .join(" AND ")
+}
+
 /// Relevance score of a local library paper against a query. Higher is better.
 ///
 /// Exact and prefix normalized-title matches dominate so the searched-for paper
@@ -453,5 +489,31 @@ mod tests {
             PaperId::Pmid("12345678".into()).semantic_scholar_query(),
             "PMID:12345678"
         );
+    }
+
+    #[test]
+    fn fts_query_and_joins_tokens() {
+        // Every token becomes a required, quoted term — so a paper must contain
+        // all of them, not just one common word.
+        assert_eq!(
+            build_fts_match_query("a bitter lesson"),
+            "\"a\" AND \"bitter\" AND \"lesson\""
+        );
+    }
+
+    #[test]
+    fn fts_query_splits_punctuation_into_phrase() {
+        // Hyphens/colons become spaces inside the quoted term rather than FTS
+        // syntax, so "low-rank" stays a single phrase term.
+        assert_eq!(
+            build_fts_match_query("low-rank adaptation"),
+            "\"low rank\" AND \"adaptation\""
+        );
+    }
+
+    #[test]
+    fn fts_query_empty_when_no_tokens() {
+        assert_eq!(build_fts_match_query("   "), "");
+        assert_eq!(build_fts_match_query("!!! ---"), "");
     }
 }

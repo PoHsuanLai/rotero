@@ -415,6 +415,10 @@ pub struct LibraryState {
     pub tags: Vec<Tag>,
     pub selected_paper_ids: HashSet<String>,
     pub anchor_paper_id: Option<String>,
+    /// A web search result being previewed in the detail panel. Mutually
+    /// exclusive with a library-paper selection: previewing a web hit clears
+    /// the selection, and selecting a library paper clears this.
+    pub previewed_web: Option<Paper>,
     pub confirm_delete: Option<Vec<String>>,
     pub view: LibraryView,
     pub search: LibrarySearchState,
@@ -465,12 +469,14 @@ impl LibraryState {
     }
 
     pub fn select_one(&mut self, id: String) {
+        self.previewed_web = None;
         self.selected_paper_ids.clear();
         self.selected_paper_ids.insert(id.clone());
         self.anchor_paper_id = Some(id);
     }
 
     pub fn toggle_select(&mut self, id: &str) {
+        self.previewed_web = None;
         if self.selected_paper_ids.contains(id) {
             self.selected_paper_ids.remove(id);
         } else {
@@ -479,7 +485,16 @@ impl LibraryState {
         self.anchor_paper_id = Some(id.to_string());
     }
 
+    /// Show a web search result in the detail panel. Clears any library-paper
+    /// selection so the two detail surfaces stay mutually exclusive.
+    pub fn preview_web(&mut self, paper: Paper) {
+        self.selected_paper_ids.clear();
+        self.anchor_paper_id = None;
+        self.previewed_web = Some(paper);
+    }
+
     pub fn range_select(&mut self, target_id: &str, ordered_ids: &[String]) {
+        self.previewed_web = None;
         let anchor = self.anchor_paper_id.as_deref().unwrap_or(target_id);
         let anchor_pos = ordered_ids.iter().position(|id| id == anchor);
         let target_pos = ordered_ids.iter().position(|id| id == target_id);
@@ -500,6 +515,7 @@ impl LibraryState {
     pub fn clear_selection(&mut self) {
         self.selected_paper_ids.clear();
         self.anchor_paper_id = None;
+        self.previewed_web = None;
     }
 
     pub fn selection_count(&self) -> usize {

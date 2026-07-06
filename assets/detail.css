@@ -7,13 +7,23 @@
   width: 360px;
   min-width: 280px;
   max-width: 600px;
-  padding: var(--space-6);
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   font-size: var(--text-base);
   background: var(--bg-surface);
   border-left: 1px solid var(--border);
   position: relative;
+  overflow: hidden;
+}
+
+/* Scrolls independently of the resize handle, which is pinned as a sibling so
+   it covers the full panel height even when the content overflows. */
+.paper-detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-6);
 }
 
 .detail-header {
