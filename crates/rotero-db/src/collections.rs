@@ -2,6 +2,7 @@ use rotero_models::Collection;
 use turso::Value;
 
 use crate::Database;
+use crate::crr::{Collections, PaperCollections};
 use crate::queries;
 
 impl Database {
@@ -24,7 +25,7 @@ impl Database {
         .await?;
 
         self.crr()
-            .track_insert("collections", &uuid, &["name", "parent_id", "position"])
+            .track_insert("collections", &uuid, Collections::ALL)
             .await?;
 
         Ok(uuid)
@@ -49,7 +50,7 @@ impl Database {
         )
         .await?;
         self.crr()
-            .track_update("collections", id, &["name"])
+            .track_update("collections", id, &[Collections::NAME])
             .await?;
         Ok(())
     }
@@ -72,7 +73,7 @@ impl Database {
         )
         .await?;
         self.crr()
-            .track_update("collections", id, &["parent_id"])
+            .track_update("collections", id, &[Collections::PARENT_ID])
             .await?;
         Ok(())
     }
@@ -172,7 +173,7 @@ impl Database {
         .await?;
         let pk = format!("{paper_id}:{collection_id}");
         self.crr()
-            .track_insert("paper_collections", &pk, &["paper_id", "collection_id"])
+            .track_insert("paper_collections", &pk, PaperCollections::ALL)
             .await?;
         Ok(())
     }

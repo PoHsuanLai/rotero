@@ -2,6 +2,7 @@ use rotero_models::Tag;
 use turso::Value;
 
 use crate::Database;
+use crate::crr::{PaperTags, Tags};
 use crate::queries;
 
 impl Database {
@@ -40,9 +41,7 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_insert("tags", &uuid, &["name", "color"])
-            .await?;
+        self.crr().track_insert("tags", &uuid, Tags::ALL).await?;
         Ok(uuid)
     }
 
@@ -70,7 +69,7 @@ impl Database {
         .await?;
         let pk = format!("{paper_id}:{tag_id}");
         self.crr()
-            .track_insert("paper_tags", &pk, &["paper_id", "tag_id"])
+            .track_insert("paper_tags", &pk, PaperTags::ALL)
             .await?;
         Ok(())
     }
@@ -86,7 +85,7 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr().track_update("tags", id, &["name"]).await?;
+        self.crr().track_update("tags", id, &[Tags::NAME]).await?;
         Ok(())
     }
 
@@ -101,7 +100,7 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr().track_update("tags", id, &["color"]).await?;
+        self.crr().track_update("tags", id, &[Tags::COLOR]).await?;
         Ok(())
     }
 

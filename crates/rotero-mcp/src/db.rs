@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use rotero_db::FromRow;
+use rotero_db::crr::{Collections, PaperCollections, Papers, Tags};
 use rotero_models::queries;
 use rotero_models::{Annotation, Collection, Note, Paper, Tag};
 use turso::{Connection, Value};
@@ -557,33 +558,7 @@ impl Database {
             .await?;
 
         self.crr
-            .track_insert(
-                "papers",
-                &uuid,
-                &[
-                    "title",
-                    "authors",
-                    "year",
-                    "doi",
-                    "abstract_text",
-                    "journal",
-                    "volume",
-                    "issue",
-                    "pages",
-                    "publisher",
-                    "url",
-                    "pdf_path",
-                    "date_added",
-                    "date_modified",
-                    "is_favorite",
-                    "is_read",
-                    "extra_meta",
-                    "citation_count",
-                    "citation_key",
-                    "pdf_url",
-                    "item_type",
-                ],
-            )
+            .track_insert("papers", &uuid, Papers::ALL)
             .await
             .map_err(|e| turso::Error::Error(e.to_string()))?;
 
@@ -625,19 +600,19 @@ impl Database {
                 "papers",
                 id,
                 &[
-                    "title",
-                    "authors",
-                    "year",
-                    "doi",
-                    "abstract_text",
-                    "journal",
-                    "volume",
-                    "issue",
-                    "pages",
-                    "publisher",
-                    "url",
-                    "date_modified",
-                    "item_type",
+                    Papers::TITLE,
+                    Papers::AUTHORS,
+                    Papers::YEAR,
+                    Papers::DOI,
+                    Papers::ABSTRACT_TEXT,
+                    Papers::JOURNAL,
+                    Papers::VOLUME,
+                    Papers::ISSUE,
+                    Papers::PAGES,
+                    Papers::PUBLISHER,
+                    Papers::URL,
+                    Papers::DATE_MODIFIED,
+                    Papers::ITEM_TYPE,
                 ],
             )
             .await
@@ -705,7 +680,7 @@ impl Database {
             )
             .await?;
         self.crr
-            .track_insert("collections", &uuid, &["name", "parent_id", "position"])
+            .track_insert("collections", &uuid, Collections::ALL)
             .await
             .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
@@ -729,7 +704,7 @@ impl Database {
             .await?;
         let pk = format!("{paper_id}:{collection_id}");
         self.crr
-            .track_insert("paper_collections", &pk, &["paper_id", "collection_id"])
+            .track_insert("paper_collections", &pk, PaperCollections::ALL)
             .await
             .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
@@ -785,7 +760,7 @@ impl Database {
             )
             .await?;
         self.crr
-            .track_update("collections", id, &["name"])
+            .track_update("collections", id, &[Collections::NAME])
             .await
             .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
@@ -804,7 +779,7 @@ impl Database {
             )
             .await?;
         self.crr
-            .track_update("tags", id, &["name"])
+            .track_update("tags", id, &[Tags::NAME])
             .await
             .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
@@ -841,7 +816,11 @@ impl Database {
             )
             .await?;
         self.crr
-            .track_update("papers", paper_id, &["pdf_path", "date_modified"])
+            .track_update(
+                "papers",
+                paper_id,
+                &[Papers::PDF_PATH, Papers::DATE_MODIFIED],
+            )
             .await
             .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();

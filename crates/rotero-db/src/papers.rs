@@ -3,6 +3,7 @@ use rotero_models::{CitationInfo, Creator, LibraryStatus, Paper, PaperLinks, Pub
 use turso::Value;
 
 use crate::Database;
+use crate::crr::Papers;
 use crate::queries;
 
 /// The `extra_meta` JSON key under which the venue fields that have no dedicated
@@ -148,33 +149,7 @@ impl Database {
         .await?;
 
         self.crr()
-            .track_insert(
-                "papers",
-                &uuid,
-                &[
-                    "title",
-                    "authors",
-                    "year",
-                    "doi",
-                    "abstract_text",
-                    "journal",
-                    "volume",
-                    "issue",
-                    "pages",
-                    "publisher",
-                    "url",
-                    "pdf_path",
-                    "date_added",
-                    "date_modified",
-                    "is_favorite",
-                    "is_read",
-                    "extra_meta",
-                    "citation_count",
-                    "citation_key",
-                    "pdf_url",
-                    "item_type",
-                ],
-            )
+            .track_insert("papers", &uuid, Papers::ALL)
             .await?;
 
         Ok(uuid)
@@ -268,7 +243,7 @@ impl Database {
         )
         .await?;
         self.crr()
-            .track_update("papers", id, &["is_favorite"])
+            .track_update("papers", id, &[Papers::IS_FAVORITE])
             .await?;
         Ok(())
     }
@@ -281,7 +256,9 @@ impl Database {
             [Value::Integer(read as i64), Value::Text(id.to_string())],
         )
         .await?;
-        self.crr().track_update("papers", id, &["is_read"]).await?;
+        self.crr()
+            .track_update("papers", id, &[Papers::IS_READ])
+            .await?;
         Ok(())
     }
 
@@ -337,19 +314,19 @@ impl Database {
                 "papers",
                 id,
                 &[
-                    "title",
-                    "authors",
-                    "year",
-                    "doi",
-                    "abstract_text",
-                    "journal",
-                    "volume",
-                    "issue",
-                    "pages",
-                    "publisher",
-                    "url",
-                    "date_modified",
-                    "item_type",
+                    Papers::TITLE,
+                    Papers::AUTHORS,
+                    Papers::YEAR,
+                    Papers::DOI,
+                    Papers::ABSTRACT_TEXT,
+                    Papers::JOURNAL,
+                    Papers::VOLUME,
+                    Papers::ISSUE,
+                    Papers::PAGES,
+                    Papers::PUBLISHER,
+                    Papers::URL,
+                    Papers::DATE_MODIFIED,
+                    Papers::ITEM_TYPE,
                 ],
             )
             .await?;
@@ -369,7 +346,7 @@ impl Database {
         )
         .await?;
         self.crr()
-            .track_update("papers", id, &["pdf_path", "date_modified"])
+            .track_update("papers", id, &[Papers::PDF_PATH, Papers::DATE_MODIFIED])
             .await?;
         Ok(())
     }
@@ -384,7 +361,7 @@ impl Database {
         )
         .await?;
         self.crr()
-            .track_update("papers", id, &["date_modified"])
+            .track_update("papers", id, &[Papers::DATE_MODIFIED])
             .await?;
         Ok(())
     }
@@ -501,7 +478,7 @@ impl Database {
         )
         .await?;
         self.crr()
-            .track_update("papers", id, &["citation_count"])
+            .track_update("papers", id, &[Papers::CITATION_COUNT])
             .await?;
         Ok(())
     }
@@ -518,7 +495,7 @@ impl Database {
         )
         .await?;
         self.crr()
-            .track_update("papers", id, &["citation_key"])
+            .track_update("papers", id, &[Papers::CITATION_KEY])
             .await?;
         Ok(())
     }
