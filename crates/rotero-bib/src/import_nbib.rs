@@ -1,4 +1,4 @@
-use rotero_models::{Paper, PaperLinks, Publication};
+use rotero_models::{Creator, Paper, PaperLinks, Publication};
 
 /// Parses an NBIB (PubMed/MEDLINE) string and returns the extracted papers.
 ///
@@ -62,7 +62,10 @@ pub fn import_nbib(input: &str) -> Result<Vec<Paper>, String> {
 
             Some(Paper {
                 title,
-                authors,
+                creators: authors
+                    .iter()
+                    .map(|a| Creator::author_from_display(a))
+                    .collect(),
                 year,
                 doi,
                 abstract_text,
@@ -72,6 +75,7 @@ pub fn import_nbib(input: &str) -> Result<Vec<Paper>, String> {
                     issue,
                     pages,
                     publisher,
+                    ..Default::default()
                 },
                 links: PaperLinks {
                     url,
@@ -355,7 +359,7 @@ AB  - The dominant sequence transduction models are based on complex recurrent o
         assert_eq!(papers.len(), 1);
         let p = &papers[0];
         assert_eq!(p.title, "Attention is all you need");
-        assert_eq!(p.authors, vec!["Ashish Vaswani", "Noam Shazeer"]);
+        assert_eq!(p.author_names(), vec!["Ashish Vaswani", "Noam Shazeer"]);
         assert_eq!(p.year, Some(2017));
         assert_eq!(p.doi.as_deref(), Some("10.5555/example"));
         assert_eq!(
@@ -397,7 +401,7 @@ AU  - Einstein A
 
 "#;
         let papers = import_nbib(input).unwrap();
-        assert_eq!(papers[0].authors, vec!["A. Einstein"]);
+        assert_eq!(papers[0].author_names(), vec!["A. Einstein"]);
     }
 
     #[test]
@@ -435,18 +439,21 @@ TA  - Nature
         // FAU spaced initials and AU run-together initials both become "M. J.".
         let input = "PMID- 1\nTI  - T\nFAU - van Raaij, M J\nAU  - van Raaij MJ\n\n";
         assert_eq!(
-            import_nbib(input).unwrap()[0].authors,
+            import_nbib(input).unwrap()[0].author_names(),
             vec!["M. J. van Raaij"]
         );
 
         // Single-letter initial gains a period.
         let input = "PMID- 1\nTI  - T\nFAU - Gout, I\nAU  - Gout I\n\n";
-        assert_eq!(import_nbib(input).unwrap()[0].authors, vec!["I. Gout"]);
+        assert_eq!(
+            import_nbib(input).unwrap()[0].author_names(),
+            vec!["I. Gout"]
+        );
 
         // A given name followed by a bare initial keeps the name, adds a period.
         let input = "PMID- 1\nTI  - T\nFAU - Efird, Jimmy T\nAU  - Efird JT\n\n";
         assert_eq!(
-            import_nbib(input).unwrap()[0].authors,
+            import_nbib(input).unwrap()[0].author_names(),
             vec!["Jimmy T. Efird"]
         );
     }
@@ -457,19 +464,19 @@ TA  - Nature
         // no stray comma is left behind.
         let input = "PMID- 1\nTI  - T\nAU  - van Groen, Maaike M.\nAU  - Eggen, Theo J. H. M.\n\n";
         assert_eq!(
-            import_nbib(input).unwrap()[0].authors,
+            import_nbib(input).unwrap()[0].author_names(),
             vec!["Maaike M. van Groen", "Theo J. H. M. Eggen"]
         );
 
         let input = "PMID- 1\nTI  - T\nAU  - San Pedro, Sweet\n\n";
         assert_eq!(
-            import_nbib(input).unwrap()[0].authors,
+            import_nbib(input).unwrap()[0].author_names(),
             vec!["Sweet San Pedro"]
         );
 
         let input = "PMID- 1\nTI  - T\nAU  - Di Giacomo, F. Tony\n\n";
         assert_eq!(
-            import_nbib(input).unwrap()[0].authors,
+            import_nbib(input).unwrap()[0].author_names(),
             vec!["F. Tony Di Giacomo"]
         );
     }
@@ -477,7 +484,10 @@ TA  - Nature
     #[test]
     fn drops_et_al_placeholder() {
         let input = "PMID- 1\nTI  - T\nAU  - Booker GW\nAU  - et al.\n\n";
-        assert_eq!(import_nbib(input).unwrap()[0].authors, vec!["G. W. Booker"]);
+        assert_eq!(
+            import_nbib(input).unwrap()[0].author_names(),
+            vec!["G. W. Booker"]
+        );
     }
 
     #[test]

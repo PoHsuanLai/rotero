@@ -202,7 +202,10 @@ fn s2_to_paper(paper: S2Paper, doi: &str) -> Result<Paper, String> {
 
     Ok(Paper {
         title,
-        authors,
+        creators: authors
+            .iter()
+            .map(|a| rotero_models::Creator::author_from_display(a))
+            .collect(),
         year: paper.year,
         doi: if doi.is_empty() {
             None

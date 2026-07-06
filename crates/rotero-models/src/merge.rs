@@ -52,8 +52,8 @@ fn merge_into(keep: &mut Paper, other: Paper) {
     if keep.year.is_none() {
         keep.year = other.year;
     }
-    if keep.authors.is_empty() {
-        keep.authors = other.authors;
+    if keep.creators.is_empty() {
+        keep.creators = other.creators;
     }
     if keep.publication.journal.is_none() {
         keep.publication = other.publication;
@@ -246,7 +246,7 @@ fn score(m: &Merged, nq: &str, query_tokens: &[&str]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paper::{ProviderKind, SearchRank};
+    use crate::paper::{Creator, ProviderKind, SearchRank};
 
     fn paper(title: &str, doi: Option<&str>) -> Paper {
         Paper {
@@ -285,7 +285,7 @@ mod tests {
                 0,
             );
             p.citation.citation_count = Some(100000);
-            p.authors = vec!["Vaswani".into()];
+            p.creators = vec![Creator::author_from_display("Vaswani")];
             p
         };
         // Semantic Scholar returns the same paper by its arXiv DOI (the common
@@ -322,7 +322,7 @@ mod tests {
         // Citation count survives from OpenAlex.
         assert_eq!(p.citation.citation_count, Some(100000));
         // Authors filled from the richer source.
-        assert_eq!(p.authors, vec!["Vaswani".to_string()]);
+        assert_eq!(p.author_names(), vec!["Vaswani".to_string()]);
         // The exact-title paper ranks first.
         assert_eq!(out[0].title, "Attention Is All You Need");
     }

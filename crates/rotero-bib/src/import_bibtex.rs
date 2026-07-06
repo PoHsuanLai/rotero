@@ -1,5 +1,5 @@
 use biblatex::{Bibliography, Chunk, ChunksExt, PermissiveType, Person, Spanned};
-use rotero_models::{Paper, PaperLinks, Publication};
+use rotero_models::{Creator, Paper, PaperLinks, Publication};
 
 /// A paper parsed from BibTeX, with an optional linked PDF path.
 pub struct ImportedPaper {
@@ -111,8 +111,32 @@ fn split_entries(input: &str) -> Vec<String> {
 }
 
 /// Convert one parsed bibliography entry into an [`ImportedPaper`].
+/// Map a BibTeX entry type to a Zotero item type, so imported books/theses/
+/// proceedings carry the right type through the model. Unrecognized types fall
+/// back to `journalArticle`.
+fn zotero_item_type(entry_type: &biblatex::EntryType) -> &'static str {
+    use biblatex::EntryType as E;
+    match entry_type {
+        E::Article => "journalArticle",
+        E::Book | E::MvBook | E::BookInBook | E::Collection | E::MvCollection => "book",
+        E::InBook | E::InCollection | E::SuppBook | E::SuppCollection | E::InReference => {
+            "bookSection"
+        }
+        E::InProceedings | E::Proceedings | E::MvProceedings => "conferencePaper",
+        E::Thesis | E::PhdThesis | E::MastersThesis => "thesis",
+        E::Report | E::TechReport => "report",
+        E::Manual | E::Unpublished | E::Booklet => "manuscript",
+        E::Patent => "patent",
+        E::Dataset => "dataset",
+        E::Software => "computerProgram",
+        E::Online => "webpage",
+        _ => "journalArticle",
+    }
+}
+
 fn entry_to_paper(entry: &biblatex::Entry) -> ImportedPaper {
     let title = entry.title().map(decode_field).unwrap_or_default();
+    let item_type = zotero_item_type(&entry.entry_type).to_string();
 
     let authors: Vec<String> = entry
         .author()
@@ -184,8 +208,12 @@ fn entry_to_paper(entry: &biblatex::Entry) -> ImportedPaper {
     ImportedPaper {
         source_pdf,
         paper: Paper {
+            item_type,
             title,
-            authors,
+            creators: authors
+                .iter()
+                .map(|a| Creator::author_from_display(a))
+                .collect(),
             year,
             doi,
             abstract_text,
@@ -195,6 +223,7 @@ fn entry_to_paper(entry: &biblatex::Entry) -> ImportedPaper {
                 issue,
                 pages,
                 publisher,
+                ..Default::default()
             },
             links: PaperLinks {
                 url,
@@ -606,20 +635,23 @@ mod tests {
     #[test]
     fn author_particle_and_suffix_preserved() {
         let p = paper(r#"@book{k, author="von Hicks, III, Michael"}"#);
-        assert_eq!(p.authors, vec!["Michael, III von Hicks".to_string()]);
+        assert_eq!(p.author_names(), vec!["Michael, III von Hicks".to_string()]);
     }
 
     #[test]
     fn corporate_author_with_internal_preposition() {
         let p = paper(r#"@misc{k, author={American Rights at Work}}"#);
-        assert_eq!(p.authors, vec!["American Rights at Work".to_string()]);
+        assert_eq!(
+            p.author_names(),
+            vec!["American Rights at Work".to_string()]
+        );
     }
 
     #[test]
     fn lowercase_given_name_particle_kept() {
         let p = paper(r#"@techreport{k, author={sudhin jacob and Kishore Tiruveedhula}}"#);
         assert_eq!(
-            p.authors,
+            p.author_names(),
             vec![
                 "sudhin jacob".to_string(),
                 "Kishore Tiruveedhula".to_string()
@@ -637,7 +669,7 @@ mod tests {
         assert_eq!(papers.len(), 1);
         assert_eq!(papers[0].paper.title, "A Rural Health");
         assert_eq!(
-            papers[0].paper.authors,
+            papers[0].paper.author_names(),
             vec!["John A. Batsis".to_string(), "David Kotz".to_string()]
         );
     }

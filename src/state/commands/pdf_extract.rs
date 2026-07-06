@@ -44,7 +44,7 @@ pub async fn extract_and_fetch_metadata(
     {
         match crate::metadata::crossref::fetch_by_doi(doi_str).await {
             Ok(fetched) => {
-                tracing::info!(title = %fetched.title, authors = ?fetched.authors, "extract_and_fetch_metadata: CrossRef success");
+                tracing::info!(title = %fetched.title, authors = ?fetched.author_names(), "extract_and_fetch_metadata: CrossRef success");
                 if apply_fetched_metadata(db, paper_id, &fetched, lib_state).await {
                     return;
                 }
@@ -59,7 +59,7 @@ pub async fn extract_and_fetch_metadata(
     {
         match crate::metadata::arxiv::fetch_by_arxiv_id(arxiv).await {
             Ok(fetched) => {
-                tracing::info!(title = %fetched.title, authors = ?fetched.authors, "extract_and_fetch_metadata: arXiv success");
+                tracing::info!(title = %fetched.title, authors = ?fetched.author_names(), "extract_and_fetch_metadata: arXiv success");
                 if apply_fetched_metadata(db, paper_id, &fetched, lib_state).await {
                     return;
                 }
@@ -87,11 +87,12 @@ pub async fn extract_and_fetch_metadata(
                 p.title = title.clone();
             }
             if let Some(ref author) = doc_meta.author {
-                p.authors = author
+                p.creators = author
                     .split(';')
                     .flat_map(|s| s.split(','))
-                    .map(|s| s.trim().to_string())
+                    .map(|s| s.trim())
                     .filter(|s| !s.is_empty())
+                    .map(rotero_models::Creator::author_from_display)
                     .collect();
             }
             if let Some(ref doi_str) = doi {
@@ -128,7 +129,7 @@ async fn apply_fetched_metadata(
             .find(|p| p.id.as_ref().map(|id| id.to_string()) == Some(paper_id.to_string()))
         {
             p.title = fetched.title.clone();
-            p.authors = fetched.authors.clone();
+            p.creators = fetched.creators.clone();
             p.year = fetched.year;
             p.doi = fetched.doi.clone();
             p.abstract_text = fetched.abstract_text.clone();

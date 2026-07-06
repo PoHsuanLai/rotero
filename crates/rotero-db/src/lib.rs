@@ -154,9 +154,28 @@ impl Database {
             .map_err(|e| format!("Failed to initialize schema: {e}"))?;
 
         let crr = Arc::new(CrrStore::new(TursoDb::new(conn.clone()), rotero_schema()));
+
+        // Whether this store's CRR metadata predates the current schema. On a
+        // brand-new database there is no persisted fingerprint yet, so this is
+        // false and `init` seeds every column (including `item_type`) fresh.
+        let schema_drifted = matches!(
+            crr.schema_fingerprint().await,
+            Some(stored) if stored != crr.schema().fingerprint()
+        );
+
         crr.init()
             .await
             .map_err(|e| format!("Failed to initialize CRR: {e}"))?;
+
+        if schema_drifted {
+            // An existing, already-synced store gained the `item_type` column
+            // (added by the v11 SQL migration above). Backfill its clock entries
+            // so existing rows emit the new column to peers. Idempotent and
+            // scoped to live rows; a no-op once every row is backfilled.
+            crr.migrate_add_column("papers", "item_type")
+                .await
+                .map_err(|e| format!("Failed to backfill item_type CRR clocks: {e}"))?;
+        }
 
         Ok(Self {
             conn,

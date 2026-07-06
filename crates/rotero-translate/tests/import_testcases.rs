@@ -202,7 +202,7 @@ fn compare(expected: &ExpectedItem, got: &Paper) -> Vec<Mismatch> {
         .map(|c| norm(&c.display()))
         .collect();
     if !exp_authors.is_empty() {
-        let got_authors: Vec<String> = got.authors.iter().map(|a| norm(a)).collect();
+        let got_authors: Vec<String> = got.author_names().iter().map(|a| norm(a)).collect();
         if exp_authors != got_authors {
             out.push(Mismatch {
                 field: "creators",

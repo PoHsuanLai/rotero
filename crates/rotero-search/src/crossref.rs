@@ -96,7 +96,10 @@ pub async fn fetch_by_doi(doi: &str) -> Result<Paper, String> {
 
     Ok(Paper {
         title,
-        authors,
+        creators: authors
+            .iter()
+            .map(|a| rotero_models::Creator::author_from_display(a))
+            .collect(),
         year,
         doi: Some(work.doi.unwrap_or_else(|| doi.to_string())),
         abstract_text,
@@ -106,6 +109,7 @@ pub async fn fetch_by_doi(doi: &str) -> Result<Paper, String> {
             issue: work.issue,
             pages: work.page,
             publisher: work.publisher,
+            ..Default::default()
         },
         links: PaperLinks {
             url: work.url,

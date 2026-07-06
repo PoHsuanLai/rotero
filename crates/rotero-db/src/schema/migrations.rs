@@ -5,7 +5,7 @@ use turso::Connection;
 use super::tables::{CREATE_FTS_INDEX, CREATE_TABLES};
 
 /// Current schema version; incremented with each migration.
-pub(super) const SCHEMA_VERSION: i64 = 10;
+pub(super) const SCHEMA_VERSION: i64 = 11;
 
 /// Create the application tables and run pending migrations.
 ///
@@ -147,6 +147,19 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
         // match set). turso maintains the index incrementally on writes, so this
         // only needs to run once — hence a versioned migration, not every open.
         rebuild_fts_index(conn).await;
+    }
+
+    if current_version < 11 {
+        // Add the Zotero item type. The matching CRR clock backfill (so existing
+        // rows sync the new column) runs in `Database::open` via recrr's
+        // `migrate_add_column`, which needs the `Crr` store, not just this
+        // connection.
+        let _ = conn
+            .execute(
+                "ALTER TABLE papers ADD COLUMN item_type TEXT NOT NULL DEFAULT 'journalArticle'",
+                (),
+            )
+            .await;
     }
 
     if current_version < SCHEMA_VERSION {

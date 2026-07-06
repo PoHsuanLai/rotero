@@ -195,12 +195,12 @@ pub fn PaperDetail() -> Element {
                             let doi_for_oa = paper.doi.clone();
                             let url_for_oa = paper.links.pdf_url.clone();
                             let paper_title = paper.title.clone();
-                            let paper_authors = paper.authors.clone();
+                            let paper_authors = paper.author_names();
                             let paper_year = paper.year;
                             let db_oa = db.clone();
                             let agent_title = paper.title.clone();
                             let agent_doi = paper.doi.clone();
-                            let agent_authors = paper.authors.clone();
+                            let agent_authors = paper.author_names();
                             let agent_year = paper.year;
                             let agent_pid = pid_oa.clone();
                             let agent_channel = use_context::<crate::ui::chat_panel::AgentChannel>();

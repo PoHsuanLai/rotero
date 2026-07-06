@@ -203,7 +203,8 @@ pub async fn download_and_import_pdf(
 ) -> Result<(), String> {
     tracing::info!(paper_id, pdf_url, "Downloading PDF");
 
-    let first_author = paper.authors.first().map(|s| s.as_str());
+    let author_names = paper.author_names();
+    let first_author = author_names.first().map(|s| s.as_str());
 
     let rel_path = crate::metadata::pdf_download::download_and_save_pdf(
         db,

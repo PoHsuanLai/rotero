@@ -1,10 +1,11 @@
-/// SELECT columns for paper queries.
-pub const PAPER_SELECT_COLS: &str = "id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key, pdf_url";
+/// SELECT columns for paper queries. `item_type` is appended last so the
+/// positional `Paper::from_row` indices for the earlier columns stay fixed.
+pub const PAPER_SELECT_COLS: &str = "id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key, pdf_url, item_type";
 
 /// Insert a new paper row with all columns.
 pub const PAPER_INSERT: &str = "\
-    INSERT INTO papers (id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key, pdf_url) \
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)";
+    INSERT INTO papers (id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key, pdf_url, item_type) \
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)";
 
 /// Count total papers in the library.
 pub const PAPER_COUNT: &str = "SELECT COUNT(*) FROM papers";
@@ -48,7 +49,7 @@ pub const PAPER_UPDATE_FULLTEXT: &str = "UPDATE papers SET fulltext = ?1 WHERE i
 pub const PAPER_UPDATE_METADATA: &str = "\
     UPDATE papers SET title = ?1, authors = ?2, year = ?3, doi = ?4, abstract_text = ?5, \
     journal = ?6, volume = ?7, issue = ?8, pages = ?9, publisher = ?10, url = ?11, \
-    date_modified = ?12 WHERE id = ?13";
+    date_modified = ?12, item_type = ?13 WHERE id = ?14";
 
 /// Set or replace the local PDF file path for a paper.
 pub const PAPER_UPDATE_PDF_PATH: &str =

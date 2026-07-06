@@ -26,6 +26,7 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3"
+futures-util = "0.3"
 
 # Internal crates
 rotero-models = { path = "crates/rotero-models" }
@@ -73,7 +74,7 @@ urlencoding = "2"
 which = "8.0.2"
 pulldown-cmark = "0.13.3"
 pulldown-latex = "0.7.1"
-futures-util = "0.3"
+futures-util.workspace = true
 libc = "0.2.184"
 axum = "0.8"
 arboard = "3"

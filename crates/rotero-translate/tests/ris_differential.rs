@@ -134,7 +134,7 @@ fn diff(ours: &Paper, theirs: &ZoteroItem) -> Vec<String> {
         &theirs.publisher,
     );
 
-    let our_authors: Vec<String> = ours.authors.iter().map(|a| norm(a)).collect();
+    let our_authors: Vec<String> = ours.author_names().iter().map(|a| norm(a)).collect();
     let their_authors = js_authors(theirs);
     if our_authors != their_authors {
         out.push(format!(

@@ -10,7 +10,7 @@
 //! model represents. The mapping of a few tags (the publication title, the issue)
 //! depends on the record's item type, so the type is resolved first.
 
-use rotero_models::{Paper, PaperLinks, Publication};
+use rotero_models::{Creator, Paper, PaperLinks, Publication};
 
 /// Parses an RIS string and returns the extracted papers, one per `TY`…`ER`
 /// record. Records without a title are kept: RIS exports carry title-less
@@ -327,7 +327,10 @@ fn record_to_paper(record: &Record) -> Paper {
 
     Paper {
         title,
-        authors,
+        creators: authors
+            .iter()
+            .map(|a| Creator::author_from_display(a))
+            .collect(),
         year,
         doi,
         abstract_text,
@@ -337,6 +340,7 @@ fn record_to_paper(record: &Record) -> Paper {
             issue,
             pages,
             publisher,
+            ..Default::default()
         },
         links: PaperLinks {
             url,
@@ -467,7 +471,7 @@ AB  - This is the abstract.\nPB  - Springer\nUR  - https://example.com/paper\nER
         assert_eq!(papers.len(), 1);
         let p = &papers[0];
         assert_eq!(p.title, "A test paper");
-        assert_eq!(p.authors, vec!["John Smith", "Jane Doe"]);
+        assert_eq!(p.author_names(), vec!["John Smith", "Jane Doe"]);
         assert_eq!(p.year, Some(2023));
         assert_eq!(p.doi.as_deref(), Some("10.1234/test"));
         assert_eq!(p.publication.journal.as_deref(), Some("Nature"));
@@ -524,7 +528,10 @@ VL - 9999\nM1 - 9999\nPY - 2009\nER -\n";
     fn test_author_initials_and_particles() {
         let input = "TY - JOUR\nTI - X\nAU - KONING, A. P. JASON de\nAU - Baldwin, S.A.\nER -\n";
         let p = &import_ris(input).unwrap()[0];
-        assert_eq!(p.authors, vec!["A. P. JASON de KONING", "S.A. Baldwin"]);
+        assert_eq!(
+            p.author_names(),
+            vec!["A. P. JASON de KONING", "S.A. Baldwin"]
+        );
     }
 
     /// Non-author creator tags (`A2`/`A3`/`A4`/`TA`) never reach the author list.
@@ -533,7 +540,7 @@ VL - 9999\nM1 - 9999\nPY - 2009\nER -\n";
         let input = "TY  - JOUR\nTI  - X\nA2  - Editor, Series\nA4  - Translator\n\
 AU  - Name1, Author\nAU  - Name2, Author\nTA  - Author, Translated\nER  -\n";
         let p = &import_ris(input).unwrap()[0];
-        assert_eq!(p.authors, vec!["Author Name1", "Author Name2"]);
+        assert_eq!(p.author_names(), vec!["Author Name1", "Author Name2"]);
     }
 
     /// `A1` and `AU` are the same role and stay in document order: a leading
@@ -544,7 +551,7 @@ AU  - Name1, Author\nAU  - Name2, Author\nTA  - Author, Translated\nER  -\n";
 AU  - Carmi, Avishy\nER  -\n";
         let p = &import_ris(input).unwrap()[0];
         assert_eq!(
-            p.authors,
+            p.author_names(),
             vec!["Danko Georgiev", "Leon Bello", "Avishy Carmi"]
         );
     }
@@ -554,7 +561,7 @@ AU  - Carmi, Avishy\nER  -\n";
     fn test_non_author_item_type() {
         let input = "TY  - ART\nTI  - X\nAU  - By, Created\nER  -\n";
         let p = &import_ris(input).unwrap()[0];
-        assert!(p.authors.is_empty());
+        assert!(p.creators.is_empty());
     }
 
     /// `DA` wins over the deprecated `Y1`, even when `Y1` appears first.
@@ -647,6 +654,6 @@ SP  - 674\r\nEP  - 682\r\nAU  - Bryan, C.J.\r\nER  - \r\n";
         let p = &import_ris(input).unwrap()[0];
         assert_eq!(p.title, "Focus groups");
         assert_eq!(p.publication.pages.as_deref(), Some("674-682"));
-        assert_eq!(p.authors, vec!["C.J. Bryan"]);
+        assert_eq!(p.author_names(), vec!["C.J. Bryan"]);
     }
 }

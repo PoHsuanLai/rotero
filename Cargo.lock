@@ -6167,6 +6167,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "recrr"
+version = "0.1.0"
+source = "git+https://github.com/PoHsuanLai/recrr?rev=52090958a077a0f1bce4227673b8b42949c7315e#52090958a077a0f1bce4227673b8b42949c7315e"
+dependencies = [
+ "async-trait",
+ "base64",
+ "chrono",
+ "recrr-derive",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "turso",
+]
+
+[[package]]
+name = "recrr-derive"
+version = "0.1.0"
+source = "git+https://github.com/PoHsuanLai/recrr?rev=52090958a077a0f1bce4227673b8b42949c7315e#52090958a077a0f1bce4227673b8b42949c7315e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6500,10 +6525,12 @@ name = "rotero-db"
 version = "0.1.6"
 dependencies = [
  "chrono",
+ "recrr",
  "rotero-models",
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "turso",
@@ -6533,6 +6560,7 @@ dependencies = [
  "rotero-graph",
  "rotero-models",
  "rotero-pdf",
+ "rotero-search",
  "schemars",
  "serde",
  "serde_json",
@@ -6571,6 +6599,7 @@ dependencies = [
 name = "rotero-search"
 version = "0.1.6"
 dependencies = [
+ "futures-util",
  "reqwest",
  "rotero-models",
  "serde",

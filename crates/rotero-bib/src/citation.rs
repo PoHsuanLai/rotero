@@ -199,11 +199,14 @@ pub fn format_bibliography_entries(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rotero_models::{Paper, Publication};
+    use rotero_models::{Creator, Paper, Publication};
 
     fn test_paper(title: &str, authors: Vec<&str>, year: i32) -> Paper {
         let mut p = Paper::new(title.to_string());
-        p.authors = authors.into_iter().map(String::from).collect();
+        p.creators = authors
+            .into_iter()
+            .map(Creator::author_from_display)
+            .collect();
         p.year = Some(year);
         p.publication = Publication {
             journal: Some("Nature".to_string()),
@@ -211,6 +214,7 @@ mod tests {
             issue: None,
             pages: Some("1-10".to_string()),
             publisher: None,
+            ..Default::default()
         };
         p
     }

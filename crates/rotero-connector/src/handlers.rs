@@ -341,7 +341,7 @@ fn best_result(items: &[rotero_translate::ZoteroItem]) -> Option<ScrapeResult> {
 fn paper_to_result(p: &rotero_models::Paper, pdf_url: Option<String>) -> ScrapeResult {
     ScrapeResult {
         title: Some(p.title.clone()),
-        authors: p.authors.clone(),
+        authors: p.author_names(),
         doi: p.doi.clone(),
         url: p.links.url.clone(),
         pdf_url,
@@ -471,10 +471,11 @@ pub async fn cite_search(
     let results = papers
         .into_iter()
         .filter_map(|p| {
+            let authors = p.author_names();
             Some(CiteSearchPaper {
                 id: p.id?,
                 title: p.title,
-                authors: p.authors,
+                authors,
                 year: p.year,
                 doi: p.doi,
                 journal: p.publication.journal,
@@ -591,7 +592,12 @@ pub async fn save_paper(
 ) -> Json<SavePaperResponse> {
     let paper = rotero_models::Paper {
         title: req.title.unwrap_or_else(|| "Untitled".to_string()),
-        authors: req.authors.unwrap_or_default(),
+        creators: req
+            .authors
+            .unwrap_or_default()
+            .iter()
+            .map(|a| rotero_models::Creator::author_from_display(a))
+            .collect(),
         year: req.year,
         doi: req.doi,
         abstract_text: req.abstract_text,
@@ -601,6 +607,7 @@ pub async fn save_paper(
             issue: req.issue,
             pages: req.pages,
             publisher: req.publisher,
+            ..Default::default()
         },
         links: rotero_models::PaperLinks {
             url: req.url,

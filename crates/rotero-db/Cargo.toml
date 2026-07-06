@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 rotero-models.workspace = true
 turso = "0.6.0-pre.15"
-recrr = { git = "https://github.com/PoHsuanLai/recrr", rev = "7f72685b359ced2927c532af33a42ce42d504f86", features = ["turso"] }
+recrr = { git = "https://github.com/PoHsuanLai/recrr", rev = "52090958a077a0f1bce4227673b8b42949c7315e", features = ["turso"] }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true

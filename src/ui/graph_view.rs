@@ -138,7 +138,9 @@ pub fn GraphView() -> Element {
                 .iter()
                 .filter(|p| {
                     p.title.to_lowercase().contains(&query)
-                        || p.authors.iter().any(|a| a.to_lowercase().contains(&query))
+                        || p.author_names()
+                            .iter()
+                            .any(|a| a.to_lowercase().contains(&query))
                 })
                 .filter_map(|p| p.id.clone())
                 .collect();
@@ -297,7 +299,9 @@ fn build_js_data(data: &GraphData, papers: &[rotero_models::Paper]) -> String {
                 is_read: n.is_read,
                 is_favorite: n.is_favorite,
                 full_title: paper.map(|p| p.title.clone()).unwrap_or_default(),
-                authors: paper.map(|p| p.authors.join(", ")).unwrap_or_default(),
+                authors: paper
+                    .map(|p| p.author_names().join(", "))
+                    .unwrap_or_default(),
                 year: paper.and_then(|p| p.year),
             }
         })

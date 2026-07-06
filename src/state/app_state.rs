@@ -602,7 +602,7 @@ impl LibraryState {
             }
             SortField::FirstAuthor => {
                 papers.sort_by_cached_key(|p| {
-                    p.authors
+                    p.author_names()
                         .first()
                         .map(|s| s.to_lowercase())
                         .unwrap_or_default()

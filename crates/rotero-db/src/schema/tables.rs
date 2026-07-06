@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS papers (
     fulltext      TEXT,
     citation_count INTEGER,
     citation_key  TEXT,
-    pdf_url       TEXT
+    pdf_url       TEXT,
+    item_type     TEXT NOT NULL DEFAULT 'journalArticle'
 );
 
 CREATE TABLE IF NOT EXISTS collections (

@@ -128,6 +128,7 @@ fn ImportButton() -> Element {
                                             if let Ok(id) = db.insert_paper(&paper).await {
                                                 let mut paper = paper;
                                                 paper.id = Some(id.clone());
+                                                let author_names = paper.author_names();
 
                                                 if let (Some(bib_dir), Some(rel_pdf)) = (&bib_dir, &source_pdf) {
                                                     let pdf_abs = bib_dir.join(rel_pdf);
@@ -135,7 +136,7 @@ fn ImportButton() -> Element {
                                                         && let Ok(rel_path) = db.import_pdf(
                                                             pdf_abs.to_str().unwrap_or_default(),
                                                             Some(paper.title.as_str()),
-                                                            paper.authors.first().map(|a| a.as_str()),
+                                                            author_names.first().map(|a| a.as_str()),
                                                             paper.year,
                                                         ) {
                                                             let _ = db.update_pdf_path(&id, &rel_path).await;
@@ -150,7 +151,7 @@ fn ImportButton() -> Element {
                                                         doi: paper.doi.clone(),
                                                         pdf_url: paper.links.pdf_url.clone(),
                                                         title: paper.title.clone(),
-                                                        first_author: paper.authors.first().cloned(),
+                                                        first_author: author_names.first().cloned(),
                                                         year: paper.year,
                                                     });
                                                 }

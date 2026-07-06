@@ -516,12 +516,8 @@ impl Database {
     pub async fn insert_paper(&self, paper: &Paper) -> Result<String, turso::Error> {
         let uuid = uuid::Uuid::now_v7().to_string();
         let authors_json =
-            serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
-        let extra_meta = paper
-            .citation
-            .extra_meta
-            .as_ref()
-            .map(|v| serde_json::to_string(v).unwrap_or_default());
+            serde_json::to_string(&paper.creators).unwrap_or_else(|_| "[]".to_string());
+        let extra_meta = rotero_db::papers::encode_extra_meta(paper);
 
         self.conn
             .execute(
@@ -555,6 +551,7 @@ impl Database {
                         .unwrap_or(Value::Null),
                     opt_text(paper.citation.citation_key.as_ref()),
                     opt_text(paper.links.pdf_url.as_ref()),
+                    Value::Text(paper.item_type.clone()),
                 ]),
             )
             .await?;
@@ -584,6 +581,7 @@ impl Database {
                     "citation_count",
                     "citation_key",
                     "pdf_url",
+                    "item_type",
                 ],
             )
             .await
@@ -596,7 +594,7 @@ impl Database {
     /// Update a paper's metadata fields. Only non-None fields are applied.
     pub async fn update_paper_metadata(&self, id: &str, paper: &Paper) -> Result<(), turso::Error> {
         let authors_json =
-            serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
+            serde_json::to_string(&paper.creators).unwrap_or_else(|_| "[]".to_string());
         self.conn
             .execute(
                 queries::PAPER_UPDATE_METADATA,
@@ -616,6 +614,7 @@ impl Database {
                     opt_text(paper.publication.publisher.as_ref()),
                     opt_text(paper.links.url.as_ref()),
                     Value::Text(Utc::now().to_rfc3339()),
+                    Value::Text(paper.item_type.clone()),
                     Value::Text(id.to_string()),
                 ]),
             )
@@ -638,6 +637,7 @@ impl Database {
                     "publisher",
                     "url",
                     "date_modified",
+                    "item_type",
                 ],
             )
             .await

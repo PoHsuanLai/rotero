@@ -1,9 +1,109 @@
 use chrono::Utc;
-use rotero_models::{CitationInfo, LibraryStatus, Paper, PaperLinks, Publication};
+use rotero_models::{CitationInfo, Creator, LibraryStatus, Paper, PaperLinks, Publication};
 use turso::Value;
 
 use crate::Database;
 use crate::queries;
+
+/// The `extra_meta` JSON key under which the venue fields that have no dedicated
+/// column (ISBN, ISSN, series, place, language) are nested, so they don't collide
+/// with a translator-supplied `citation.extra_meta` payload sharing the blob.
+const VENUE_META_KEY: &str = "__venue";
+
+/// Serialize a paper's `citation.extra_meta` together with its column-less venue
+/// fields into the single `extra_meta` JSON string stored in the DB. Returns
+/// `None` when there is nothing to store. Public so the MCP crate's parallel
+/// insert path encodes the `extra_meta` column identically.
+pub fn encode_extra_meta(paper: &Paper) -> Option<String> {
+    let mut root = match &paper.citation.extra_meta {
+        Some(serde_json::Value::Object(map)) => map.clone(),
+        Some(other) => {
+            // A non-object extra_meta is preserved under a reserved key so the
+            // venue payload can still be attached alongside it.
+            let mut map = serde_json::Map::new();
+            map.insert("__extra".to_string(), other.clone());
+            map
+        }
+        None => serde_json::Map::new(),
+    };
+
+    let mut venue = serde_json::Map::new();
+    let p = &paper.publication;
+    for (k, v) in [
+        ("isbn", &p.isbn),
+        ("issn", &p.issn),
+        ("series", &p.series),
+        ("place", &p.place),
+        ("language", &p.language),
+    ] {
+        if let Some(val) = v.as_deref().filter(|s| !s.is_empty()) {
+            venue.insert(k.to_string(), serde_json::Value::String(val.to_string()));
+        }
+    }
+    if !venue.is_empty() {
+        root.insert(VENUE_META_KEY.to_string(), serde_json::Value::Object(venue));
+    }
+
+    if root.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&serde_json::Value::Object(root)).ok()
+    }
+}
+
+/// Split a stored `extra_meta` JSON string back into the model's
+/// `citation.extra_meta` (with the venue payload and any `__extra` wrapper
+/// removed) and the venue fields it carried.
+fn decode_extra_meta(raw: Option<&str>) -> (Option<serde_json::Value>, VenueFields) {
+    let Some(value) = raw.and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok()) else {
+        return (None, VenueFields::default());
+    };
+    let serde_json::Value::Object(mut map) = value else {
+        return (Some(value), VenueFields::default());
+    };
+
+    let venue = match map.remove(VENUE_META_KEY) {
+        Some(serde_json::Value::Object(v)) => {
+            let get = |k: &str| {
+                v.get(k)
+                    .and_then(|x| x.as_str())
+                    .map(str::to_string)
+                    .filter(|s| !s.is_empty())
+            };
+            VenueFields {
+                isbn: get("isbn"),
+                issn: get("issn"),
+                series: get("series"),
+                place: get("place"),
+                language: get("language"),
+            }
+        }
+        _ => VenueFields::default(),
+    };
+
+    // Unwrap a non-object extra_meta that was preserved under `__extra`.
+    let extra = match map.remove("__extra") {
+        Some(inner) if map.is_empty() => Some(inner),
+        Some(inner) => {
+            map.insert("__extra".to_string(), inner);
+            Some(serde_json::Value::Object(map))
+        }
+        None if map.is_empty() => None,
+        None => Some(serde_json::Value::Object(map)),
+    };
+
+    (extra, venue)
+}
+
+/// The column-less venue fields recovered from `extra_meta`.
+#[derive(Default)]
+struct VenueFields {
+    isbn: Option<String>,
+    issn: Option<String>,
+    series: Option<String>,
+    place: Option<String>,
+    language: Option<String>,
+}
 
 impl Database {
     /// Insert a new paper and return its generated UUID.
@@ -11,12 +111,8 @@ impl Database {
         let conn = self.conn();
         let uuid = uuid::Uuid::now_v7().to_string();
         let authors_json =
-            serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
-        let extra_meta = paper
-            .citation
-            .extra_meta
-            .as_ref()
-            .map(|v| serde_json::to_string(v).unwrap_or_default());
+            serde_json::to_string(&paper.creators).unwrap_or_else(|_| "[]".to_string());
+        let extra_meta = encode_extra_meta(paper);
 
         use crate::{opt_int, opt_text};
         conn.execute(
@@ -46,6 +142,7 @@ impl Database {
                 opt_int(paper.citation.citation_count),
                 opt_text(paper.citation.citation_key.as_ref()),
                 opt_text(paper.links.pdf_url.as_ref()),
+                Value::Text(paper.item_type.clone()),
             ]),
         )
         .await?;
@@ -75,6 +172,7 @@ impl Database {
                     "citation_count",
                     "citation_key",
                     "pdf_url",
+                    "item_type",
                 ],
             )
             .await?;
@@ -210,7 +308,7 @@ impl Database {
         let conn = self.conn();
         use crate::opt_text;
         let authors_json =
-            serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
+            serde_json::to_string(&paper.creators).unwrap_or_else(|_| "[]".to_string());
         conn.execute(
             queries::PAPER_UPDATE_METADATA,
             turso::params::Params::Positional(vec![
@@ -229,6 +327,7 @@ impl Database {
                 opt_text(paper.publication.publisher.as_ref()),
                 opt_text(paper.links.url.as_ref()),
                 Value::Text(Utc::now().to_rfc3339()),
+                Value::Text(paper.item_type.clone()),
                 Value::Text(id.to_string()),
             ]),
         )
@@ -250,6 +349,7 @@ impl Database {
                     "publisher",
                     "url",
                     "date_modified",
+                    "item_type",
                 ],
             )
             .await?;
@@ -444,7 +544,15 @@ impl Database {
                 .ok()
                 .and_then(|v| v.as_text().cloned())
                 .unwrap_or_else(|| "[]".to_string());
-            let authors: Vec<String> = serde_json::from_str(&authors_str).unwrap_or_default();
+            // The `authors` column holds a `Vec<Creator>` (dual-shape: legacy
+            // plain strings or role-tagged objects). Keep only author-role
+            // display names for citation-key generation.
+            let creators: Vec<Creator> = serde_json::from_str(&authors_str).unwrap_or_default();
+            let authors: Vec<String> = creators
+                .iter()
+                .filter(|c| c.role.is_author())
+                .map(|c| c.display_name())
+                .collect();
             let year = row
                 .get_value(3)
                 .ok()
@@ -509,17 +617,24 @@ async fn search_papers_like(
 impl crate::FromRow for Paper {
     fn from_row(row: &turso::Row) -> Self {
         use crate::{get_bool, get_opt_i64, get_opt_text, get_text};
+        // The `authors` column is a `Vec<Creator>`; the dual-shape deserializer
+        // reads both legacy `["Name"]` strings and role-tagged objects.
         let authors_str = get_text(row, 2);
-        let authors: Vec<String> = serde_json::from_str(&authors_str).unwrap_or_default();
+        let creators: Vec<Creator> = serde_json::from_str(&authors_str).unwrap_or_default();
 
         let date_added_str = get_text(row, 13);
         let date_modified_str = get_text(row, 14);
         let extra_meta_str = get_opt_text(row, 17);
+        // Split the stored blob into the model's `extra_meta` and the column-less
+        // venue fields nested under `VENUE_META_KEY`.
+        let (extra_meta, venue) = decode_extra_meta(extra_meta_str.as_deref());
 
         Paper {
             id: get_opt_text(row, 0),
+            // `item_type` is appended last (index 21); default for legacy rows.
+            item_type: get_opt_text(row, 21).unwrap_or_else(|| "journalArticle".to_string()),
             title: get_text(row, 1),
-            authors,
+            creators,
             year: get_opt_i64(row, 3).map(|i| i as i32),
             doi: get_opt_text(row, 4),
             abstract_text: get_opt_text(row, 5),
@@ -529,6 +644,11 @@ impl crate::FromRow for Paper {
                 issue: get_opt_text(row, 8),
                 pages: get_opt_text(row, 9),
                 publisher: get_opt_text(row, 10),
+                isbn: venue.isbn,
+                issn: venue.issn,
+                series: venue.series,
+                place: venue.place,
+                language: venue.language,
             },
             links: PaperLinks {
                 url: get_opt_text(row, 11),
@@ -548,7 +668,7 @@ impl crate::FromRow for Paper {
             citation: CitationInfo {
                 citation_count: get_opt_i64(row, 18),
                 citation_key: get_opt_text(row, 19),
-                extra_meta: extra_meta_str.and_then(|s| serde_json::from_str(&s).ok()),
+                extra_meta,
             },
             search_rank: None,
         }

@@ -151,6 +151,37 @@
   flex-shrink: 0;
 }
 
+/* Item-type badge: a quiet monochrome micro-label in the meta row. Neutral for
+   journal articles (the common case); a faint accent tint for every other type
+   so the exceptions read at a glance without adding noise to the whole list. */
+.type-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  line-height: 1.4;
+}
+
+.type-badge .bi {
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.type-badge--special {
+  color: var(--accent-hover);
+  background: var(--bg-accent-subtle);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
 .library-card-actions {
   display: flex;
   align-items: center;

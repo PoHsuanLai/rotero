@@ -67,6 +67,7 @@ pub fn rotero_schema() -> Schema {
                 "citation_count",
                 "citation_key",
                 "pdf_url",
+                "item_type",
             ],
         )
         .with_skeleton([
@@ -76,6 +77,7 @@ pub fn rotero_schema() -> Schema {
             ("date_modified", SkeletonValue::NowRfc3339),
             ("is_favorite", int(0)),
             ("is_read", int(0)),
+            ("item_type", text("journalArticle")),
         ]),
         TableSpec::new("collections", ["name", "parent_id", "position"])
             .with_skeleton([("name", empty_text()), ("position", int(0))]),

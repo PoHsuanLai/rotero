@@ -1,4 +1,4 @@
-use rotero_models::{Paper, PaperLinks, Publication};
+use rotero_models::{Creator, Paper, PaperLinks, Publication};
 use serde::Deserialize;
 
 /// CSL-JSON is the standard JSON format used by Zotero, Mendeley, and others.
@@ -120,7 +120,10 @@ impl CslItem {
 
         Some(Paper {
             title,
-            authors,
+            creators: authors
+                .iter()
+                .map(|a| Creator::author_from_display(a))
+                .collect(),
             year,
             doi: self.doi,
             abstract_text: self.abstract_text,
@@ -130,6 +133,7 @@ impl CslItem {
                 issue: self.issue.map(|v| v.to_string()),
                 pages: self.page,
                 publisher: self.publisher,
+                ..Default::default()
             },
             links: PaperLinks {
                 url: self.url,
@@ -170,7 +174,7 @@ mod tests {
         assert_eq!(papers.len(), 1);
         let p = &papers[0];
         assert_eq!(p.title, "A test paper");
-        assert_eq!(p.authors, vec!["John Smith", "Jane Doe"]);
+        assert_eq!(p.author_names(), vec!["John Smith", "Jane Doe"]);
         assert_eq!(p.year, Some(2023));
         assert_eq!(p.doi.as_deref(), Some("10.1234/test"));
         assert_eq!(p.publication.journal.as_deref(), Some("Nature"));
@@ -186,7 +190,7 @@ mod tests {
     fn test_literal_author() {
         let input = r#"[{"title": "Test", "author": [{"literal": "WHO"}]}]"#;
         let papers = import_csl_json(input).unwrap();
-        assert_eq!(papers[0].authors, vec!["WHO"]);
+        assert_eq!(papers[0].author_names(), vec!["WHO"]);
     }
 
     #[test]

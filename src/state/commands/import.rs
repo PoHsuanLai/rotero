@@ -50,13 +50,14 @@ pub async fn download_pdf_into_library(
     paper_id: &str,
 ) {
     let title = paper.title.clone();
+    let author_names = paper.author_names();
     tracing::info!("Downloading OA PDF for: {title}");
     match crate::metadata::pdf_download::find_and_download_pdf(
         db,
         paper.links.pdf_url.as_deref(),
         paper.doi.as_deref(),
         &paper.title,
-        paper.authors.first().map(|a| a.as_str()),
+        author_names.first().map(|a| a.as_str()),
         paper.year,
     )
     .await
@@ -85,7 +86,7 @@ pub async fn download_pdf_into_library(
 /// inserting so the stored record isn't a sparse autocomplete stub.
 async fn enrich_before_import(paper: Paper) -> Paper {
     let needs_enrichment =
-        paper.authors.is_empty() && paper.doi.as_ref().is_some_and(|d| !d.is_empty());
+        paper.author_names().is_empty() && paper.doi.as_ref().is_some_and(|d| !d.is_empty());
     if !needs_enrichment {
         return paper;
     }
