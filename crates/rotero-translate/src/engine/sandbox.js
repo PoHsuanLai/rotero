@@ -54,6 +54,31 @@ Zotero.debug = function (msg) { try { __debug(String(msg)); } catch (e) {} };
 // upstream utilities.js reads Zotero.Prefs.get('capitalizeTitles'); default on.
 Zotero.Prefs = { get: function () { return true; } };
 Zotero.done = function () {};
+
+// --- Import input (Zotero.read line pump) ---
+// Import translators (RIS/BibTeX/…) consume their input a line at a time via
+// `Zotero.read()`, which returns the next line (without its terminator) and
+// `false` at EOF. `__setImportInput` seeds the buffer before an import run; the
+// pump splits on CR/LF so both `\n` and `\r\n` sources read one logical line at a
+// time, mirroring Zotero's line reader.
+var __importLines = [];
+var __importPos = 0;
+function __setImportInput(s) {
+    var str = String(s == null ? "" : s);
+    __importLines = str.length ? str.split(/\r\n|\r|\n/) : [];
+    // A trailing newline yields a final empty element; drop it so EOF is reached
+    // right after the last real line, as Zotero's reader does.
+    if (__importLines.length && __importLines[__importLines.length - 1] === "") {
+        __importLines.pop();
+    }
+    __importPos = 0;
+}
+Zotero.read = function () {
+    if (__importPos >= __importLines.length) return false;
+    return __importLines[__importPos++];
+};
+Zotero.getString = function () { return ""; };
+Zotero.setCharacterSet = function () {};
 Zotero.wait = function () {};
 Zotero.setProgress = function () {};
 Zotero.getOption = function () { return undefined; };

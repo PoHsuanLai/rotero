@@ -188,13 +188,73 @@ fn run_web_translator_full(
     Ok(items)
 }
 
+/// Run an unmodified upstream *import* translator (RIS/BibTeX/MODS/…) over an
+/// input string and collect the items it emits.
+///
+/// `source` is the import translator `.js`. The input is fed to the translator's
+/// `Zotero.read()` line pump; `doImport()` runs (its returned promise, if any, is
+/// settled by draining the job queue) and whatever it `.complete()`s is returned.
+/// This exists to run Zotero's own format parser as a reference oracle in
+/// differential tests — the app's import path uses the Rust parsers in
+/// [`crate::translators`], not this.
+pub fn run_import_translator(source: &str, input: &str) -> Result<Vec<ZoteroItem>, String> {
+    SINK.with(|s| s.borrow_mut().clear());
+    // Import translators query neither the DOM nor a page; give them empty ones
+    // so any incidental access is inert rather than a stale prior run.
+    DOM.with(|d| *d.borrow_mut() = None);
+    PAGE.with(|p| *p.borrow_mut() = Page::empty());
+
+    let result = (|| {
+        let mut ctx = Context::default();
+        register_host_functions(&mut ctx)?;
+
+        ctx.eval(Source::from_bytes(sandbox::SHIM))
+            .map_err(|e| format!("sandbox shim error: {e}"))?;
+        ctx.eval(Source::from_bytes(sandbox::UTILITIES.as_bytes()))
+            .map_err(|e| format!("utilities load error: {e}"))?;
+        ctx.eval(Source::from_bytes(b"__applyZUOverrides();"))
+            .map_err(|e| format!("ZU override error: {e}"))?;
+        ctx.eval(Source::from_bytes(source))
+            .map_err(|e| format!("translator load error: {e}"))?;
+
+        let driver = format!(
+            r#"
+            (function() {{
+                __setImportInput({input});
+                if (typeof doImport === 'function') doImport();
+            }})()
+            "#,
+            input = js_str_literal(input),
+        );
+        if let Err(e) = ctx.eval(Source::from_bytes(driver.as_bytes())) {
+            return Err(format!("import run error: {}", error_detail(&e, &mut ctx)));
+        }
+
+        // Settle `doImport`'s promise / any `await`ed work; a job error is
+        // non-fatal (keep whatever items already reached the sink).
+        if let Err(e) = ctx.run_jobs() {
+            let detail = error_detail(&e, &mut ctx);
+            tracing::debug!("import job error (keeping emitted items): {detail}");
+        }
+        Ok::<(), String>(())
+    })();
+
+    let items = SINK.with(|s| std::mem::take(&mut *s.borrow_mut()));
+    result?;
+    Ok(items)
+}
+
 /// Render a thrown JS error with its `message` and `stack` (if present) for
 /// diagnostics — boa's default `Display` gives only the type and message, which
 /// isn't enough to locate a failure inside a large translator.
 fn error_detail(err: &boa_engine::JsError, ctx: &mut Context) -> String {
-    let opaque = err.to_opaque(ctx);
+    // `into_opaque` consumes the error and may fail; clone so the caller keeps
+    // theirs, and fall back to the plain message if the opaque form is
+    // unavailable.
+    let opaque = err.clone().into_opaque(ctx).ok();
     let read = |key: &str, ctx: &mut Context| -> Option<String> {
         opaque
+            .as_ref()?
             .as_object()
             .and_then(|o| o.get(js_string!(key), ctx).ok())
             .filter(|v| !v.is_undefined() && !v.is_null())
