@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use crate::paper::{normalize_title, Paper, PaperId};
+use crate::paper::{Paper, PaperId, normalize_title};
 
 /// Key used to detect that two results describe the same paper.
 ///
@@ -37,7 +37,10 @@ fn dedup_key(paper: &Paper, index: usize) -> DedupKey {
 /// Whether a DOI string is a real publisher DOI rather than arXiv's stored
 /// `arXiv:ID` pseudo-DOI.
 fn is_real_doi(doi: &Option<String>) -> bool {
-    matches!(doi.as_deref().and_then(PaperId::parse), Some(PaperId::Doi(_)))
+    matches!(
+        doi.as_deref().and_then(PaperId::parse),
+        Some(PaperId::Doi(_))
+    )
 }
 
 /// Merge `other` into `keep`, filling gaps and keeping the strongest signal from
@@ -273,7 +276,10 @@ mod tests {
         );
         let openalex = {
             let mut p = with_rank(
-                paper("Attention Is All You Need", Some("10.48550/arXiv.1706.03762")),
+                paper(
+                    "Attention Is All You Need",
+                    Some("10.48550/arXiv.1706.03762"),
+                ),
                 ProviderKind::OpenAlex,
                 Some(850.0),
                 0,
@@ -285,7 +291,10 @@ mod tests {
         // Semantic Scholar returns the same paper by its arXiv DOI (the common
         // case for a preprint) — canonicalizes to the same PaperId::ArXiv.
         let s2 = with_rank(
-            paper("Attention Is All You Need", Some("10.48550/arXiv.1706.03762")),
+            paper(
+                "Attention Is All You Need",
+                Some("10.48550/arXiv.1706.03762"),
+            ),
             ProviderKind::SemanticScholar,
             Some(0.9),
             0,
@@ -322,12 +331,32 @@ mod tests {
     fn normalization_makes_scales_comparable() {
         // OpenAlex raw scores on one scale, S2 on a totally different one.
         let oa = vec![
-            with_rank(paper("A", Some("10.1/a")), ProviderKind::OpenAlex, Some(850.0), 0),
-            with_rank(paper("B", Some("10.1/b")), ProviderKind::OpenAlex, Some(12.0), 1),
+            with_rank(
+                paper("A", Some("10.1/a")),
+                ProviderKind::OpenAlex,
+                Some(850.0),
+                0,
+            ),
+            with_rank(
+                paper("B", Some("10.1/b")),
+                ProviderKind::OpenAlex,
+                Some(12.0),
+                1,
+            ),
         ];
         let s2 = vec![
-            with_rank(paper("C", Some("10.2/c")), ProviderKind::SemanticScholar, Some(0.9), 0),
-            with_rank(paper("D", Some("10.2/d")), ProviderKind::SemanticScholar, Some(0.1), 1),
+            with_rank(
+                paper("C", Some("10.2/c")),
+                ProviderKind::SemanticScholar,
+                Some(0.9),
+                0,
+            ),
+            with_rank(
+                paper("D", Some("10.2/d")),
+                ProviderKind::SemanticScholar,
+                Some(0.1),
+                1,
+            ),
         ];
         let oa_norm = normalize_batch(&oa);
         let s2_norm = normalize_batch(&s2);
@@ -354,7 +383,10 @@ mod tests {
     fn exact_title_beats_higher_cited_partial() {
         // Partial match with huge citation count...
         let mut partial = with_rank(
-            paper("Attention and Memory in Deep Learning", Some("10.1/partial")),
+            paper(
+                "Attention and Memory in Deep Learning",
+                Some("10.1/partial"),
+            ),
             ProviderKind::OpenAlex,
             Some(500.0),
             0,

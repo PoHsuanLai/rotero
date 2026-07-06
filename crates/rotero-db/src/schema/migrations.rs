@@ -26,7 +26,9 @@ pub async fn initialize_db(conn: &Connection) -> Result<(), turso::Error> {
 /// once from the version-10 migration — turso maintains the index incrementally
 /// on writes thereafter. Best-effort: search falls back to LIKE if this fails.
 async fn rebuild_fts_index(conn: &Connection) {
-    let _ = conn.execute("DROP INDEX IF EXISTS idx_papers_fts", ()).await;
+    let _ = conn
+        .execute("DROP INDEX IF EXISTS idx_papers_fts", ())
+        .await;
     let _ = conn.execute(CREATE_FTS_INDEX, ()).await;
 }
 

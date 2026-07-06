@@ -25,11 +25,7 @@ pub fn WebPreview() -> Element {
     // A web hit counts as already-imported when a library paper carries the
     // same non-empty DOI.
     let already_imported = paper.doi.as_deref().is_some_and(|doi| {
-        !doi.is_empty()
-            && state
-                .papers
-                .iter()
-                .any(|p| p.doi.as_deref() == Some(doi))
+        !doi.is_empty() && state.papers.iter().any(|p| p.doi.as_deref() == Some(doi))
     });
     drop(state);
 

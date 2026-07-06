@@ -25,71 +25,84 @@ pub fn SearchBar() -> Element {
         move |mut rx: UnboundedReceiver<SearchMsg>| {
             let db = db.clone();
             async move {
-            while let Some(msg) = rx.next().await {
-                let query = match msg {
-                    SearchMsg::Clear => {
-                        lib_state.with_mut(|s| {
-                            s.search.reset_results();
-                            // Drop any web-result preview: its source list is
-                            // gone, so the detail panel shouldn't keep showing it.
-                            s.previewed_web = None;
-                        });
+                while let Some(msg) = rx.next().await {
+                    let query = match msg {
+                        SearchMsg::Clear => {
+                            lib_state.with_mut(|s| {
+                                s.search.reset_results();
+                                // Drop any web-result preview: its source list is
+                                // gone, so the detail panel shouldn't keep showing it.
+                                s.previewed_web = None;
+                            });
+                            continue;
+                        }
+                        SearchMsg::Query(q) => drain_latest(&mut rx, q),
+                    };
+
+                    if query.trim().len() < MIN_QUERY_LEN {
+                        lib_state.with_mut(|s| s.search.reset_results());
                         continue;
                     }
-                    SearchMsg::Query(q) => drain_latest(&mut rx, q),
-                };
 
-                if query.trim().len() < MIN_QUERY_LEN {
-                    lib_state.with_mut(|s| s.search.reset_results());
-                    continue;
-                }
+                    // Debounce, then coalesce anything typed during the sleep.
+                    tokio::time::sleep(std::time::Duration::from_millis(DEBOUNCE_MS)).await;
+                    let query = drain_latest(&mut rx, query);
+                    if query.trim().len() < MIN_QUERY_LEN {
+                        lib_state.with_mut(|s| s.search.reset_results());
+                        continue;
+                    }
 
-                // Debounce, then coalesce anything typed during the sleep.
-                tokio::time::sleep(std::time::Duration::from_millis(DEBOUNCE_MS)).await;
-                let query = drain_latest(&mut rx, query);
-                if query.trim().len() < MIN_QUERY_LEN {
-                    lib_state.with_mut(|s| s.search.reset_results());
-                    continue;
-                }
-
-                // Commit this query: bump the generation, mark every provider
-                // in-flight and clear stale results so old hits don't linger
-                // under the new query.
-                let generation = lib_state.with_mut(|s| {
-                    s.search.generation += 1;
-                    s.search.results = None;
-                    s.search.openalex = ProviderResults { results: None, searching: true };
-                    s.search.arxiv = ProviderResults { results: None, searching: true };
-                    s.search.semantic_scholar =
-                        ProviderResults { results: None, searching: true };
-                    s.search.generation
-                });
-
-                // Fan out. Each task writes only its own slice, guarded by the
-                // generation, and nothing awaits anything else — local and each
-                // provider render the instant they return.
-                {
-                    let db = db.clone();
-                    let q = query.clone();
-                    spawn(async move {
-                        let results = db.search_papers(&q).await.unwrap_or_default();
-                        lib_state.with_mut(|s| {
-                            if s.search.generation == generation {
-                                s.search.results = Some(results);
-                            }
-                        });
+                    // Commit this query: bump the generation, mark every provider
+                    // in-flight and clear stale results so old hits don't linger
+                    // under the new query.
+                    let generation = lib_state.with_mut(|s| {
+                        s.search.generation += 1;
+                        s.search.results = None;
+                        s.search.openalex = ProviderResults {
+                            results: None,
+                            searching: true,
+                        };
+                        s.search.arxiv = ProviderResults {
+                            results: None,
+                            searching: true,
+                        };
+                        s.search.semantic_scholar = ProviderResults {
+                            results: None,
+                            searching: true,
+                        };
+                        s.search.generation
                     });
-                }
 
-                spawn_provider(SearchProvider::OpenAlex, generation, query.clone(), lib_state);
-                spawn_provider(SearchProvider::ArXiv, generation, query.clone(), lib_state);
-                spawn_provider(
-                    SearchProvider::SemanticScholar,
-                    generation,
-                    query.clone(),
-                    lib_state,
-                );
-            }
+                    // Fan out. Each task writes only its own slice, guarded by the
+                    // generation, and nothing awaits anything else — local and each
+                    // provider render the instant they return.
+                    {
+                        let db = db.clone();
+                        let q = query.clone();
+                        spawn(async move {
+                            let results = db.search_papers(&q).await.unwrap_or_default();
+                            lib_state.with_mut(|s| {
+                                if s.search.generation == generation {
+                                    s.search.results = Some(results);
+                                }
+                            });
+                        });
+                    }
+
+                    spawn_provider(
+                        SearchProvider::OpenAlex,
+                        generation,
+                        query.clone(),
+                        lib_state,
+                    );
+                    spawn_provider(SearchProvider::ArXiv, generation, query.clone(), lib_state);
+                    spawn_provider(
+                        SearchProvider::SemanticScholar,
+                        generation,
+                        query.clone(),
+                        lib_state,
+                    );
+                }
             }
         }
     });

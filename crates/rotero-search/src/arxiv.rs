@@ -1,4 +1,4 @@
-use rotero_models::{Paper, PaperId, PaperLinks, Publication, ProviderKind, SearchRank};
+use rotero_models::{Paper, PaperId, PaperLinks, ProviderKind, Publication, SearchRank};
 
 const ARXIV_API: &str = "https://export.arxiv.org/api/query";
 

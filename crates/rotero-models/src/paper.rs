@@ -540,7 +540,10 @@ mod tests {
         // A Paper whose stored `doi` is the arXiv pseudo-DOI resolves to arXiv.
         let mut p = titled("Some Preprint");
         p.doi = Some("arXiv:2508.18081".into());
-        assert_eq!(p.resolve_url().as_deref(), Some("https://arxiv.org/abs/2508.18081"));
+        assert_eq!(
+            p.resolve_url().as_deref(),
+            Some("https://arxiv.org/abs/2508.18081")
+        );
 
         // No identifier -> no URL.
         let bare = titled("No DOI");

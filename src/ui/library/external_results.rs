@@ -23,7 +23,12 @@ pub(crate) fn ExternalResults() -> Element {
         let batches: Vec<Vec<rotero_models::Paper>> = vec![
             state.search.openalex.results.clone().unwrap_or_default(),
             state.search.arxiv.results.clone().unwrap_or_default(),
-            state.search.semantic_scholar.results.clone().unwrap_or_default(),
+            state
+                .search
+                .semantic_scholar
+                .results
+                .clone()
+                .unwrap_or_default(),
         ];
         rotero_models::merge_and_rank(&batches, &state.search.query)
     });
@@ -166,7 +171,10 @@ pub(crate) fn ExternalResults() -> Element {
 
 /// A web result counts as imported when a library paper carries the same
 /// non-empty DOI.
-fn is_imported(paper: &rotero_models::Paper, existing_dois: &std::collections::HashSet<String>) -> bool {
+fn is_imported(
+    paper: &rotero_models::Paper,
+    existing_dois: &std::collections::HashSet<String>,
+) -> bool {
     paper
         .doi
         .as_ref()

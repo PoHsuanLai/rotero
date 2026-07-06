@@ -2,8 +2,7 @@ use rotero_models::{CitationInfo, Paper, PaperId, ProviderKind, Publication, Sea
 use serde::Deserialize;
 
 const S2_API: &str = "https://api.semanticscholar.org/graph/v1/paper";
-const S2_FIELDS: &str =
-    "title,authors,year,abstract,venue,externalIds,publicationVenue,citationCount,openAccessPdf,matchScore";
+const S2_FIELDS: &str = "title,authors,year,abstract,venue,externalIds,publicationVenue,citationCount,openAccessPdf,matchScore";
 
 #[derive(Debug, Deserialize)]
 struct S2Paper {
