@@ -5,7 +5,7 @@ use turso::Connection;
 use super::tables::{CREATE_FTS_INDEX, CREATE_TABLES};
 
 /// Current schema version; incremented with each migration.
-pub(super) const SCHEMA_VERSION: i64 = 9;
+pub(super) const SCHEMA_VERSION: i64 = 10;
 
 /// Create the application tables and run pending migrations.
 ///
@@ -17,6 +17,19 @@ pub async fn initialize_db(conn: &Connection) -> Result<(), turso::Error> {
     run_migrations(conn).await?;
 
     Ok(())
+}
+
+/// Drop and recreate the FTS index so it is consistent with the current
+/// `papers` rows. A stale index (from an older engine version or the
+/// table-rebuild migration) makes `fts_score` return 0.0 and `fts_match` return
+/// an unreliable row set; a fresh rebuild restores correct BM25 ranking. Called
+/// once from the version-10 migration — turso maintains the index incrementally
+/// on writes thereafter. Best-effort: search falls back to LIKE if this fails.
+async fn rebuild_fts_index(conn: &Connection) {
+    let _ = conn
+        .execute("DROP INDEX IF EXISTS idx_papers_fts", ())
+        .await;
+    let _ = conn.execute(CREATE_FTS_INDEX, ()).await;
 }
 
 async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
@@ -126,6 +139,14 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
         let _ = conn
             .execute("ALTER TABLE papers ADD COLUMN pdf_url TEXT", ())
             .await;
+    }
+
+    if current_version < 10 {
+        // One-time heal of FTS indexes left stale by earlier engine versions /
+        // the table-rebuild migration (they returned 0.0 scores and an unreliable
+        // match set). turso maintains the index incrementally on writes, so this
+        // only needs to run once — hence a versioned migration, not every open.
+        rebuild_fts_index(conn).await;
     }
 
     if current_version < SCHEMA_VERSION {

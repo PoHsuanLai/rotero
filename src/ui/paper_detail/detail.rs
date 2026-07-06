@@ -2,10 +2,10 @@ use dioxus::prelude::*;
 
 use crate::state::app_state::{LibraryState, PdfTabManager};
 use crate::sync::engine::SyncConfig;
-use crate::ui::chat_panel::ResizeHandle;
-use crate::ui::components::context_menu::{ContextMenu, ContextMenuItem};
 use rotero_db::Database;
 
+use super::DetailShell;
+use super::detail_fields::DetailFields;
 use super::fields::{AddToCollectionSelect, TagEditor};
 use super::notes::NotesSection;
 
@@ -28,13 +28,6 @@ pub fn PaperDetail() -> Element {
     let pid_oa = paper_id.clone();
     let pid_del = paper_id.clone();
     let pid_open = paper_id.clone();
-    let authors_display = if paper.authors.is_empty() {
-        "Unknown".to_string()
-    } else {
-        paper.authors.join(", ")
-    };
-
-    let mut doi_ctx = use_signal(|| None::<(String, f64, f64)>);
 
     let mut editing_key = use_signal(|| false);
     let mut edit_key_value = use_signal(|| paper.citation.citation_key.clone().unwrap_or_default());
@@ -44,9 +37,7 @@ pub fn PaperDetail() -> Element {
     let oa_status_value = oa_statuses.read().get(&paper_id).cloned();
 
     rsx! {
-        div { class: "paper-detail",
-            ResizeHandle { target: "detail" }
-
+        DetailShell {
             div { class: "detail-header",
                 h3 { class: "detail-heading", "Details" }
                 button {
@@ -58,29 +49,7 @@ pub fn PaperDetail() -> Element {
                 }
             }
 
-            div { class: "detail-field",
-                label { class: "detail-label", "Title" }
-                div { class: "detail-value detail-value--title", "{paper.title}" }
-            }
-
-            div { class: "detail-field",
-                label { class: "detail-label", "Authors" }
-                div { class: "detail-value", "{authors_display}" }
-            }
-
-            if let Some(year) = paper.year {
-                div { class: "detail-field",
-                    label { class: "detail-label", "Year" }
-                    div { class: "detail-value", "{year}" }
-                }
-            }
-
-            if let Some(count) = paper.citation.citation_count {
-                div { class: "detail-field",
-                    label { class: "detail-label", "Citations" }
-                    div { class: "detail-value detail-value--citations", "{count}" }
-                }
-            }
+            DetailFields { paper: paper.clone() }
 
             if let Some(ref cite_key) = paper.citation.citation_key {
                 {
@@ -185,42 +154,6 @@ pub fn PaperDetail() -> Element {
                 }
             }
 
-            if let Some(ref journal) = paper.publication.journal {
-                div { class: "detail-field",
-                    label { class: "detail-label", "Journal" }
-                    div { class: "detail-value detail-value--journal", "{journal}" }
-                }
-            }
-
-            if let Some(ref doi) = paper.doi {
-                {
-                    let doi_for_ctx = doi.clone();
-                    rsx! {
-                        div { class: "detail-field",
-                            label { class: "detail-label", "DOI" }
-                            div {
-                                class: "detail-value detail-value--doi",
-                                oncontextmenu: move |evt: Event<MouseData>| {
-                                    evt.prevent_default();
-                                    doi_ctx.set(Some((doi_for_ctx.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
-                                },
-                                "{doi}"
-                            }
-                        }
-                    }
-                }
-            }
-
-            if let Some(ref abstract_text) = paper.abstract_text {
-                div { class: "detail-field",
-                    label { class: "detail-label", "Abstract" }
-                    div {
-                        class: "detail-value detail-value--abstract rendered-latex",
-                        dangerous_inner_html: "{crate::ui::markdown::text_with_latex(abstract_text)}",
-                    }
-                }
-            }
-
             div { class: "detail-field",
                 label { class: "detail-label", "Collection" }
                 AddToCollectionSelect { paper_id: paper_id.clone() }
@@ -260,6 +193,7 @@ pub fn PaperDetail() -> Element {
                     if paper.links.pdf_path.is_none() {
                         {
                             let doi_for_oa = paper.doi.clone();
+                            let url_for_oa = paper.links.pdf_url.clone();
                             let paper_title = paper.title.clone();
                             let paper_authors = paper.authors.clone();
                             let paper_year = paper.year;
@@ -319,13 +253,14 @@ pub fn PaperDetail() -> Element {
                                             // Automated OA search
                                             let db = db_oa.clone();
                                             let doi = doi_for_oa.clone();
+                                            let direct_url = url_for_oa.clone();
                                             let title = paper_title.clone();
                                             let authors = paper_authors.clone();
                                             let year = paper_year;
                                             let paper_id = pid_oa.clone();
                                             oa_statuses.with_mut(|m| { m.insert(paper_id.clone(), "Searching...".into()); });
                                             spawn(async move {
-                                                let urls = crate::metadata::pdf_download::resolve_pdf_urls(doi.as_deref(), &title).await;
+                                                let urls = crate::metadata::pdf_download::resolve_pdf_urls(direct_url.as_deref(), doi.as_deref(), &title).await;
                                                 if urls.is_empty() {
                                                     oa_statuses.with_mut(|m| { m.insert(paper_id.clone(), "ask_agent".into()); });
                                                     return;
@@ -382,43 +317,6 @@ pub fn PaperDetail() -> Element {
                             }
                         },
                         "Delete Paper"
-                    }
-                }
-            }
-
-            if let Some((doi_str, mx, my)) = doi_ctx() {
-                {
-                    let doi_copy = doi_str.clone();
-                    let doi_open = doi_str.clone();
-                    rsx! {
-                        ContextMenu {
-                            x: mx,
-                            y: my,
-                            on_close: move |_| {
-                                doi_ctx.set(None);
-                            },
-
-                            ContextMenuItem {
-                                label: "Copy DOI".to_string(),
-                                icon: Some("bi-clipboard".to_string()),
-                                on_click: move |_| {
-                                    if let Ok(mut clip) = arboard::Clipboard::new() {
-                                        let _ = clip.set_text(&*doi_copy);
-                                    }
-                                    doi_ctx.set(None);
-                                },
-                            }
-
-                            ContextMenuItem {
-                                label: "Open in browser".to_string(),
-                                icon: Some("bi-box-arrow-up-right".to_string()),
-                                on_click: move |_| {
-                                    let url = format!("https://doi.org/{}", doi_open);
-                                    let _ = open::that(&url);
-                                    doi_ctx.set(None);
-                                },
-                            }
-                        }
                     }
                 }
             }

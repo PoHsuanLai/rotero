@@ -364,6 +364,7 @@ impl RoteroMcp {
             },
             status: rotero_models::LibraryStatus::default(),
             citation: rotero_models::CitationInfo::default(),
+            ..Default::default()
         };
         let id = self.db.insert_paper(&paper).await.map_err(err)?;
         json_result(&serde_json::json!({ "paper_id": id, "success": true }))

@@ -163,6 +163,12 @@ pub fn App() -> Element {
                 move || db.clone()
             });
 
+            // App-root import coroutine: owns insert + OA-download so the
+            // download future outlives the card/panel that queued it.
+            let lib_state = use_context::<Signal<LibraryState>>();
+            let import_channel = commands::use_import_coroutine(db.clone(), lib_state);
+            use_context_provider(|| import_channel);
+
             rsx! {
                 document::Style { {FONTS_CSS} }
                 document::Style { {TOKENS_CSS} }

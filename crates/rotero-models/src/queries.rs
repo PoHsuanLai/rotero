@@ -9,19 +9,33 @@ pub const PAPER_INSERT: &str = "\
 /// Count total papers in the library.
 pub const PAPER_COUNT: &str = "SELECT COUNT(*) FROM papers";
 
-/// Full-text search across paper metadata and body text, ranked by score.
+/// Direct identifier lookup, used as a fast path when the query parses as a DOI
+/// or other [`PaperId`](crate::PaperId).
+pub const PAPER_SEARCH_BY_DOI: &str = "SELECT {COLS} FROM papers WHERE doi = ?1 LIMIT 50";
+
+/// Full-text search ranked by BM25 relevance.
+///
+/// turso's FTS is invoked via the `fts_match()` / `fts_score()` functions (the
+/// `(cols) MATCH ?` operator form is not supported and errors). Both take the
+/// same argument order: the indexed columns, then the query string. The score
+/// is the trailing column, read separately from the model columns.
+///
+/// The bound query string is expected to already be an AND-joined match
+/// expression (see [`build_fts_match_query`](crate::build_fts_match_query)):
+/// turso combines bare tokens with OR and keeps stopwords, so a raw multi-word
+/// query would match nearly the whole library on a common word like "a".
 pub const PAPER_SEARCH_FTS: &str = "\
     SELECT {COLS}, fts_score(title, authors, abstract_text, journal, fulltext, ?1) AS score \
     FROM papers \
-    WHERE (title, authors, abstract_text, journal, fulltext) MATCH ?1 OR doi = ?1 \
+    WHERE fts_match(title, authors, abstract_text, journal, fulltext, ?1) \
     ORDER BY score DESC \
     LIMIT 50";
 
-/// Fallback LIKE-based search when FTS is unavailable.
+/// Fallback LIKE-based search when FTS is unavailable (e.g. index missing).
 pub const PAPER_SEARCH_LIKE: &str = "\
     SELECT {COLS} FROM papers \
     WHERE title LIKE ?1 OR authors LIKE ?1 OR abstract_text LIKE ?1 OR journal LIKE ?1 OR doi LIKE ?1 OR fulltext LIKE ?1 \
-    ORDER BY date_added DESC LIMIT 50";
+    LIMIT 500";
 
 /// Toggle a paper's favorite flag.
 pub const PAPER_SET_FAVORITE: &str = "UPDATE papers SET is_favorite = ?1 WHERE id = ?2";

@@ -101,6 +101,19 @@ impl PaperId {
     pub fn is_arxiv(&self) -> bool {
         matches!(self, Self::ArXiv(_))
     }
+
+    /// Canonical web URL that resolves this identifier in a browser.
+    ///
+    /// Only real DOIs go to `doi.org`; arXiv's `arXiv:ID` pseudo-DOI is not a
+    /// DOI and doi.org rejects it, so it resolves to its arXiv abstract page.
+    pub fn resolve_url(&self) -> String {
+        match self {
+            Self::Doi(d) => format!("https://doi.org/{d}"),
+            Self::ArXiv(id) => format!("https://arxiv.org/abs/{id}"),
+            Self::Pmid(id) => format!("https://pubmed.ncbi.nlm.nih.gov/{id}/"),
+            Self::Isbn(id) => format!("https://www.worldcat.org/isbn/{id}"),
+        }
+    }
 }
 
 impl fmt::Display for PaperId {
@@ -161,6 +174,29 @@ pub struct CitationInfo {
     pub extra_meta: Option<serde_json::Value>,
 }
 
+/// Which online source a web-search result came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderKind {
+    OpenAlex,
+    ArXiv,
+    SemanticScholar,
+}
+
+/// Transient relevance signal attached to a web-search result. Not persisted —
+/// it exists only on the in-memory results of a live search so they can be
+/// ranked, and is `None` on any paper loaded from the DB.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SearchRank {
+    /// The source this result came from.
+    pub source: ProviderKind,
+    /// The API's raw relevance score, if the provider returns one (OpenAlex,
+    /// Semantic Scholar). `None` for arXiv, which has no score.
+    pub raw_score: Option<f64>,
+    /// Zero-based position in that provider's returned batch (used as the
+    /// relevance signal when `raw_score` is absent).
+    pub position: usize,
+}
+
 /// A research paper with full metadata, links, library status, and citation info.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Paper {
@@ -174,6 +210,9 @@ pub struct Paper {
     pub links: PaperLinks,
     pub status: LibraryStatus,
     pub citation: CitationInfo,
+    /// Live web-search relevance signal; never serialized (see [`SearchRank`]).
+    #[serde(skip)]
+    pub search_rank: Option<SearchRank>,
 }
 
 impl Paper {
@@ -199,6 +238,20 @@ impl Paper {
     /// Parse the `doi` field into a typed [`PaperId`], if present and recognized.
     pub fn paper_id(&self) -> Option<PaperId> {
         self.doi.as_deref().and_then(PaperId::parse)
+    }
+
+    /// Web URL that resolves this paper's identifier in a browser, or `None` if
+    /// it has no identifier. Routes arXiv/PMID/ISBN to their own resolvers
+    /// rather than doi.org (which rejects non-DOIs like `arXiv:ID`); an
+    /// unrecognized but non-empty `doi` falls back to doi.org.
+    pub fn resolve_url(&self) -> Option<String> {
+        if let Some(pid) = self.paper_id() {
+            return Some(pid.resolve_url());
+        }
+        match self.doi.as_deref() {
+            Some(d) if !d.is_empty() => Some(format!("https://doi.org/{d}")),
+            _ => None,
+        }
     }
 
     /// Score how complete the metadata is (higher = more complete).
@@ -227,9 +280,152 @@ impl Paper {
     }
 }
 
+/// Normalize a title for fuzzy comparison: lowercase, strip punctuation, and
+/// collapse whitespace. Used for duplicate detection and exact-match ranking.
+pub fn normalize_title(title: &str) -> String {
+    title
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Build the match string passed to turso's `fts_match()` from a raw user query.
+///
+/// turso combines bare space-separated tokens with **OR**, and does not strip
+/// stopwords — so `a bitter lesson` matches any paper containing "a", which is
+/// nearly all of them, and BM25 then surfaces long documents that merely repeat
+/// common words rather than papers about the actual topic. Joining the tokens
+/// with `AND` requires every term to be present, which is the behavior users
+/// expect from a search box (and correctly returns nothing when the searched
+/// title isn't in the library, rather than a confident wrong answer).
+///
+/// Each token is quoted so punctuation (hyphens, colons) and the FTS operator
+/// keywords (`AND`/`OR`/`NOT`) a user might type are treated as literal terms,
+/// not query syntax. Returns an empty string when the query has no usable
+/// tokens, which callers should treat as "no FTS query".
+pub fn build_fts_match_query(query: &str) -> String {
+    query
+        .split_whitespace()
+        .map(|tok| {
+            // Keep alphanumerics; drop other punctuation so a token like
+            // "low-rank" becomes the phrase "low rank" and colons/quotes can't
+            // break out of the quoted term.
+            let cleaned: String = tok
+                .chars()
+                .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+                .collect::<String>()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            cleaned
+        })
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("\"{t}\""))
+        .collect::<Vec<_>>()
+        .join(" AND ")
+}
+
+/// Relevance score of a local library paper against a query. Higher is better.
+///
+/// Exact and prefix normalized-title matches dominate so the searched-for paper
+/// ranks first; below that, results order by how many query tokens appear in the
+/// title (weighted heavily) and abstract (lightly), with citation count and
+/// recency as mild tiebreakers.
+pub fn local_relevance_score(paper: &Paper, query_norm: &str, query_tokens: &[&str]) -> f64 {
+    if query_norm.is_empty() {
+        return 0.0;
+    }
+    let nt = normalize_title(&paper.title);
+    let mut s = 0.0;
+
+    if nt == query_norm {
+        s += 1000.0;
+    } else if nt.starts_with(query_norm) {
+        s += 400.0;
+    } else if nt.contains(query_norm) {
+        s += 250.0;
+    }
+
+    if !query_tokens.is_empty() {
+        let title_tokens: Vec<&str> = nt.split_whitespace().collect();
+        let title_hits = query_tokens
+            .iter()
+            .filter(|t| title_tokens.contains(t))
+            .count();
+        s += 120.0 * (title_hits as f64) / (query_tokens.len() as f64);
+
+        if let Some(abstract_text) = &paper.abstract_text {
+            let na = normalize_title(abstract_text);
+            let abs_hits = query_tokens.iter().filter(|t| na.contains(**t)).count();
+            s += 20.0 * (abs_hits as f64) / (query_tokens.len() as f64);
+        }
+    }
+
+    let citations = paper.citation.citation_count.unwrap_or(0).max(0) as f64;
+    s += 2.0 * (1.0 + citations).ln();
+
+    if let Some(year) = paper.year {
+        s += 0.1 * ((year - 2000).clamp(0, 25) as f64);
+    }
+
+    s
+}
+
+/// Sort local search candidates by [`local_relevance_score`], best first.
+pub fn rank_local_results(mut papers: Vec<Paper>, query: &str) -> Vec<Paper> {
+    let nq = normalize_title(query);
+    if nq.is_empty() {
+        return papers;
+    }
+    let tokens: Vec<&str> = nq.split_whitespace().collect();
+    papers.sort_by(|a, b| {
+        let sa = local_relevance_score(a, &nq, &tokens);
+        let sb = local_relevance_score(b, &nq, &tokens);
+        sb.partial_cmp(&sa)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.title.cmp(&b.title))
+    });
+    papers.truncate(50);
+    papers
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn titled(title: &str) -> Paper {
+        Paper {
+            title: title.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn rank_puts_exact_title_first() {
+        // Exact title given last, buried among partial matches.
+        let papers = vec![
+            titled("Attention and Working Memory"),
+            titled("You Only Need Attention Sometimes"),
+            titled("A Study of Needs"),
+            titled("Attention Is All You Need"),
+        ];
+        let ranked = rank_local_results(papers, "attention is all you need");
+        assert_eq!(ranked[0].title, "Attention Is All You Need");
+    }
+
+    #[test]
+    fn rank_prefers_more_token_overlap() {
+        let papers = vec![
+            titled("Deep Learning"),
+            titled("Neural Machine Translation by Jointly Learning to Align"),
+        ];
+        let ranked = rank_local_results(papers, "neural machine translation");
+        assert!(ranked[0].title.starts_with("Neural Machine Translation"));
+    }
 
     #[test]
     fn parse_standard_doi() {
@@ -320,5 +516,63 @@ mod tests {
             PaperId::Pmid("12345678".into()).semantic_scholar_query(),
             "PMID:12345678"
         );
+    }
+
+    #[test]
+    fn resolve_url_routes_by_identifier_type() {
+        assert_eq!(
+            PaperId::Doi("10.1038/nature12373".into()).resolve_url(),
+            "https://doi.org/10.1038/nature12373"
+        );
+        // arXiv must NOT go to doi.org (it rejects the pseudo-DOI).
+        assert_eq!(
+            PaperId::ArXiv("2508.18081".into()).resolve_url(),
+            "https://arxiv.org/abs/2508.18081"
+        );
+        assert_eq!(
+            PaperId::Pmid("12345678".into()).resolve_url(),
+            "https://pubmed.ncbi.nlm.nih.gov/12345678/"
+        );
+    }
+
+    #[test]
+    fn paper_resolve_url_handles_arxiv_stored_doi() {
+        // A Paper whose stored `doi` is the arXiv pseudo-DOI resolves to arXiv.
+        let mut p = titled("Some Preprint");
+        p.doi = Some("arXiv:2508.18081".into());
+        assert_eq!(
+            p.resolve_url().as_deref(),
+            Some("https://arxiv.org/abs/2508.18081")
+        );
+
+        // No identifier -> no URL.
+        let bare = titled("No DOI");
+        assert_eq!(bare.resolve_url(), None);
+    }
+
+    #[test]
+    fn fts_query_and_joins_tokens() {
+        // Every token becomes a required, quoted term — so a paper must contain
+        // all of them, not just one common word.
+        assert_eq!(
+            build_fts_match_query("a bitter lesson"),
+            "\"a\" AND \"bitter\" AND \"lesson\""
+        );
+    }
+
+    #[test]
+    fn fts_query_splits_punctuation_into_phrase() {
+        // Hyphens/colons become spaces inside the quoted term rather than FTS
+        // syntax, so "low-rank" stays a single phrase term.
+        assert_eq!(
+            build_fts_match_query("low-rank adaptation"),
+            "\"low rank\" AND \"adaptation\""
+        );
+    }
+
+    #[test]
+    fn fts_query_empty_when_no_tokens() {
+        assert_eq!(build_fts_match_query("   "), "");
+        assert_eq!(build_fts_match_query("!!! ---"), "");
     }
 }

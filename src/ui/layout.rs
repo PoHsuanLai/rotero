@@ -5,7 +5,7 @@ use super::graph_view::GraphView;
 #[cfg(feature = "desktop")]
 use super::keybindings::GlobalKeyHandler;
 use super::library::LibraryPanel;
-use super::paper_detail::{MultiSelectSummary, PaperDetail};
+use super::paper_detail::{MultiSelectSummary, PaperDetail, WebPreview};
 use super::pdf::{PdfTabBar, PdfViewer};
 use super::sidebar::Sidebar;
 use crate::agent::types::ChatState;
@@ -72,10 +72,17 @@ pub fn Layout() -> Element {
                     _ => rsx! {
                         div { style: "flex: 1; display: flex; min-height: 0;",
                             LibraryPanel {}
-                            match lib_state.read().selection_count() {
-                                0 => rsx! {},
-                                1 => rsx! { PaperDetail {} },
-                                _ => rsx! { MultiSelectSummary {} },
+                            {
+                                let state = lib_state.read();
+                                if state.previewed_web.is_some() {
+                                    rsx! { WebPreview {} }
+                                } else {
+                                    match state.selection_count() {
+                                        0 => rsx! {},
+                                        1 => rsx! { PaperDetail {} },
+                                        _ => rsx! { MultiSelectSummary {} },
+                                    }
+                                }
                             }
                         }
                     },

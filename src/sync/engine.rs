@@ -49,6 +49,10 @@ pub struct UiConfig {
     pub ui_scale: String,
     #[serde(default = "default_annotation_color")]
     pub default_annotation_color: String,
+    /// Persisted width (px) of the right-hand detail panel, set by dragging its
+    /// resize handle. Clamped to the panel's CSS min/max (280–600).
+    #[serde(default = "default_detail_width")]
+    pub detail_width: f32,
 }
 
 impl Default for UiConfig {
@@ -57,8 +61,13 @@ impl Default for UiConfig {
             dark_mode: false,
             ui_scale: default_ui_scale(),
             default_annotation_color: default_annotation_color(),
+            detail_width: default_detail_width(),
         }
     }
+}
+
+fn default_detail_width() -> f32 {
+    360.0
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

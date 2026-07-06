@@ -118,14 +118,28 @@ impl Database {
         Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0) as u32)
     }
 
-    /// Search papers using FTS, falling back to LIKE if FTS is unavailable.
+    /// Search papers. If the query parses as an identifier (DOI, arXiv id, …), a
+    /// direct lookup is tried first. Otherwise it runs BM25 full-text search and
+    /// applies a light re-rank that guarantees exact/prefix title matches land at
+    /// the very top; falls back to LIKE if FTS is unavailable.
     pub async fn search_papers(&self, query: &str) -> Result<Vec<Paper>, crate::DbError> {
         let conn = self.conn();
-        // FTS first, fall back to LIKE if unavailable
-        match search_papers_fts(conn, query).await {
-            Ok(results) => Ok(results),
-            Err(_) => search_papers_like(conn, query).await,
+        let trimmed = query.trim();
+
+        // Fast path: a bare identifier matches the stored `doi` string exactly.
+        // Canonicalize first so `10.48550/arXiv.X` finds the row stored as `arXiv:X`.
+        if let Some(pid) = rotero_models::PaperId::parse(trimmed) {
+            let hits = search_papers_by_doi(conn, &pid.to_stored_string()).await?;
+            if !hits.is_empty() {
+                return Ok(hits);
+            }
         }
+
+        let candidates = match search_papers_fts(conn, query).await {
+            Ok(results) => results,
+            Err(_) => search_papers_like(conn, query).await?,
+        };
+        Ok(rotero_models::rank_local_results(candidates, query))
     }
 
     /// Fetch papers by a list of IDs.
@@ -321,7 +335,7 @@ impl Database {
             if paper.id.as_ref().is_some_and(|id| doi_ids.contains(id)) {
                 continue;
             }
-            let normalized = normalize_title(&paper.title);
+            let normalized = rotero_models::normalize_title(&paper.title);
             if normalized.is_empty() {
                 continue;
             }
@@ -455,12 +469,30 @@ impl Database {
     }
 }
 
+async fn search_papers_by_doi(
+    conn: &turso::Connection,
+    stored_id: &str,
+) -> Result<Vec<Paper>, crate::DbError> {
+    let sql = queries::PAPER_SEARCH_BY_DOI.replace("{COLS}", queries::PAPER_SELECT_COLS);
+    let mut rows = conn
+        .query(&sql, [Value::Text(stored_id.to_string())])
+        .await?;
+    crate::collect_rows(&mut rows).await.map_err(Into::into)
+}
+
 async fn search_papers_fts(
     conn: &turso::Connection,
     query: &str,
 ) -> Result<Vec<Paper>, crate::DbError> {
+    // Require every query token (AND) rather than any (turso's bare-token OR
+    // default), so common words like "a" don't match the whole library and let
+    // BM25 surface an unrelated high-frequency document.
+    let match_query = rotero_models::build_fts_match_query(query);
+    if match_query.is_empty() {
+        return Ok(Vec::new());
+    }
     let sql = queries::PAPER_SEARCH_FTS.replace("{COLS}", queries::PAPER_SELECT_COLS);
-    let mut rows = conn.query(&sql, [Value::Text(query.to_string())]).await?;
+    let mut rows = conn.query(&sql, [Value::Text(match_query)]).await?;
     crate::collect_rows(&mut rows).await.map_err(Into::into)
 }
 
@@ -472,17 +504,6 @@ async fn search_papers_like(
     let sql = queries::PAPER_SEARCH_LIKE.replace("{COLS}", queries::PAPER_SELECT_COLS);
     let mut rows = conn.query(&sql, [Value::Text(pattern)]).await?;
     crate::collect_rows(&mut rows).await.map_err(Into::into)
-}
-
-fn normalize_title(title: &str) -> String {
-    title
-        .to_lowercase()
-        .chars()
-        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 impl crate::FromRow for Paper {
@@ -529,6 +550,7 @@ impl crate::FromRow for Paper {
                 citation_key: get_opt_text(row, 19),
                 extra_meta: extra_meta_str.and_then(|s| serde_json::from_str(&s).ok()),
             },
+            search_rank: None,
         }
     }
 }

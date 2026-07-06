@@ -1,4 +1,4 @@
-use rotero_models::{Paper, PaperId, PaperLinks, Publication};
+use rotero_models::{Paper, PaperId, PaperLinks, ProviderKind, Publication, SearchRank};
 
 const ARXIV_API: &str = "https://export.arxiv.org/api/query";
 
@@ -47,7 +47,13 @@ fn parse_arxiv_entries(xml: &str) -> Result<Vec<Paper>, String> {
         // Remove version suffix (e.g. "1802.06070v2" -> "1802.06070")
         let arxiv_id = arxiv_id.split('v').next().unwrap_or(&arxiv_id);
 
-        if let Ok(paper) = parse_arxiv_atom(entry, arxiv_id) {
+        if let Ok(mut paper) = parse_arxiv_atom(entry, arxiv_id) {
+            // arXiv returns no relevance score → rank by result position.
+            paper.search_rank = Some(SearchRank {
+                source: ProviderKind::ArXiv,
+                raw_score: None,
+                position: results.len(),
+            });
             results.push(paper);
         }
 
@@ -117,6 +123,9 @@ fn parse_arxiv_atom(xml: &str, arxiv_id: &str) -> Result<Paper, String> {
         },
         links: PaperLinks {
             url: Some(format!("https://arxiv.org/abs/{arxiv_id}")),
+            // Direct PDF so import can download it without hitting the OA APIs,
+            // which don't resolve arXiv's pseudo-DOI.
+            pdf_url: Some(format!("https://arxiv.org/pdf/{arxiv_id}")),
             ..Default::default()
         },
         ..Default::default()

@@ -311,51 +311,52 @@ impl From<RenderedPage> for RenderedPageData {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
-pub enum SearchSource {
-    #[default]
-    Local,
-    OpenAlex,
-    ArXiv,
-    SemanticScholar,
-}
-
-impl SearchSource {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Local => "Local",
-            Self::OpenAlex => "OpenAlex",
-            Self::ArXiv => "arXiv",
-            Self::SemanticScholar => "Semantic Scholar",
-        }
-    }
-
-    pub fn all() -> &'static [SearchSource] {
-        &[
-            SearchSource::Local,
-            SearchSource::OpenAlex,
-            SearchSource::ArXiv,
-            SearchSource::SemanticScholar,
-        ]
-    }
-
-    pub fn provider(&self) -> Option<rotero_search::SearchProvider> {
-        match self {
-            Self::OpenAlex => Some(rotero_search::SearchProvider::OpenAlex),
-            Self::ArXiv => Some(rotero_search::SearchProvider::ArXiv),
-            Self::SemanticScholar => Some(rotero_search::SearchProvider::SemanticScholar),
-            Self::Local => None,
-        }
-    }
+/// One online provider's slice of a search. Owns its own results and in-flight
+/// flag so it can render the instant its response lands, independent of the
+/// other providers.
+#[derive(Debug, Clone, Default)]
+pub struct ProviderResults {
+    /// `None` = not yet returned for the current query; `Some(vec)` = returned
+    /// (possibly empty).
+    pub results: Option<Vec<Paper>>,
+    pub searching: bool,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct LibrarySearchState {
     pub query: String,
+    /// Bumped once per committed (post-debounce) query. Every async search task
+    /// captures the generation it fired under and only writes its slice if it
+    /// still matches, so a slow response from an older query can never overwrite
+    /// results for a newer one.
+    pub generation: u64,
+    /// Local DB results.
     pub results: Option<Vec<Paper>>,
-    pub source: SearchSource,
-    pub external_results: Option<Vec<Paper>>,
-    pub external_searching: bool,
+    // Online providers, in fixed order (== render order).
+    pub openalex: ProviderResults,
+    pub arxiv: ProviderResults,
+    pub semantic_scholar: ProviderResults,
+}
+
+impl LibrarySearchState {
+    /// True when the user has an active query, driving the two-section search
+    /// view instead of the normal library view.
+    pub fn is_active(&self) -> bool {
+        !self.query.trim().is_empty()
+    }
+
+    /// True while any online provider is still in flight.
+    pub fn web_searching(&self) -> bool {
+        self.openalex.searching || self.arxiv.searching || self.semantic_scholar.searching
+    }
+
+    /// Clears every result slice and in-flight flag.
+    pub fn reset_results(&mut self) {
+        self.results = None;
+        self.openalex = ProviderResults::default();
+        self.arxiv = ProviderResults::default();
+        self.semantic_scholar = ProviderResults::default();
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -414,6 +415,10 @@ pub struct LibraryState {
     pub tags: Vec<Tag>,
     pub selected_paper_ids: HashSet<String>,
     pub anchor_paper_id: Option<String>,
+    /// A web search result being previewed in the detail panel. Mutually
+    /// exclusive with a library-paper selection: previewing a web hit clears
+    /// the selection, and selecting a library paper clears this.
+    pub previewed_web: Option<Paper>,
     pub confirm_delete: Option<Vec<String>>,
     pub view: LibraryView,
     pub search: LibrarySearchState,
@@ -464,12 +469,14 @@ impl LibraryState {
     }
 
     pub fn select_one(&mut self, id: String) {
+        self.previewed_web = None;
         self.selected_paper_ids.clear();
         self.selected_paper_ids.insert(id.clone());
         self.anchor_paper_id = Some(id);
     }
 
     pub fn toggle_select(&mut self, id: &str) {
+        self.previewed_web = None;
         if self.selected_paper_ids.contains(id) {
             self.selected_paper_ids.remove(id);
         } else {
@@ -478,7 +485,16 @@ impl LibraryState {
         self.anchor_paper_id = Some(id.to_string());
     }
 
+    /// Show a web search result in the detail panel. Clears any library-paper
+    /// selection so the two detail surfaces stay mutually exclusive.
+    pub fn preview_web(&mut self, paper: Paper) {
+        self.selected_paper_ids.clear();
+        self.anchor_paper_id = None;
+        self.previewed_web = Some(paper);
+    }
+
     pub fn range_select(&mut self, target_id: &str, ordered_ids: &[String]) {
+        self.previewed_web = None;
         let anchor = self.anchor_paper_id.as_deref().unwrap_or(target_id);
         let anchor_pos = ordered_ids.iter().position(|id| id == anchor);
         let target_pos = ordered_ids.iter().position(|id| id == target_id);
@@ -499,6 +515,7 @@ impl LibraryState {
     pub fn clear_selection(&mut self) {
         self.selected_paper_ids.clear();
         self.anchor_paper_id = None;
+        self.previewed_web = None;
     }
 
     pub fn selection_count(&self) -> usize {
