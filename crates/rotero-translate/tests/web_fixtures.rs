@@ -15,8 +15,6 @@
 //! drift detector, but iteration and debugging happen here.
 #![cfg(feature = "translator-engine")]
 
-use std::collections::HashMap;
-
 use rotero_translate::ZoteroItem;
 use rotero_translate::engine::{
     FetchBroker, FetchRequest, FetchResponse, run_web_translator_with_broker,
