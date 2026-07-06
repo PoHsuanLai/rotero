@@ -127,53 +127,113 @@ fn parse_tag_line(line: &str) -> Option<(&str, &str)> {
     Some((tag, after_hyphen.trim()))
 }
 
-/// Resolve a record's Zotero item type from its `TY` tag, returned as a small
-/// classification the field mapping needs.
-fn item_type(record: &Record) -> ItemType {
+/// Resolve a record's Zotero item type name from its `TY` tag, mirroring the
+/// composed `importTypeMap` in Zotero's `RIS` translator (its base map
+/// supplemented by the inverted `exportTypeMap`). An unrecognized `TY` defaults
+/// to `journalArticle`, as it does in Zotero.
+fn zotero_item_type(record: &Record) -> &'static str {
     let ty = record.first("TY").unwrap_or("").to_ascii_uppercase();
     match ty.as_str() {
-        // Types whose `AU` creator is not an author role.
-        "ART" | "CHART" | "FIGURE" => ItemType::NonAuthorCreator,
-        "COMP" => ItemType::NonAuthorCreator,
-        "MPCT" | "ADVS" | "MULTI" | "VIDEO" => ItemType::NonAuthorCreator,
-        "MAP" => ItemType::NonAuthorCreator,
-        "MUSIC" | "SOUND" => ItemType::NonAuthorCreator,
-        "PAT" => ItemType::NonAuthorCreator,
-        "SLIDE" => ItemType::NonAuthorCreator,
-        // The journal-article family: `T2` is the publication title and `M1`
-        // carries the issue (an EndNote convention).
-        "JOUR" | "EJOUR" | "JFULL" | "ABST" | "MGZN" | "NEWS" | "CTLG" => ItemType::JournalFamily,
-        // Unknown / generic types default to journalArticle, so they inherit the
-        // journal-family field mapping.
-        _ if !KNOWN_TYPES.contains(&ty.as_str()) => ItemType::JournalFamily,
-        _ => ItemType::Other,
+        "ABST" => "journalArticle",
+        "ADVS" => "film",
+        "AGGR" => "document",
+        "ANCIENT" => "document",
+        "ART" => "artwork",
+        "BILL" => "bill",
+        "BLOG" => "blogPost",
+        "BOOK" => "book",
+        "CASE" => "case",
+        "CHAP" => "bookSection",
+        "CHART" => "artwork",
+        "CLSWK" => "book",
+        "COMP" => "computerProgram",
+        "CONF" => "conferencePaper",
+        "CPAPER" => "conferencePaper",
+        "CTLG" => "magazineArticle",
+        "DATA" => "dataset",
+        "DBASE" => "dataset",
+        "DICT" => "dictionaryEntry",
+        "EBOOK" => "book",
+        "ECHAP" => "bookSection",
+        "EDBOOK" => "book",
+        "EJOUR" => "journalArticle",
+        "ELEC" => "webpage",
+        "ENCYC" => "encyclopediaArticle",
+        "EQUA" => "document",
+        "FIGURE" => "artwork",
+        "GEN" => "journalArticle",
+        "GOVDOC" => "report",
+        "GRNT" => "document",
+        "HEAR" => "hearing",
+        "ICOMM" => "email",
+        "INPR" => "manuscript",
+        "JFULL" => "journalArticle",
+        "JOUR" => "journalArticle",
+        "LEGAL" => "case",
+        "MANSCPT" => "manuscript",
+        "MAP" => "map",
+        "MGZN" => "magazineArticle",
+        "MPCT" => "film",
+        "MULTI" => "videoRecording",
+        "MUSIC" => "audioRecording",
+        "NEWS" => "newspaperArticle",
+        "PAMP" => "manuscript",
+        "PAT" => "patent",
+        "PCOMM" => "letter",
+        "RPRT" => "report",
+        "SER" => "book",
+        "SLIDE" => "presentation",
+        "SOUND" => "audioRecording",
+        "STAND" => "report",
+        "STAT" => "statute",
+        "THES" => "thesis",
+        "UNBILL" => "manuscript",
+        "UNPD" => "manuscript",
+        "VIDEO" => "videoRecording",
+        "WEB" => "webpage",
+        _ => "journalArticle",
     }
 }
 
-/// The record's item-type classification, as far as field mapping cares.
-#[derive(PartialEq)]
-enum ItemType {
-    /// journalArticle / magazineArticle / newspaperArticle and their aliases.
-    JournalFamily,
-    /// A type whose `AU` maps to a non-author creator (artist, inventor, …).
-    NonAuthorCreator,
-    /// Any other known type (book, thesis, report, …).
-    Other,
+/// Whether the record's `AU`/`A1` creators are authors. Mirrors Zotero's `AU`
+/// `fieldMap` entry: for these item types the primary creator is a non-author
+/// role (artist, cartographer, inventor, …), so the flat `Paper`, which models
+/// only authors, keeps no creators.
+fn au_is_author(item_type: &str) -> bool {
+    !matches!(
+        item_type,
+        "artwork"
+            | "map"
+            | "audioRecording"
+            | "film"
+            | "radioBroadcast"
+            | "tvBroadcast"
+            | "videoRecording"
+            | "interview"
+            | "patent"
+            | "podcast"
+            | "computerProgram"
+    )
 }
 
-/// RIS `TY` values that map to a concrete non-journal item type. A `TY` outside
-/// this set is unknown and defaults to journalArticle in Zotero.
-const KNOWN_TYPES: &[&str] = &[
-    "BOOK", "CHAP", "CASE", "CONF", "CPAPER", "DICT", "ENCYC", "ICOMM", "DATA", "DBASE", "HEAR",
-    "PCOMM", "MANSCPT", "PAT", "RPRT", "STAT", "THES", "ELEC", "BILL", "LEGAL", "GOVDOC", "STAND",
-    "MAP", "MUSIC", "SOUND", "COMP", "SLIDE", "ART", "CHART", "FIGURE", "MPCT", "ADVS", "MULTI",
-    "VIDEO", "EBOOK", "ECHAP", "EDBOOK", "SER", "PAMP", "CLSWK", "INPR", "UNPD",
-];
+/// The journal-article family, for which `T2` is the publication title and the
+/// EndNote `M1` hack carries the issue.
+fn is_journal_family(item_type: &str) -> bool {
+    matches!(
+        item_type,
+        "journalArticle" | "magazineArticle" | "newspaperArticle"
+    )
+}
 
 /// Build a [`Paper`] from one record, selecting the modeled fields per the item
-/// type.
+/// type. The tag-to-field routing mirrors Zotero's `RIS` `fieldMap`: a tag maps
+/// to a modeled field only for the item types whose `fieldMap` entry keeps that
+/// tag on its `__default` field. For any other type the tag routes to a Zotero
+/// field the flat `Paper` doesn't model (e.g. `case`'s `PB` → `court`, `VL` →
+/// `reporterVolume`), so the modeled field is left empty rather than filled with
+/// the mislabeled value.
 fn record_to_paper(record: &Record) -> Paper {
-    let kind = item_type(record);
+    let kind = zotero_item_type(record);
 
     let title = record
         .first("TI")
@@ -181,23 +241,25 @@ fn record_to_paper(record: &Record) -> Paper {
         .unwrap_or("")
         .to_string();
 
-    let authors = authors(record, &kind);
+    let authors = authors(record, kind);
 
     let year = record_year(record);
 
-    let doi = record.first("DO").map(str::to_string);
+    // DOI: Zotero always maps `DO` (and the EndNote `M3` hack) but runs the value
+    // through `cleanDOI`, which drops anything that isn't a real DOI. So a
+    // placeholder like a bare "DOI" or a title string never reaches the field.
+    let doi = record
+        .first("DO")
+        .or_else(|| record.first("M3"))
+        .and_then(clean_doi);
 
     // Publication title: `T2` for the journal family, then the always-mapped `JF`,
     // finally the journal abbreviation (`J2` / `JO`) promoted when nothing else
     // supplied a title.
     let journal = record
         .first("JF")
-        .filter(|_| kind == ItemType::JournalFamily)
-        .or_else(|| {
-            record
-                .first("T2")
-                .filter(|_| kind == ItemType::JournalFamily)
-        })
+        .filter(|_| is_journal_family(kind))
+        .or_else(|| record.first("T2").filter(|_| is_journal_family(kind)))
         .or_else(|| record.first("JF"))
         .map(str::to_string)
         .or_else(|| {
@@ -208,20 +270,55 @@ fn record_to_paper(record: &Record) -> Paper {
                 .map(str::to_string)
         });
 
-    // Issue: `IS` normally, but the journal family also honors `M1` (EndNote
-    // exports the issue there), preferring an explicit `IS`.
+    // Issue: `IS` maps to `issue` for every type except bookSection (there it is
+    // `numberOfVolumes`) and dataset (excluded). The journal family also honors
+    // the EndNote `M1` hack, preferring an explicit `IS`.
     let issue = record
         .first("IS")
-        .or_else(|| {
-            record
-                .first("M1")
-                .filter(|_| kind == ItemType::JournalFamily)
-        })
+        .filter(|_| !matches!(kind, "bookSection" | "dataset"))
+        .or_else(|| record.first("M1").filter(|_| is_journal_family(kind)))
         .map(str::to_string);
 
-    let volume = record.first("VL").map(str::to_string);
-    let pages = pages(record);
-    let publisher = record.first("PB").map(str::to_string);
+    // Volume: `VL` maps to `volume` except for the types whose `fieldMap` routes
+    // it elsewhere — statute (`codeNumber`), bill (`codeVolume`), case
+    // (`reporterVolume`) — or excludes it (patent, webpage).
+    let volume = record
+        .first("VL")
+        .filter(|_| !matches!(kind, "statute" | "bill" | "case" | "patent" | "webpage"))
+        .map(str::to_string);
+
+    // Pages: `SP`/`EP` map to `pages` except where `fieldMap` routes `SP`
+    // elsewhere — bill (`codePages`), book/thesis/manuscript (`numPages`), case
+    // (`firstPage`), film (`runningTime`).
+    let pages = pages(record).filter(|_| {
+        !matches!(
+            kind,
+            "bill" | "book" | "thesis" | "manuscript" | "case" | "film"
+        )
+    });
+
+    // Publisher: `PB` maps to `publisher` except for the many types whose
+    // `fieldMap` gives it a role-specific name (case → `court`, film →
+    // `distributor`, report → `institution`, thesis → `university`, …).
+    let publisher = record
+        .first("PB")
+        .filter(|_| {
+            !matches!(
+                kind,
+                "audioRecording"
+                    | "case"
+                    | "film"
+                    | "patent"
+                    | "report"
+                    | "dataset"
+                    | "thesis"
+                    | "computerProgram"
+                    | "videoRecording"
+                    | "radioBroadcast"
+                    | "tvBroadcast"
+            )
+        })
+        .map(str::to_string);
     let abstract_text = record
         .first("AB")
         .or_else(|| record.first("N2"))
@@ -253,8 +350,8 @@ fn record_to_paper(record: &Record) -> Paper {
 /// (`A2`/`A3`/`A4`/`ED`/`TA`) carry non-author roles (editors, translators,
 /// series editors) and are excluded, as is every creator when the item type maps
 /// `AU` to a non-author role.
-fn authors(record: &Record, kind: &ItemType) -> Vec<String> {
-    if *kind == ItemType::NonAuthorCreator {
+fn authors(record: &Record, kind: &str) -> Vec<String> {
+    if !au_is_author(kind) {
         return Vec::new();
     }
     // `AU` and `A1` are the same author role; keep them in document order so a
@@ -286,6 +383,41 @@ fn format_author(raw: &str) -> String {
         }
         None => raw.to_string(),
     }
+}
+
+/// Validate and clean an RIS `DO`/`M3` value into a DOI, mirroring the core of
+/// Zotero's `ZU.cleanDOI`. A DOI is `10.` then four or more digits, a slash, and
+/// a non-space suffix; trailing `.`/`,` are trimmed. A value that doesn't contain
+/// that shape (a placeholder like a bare "DOI", or a stray title string) yields
+/// `None`, so it never reaches the modeled field.
+fn clean_doi(raw: &str) -> Option<String> {
+    let bytes = raw.as_bytes();
+    // Find each "10." and try to match a DOI starting there.
+    let mut search = 0;
+    while let Some(rel) = raw[search..].find("10.") {
+        let start = search + rel;
+        let after_prefix = start + 3;
+        // Count the digits following "10.".
+        let digits = bytes[after_prefix..]
+            .iter()
+            .take_while(|b| b.is_ascii_digit())
+            .count();
+        let slash = after_prefix + digits;
+        if digits >= 4 && bytes.get(slash) == Some(&b'/') {
+            // Suffix runs to the next whitespace; trim a trailing '.' or ','.
+            let mut end = slash + 1;
+            while end < bytes.len() && !bytes[end].is_ascii_whitespace() {
+                end += 1;
+            }
+            let mut doi = &raw[start..end];
+            doi = doi.trim_end_matches(['.', ',']);
+            if doi.len() > slash - start {
+                return Some(doi.to_string());
+            }
+        }
+        search = start + 3;
+    }
+    None
 }
 
 /// Extract the publication year from the record's date tags. `DA` and `PY` carry
@@ -463,6 +595,48 @@ AU  - Carmi, Avishy\nER  -\n";
             Some("Prostate Cancer Statistics 2015")
         );
         assert_eq!(papers[0].year, None);
+    }
+
+    /// A `DO` value that isn't a real DOI (a placeholder label) is dropped, not
+    /// stored verbatim — matching Zotero's `cleanDOI` gate.
+    #[test]
+    fn test_doi_placeholder_dropped() {
+        let input = "TY  - JOUR\nTI  - X\nDO  - DOI\nER  -\n";
+        let p = &import_ris(input).unwrap()[0];
+        assert_eq!(p.doi, None);
+    }
+
+    /// A DOI embedded in surrounding text is extracted and trailing punctuation
+    /// trimmed, as `cleanDOI` does.
+    #[test]
+    fn test_doi_extracted_from_text() {
+        let input = "TY  - JOUR\nTI  - X\nDO  - see doi:10.1234/abc.def,\nER  -\n";
+        let p = &import_ris(input).unwrap()[0];
+        assert_eq!(p.doi.as_deref(), Some("10.1234/abc.def"));
+    }
+
+    /// On a `case` (CASE/LEGAL), `VL`/`SP`/`PB` route to Zotero fields the flat
+    /// model doesn't hold (reporterVolume/firstPage/court), so the modeled
+    /// volume/pages/publisher stay empty rather than carrying the mislabeled
+    /// value.
+    #[test]
+    fn test_case_type_field_routing() {
+        let input =
+            "TY  - CASE\nTI  - Roe v Wade\nVL  - 410\nSP  - 113\nPB  - Supreme Court\nER  -\n";
+        let p = &import_ris(input).unwrap()[0];
+        assert_eq!(p.publication.volume, None);
+        assert_eq!(p.publication.pages, None);
+        assert_eq!(p.publication.publisher, None);
+    }
+
+    /// On a `patent` (PAT), `VL` is excluded and `PB` routes to assignee, so both
+    /// modeled fields stay empty.
+    #[test]
+    fn test_patent_type_field_routing() {
+        let input = "TY  - PAT\nTI  - Widget\nVL  - 877609\nPB  - Acme Inc\nER  -\n";
+        let p = &import_ris(input).unwrap()[0];
+        assert_eq!(p.publication.volume, None);
+        assert_eq!(p.publication.publisher, None);
     }
 
     /// CRLF line endings parse the same as LF.

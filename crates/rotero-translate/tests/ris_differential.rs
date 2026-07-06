@@ -191,12 +191,14 @@ fn ris_agrees_with_zotero_js() {
         println!("{n}");
     }
 
-    // Agreement floor (ratchet). Most current disagreements are Zotero's
-    // every-field "torture" case exercising item types the flat `Paper` doesn't
-    // model; a few (e.g. our RIS `DO`-tag handling emitting a literal field name)
-    // are real parser divergences to close. Raise the floor as the Rust parser
-    // converges on Zotero's behavior; a drop below it is a regression.
-    const FLOOR: usize = 7;
+    // Agreement floor (ratchet). Every real single-item case now agrees; the
+    // remaining disagreements are the two synthetic "every RIS tag across every
+    // item type" torture cases, which route tags to Zotero fields the flat
+    // `Paper` doesn't model (a `case`'s reporter volume, an audio recording's
+    // album title, …), plus one input the boa engine drops but our parser keeps.
+    // Raise the floor as the Rust parser converges further; a drop below it is a
+    // regression.
+    const FLOOR: usize = 9;
     assert!(
         agree >= FLOOR,
         "RIS/JS agreement regressed: {agree}/{} agree, need >= {FLOOR}",
