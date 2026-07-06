@@ -141,11 +141,14 @@ async fn translator_pdf_urls(doi: &str) -> Result<Vec<String>, String> {
         "http://127.0.0.1:{}/api/scrape",
         rotero_connector::CONNECTOR_PORT
     );
+    // Resolve to the correct landing page: doi.org rejects arXiv's `arXiv:ID`
+    // pseudo-DOI, so an arXiv id must scrape its arxiv.org abstract page instead.
+    let scrape_url = rotero_models::PaperId::parse(doi)
+        .map(|pid| pid.resolve_url())
+        .unwrap_or_else(|| format!("https://doi.org/{doi}"));
     let resp = reqwest::Client::new()
         .post(&endpoint)
-        .json(&ScrapeReq {
-            url: format!("https://doi.org/{doi}"),
-        })
+        .json(&ScrapeReq { url: scrape_url })
         .timeout(std::time::Duration::from_secs(20))
         .send()
         .await

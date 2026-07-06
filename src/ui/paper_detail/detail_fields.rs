@@ -106,7 +106,11 @@ pub fn DetailFields(paper: Paper) -> Element {
                             label: "Open in browser".to_string(),
                             icon: Some("bi-box-arrow-up-right".to_string()),
                             on_click: move |_| {
-                                let url = format!("https://doi.org/{}", doi_open);
+                                // Route to the right resolver: doi.org rejects
+                                // arXiv's `arXiv:ID` pseudo-DOI, so parse first.
+                                let url = rotero_models::PaperId::parse(&doi_open)
+                                    .map(|pid| pid.resolve_url())
+                                    .unwrap_or_else(|| format!("https://doi.org/{doi_open}"));
                                 let _ = open::that(&url);
                                 doi_ctx.set(None);
                             },

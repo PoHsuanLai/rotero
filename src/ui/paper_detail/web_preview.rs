@@ -33,7 +33,14 @@ pub fn WebPreview() -> Element {
     });
     drop(state);
 
-    let doi_open = paper.doi.clone();
+    // Resolve the identifier to its correct site (doi.org for real DOIs,
+    // arxiv.org for arXiv, …) and label the button accordingly.
+    let open_url = paper.resolve_url();
+    let open_label = if paper.paper_id().is_some_and(|p| p.is_arxiv()) {
+        "Open on arXiv"
+    } else {
+        "Open DOI"
+    };
     let paper_for_import = paper.clone();
 
     rsx! {
@@ -75,16 +82,13 @@ pub fn WebPreview() -> Element {
                         }
                     }
 
-                    if let Some(doi) = doi_open {
-                        if !doi.is_empty() {
-                            button {
-                                class: "btn btn--secondary",
-                                onclick: move |_| {
-                                    let url = format!("https://doi.org/{doi}");
-                                    let _ = open::that(&url);
-                                },
-                                "Open DOI"
-                            }
+                    if let Some(url) = open_url {
+                        button {
+                            class: "btn btn--secondary",
+                            onclick: move |_| {
+                                let _ = open::that(&url);
+                            },
+                            "{open_label}"
                         }
                     }
                 }

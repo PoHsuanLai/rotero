@@ -101,6 +101,19 @@ impl PaperId {
     pub fn is_arxiv(&self) -> bool {
         matches!(self, Self::ArXiv(_))
     }
+
+    /// Canonical web URL that resolves this identifier in a browser.
+    ///
+    /// Only real DOIs go to `doi.org`; arXiv's `arXiv:ID` pseudo-DOI is not a
+    /// DOI and doi.org rejects it, so it resolves to its arXiv abstract page.
+    pub fn resolve_url(&self) -> String {
+        match self {
+            Self::Doi(d) => format!("https://doi.org/{d}"),
+            Self::ArXiv(id) => format!("https://arxiv.org/abs/{id}"),
+            Self::Pmid(id) => format!("https://pubmed.ncbi.nlm.nih.gov/{id}/"),
+            Self::Isbn(id) => format!("https://www.worldcat.org/isbn/{id}"),
+        }
+    }
 }
 
 impl fmt::Display for PaperId {
@@ -225,6 +238,20 @@ impl Paper {
     /// Parse the `doi` field into a typed [`PaperId`], if present and recognized.
     pub fn paper_id(&self) -> Option<PaperId> {
         self.doi.as_deref().and_then(PaperId::parse)
+    }
+
+    /// Web URL that resolves this paper's identifier in a browser, or `None` if
+    /// it has no identifier. Routes arXiv/PMID/ISBN to their own resolvers
+    /// rather than doi.org (which rejects non-DOIs like `arXiv:ID`); an
+    /// unrecognized but non-empty `doi` falls back to doi.org.
+    pub fn resolve_url(&self) -> Option<String> {
+        if let Some(pid) = self.paper_id() {
+            return Some(pid.resolve_url());
+        }
+        match self.doi.as_deref() {
+            Some(d) if !d.is_empty() => Some(format!("https://doi.org/{d}")),
+            _ => None,
+        }
     }
 
     /// Score how complete the metadata is (higher = more complete).
@@ -489,6 +516,35 @@ mod tests {
             PaperId::Pmid("12345678".into()).semantic_scholar_query(),
             "PMID:12345678"
         );
+    }
+
+    #[test]
+    fn resolve_url_routes_by_identifier_type() {
+        assert_eq!(
+            PaperId::Doi("10.1038/nature12373".into()).resolve_url(),
+            "https://doi.org/10.1038/nature12373"
+        );
+        // arXiv must NOT go to doi.org (it rejects the pseudo-DOI).
+        assert_eq!(
+            PaperId::ArXiv("2508.18081".into()).resolve_url(),
+            "https://arxiv.org/abs/2508.18081"
+        );
+        assert_eq!(
+            PaperId::Pmid("12345678".into()).resolve_url(),
+            "https://pubmed.ncbi.nlm.nih.gov/12345678/"
+        );
+    }
+
+    #[test]
+    fn paper_resolve_url_handles_arxiv_stored_doi() {
+        // A Paper whose stored `doi` is the arXiv pseudo-DOI resolves to arXiv.
+        let mut p = titled("Some Preprint");
+        p.doi = Some("arXiv:2508.18081".into());
+        assert_eq!(p.resolve_url().as_deref(), Some("https://arxiv.org/abs/2508.18081"));
+
+        // No identifier -> no URL.
+        let bare = titled("No DOI");
+        assert_eq!(bare.resolve_url(), None);
     }
 
     #[test]
