@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!--
+  Synthetic Nature-shaped page that forces the RIS-supplement path: it carries
+  Embedded Metadata citation_* tags (so EM extracts base authors) AND a citation
+  download link (so the translator fetches an RIS export). The link's href is
+  served by the test's MapBroker. Kept minimal so the item-bridge boundary — RIS
+  parse -> Paper -> ZoteroItem -> the translator's itemDone author re-splitting —
+  is isolated from a full real page.
+-->
+<html>
+<head>
+  <meta name="citation_title" content="Nanometre-scale thermometry in a living cell">
+  <meta name="citation_journal_title" content="Nature">
+  <meta name="citation_doi" content="10.1038/nature12373">
+  <meta name="citation_author" content="Kucsko, G.">
+  <meta name="citation_author" content="Maurer, P. C.">
+  <meta name="citation_publication_date" content="2013">
+</head>
+<body>
+  <a data-track-action="download article citation" href="/articles/nature12373.ris">Download citation</a>
+</body>
+</html>
