@@ -209,6 +209,7 @@ async function loadMetadata() {
       const m = await runScrape(tab?.id, pageMetadata);
       if (m) {
         if (m.title) pageMetadata.title = m.title;
+        if (m.item_type) pageMetadata.item_type = m.item_type;
         if (m.authors?.length) pageMetadata.authors = m.authors;
         if (m.doi) pageMetadata.doi = m.doi;
         if (m.pdf_url) pageMetadata.pdf_url = m.pdf_url;
@@ -452,6 +453,21 @@ async function extractMetadata() {
     'meta[property="og:description"]',
   );
   if (abstract_text) meta.abstract_text = abstract_text;
+
+  // --- Item type ---
+  // Detect preprints so they don't collapse to journalArticle. arXiv/bioRxiv
+  // pages expose an eprint/arxiv id meta tag or live on a known preprint host;
+  // the connector's translators infer the same type when the scrape path runs,
+  // but client-side extraction (which finds authors and skips that path) needs
+  // its own inference.
+  const arxivId = getMeta('meta[name="citation_arxiv_id"]', 'meta[name="citation_eprint"]');
+  const host = window.location.hostname;
+  if (
+    arxivId ||
+    /(^|\.)(arxiv|biorxiv|medrxiv|chemrxiv|osf|ssrn|preprints)\.(org|io|com|net)$/i.test(host)
+  ) {
+    meta.item_type = 'preprint';
+  }
 
   // --- JSON-LD structured data ---
   try {

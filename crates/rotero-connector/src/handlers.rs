@@ -11,6 +11,7 @@ pub struct SavePaperRequest {
     pub url: Option<String>,
     pub doi: Option<String>,
     pub title: Option<String>,
+    pub item_type: Option<String>,
     pub authors: Option<Vec<String>>,
     pub pdf_url: Option<String>,
     pub journal: Option<String>,
@@ -158,6 +159,7 @@ impl ScrapeResponse {
 #[derive(Debug, Serialize)]
 pub struct ScrapeResult {
     pub title: Option<String>,
+    pub item_type: String,
     pub authors: Vec<String>,
     pub doi: Option<String>,
     pub url: Option<String>,
@@ -341,6 +343,7 @@ fn best_result(items: &[rotero_translate::ZoteroItem]) -> Option<ScrapeResult> {
 fn paper_to_result(p: &rotero_models::Paper, pdf_url: Option<String>) -> ScrapeResult {
     ScrapeResult {
         title: Some(p.title.clone()),
+        item_type: p.item_type.clone(),
         authors: p.author_names(),
         doi: p.doi.clone(),
         url: p.links.url.clone(),
@@ -592,6 +595,10 @@ pub async fn save_paper(
 ) -> Json<SavePaperResponse> {
     let paper = rotero_models::Paper {
         title: req.title.unwrap_or_else(|| "Untitled".to_string()),
+        item_type: req
+            .item_type
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| rotero_models::Paper::default().item_type),
         creators: req
             .authors
             .unwrap_or_default()
