@@ -50,6 +50,8 @@ pub fn TagEditor(paper_id: String) -> Element {
                 r#type: "text",
                 placeholder: "Add tag...",
                 value: "{new_tag}",
+                onfocusin: crate::ui::keybindings::editable_focus_in,
+                onfocusout: crate::ui::keybindings::editable_focus_out,
                 oninput: move |evt| new_tag.set(evt.value()),
                 onkeypress: {
                     let paper_id = paper_id.clone();

@@ -93,6 +93,8 @@ pub(crate) fn AddPaperDOIInput() -> Element {
                     r#type: "text",
                     placeholder: "Enter DOI (e.g. 10.1234/...)",
                     value: "{doi_value}",
+                    onfocusin: crate::ui::keybindings::editable_focus_in,
+                    onfocusout: crate::ui::keybindings::editable_focus_out,
                     oninput: move |evt| doi_value.set(evt.value()),
                 }
                 button {

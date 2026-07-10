@@ -18,11 +18,47 @@ use rotero_db::Database;
 // and then call `dispatch`, so a shortcut is described in exactly one place and
 // the menu bar in `init/window.rs` is generated from the same table.
 //
-// Precedence between "typing in a field" and "pressing a shortcut" is handled
-// separately: local input handlers call `stop_propagation()` (see
-// `text_input_onkeydown`), and `assets/keybindings.js` is the capture-phase
-// backstop for bare keys. This module never sees a keystroke that a focused
-// input claimed.
+// Precedence between "typing in a field" and "pressing a shortcut" is handled by
+// one door-check in `handle_keydown`: while an editable element is focused
+// (tracked in the `EditableFocused` signal, set by each input's
+// `editable_focus_in`/`editable_focus_out` handlers), the global handler yields
+// the keys that native text editing owns —
+// the set defined in `command_yields_to_text_editing`. Every other shortcut still
+// fires while typing, and menu-backed ones also work via the native macOS menu.
+
+/// True while a text input/textarea holds focus. Provided via context at the app
+/// root and read once per keystroke by `handle_keydown`. A newtype (not a bare
+/// `Signal<bool>`) so it can't be confused with any other boolean context.
+#[derive(Clone, Copy)]
+pub struct EditableFocused(pub Signal<bool>);
+
+/// `onfocusin` handler for an editable input: flags that a text field is focused
+/// so the global shortcut handler yields the keys native text editing owns. Attach
+/// alongside [`editable_focus_out`] to every `<input>`/`<textarea>`:
+///
+/// ```ignore
+/// rsx! { input { onfocusin: editable_focus_in, onfocusout: editable_focus_out, /* … */ } }
+/// ```
+///
+/// These are plain `fn`s (not hooks), so they can be attached anywhere — including
+/// inside a `for`/`if` in `rsx!` or a `.map()` over a list of inputs.
+pub fn editable_focus_in(_: FocusEvent) {
+    set_editable_focused(true);
+}
+
+/// `onfocusout` counterpart to [`editable_focus_in`]. Clears the focus flag.
+pub fn editable_focus_out(_: FocusEvent) {
+    set_editable_focused(false);
+}
+
+/// Set the "an editable element is focused" flag. Reads `EditableFocused` from
+/// context lazily (via `try_consume_context`), so it works at event time from
+/// anywhere a Dioxus runtime is active.
+fn set_editable_focused(focused: bool) {
+    if let Some(EditableFocused(mut sig)) = try_consume_context::<EditableFocused>() {
+        sig.set(focused);
+    }
+}
 
 /// A semantic action, decoupled from the key that triggers it. This is the unit
 /// a rebinding UI lets users remap.
@@ -1063,6 +1099,7 @@ pub struct KeyCtx {
     pub tools: Signal<ViewerToolState>,
     pub dpr_sig: Signal<DevicePixelRatio>,
     pub update_state: Signal<UpdateState>,
+    pub editable_focused: Signal<bool>,
 }
 
 impl KeyCtx {
@@ -1082,6 +1119,7 @@ impl KeyCtx {
                 tools: use_context::<Signal<ViewerToolState>>(),
                 dpr_sig: use_context::<Signal<DevicePixelRatio>>(),
                 update_state: use_context::<Signal<UpdateState>>(),
+                editable_focused: use_context::<EditableFocused>().0,
             },
             use_context::<Database>(),
         )
@@ -1110,6 +1148,7 @@ fn dispatch(cmd: Command, ctx: &KeyCtx, db: &Database) {
         tools,
         dpr_sig,
         update_state,
+        editable_focused: _,
     } = *ctx;
     match cmd {
         Command::OpenSettings => action_open_settings(show_settings),
@@ -1165,10 +1204,36 @@ pub fn handle_keydown(event: Event<KeyboardData>, ctx: KeyCtx, db: Database) {
 
     let overrides = ctx.config.read().keybindings.clone();
     if let Some(command) = resolve(cmd, shift, &key, ctx.scope(), &overrides) {
+        // When a text field is focused, yield the keys native editing owns (Cmd+A,
+        // undo/redo, arrows, Enter/Backspace) instead of firing the app shortcut.
+        // The input's own onkeydown still runs — it's dispatched by a separate
+        // virtualdom walk, not stopped by returning here.
+        if *ctx.editable_focused.read() && command_yields_to_text_editing(command) {
+            return;
+        }
         // Escape is intentionally not prevent_default'd — matches prior behavior.
         if command != Command::Escape {
             event.prevent_default();
         }
         dispatch(command, &ctx, &db);
     }
+}
+
+/// Commands whose key belongs to native text editing while a field is focused.
+/// The single, reviewable precedence policy — semantic commands, not raw keys.
+/// Everything not listed (Find, OpenPdf, NewCollection, …) still fires while
+/// typing.
+fn command_yields_to_text_editing(cmd: Command) -> bool {
+    matches!(
+        cmd,
+        Command::SelectAll
+            | Command::Undo
+            | Command::Redo
+            | Command::SelectNext
+            | Command::SelectPrev
+            | Command::OpenSelected
+            | Command::DeleteSelected
+            | Command::ToggleFavorite
+            | Command::ToggleRead
+    )
 }

@@ -41,7 +41,6 @@ const DIALOGS_CSS: &str = include_str!("../../assets/dialogs.css");
 const THEME_CSS: &str = include_str!("../../assets/theme.css");
 const GRAPH_CSS: &str = include_str!("../../assets/graph.css");
 const GRAPH_JS: &str = include_str!("../../assets/graph.js");
-const KEYBINDINGS_JS: &str = include_str!("../../assets/keybindings.js");
 const CHAT_CSS: &str = include_str!("../../assets/chat.css");
 #[cfg(feature = "mobile")]
 const LONGPRESS_JS: &str = include_str!("../../assets/longpress.js");
@@ -78,6 +77,9 @@ pub fn App() -> Element {
         })
     });
     use_context_provider(|| Signal::new(LibraryState::default()));
+    // True while a text input/textarea is focused, so the global shortcut handler
+    // can yield the keys native text editing owns. See `keybindings::EditableFocused`.
+    use_context_provider(|| crate::ui::keybindings::EditableFocused(Signal::new(false)));
     use_context_provider(|| Signal::new(ShowSettings(false)));
     use_context_provider(|| Signal::new(None::<Option<String>>));
     use_context_provider(|| Signal::new(DragPaper(None)));
@@ -186,7 +188,6 @@ pub fn App() -> Element {
                 document::Style { {GRAPH_CSS} }
                 document::Style { {CHAT_CSS} }
                 document::Script { {GRAPH_JS} }
-                document::Script { {KEYBINDINGS_JS} }
                 {longpress_script()}
                 LoadLibraryData {}
                 SyncLoop {}

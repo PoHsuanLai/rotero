@@ -216,8 +216,8 @@ pub(crate) fn NewCollectionRow(parent_id: Option<String>, depth: u32) -> Element
                 onmounted: move |evt| async move {
                     let _ = evt.set_focus(true).await;
                 },
+                onfocusin: crate::ui::keybindings::editable_focus_in,
                 onkeydown: move |evt| {
-                    evt.stop_propagation();
                     match evt.key() {
                         Key::Enter => {
                             let name = name_value().trim().to_string();
@@ -247,7 +247,8 @@ pub(crate) fn NewCollectionRow(parent_id: Option<String>, depth: u32) -> Element
                         _ => {}
                     }
                 },
-                onfocusout: move |_| {
+                onfocusout: move |evt| {
+                    crate::ui::keybindings::editable_focus_out(evt);
                     if !submitted() {
                         editing.set(None);
                         name_value.set(String::new());

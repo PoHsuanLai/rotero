@@ -250,6 +250,8 @@ pub fn ChatPanel() -> Element {
                     value: "{chat_state.read().input_text}",
                     disabled: is_busy,
                     rows: 3,
+                    onfocusin: crate::ui::keybindings::editable_focus_in,
+                    onfocusout: crate::ui::keybindings::editable_focus_out,
                     oninput: move |e| {
                         let val = e.value();
                         chat_state.with_mut(|s| {
@@ -258,9 +260,6 @@ pub fn ChatPanel() -> Element {
                         });
                     },
                     onkeydown: move |e| {
-                        // Typing in the chat box — claim the key so global
-                        // shortcuts don't fire on it. See keybindings.rs.
-                        e.stop_propagation();
                         if e.key() == Key::Enter && !e.modifiers().shift() {
                             e.prevent_default();
                             do_send(&mut chat_state, &agent_channel, &lib_state, &tab_mgr);

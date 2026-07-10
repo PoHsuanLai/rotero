@@ -116,6 +116,8 @@ pub fn SearchBar() -> Element {
                 r#type: "text",
                 placeholder: "Search your library and the web...",
                 value: "{query}",
+                onfocusin: crate::ui::keybindings::editable_focus_in,
+                onfocusout: crate::ui::keybindings::editable_focus_out,
                 oninput: move |evt| {
                     let q = evt.value();
                     lib_state.with_mut(|s| s.search.query = q.clone());

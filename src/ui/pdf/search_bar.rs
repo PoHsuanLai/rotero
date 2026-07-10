@@ -21,6 +21,8 @@ pub(crate) fn PdfSearchBar(tab_id: TabId) -> Element {
                 r#type: "text",
                 placeholder: "Search in PDF...",
                 value: "{query}",
+                onfocusin: crate::ui::keybindings::editable_focus_in,
+                onfocusout: crate::ui::keybindings::editable_focus_out,
                 oninput: move |evt| {
                     let new_query = evt.value();
                     tabs.with_mut(|m| {
@@ -32,11 +34,6 @@ pub(crate) fn PdfSearchBar(tab_id: TabId) -> Element {
                     });
                 },
                 onkeydown: move |evt| {
-                    // Focus is in this input — claim the key so global shortcuts
-                    // (Cmd+F, Cmd+A, Escape, …) don't act on the keystroke the
-                    // user is typing here. See keybindings.rs for the precedence
-                    // contract.
-                    evt.stop_propagation();
                     if evt.key() == Key::Enter {
                         tabs.with_mut(|m| {
                             let t = m.tab_mut();

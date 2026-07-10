@@ -68,6 +68,7 @@ pub fn PaperDetail() -> Element {
                                         class: "input input--sm",
                                         value: "{edit_key_value}",
                                         autofocus: true,
+                                        onfocusin: crate::ui::keybindings::editable_focus_in,
                                         oninput: move |evt| edit_key_value.set(evt.value()),
                                         onkeypress: {
                                             let db = db_key.clone();
@@ -96,7 +97,8 @@ pub fn PaperDetail() -> Element {
                                         },
                                         onfocusout: {
                                             let paper_id = paper_id.clone();
-                                            move |_| {
+                                            move |evt| {
+                                            crate::ui::keybindings::editable_focus_out(evt);
                                             let new_key = edit_key_value().trim().to_string();
                                             if !new_key.is_empty() {
                                                 let db = db_key2.clone();
