@@ -1,0 +1,6 @@
+# Fixtures are sourced from the pdfjs-dist npm package; only the sample PDFs
+# under pdfs/ are committed. Keep the vendoring byproducts out of the tree.
+/node_modules/
+/golden/
+/package.json
+/package-lock.json
