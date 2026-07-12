@@ -335,6 +335,29 @@
       ctx.strokeStyle = alphaColor(bright ? edgeHighlight : edgeBase, alpha);
       ctx.lineWidth = (bright ? 1.8 : 1.2) / transform.scale;
       ctx.stroke();
+
+      // Directed edges (citations) get an arrowhead pointing at the cited paper,
+      // pulled back off the target node so it sits just outside the circle.
+      if (link.rel_type === "citation") {
+        const dx = tgt.x - src.x, dy = tgt.y - src.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const ux = dx / len, uy = dy / len;
+        const gap = (tgt.size || 6) + 3 / transform.scale;   // clear the node
+        const tipX = tgt.x - ux * gap, tipY = tgt.y - uy * gap;
+        const head = 7 / transform.scale;                    // arrowhead length
+        const spread = 0.42;                                 // half-angle (rad)
+        const ax = Math.cos(spread), ay = Math.sin(spread);
+        // Rotate the back-vector (-u) by ±spread for the two barbs.
+        const lx = -ux * ax - -uy * ay, ly = -ux * ay + -uy * ax;
+        const rx = -ux * ax + -uy * ay, ry = ux * ay + -uy * ax;
+        ctx.beginPath();
+        ctx.moveTo(tipX, tipY);
+        ctx.lineTo(tipX + lx * head, tipY + ly * head);
+        ctx.lineTo(tipX + rx * head, tipY + ry * head);
+        ctx.closePath();
+        ctx.fillStyle = alphaColor(bright ? edgeHighlight : edgeBase, alpha);
+        ctx.fill();
+      }
     }
 
     // Draw nodes — flat filled circles, no border, no decoration

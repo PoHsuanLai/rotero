@@ -8,6 +8,8 @@ pub fn LoadLibraryData() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+    #[cfg(feature = "desktop")]
+    let render_ch = use_context::<crate::app::RenderChannel>();
 
     let db2 = db.clone();
     use_effect(move || {
@@ -77,6 +79,23 @@ pub fn LoadLibraryData() -> Element {
 
                     tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
                 }
+            }
+        });
+    }
+
+    // One-time citation-graph population. Extracts each PDF's links, resolves them
+    // to library papers, and records directed citation edges. Guarded by an
+    // app_flags row so it runs once per install.
+    #[cfg(feature = "desktop")]
+    {
+        let db_cites = db.clone();
+        use_future(move || {
+            let db = db_cites.clone();
+            let render_tx = render_ch.sender();
+            async move {
+                // Let the initial UI + render thread settle first.
+                tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+                crate::state::commands::scan_citations_if_needed(&render_tx, &db).await;
             }
         });
     }

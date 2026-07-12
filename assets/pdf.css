@@ -218,6 +218,29 @@
   user-select: none;
 }
 
+/* Clickable intra-document link hotspot (citations, figures, sections). Sits
+   above the text layer so clicks land on it; invisible until hovered. */
+.pdf-link-hotspot {
+  position: absolute;
+  z-index: 4;
+  cursor: pointer;
+  border-radius: 2px;
+  background: transparent;
+  transition: background-color 0.1s ease;
+}
+
+.pdf-link-hotspot:hover {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 22%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 55%, transparent);
+}
+
+/* External links (web URLs, DOIs) tint green to distinguish them from
+   in-document jumps. */
+.pdf-link-external:hover {
+  background: color-mix(in srgb, #10b981 22%, transparent);
+  outline: 1px solid color-mix(in srgb, #10b981 55%, transparent);
+}
+
 /* Slot for a page not yet in the resident render window. Reserves scroll height
    so every page is reachable; fills in with the real page once rendered. */
 .pdf-page-placeholder {

@@ -1,9 +1,11 @@
+mod citations;
 mod import;
 mod library_helpers;
 mod pdf_cache;
 mod pdf_extract;
 mod pdf_loading;
 
+pub use citations::*;
 pub use import::*;
 pub use library_helpers::*;
 pub use pdf_cache::*;
@@ -61,6 +63,10 @@ pub enum RenderRequest {
     ExtractAnnotations {
         pdf_path: String,
         reply: oneshot::Sender<Result<Vec<rotero_pdf::ExtractedAnnotation>, String>>,
+    },
+    ExtractLinks {
+        pdf_path: String,
+        reply: oneshot::Sender<Result<Vec<rotero_pdf::ExtractedLink>, String>>,
     },
     /// Drops the engine's cached PDF file bytes. Sent when the last PDF tab
     /// closes so a large document's raw bytes aren't pinned indefinitely.
@@ -191,6 +197,10 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     let result = engine
                         .extract_annotations(&pdf_path)
                         .map_err(|e| e.to_string());
+                    let _ = reply.send(result);
+                }
+                RenderRequest::ExtractLinks { pdf_path, reply } => {
+                    let result = engine.extract_links(&pdf_path).map_err(|e| e.to_string());
                     let _ = reply.send(result);
                 }
                 RenderRequest::ClearCache => {

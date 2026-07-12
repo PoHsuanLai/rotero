@@ -81,6 +81,17 @@ pub async fn open_pdf(
             tab.paper_id.clone(),
         )
     };
+    // Extract intra-document links (citation/figure/section jumps) in the
+    // background so hotspots are ready shortly after the page renders. Independent
+    // of the render/text path below, and covers both cache-hit and fresh opens.
+    {
+        let render_tx_links = render_tx.clone();
+        let mut tabs_links = *tabs;
+        spawn(async move {
+            let _ = super::load_links(&render_tx_links, &mut tabs_links, tab_id).await;
+        });
+    }
+
     let render_scale = zoom * dpr;
     let cache_dir = data_dir.to_path_buf();
     let cache_path = path.clone();
