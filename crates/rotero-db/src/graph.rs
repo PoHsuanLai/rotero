@@ -1,4 +1,7 @@
+use turso::Value;
+
 use crate::Database;
+use crate::crr::PaperCitations;
 use crate::queries;
 
 impl Database {
@@ -28,5 +31,72 @@ impl Database {
             pairs.push((paper_id, coll_id));
         }
         Ok(pairs)
+    }
+
+    /// Return all directed (citing_paper_id, cited_paper_id) citation edges.
+    pub async fn list_all_citations(&self) -> Result<Vec<(String, String)>, crate::DbError> {
+        let conn = self.conn();
+        let mut rows = conn.query(queries::GRAPH_ALL_CITATIONS, ()).await?;
+        let mut pairs = Vec::new();
+        while let Some(row) = rows.next().await? {
+            let citing = row.get_value(0)?.as_text().cloned().unwrap_or_default();
+            let cited = row.get_value(1)?.as_text().cloned().unwrap_or_default();
+            pairs.push((citing, cited));
+        }
+        Ok(pairs)
+    }
+
+    /// Record that `citing_paper_id` cites `cited_paper_id`. Idempotent; a
+    /// self-citation (equal ids) is rejected.
+    pub async fn insert_citation(
+        &self,
+        citing_paper_id: &str,
+        cited_paper_id: &str,
+    ) -> Result<(), crate::DbError> {
+        if citing_paper_id == cited_paper_id {
+            return Ok(());
+        }
+        let conn = self.conn();
+        conn.execute(
+            queries::CITATION_INSERT,
+            [
+                Value::Text(citing_paper_id.to_string()),
+                Value::Text(cited_paper_id.to_string()),
+            ],
+        )
+        .await?;
+        let pk = format!("{citing_paper_id}:{cited_paper_id}");
+        self.crr()
+            .track_insert("paper_citations", &pk, PaperCitations::ALL)
+            .await?;
+        Ok(())
+    }
+
+    /// Read a one-time-task flag from `app_flags` (local-only bookkeeping).
+    pub async fn get_app_flag(&self, key: &str) -> Result<Option<String>, crate::DbError> {
+        let conn = self.conn();
+        let mut rows = conn
+            .query(
+                "SELECT value FROM app_flags WHERE key = ?1",
+                [Value::Text(key.to_string())],
+            )
+            .await?;
+        if let Some(row) = rows.next().await? {
+            Ok(row.get_value(0)?.as_text().cloned())
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Set a one-time-task flag in `app_flags`.
+    pub async fn set_app_flag(&self, key: &str, value: &str) -> Result<(), crate::DbError> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO app_flags (key, value) VALUES (?1, ?2) \
+             ON CONFLICT(key) DO UPDATE SET value = ?2",
+            [Value::Text(key.to_string()), Value::Text(value.to_string())],
+        )
+        .await?;
+        Ok(())
     }
 }

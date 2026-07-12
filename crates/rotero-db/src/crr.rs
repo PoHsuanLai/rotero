@@ -153,6 +153,13 @@ pub struct PaperTags {
     tag_id: String,
 }
 
+#[derive(Crdt)]
+#[crdt(table = "paper_citations", pk = (citing_paper_id, cited_paper_id; sep = ':'))]
+pub struct PaperCitations {
+    citing_paper_id: String,
+    cited_paper_id: String,
+}
+
 /// The set of tables and columns Rotero replicates, mirroring the app schema.
 pub fn rotero_schema() -> Schema {
     recrr::schema![
@@ -164,6 +171,7 @@ pub fn rotero_schema() -> Schema {
         SavedSearches,
         PaperCollections,
         PaperTags,
+        PaperCitations,
     ]
 }
 

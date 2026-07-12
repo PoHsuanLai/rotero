@@ -57,6 +57,20 @@ CREATE TABLE IF NOT EXISTS paper_tags (
     PRIMARY KEY (paper_id, tag_id)
 );
 
+CREATE TABLE IF NOT EXISTS paper_citations (
+    citing_paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    cited_paper_id  TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    PRIMARY KEY (citing_paper_id, cited_paper_id)
+);
+
+-- Bookkeeping for one-time app tasks (e.g. the initial citation scan), keyed by
+-- a task name. Local-only: not replicated, since it records what THIS install has
+-- done, not shared library state.
+CREATE TABLE IF NOT EXISTS app_flags (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+
 CREATE TABLE IF NOT EXISTS annotations (
     id          TEXT PRIMARY KEY,
     paper_id    TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
