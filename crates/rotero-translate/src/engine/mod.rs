@@ -8,8 +8,13 @@
 //! `Zotero.loadTranslator("web")` bridge. Not yet implemented: the full `ZU`
 //! utility set, search/import delegation (needs async HTTP), and export IO.
 
+mod broker;
 mod http;
 mod sandbox;
+
+pub use broker::{
+    BrokeredFetch, ChannelBroker, DirectBroker, FetchBroker, FetchRequest, FetchResponse,
+};
 
 use std::cell::RefCell;
 
@@ -49,12 +54,66 @@ impl Page {
 /// `url` its address. Runs `detectWeb(doc, url)`; if it returns truthy, runs
 /// `doWeb(doc, url)` and returns whatever items `.complete()` emitted.
 pub fn run_web_translator(source: &str, html: &str, url: &str) -> Result<Vec<ZoteroItem>, String> {
-    let dom = ParsedDom::parse(html)?;
+    run_web_translator_raw(source, html, None, url)
+}
+
+/// Like [`run_web_translator`], but with an optional `raw_html` — the *raw server
+/// HTML* (e.g. a page-context `fetch` of the page's own URL) alongside the
+/// rendered DOM. Several translators read data from an inline `<script>` blob
+/// (IEEE `global.document.metadata`, `__NEXT_DATA__`, `application/ld+json`) that
+/// an SPA strips or moves during hydration, so it's absent from the rendered
+/// `document.documentElement.outerHTML` but present in the raw response. When
+/// `raw_html` is given, the active DOM is parsed from it (a superset of the
+/// rendered page for static extraction); the rendered `html` is retained as the
+/// page context for delegation. `None` parses against the rendered `html`.
+pub fn run_web_translator_raw(
+    source: &str,
+    html: &str,
+    raw_html: Option<&str>,
+    url: &str,
+) -> Result<Vec<ZoteroItem>, String> {
+    run_web_translator_full(source, html, raw_html, url, None)
+}
+
+/// Like [`run_web_translator_raw`], but routes the translator's follow-up HTTP
+/// requests through `broker` — a [`ChannelBroker`] that proxies each fetch to the
+/// user's authenticated browser tab. `None` uses the anonymous
+/// [`DirectBroker`](broker::DirectBroker), matching the other entry points.
+///
+/// Must run on a thread the broker can park (a `spawn_blocking` worker): a
+/// channel broker blocks the calling thread on each follow-up fetch while an
+/// async driver performs the round-trip.
+pub fn run_web_translator_with_broker(
+    source: &str,
+    html: &str,
+    raw_html: Option<&str>,
+    url: &str,
+    broker: Box<dyn FetchBroker>,
+) -> Result<Vec<ZoteroItem>, String> {
+    run_web_translator_full(source, html, raw_html, url, Some(broker))
+}
+
+fn run_web_translator_full(
+    source: &str,
+    html: &str,
+    raw_html: Option<&str>,
+    url: &str,
+    fetch_broker: Option<Box<dyn FetchBroker>>,
+) -> Result<Vec<ZoteroItem>, String> {
+    // Install the follow-up-fetch broker for this run, if any. The guard clears
+    // the thread-local on drop so a later run on the same pooled thread is clean.
+    let _broker_guard = fetch_broker.map(broker::install);
+
+    // Prefer the raw server HTML as the parse source when present: it carries the
+    // inline scripts and meta tags translators read statically, which the
+    // rendered DOM may have lost. Fall back to the rendered HTML otherwise.
+    let dom_source = raw_html.unwrap_or(html);
+    let dom = ParsedDom::parse(dom_source)?;
     DOM.with(|d| *d.borrow_mut() = Some(dom));
     SINK.with(|s| s.borrow_mut().clear());
     PAGE.with(|p| {
         *p.borrow_mut() = Page {
-            html: html.to_string(),
+            html: dom_source.to_string(),
             url: url.to_string(),
         }
     });
@@ -63,9 +122,17 @@ pub fn run_web_translator(source: &str, html: &str, url: &str) -> Result<Vec<Zot
         let mut ctx = Context::default();
         register_host_functions(&mut ctx)?;
 
-        // Inject the sandbox shim (defines Zotero, ZU, doc) then the translator.
+        // Inject the sandbox shim (defines Zotero, doc, and the host-call shims),
+        // then load upstream utilities.js (installs the real Zotero.Utilities),
+        // then re-apply our overrides so the host-backed ZU functions (xpath,
+        // HTTP, cleanAuthor, DOM) win over any upstream stubs. Finally the
+        // translator.
         ctx.eval(Source::from_bytes(sandbox::SHIM))
             .map_err(|e| format!("sandbox shim error: {e}"))?;
+        ctx.eval(Source::from_bytes(sandbox::UTILITIES.as_bytes()))
+            .map_err(|e| format!("utilities load error: {e}"))?;
+        ctx.eval(Source::from_bytes(b"__applyZUOverrides();"))
+            .map_err(|e| format!("ZU override error: {e}"))?;
         ctx.eval(Source::from_bytes(source))
             .map_err(|e| format!("translator load error: {e}"))?;
 
@@ -121,13 +188,73 @@ pub fn run_web_translator(source: &str, html: &str, url: &str) -> Result<Vec<Zot
     Ok(items)
 }
 
+/// Run an unmodified upstream *import* translator (RIS/BibTeX/MODS/…) over an
+/// input string and collect the items it emits.
+///
+/// `source` is the import translator `.js`. The input is fed to the translator's
+/// `Zotero.read()` line pump; `doImport()` runs (its returned promise, if any, is
+/// settled by draining the job queue) and whatever it `.complete()`s is returned.
+/// This exists to run Zotero's own format parser as a reference oracle in
+/// differential tests — the app's import path uses the Rust parsers in
+/// [`crate::translators`], not this.
+pub fn run_import_translator(source: &str, input: &str) -> Result<Vec<ZoteroItem>, String> {
+    SINK.with(|s| s.borrow_mut().clear());
+    // Import translators query neither the DOM nor a page; give them empty ones
+    // so any incidental access is inert rather than a stale prior run.
+    DOM.with(|d| *d.borrow_mut() = None);
+    PAGE.with(|p| *p.borrow_mut() = Page::empty());
+
+    let result = (|| {
+        let mut ctx = Context::default();
+        register_host_functions(&mut ctx)?;
+
+        ctx.eval(Source::from_bytes(sandbox::SHIM))
+            .map_err(|e| format!("sandbox shim error: {e}"))?;
+        ctx.eval(Source::from_bytes(sandbox::UTILITIES.as_bytes()))
+            .map_err(|e| format!("utilities load error: {e}"))?;
+        ctx.eval(Source::from_bytes(b"__applyZUOverrides();"))
+            .map_err(|e| format!("ZU override error: {e}"))?;
+        ctx.eval(Source::from_bytes(source))
+            .map_err(|e| format!("translator load error: {e}"))?;
+
+        let driver = format!(
+            r#"
+            (function() {{
+                __setImportInput({input});
+                if (typeof doImport === 'function') doImport();
+            }})()
+            "#,
+            input = js_str_literal(input),
+        );
+        if let Err(e) = ctx.eval(Source::from_bytes(driver.as_bytes())) {
+            return Err(format!("import run error: {}", error_detail(&e, &mut ctx)));
+        }
+
+        // Settle `doImport`'s promise / any `await`ed work; a job error is
+        // non-fatal (keep whatever items already reached the sink).
+        if let Err(e) = ctx.run_jobs() {
+            let detail = error_detail(&e, &mut ctx);
+            tracing::debug!("import job error (keeping emitted items): {detail}");
+        }
+        Ok::<(), String>(())
+    })();
+
+    let items = SINK.with(|s| std::mem::take(&mut *s.borrow_mut()));
+    result?;
+    Ok(items)
+}
+
 /// Render a thrown JS error with its `message` and `stack` (if present) for
 /// diagnostics — boa's default `Display` gives only the type and message, which
 /// isn't enough to locate a failure inside a large translator.
 fn error_detail(err: &boa_engine::JsError, ctx: &mut Context) -> String {
-    let opaque = err.to_opaque(ctx);
+    // `into_opaque` consumes the error and may fail; clone so the caller keeps
+    // theirs, and fall back to the plain message if the opaque form is
+    // unavailable.
+    let opaque = err.clone().into_opaque(ctx).ok();
     let read = |key: &str, ctx: &mut Context| -> Option<String> {
         opaque
+            .as_ref()?
             .as_object()
             .and_then(|o| o.get(js_string!(key), ctx).ok())
             .filter(|v| !v.is_undefined() && !v.is_null())
@@ -507,18 +634,25 @@ fn register_host_functions(ctx: &mut Context) -> Result<(), String> {
     ctx.register_global_callable(js_string!("__strToDate"), 1, str_to_date)
         .map_err(|e| format!("register __strToDate: {e}"))?;
 
-    // __httpGet(url): blocking GET. Returns a JSON { ok, body|error } so the JS
-    // shim can invoke the translator's success/failure callback appropriately.
+    // __httpGet(url, headersJson): blocking GET. Returns a JSON { ok, body|error }
+    // so the JS shim can invoke the translator's success/failure callback
+    // appropriately. `headersJson` is an optional JSON object of request headers
+    // (e.g. `{"Referer": "..."}`), "" if none. The URL arrives already resolved
+    // to absolute by the sandbox; `resolve_against_page` is a safety net.
     let http_get = NativeFunction::from_copy_closure(|_this, args, ctx| {
-        let url = arg_string(args, 0, ctx)?;
-        Ok(JsValue::from(js_string!(http_result(http::get(&url)))))
+        let url = resolve_against_page(&arg_string(args, 0, ctx)?);
+        let headers = parse_headers(&arg_string(args, 1, ctx)?);
+        Ok(JsValue::from(js_string!(http_result(broker::get(
+            &url, &headers
+        )))))
     });
-    ctx.register_global_callable(js_string!("__httpGet"), 1, http_get)
+    ctx.register_global_callable(js_string!("__httpGet"), 2, http_get)
         .map_err(|e| format!("register __httpGet: {e}"))?;
 
-    // __httpPost(url, body, contentType): blocking POST, same result shape.
+    // __httpPost(url, body, contentType, headersJson): blocking POST, same result
+    // shape. `headersJson` is optional request headers (see __httpGet).
     let http_post = NativeFunction::from_copy_closure(|_this, args, ctx| {
-        let url = arg_string(args, 0, ctx)?;
+        let url = resolve_against_page(&arg_string(args, 0, ctx)?);
         let body = arg_string(args, 1, ctx)?;
         let content_type = {
             let c = arg_string(args, 2, ctx)?;
@@ -528,16 +662,49 @@ fn register_host_functions(ctx: &mut Context) -> Result<(), String> {
                 c
             }
         };
-        Ok(JsValue::from(js_string!(http_result(http::post(
+        let headers = parse_headers(&arg_string(args, 3, ctx)?);
+        Ok(JsValue::from(js_string!(http_result(broker::post(
             &url,
             &body,
-            &content_type
+            &content_type,
+            &headers
         )))))
     });
-    ctx.register_global_callable(js_string!("__httpPost"), 3, http_post)
+    ctx.register_global_callable(js_string!("__httpPost"), 4, http_post)
         .map_err(|e| format!("register __httpPost: {e}"))?;
 
     Ok(())
+}
+
+/// Parse the sandbox's `headersJson` argument (a JSON object of string→string,
+/// or "" when absent) into a header list. Malformed input yields no headers.
+fn parse_headers(json: &str) -> Vec<(String, String)> {
+    if json.is_empty() {
+        return Vec::new();
+    }
+    match serde_json::from_str::<std::collections::BTreeMap<String, String>>(json) {
+        Ok(map) => map.into_iter().collect(),
+        Err(e) => {
+            tracing::debug!("engine http: bad headers json: {e}");
+            Vec::new()
+        }
+    }
+}
+
+/// Safety-net resolve of a possibly-relative follow-up URL against the current
+/// page URL. The sandbox's `__resolveUrl` normally does this JS-side; this
+/// guards any path that reaches the host still relative, so `http::scheme_ok`
+/// doesn't reject a bare `/rest/...`.
+fn resolve_against_page(url: &str) -> String {
+    // Already absolute (has a scheme, or protocol-relative).
+    if url.starts_with("//") || reqwest::Url::parse(url).is_ok() {
+        return url.to_string();
+    }
+    let base = PAGE.with(|p| p.borrow().url.clone());
+    match reqwest::Url::parse(&base).and_then(|b| b.join(url)) {
+        Ok(joined) => joined.to_string(),
+        Err(_) => url.to_string(),
+    }
 }
 
 /// Serialize an HTTP host-function result to the `{ ok, body|error }` JSON the

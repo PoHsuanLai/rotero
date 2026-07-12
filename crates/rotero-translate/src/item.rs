@@ -150,26 +150,18 @@ impl ZoteroItem {
         None
     }
 
-    /// Build a `ZoteroItem` from a flat [`Paper`](rotero_models::Paper), used by
-    /// the DOI-content-negotiation and bibliography-import translators. Authors
-    /// are split on the last space into first and last names.
+    /// Build a `ZoteroItem` from a [`Paper`](rotero_models::Paper), used by the
+    /// DOI-content-negotiation and bibliography-import translators. Structured
+    /// creators and roles carry over directly.
     pub fn from_paper(p: rotero_models::Paper) -> Self {
         let creators = p
-            .authors
+            .creators
             .into_iter()
-            .map(|name| match name.rsplit_once(' ') {
-                Some((first, last)) => ZoteroCreator {
-                    first_name: first.trim().to_string(),
-                    last_name: last.trim().to_string(),
-                    name: String::new(),
-                    creator_type: "author".to_string(),
-                },
-                None => ZoteroCreator {
-                    first_name: String::new(),
-                    last_name: String::new(),
-                    name,
-                    creator_type: "author".to_string(),
-                },
+            .map(|c| ZoteroCreator {
+                first_name: c.first_name,
+                last_name: c.last_name,
+                name: c.name,
+                creator_type: c.role.as_zotero().to_string(),
             })
             .collect();
 
@@ -193,17 +185,22 @@ impl ZoteroItem {
         }
 
         ZoteroItem {
-            item_type: "journalArticle".to_string(),
+            item_type: p.item_type,
             title: p.title,
             creators,
             date: p.year.map(|y| y.to_string()).unwrap_or_default(),
             doi: p.doi.unwrap_or_default(),
+            isbn: p.publication.isbn.unwrap_or_default(),
+            issn: p.publication.issn.unwrap_or_default(),
             abstract_note: p.abstract_text.unwrap_or_default(),
             publication_title: p.publication.journal.unwrap_or_default(),
             volume: p.publication.volume.unwrap_or_default(),
             issue: p.publication.issue.unwrap_or_default(),
             pages: p.publication.pages.unwrap_or_default(),
             publisher: p.publication.publisher.unwrap_or_default(),
+            series: p.publication.series.unwrap_or_default(),
+            place: p.publication.place.unwrap_or_default(),
+            language: p.publication.language.unwrap_or_default(),
             url: p.links.url.unwrap_or_default(),
             attachments,
             ..Default::default()
@@ -224,33 +221,38 @@ impl ZoteroItem {
         // against a base dir before it can be stored (see the import UI).
         let pdf_url = self.pdf_url();
 
-        let authors: Vec<String> = self
+        // Carry every creator with its role, keeping structured names. Creators
+        // with no usable name at all are dropped.
+        let creators: Vec<rotero_models::Creator> = self
             .creators
             .into_iter()
-            .filter(|c| c.creator_type.is_empty() || c.creator_type == "author")
-            .map(|c| {
-                if !c.name.is_empty() {
-                    c.name
-                } else if c.first_name.is_empty() {
-                    c.last_name
-                } else {
-                    format!("{} {}", c.first_name, c.last_name)
-                }
+            .map(|c| rotero_models::Creator {
+                first_name: c.first_name,
+                last_name: c.last_name,
+                name: c.name,
+                role: rotero_models::CreatorRole::from_zotero(&c.creator_type),
             })
-            .filter(|s| !s.is_empty())
+            .filter(|c| !c.display_name().is_empty())
             .collect();
 
+        let isbn = non_empty(self.isbn);
+
         Some(rotero_models::Paper {
+            item_type: if self.item_type.is_empty() {
+                "journalArticle".to_string()
+            } else {
+                self.item_type
+            },
             title: self.title,
-            authors,
+            creators,
             year: if self.date.is_empty() {
                 None
             } else {
                 extract_year(&self.date)
             },
-            doi: non_empty(self.doi)
-                .or_else(|| non_empty(self.isbn).map(|i| PaperId::Isbn(i).to_stored_string()))
-                .or_else(|| extract_pmid(&self.extra)),
+            // DOI proper only; ISBN has its own venue field and no longer
+            // masquerades as a DOI. PMID from the extra field is a last resort.
+            doi: non_empty(self.doi).or_else(|| extract_pmid(&self.extra)),
             abstract_text: non_empty(self.abstract_note),
             publication: rotero_models::Publication {
                 journal: non_empty(self.publication_title),
@@ -258,6 +260,11 @@ impl ZoteroItem {
                 issue: non_empty(self.issue),
                 pages: non_empty(self.pages),
                 publisher: non_empty(self.publisher),
+                isbn,
+                issn: non_empty(self.issn),
+                series: non_empty(self.series),
+                place: non_empty(self.place),
+                language: non_empty(self.language),
             },
             links: rotero_models::PaperLinks {
                 url: non_empty(self.url),
@@ -315,22 +322,40 @@ mod tests {
     #[test]
     fn test_zotero_item_to_paper() {
         let item = ZoteroItem {
-            item_type: "journalArticle".into(),
+            item_type: "book".into(),
             title: "Test Paper".into(),
-            creators: vec![ZoteroCreator {
-                first_name: "John".into(),
-                last_name: "Doe".into(),
-                name: String::new(),
-                creator_type: "author".into(),
-            }],
+            creators: vec![
+                ZoteroCreator {
+                    first_name: "John".into(),
+                    last_name: "Doe".into(),
+                    name: String::new(),
+                    creator_type: "author".into(),
+                },
+                ZoteroCreator {
+                    first_name: "Ed".into(),
+                    last_name: "Itor".into(),
+                    name: String::new(),
+                    creator_type: "editor".into(),
+                },
+            ],
             date: "2024".into(),
             doi: "10.1234/test".into(),
+            isbn: "978-0-13-468599-1".into(),
+            series: "Great Works".into(),
             ..Default::default()
         };
         let paper = item.into_paper().unwrap();
         assert_eq!(paper.title, "Test Paper");
+        // item_type carries through instead of collapsing to journalArticle.
+        assert_eq!(paper.item_type, "book");
         assert_eq!(paper.doi, Some("10.1234/test".into()));
         assert_eq!(paper.year, Some(2024));
-        assert_eq!(paper.authors, vec!["John Doe"]);
+        // Both creators survive with their roles; author_names shows only authors.
+        assert_eq!(paper.creators.len(), 2);
+        assert_eq!(paper.creators[1].role, rotero_models::CreatorRole::Editor);
+        assert_eq!(paper.author_names(), vec!["John Doe"]);
+        // Venue fields land in their own slots, not the DOI.
+        assert_eq!(paper.publication.isbn.as_deref(), Some("978-0-13-468599-1"));
+        assert_eq!(paper.publication.series.as_deref(), Some("Great Works"));
     }
 }

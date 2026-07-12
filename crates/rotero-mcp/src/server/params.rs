@@ -18,6 +18,24 @@ pub struct GetPaperParams {
     pub paper_id: String,
 }
 
+/// Parameters for the `search_online` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct SearchOnlineParams {
+    /// Search query (keywords, title, or author names)
+    pub query: String,
+    /// Maximum number of merged results (default 20, max 50)
+    pub limit: Option<u32>,
+}
+
+/// Parameters for the `find_pdf` tool.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct FindPdfParams {
+    /// DOI of the paper, if known — improves match accuracy
+    pub doi: Option<String>,
+    /// Paper title — used when no DOI is available
+    pub title: Option<String>,
+}
+
 /// Parameters for the `list_papers` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct ListPapersParams {

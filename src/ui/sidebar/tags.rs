@@ -16,6 +16,8 @@ pub(crate) fn TagSection(
     let db = use_context::<Database>();
     let mut drag_paper = use_context::<Signal<DragPaper>>();
     let mut drop_hover = use_context::<Signal<Option<String>>>();
+    let mut membership_refresh =
+        use_context::<Signal<crate::state::app_state::MembershipRefresh>>();
     let mut tag_ctx = ctx_menu;
     let mut open = use_signal(|| true);
 
@@ -40,7 +42,7 @@ pub(crate) fn TagSection(
                     if tags.is_empty() {
                         p { class: "sidebar-empty", "No tags" }
                     } else {
-                        div { class: "sidebar-tags-wrap",
+                        div { class: "chip-wrap sidebar-tags-wrap",
                             for tag in tags.iter() {
                                 {
                                     let tag_id = tag.id.clone().unwrap_or_default();
@@ -50,11 +52,11 @@ pub(crate) fn TagSection(
                                     let is_paper_drop = drag_paper.read().0.is_some();
                                     let is_hover = drop_hover().as_deref() == Some(&format!("tag-{tag_id}"));
                                     let tag_class = if is_paper_drop && is_hover {
-                                        "sidebar-tag sidebar-tag--drophover"
+                                        "chip chip--drophover"
                                     } else if is_paper_drop {
-                                        "sidebar-tag sidebar-tag--droptarget"
+                                        "chip chip--droptarget"
                                     } else {
-                                        "sidebar-tag"
+                                        "chip"
                                     };
                                     let db_for_tag_drop = db.clone();
                                     let tid_click = tag_id.clone();
@@ -100,6 +102,7 @@ pub(crate) fn TagSection(
                                                             && let Ok(ids) = db.list_paper_ids_by_tag(&tid).await {
                                                                 lib_state.with_mut(|s| s.filter.tag_paper_ids = Some(ids));
                                                             }
+                                                        membership_refresh.with_mut(|r| r.0 = r.0.wrapping_add(1));
                                                     });
                                                     drag_paper.set(DragPaper(None));
                                                 }

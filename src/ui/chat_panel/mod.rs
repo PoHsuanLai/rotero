@@ -38,23 +38,42 @@ fn get_active_paper_id(lib_state: &LibraryState, tab_mgr: &PdfTabManager) -> Opt
         .or_else(|| lib_state.single_selected_id().cloned())
 }
 
+/// Standing guidance sent with every message: steer the agent to Rotero's own
+/// search/import tools so its results match the UI search bar and land cleanly
+/// in the library, rather than falling back to generic web search.
+const SEARCH_GUIDANCE: &str = "\
+When finding papers, prefer the rotero MCP tools over generic web search: \
+`search_online` (searches OpenAlex, arXiv, and Semantic Scholar together and \
+returns papers in the library's format), `find_pdf` (locates an open-access PDF \
+URL), `download_pdf`, and `add_paper` to import a result into my library. \
+Use `search_papers` to search papers already in my library.";
+
 fn build_paper_context(lib_state: &LibraryState, tab_mgr: &PdfTabManager) -> Option<String> {
-    let paper_id = get_active_paper_id(lib_state, tab_mgr)?;
-    let paper = lib_state
-        .papers
-        .iter()
-        .find(|p| p.id.as_deref() == Some(paper_id.as_str()))?;
+    let paper_block = get_active_paper_id(lib_state, tab_mgr)
+        .and_then(|paper_id| {
+            lib_state
+                .papers
+                .iter()
+                .find(|p| p.id.as_deref() == Some(paper_id.as_str()))
+                .map(|paper| (paper_id, paper))
+        })
+        .map(|(paper_id, paper)| {
+            format!(
+                "\nI'm currently looking at this paper in my library:\n\
+                 Title: {}\nAuthors: {}\nYear: {}\nDOI: {}\nPaper ID: {}\n\
+                 You can use the rotero MCP tools to read this paper's annotations, \
+                 extract PDF text, etc.",
+                paper.title,
+                paper.author_names().join(", "),
+                paper.year.map(|y| y.to_string()).unwrap_or_default(),
+                paper.doi.as_deref().unwrap_or(""),
+                paper_id,
+            )
+        })
+        .unwrap_or_default();
 
     Some(format!(
-        "<rotero-context>\nI'm currently looking at this paper in my library:\n\
-         Title: {}\nAuthors: {}\nYear: {}\nDOI: {}\nPaper ID: {}\n\
-         You can use the rotero MCP tools to search my library, \
-         read this paper's annotations, extract PDF text, etc.\n</rotero-context>",
-        paper.title,
-        paper.authors.join(", "),
-        paper.year.map(|y| y.to_string()).unwrap_or_default(),
-        paper.doi.as_deref().unwrap_or(""),
-        paper_id,
+        "<rotero-context>\n{SEARCH_GUIDANCE}{paper_block}\n</rotero-context>"
     ))
 }
 

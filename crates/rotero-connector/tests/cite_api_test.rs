@@ -15,7 +15,7 @@ fn test_state() -> Arc<ConnectorState> {
                 if query.contains("attention") {
                     let mut p = Paper::new("Attention Is All You Need".to_string());
                     p.id = Some("paper-001".to_string());
-                    p.authors = vec!["Vaswani".to_string()];
+                    p.creators = vec![rotero_models::Creator::author_from_display("Vaswani")];
                     p.year = Some(2017);
                     vec![p]
                 } else {
@@ -30,7 +30,8 @@ fn test_state() -> Arc<ConnectorState> {
                         if id == "paper-001" {
                             let mut p = Paper::new("Attention Is All You Need".to_string());
                             p.id = Some("paper-001".to_string());
-                            p.authors = vec!["Vaswani".to_string()];
+                            p.creators =
+                                vec![rotero_models::Creator::author_from_display("Vaswani")];
                             p.year = Some(2017);
                             p.publication.journal = Some("NeurIPS".to_string());
                             Some(p)
@@ -42,6 +43,8 @@ fn test_state() -> Arc<ConnectorState> {
             })
         })),
         translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),
+        #[cfg(feature = "translator-engine")]
+        scrape_sessions: Default::default(),
     })
 }
 

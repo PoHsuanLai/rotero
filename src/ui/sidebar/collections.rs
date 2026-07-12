@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::state::app_state::{DragPaper, LibraryState, LibraryView};
 use rotero_db::Database;
-use rotero_models::Collection;
+use rotero_models::{Collection, children_of, has_children};
 
 #[component]
 pub(crate) fn CollectionTree(
@@ -17,13 +17,14 @@ pub(crate) fn CollectionTree(
     let mut drag_coll = use_context::<Signal<Option<String>>>();
     let mut drag_paper = use_context::<Signal<DragPaper>>();
     let mut drop_hover = use_context::<Signal<Option<String>>>();
+    let mut membership_refresh =
+        use_context::<Signal<crate::state::app_state::MembershipRefresh>>();
     let mut coll_ctx = ctx_menu;
     let lib = lib_state.read();
     let view = lib.view.clone();
 
-    let children: Vec<_> = collections
-        .iter()
-        .filter(|c| c.parent_id == parent_id)
+    let children: Vec<Collection> = children_of(&collections, parent_id.as_deref())
+        .into_iter()
         .cloned()
         .collect();
 
@@ -40,12 +41,12 @@ pub(crate) fn CollectionTree(
                 let coll_name = coll.name.clone();
                 let is_active = view == LibraryView::Collection(coll_id.clone());
                 let class = if is_active {
-                    "sidebar-collection-item sidebar-collection-item--active"
+                    "coll-row coll-row--sidebar coll-row--active"
                 } else {
-                    "sidebar-collection-item"
+                    "coll-row coll-row--sidebar"
                 };
 
-                let has_children = collections.iter().any(|c| c.parent_id.as_deref() == Some(coll_id.as_str()));
+                let has_children = has_children(&collections, &coll_id);
                 let collections_clone = collections.clone();
                 let creating_under_this = new_coll_editing() == Some(Some(coll_id.clone()));
 
@@ -60,9 +61,9 @@ pub(crate) fn CollectionTree(
                 let is_drag_active = (drag_coll().is_some() && drag_coll().as_deref() != Some(coll_id.as_str())) || drag_paper().0.is_some();
                 let is_hover = drop_hover().as_deref() == Some(&format!("coll-{coll_id}"));
                 let item_class = if is_drag_active && is_hover {
-                    format!("{class} sidebar-collection-item--drophover")
+                    format!("{class} coll-row--drophover")
                 } else if is_drag_active {
-                    format!("{class} sidebar-collection-item--droptarget")
+                    format!("{class} coll-row--droptarget")
                 } else {
                     class.to_string()
                 };
@@ -145,6 +146,7 @@ pub(crate) fn CollectionTree(
                                         && let Ok(ids) = db.list_paper_ids_in_subtree(&target).await {
                                             lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
                                         }
+                                    membership_refresh.with_mut(|r| r.0 = r.0.wrapping_add(1));
                                 });
                                 drag_paper.set(DragPaper(None));
                             }
@@ -152,8 +154,8 @@ pub(crate) fn CollectionTree(
                         ondragend: move |_| {
                             drag_coll.set(None);
                         },
-                        i { class: "sidebar-collection-icon {folder_icon}" }
-                        span { class: "sidebar-collection-name", "{coll_name}" }
+                        i { class: "coll-row-icon {folder_icon}" }
+                        span { class: "coll-row-name", "{coll_name}" }
                     }
                     if has_children || creating_under_this {
                         CollectionTree {
@@ -204,9 +206,9 @@ pub(crate) fn NewCollectionRow(parent_id: Option<String>, depth: u32) -> Element
 
     rsx! {
         div {
-            class: "sidebar-collection-item sidebar-collection-item--editing",
+            class: "coll-row coll-row--sidebar coll-row--editing",
             style: "padding-left: {indent + 8}px;",
-            i { class: "sidebar-collection-icon bi bi-folder" }
+            i { class: "coll-row-icon bi bi-folder" }
             input {
                 class: "sidebar-inline-rename",
                 r#type: "text",
@@ -216,8 +218,8 @@ pub(crate) fn NewCollectionRow(parent_id: Option<String>, depth: u32) -> Element
                 onmounted: move |evt| async move {
                     let _ = evt.set_focus(true).await;
                 },
+                onfocusin: crate::ui::keybindings::editable_focus_in,
                 onkeydown: move |evt| {
-                    evt.stop_propagation();
                     match evt.key() {
                         Key::Enter => {
                             let name = name_value().trim().to_string();
@@ -247,7 +249,8 @@ pub(crate) fn NewCollectionRow(parent_id: Option<String>, depth: u32) -> Element
                         _ => {}
                     }
                 },
-                onfocusout: move |_| {
+                onfocusout: move |evt| {
+                    crate::ui::keybindings::editable_focus_out(evt);
                     if !submitted() {
                         editing.set(None);
                         name_value.set(String::new());

@@ -5,7 +5,7 @@ use turso::Connection;
 use super::tables::{CREATE_FTS_INDEX, CREATE_TABLES};
 
 /// Current schema version; incremented with each migration.
-pub(super) const SCHEMA_VERSION: i64 = 10;
+pub(super) const SCHEMA_VERSION: i64 = 11;
 
 /// Create the application tables and run pending migrations.
 ///
@@ -123,12 +123,21 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
     }
 
     // Idempotent: ensure columns exist even if earlier migrations partially ran
+    // (e.g. the version counter advanced but the ALTER didn't land). Each is a
+    // no-op once the column is present.
     let _ = conn
         .execute("ALTER TABLE papers ADD COLUMN citation_count INTEGER", ())
         .await;
 
     let _ = conn
         .execute("ALTER TABLE papers ADD COLUMN pdf_url TEXT", ())
+        .await;
+
+    let _ = conn
+        .execute(
+            "ALTER TABLE papers ADD COLUMN item_type TEXT NOT NULL DEFAULT 'journalArticle'",
+            (),
+        )
         .await;
 
     if current_version < 8 {
@@ -148,6 +157,12 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
         // only needs to run once — hence a versioned migration, not every open.
         rebuild_fts_index(conn).await;
     }
+
+    // The Zotero `item_type` column is added by the idempotent ensure block
+    // above (it must run even for DBs whose version counter already reached 11
+    // without the column landing). The matching CRR clock backfill — so existing
+    // rows sync the new column — runs in `Database::open` via recrr's
+    // `migrate_add_column`, which needs the `Crr` store, not just this connection.
 
     if current_version < SCHEMA_VERSION {
         conn.execute("UPDATE schema_version SET version = ?1", [SCHEMA_VERSION])

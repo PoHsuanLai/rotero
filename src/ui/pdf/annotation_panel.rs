@@ -145,7 +145,13 @@ pub(crate) fn AnnotationPanel(tab_id: TabId) -> Element {
                                     if ann_type == AnnotationType::Note {
                                         if editing() {
                                             div { class: "annotation-edit-area",
-                                                textarea { class: "textarea", value: "{edit_value}", oninput: move |evt| edit_value.set(evt.value()) }
+                                                textarea {
+                                                    class: "textarea",
+                                                    value: "{edit_value}",
+                                                    onfocusin: crate::ui::keybindings::editable_focus_in,
+                                                    onfocusout: crate::ui::keybindings::editable_focus_out,
+                                                    oninput: move |evt| edit_value.set(evt.value()),
+                                                }
                                                 div { class: "annotation-edit-actions",
                                                     button {
                                                         class: "btn--save-sm",

@@ -6,7 +6,7 @@ use rotero_db::Database;
 
 use super::DetailShell;
 use super::detail_fields::DetailFields;
-use super::fields::{AddToCollectionSelect, TagEditor};
+use super::fields::{CollectionsField, TagsField};
 use super::notes::NotesSection;
 
 #[component]
@@ -68,6 +68,7 @@ pub fn PaperDetail() -> Element {
                                         class: "input input--sm",
                                         value: "{edit_key_value}",
                                         autofocus: true,
+                                        onfocusin: crate::ui::keybindings::editable_focus_in,
                                         oninput: move |evt| edit_key_value.set(evt.value()),
                                         onkeypress: {
                                             let db = db_key.clone();
@@ -96,7 +97,8 @@ pub fn PaperDetail() -> Element {
                                         },
                                         onfocusout: {
                                             let paper_id = paper_id.clone();
-                                            move |_| {
+                                            move |evt| {
+                                            crate::ui::keybindings::editable_focus_out(evt);
                                             let new_key = edit_key_value().trim().to_string();
                                             if !new_key.is_empty() {
                                                 let db = db_key2.clone();
@@ -156,12 +158,12 @@ pub fn PaperDetail() -> Element {
 
             div { class: "detail-field",
                 label { class: "detail-label", "Collection" }
-                AddToCollectionSelect { paper_id: paper_id.clone() }
+                CollectionsField { key: "{paper_id}", paper_id: paper_id.clone() }
             }
 
             div { class: "detail-field",
                 label { class: "detail-label", "Tags" }
-                TagEditor { paper_id: paper_id.clone() }
+                TagsField { key: "{paper_id}", paper_id: paper_id.clone() }
             }
 
             div { class: "detail-cite-section",
@@ -195,12 +197,12 @@ pub fn PaperDetail() -> Element {
                             let doi_for_oa = paper.doi.clone();
                             let url_for_oa = paper.links.pdf_url.clone();
                             let paper_title = paper.title.clone();
-                            let paper_authors = paper.authors.clone();
+                            let paper_authors = paper.author_names();
                             let paper_year = paper.year;
                             let db_oa = db.clone();
                             let agent_title = paper.title.clone();
                             let agent_doi = paper.doi.clone();
-                            let agent_authors = paper.authors.clone();
+                            let agent_authors = paper.author_names();
                             let agent_year = paper.year;
                             let agent_pid = pid_oa.clone();
                             let agent_channel = use_context::<crate::ui::chat_panel::AgentChannel>();

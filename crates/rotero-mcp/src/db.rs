@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use rotero_db::FromRow;
+use rotero_db::crr::{Collections, PaperCollections, Papers, Tags};
 use rotero_models::queries;
 use rotero_models::{Annotation, Collection, Note, Paper, Tag};
 use turso::{Connection, Value};
@@ -516,12 +517,8 @@ impl Database {
     pub async fn insert_paper(&self, paper: &Paper) -> Result<String, turso::Error> {
         let uuid = uuid::Uuid::now_v7().to_string();
         let authors_json =
-            serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
-        let extra_meta = paper
-            .citation
-            .extra_meta
-            .as_ref()
-            .map(|v| serde_json::to_string(v).unwrap_or_default());
+            serde_json::to_string(&paper.creators).unwrap_or_else(|_| "[]".to_string());
+        let extra_meta = rotero_db::papers::encode_extra_meta(paper);
 
         self.conn
             .execute(
@@ -555,37 +552,13 @@ impl Database {
                         .unwrap_or(Value::Null),
                     opt_text(paper.citation.citation_key.as_ref()),
                     opt_text(paper.links.pdf_url.as_ref()),
+                    Value::Text(paper.item_type.clone()),
                 ]),
             )
             .await?;
 
         self.crr
-            .track_insert(
-                "papers",
-                &uuid,
-                &[
-                    "title",
-                    "authors",
-                    "year",
-                    "doi",
-                    "abstract_text",
-                    "journal",
-                    "volume",
-                    "issue",
-                    "pages",
-                    "publisher",
-                    "url",
-                    "pdf_path",
-                    "date_added",
-                    "date_modified",
-                    "is_favorite",
-                    "is_read",
-                    "extra_meta",
-                    "citation_count",
-                    "citation_key",
-                    "pdf_url",
-                ],
-            )
+            .track_insert("papers", &uuid, Papers::ALL)
             .await
             .map_err(|e| turso::Error::Error(e.to_string()))?;
 
@@ -596,7 +569,7 @@ impl Database {
     /// Update a paper's metadata fields. Only non-None fields are applied.
     pub async fn update_paper_metadata(&self, id: &str, paper: &Paper) -> Result<(), turso::Error> {
         let authors_json =
-            serde_json::to_string(&paper.authors).unwrap_or_else(|_| "[]".to_string());
+            serde_json::to_string(&paper.creators).unwrap_or_else(|_| "[]".to_string());
         self.conn
             .execute(
                 queries::PAPER_UPDATE_METADATA,
@@ -616,6 +589,7 @@ impl Database {
                     opt_text(paper.publication.publisher.as_ref()),
                     opt_text(paper.links.url.as_ref()),
                     Value::Text(Utc::now().to_rfc3339()),
+                    Value::Text(paper.item_type.clone()),
                     Value::Text(id.to_string()),
                 ]),
             )
@@ -626,18 +600,19 @@ impl Database {
                 "papers",
                 id,
                 &[
-                    "title",
-                    "authors",
-                    "year",
-                    "doi",
-                    "abstract_text",
-                    "journal",
-                    "volume",
-                    "issue",
-                    "pages",
-                    "publisher",
-                    "url",
-                    "date_modified",
+                    Papers::TITLE,
+                    Papers::AUTHORS,
+                    Papers::YEAR,
+                    Papers::DOI,
+                    Papers::ABSTRACT_TEXT,
+                    Papers::JOURNAL,
+                    Papers::VOLUME,
+                    Papers::ISSUE,
+                    Papers::PAGES,
+                    Papers::PUBLISHER,
+                    Papers::URL,
+                    Papers::DATE_MODIFIED,
+                    Papers::ITEM_TYPE,
                 ],
             )
             .await
@@ -705,7 +680,7 @@ impl Database {
             )
             .await?;
         self.crr
-            .track_insert("collections", &uuid, &["name", "parent_id", "position"])
+            .track_insert("collections", &uuid, Collections::ALL)
             .await
             .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
@@ -729,7 +704,7 @@ impl Database {
             .await?;
         let pk = format!("{paper_id}:{collection_id}");
         self.crr
-            .track_insert("paper_collections", &pk, &["paper_id", "collection_id"])
+            .track_insert("paper_collections", &pk, PaperCollections::ALL)
             .await
             .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
@@ -785,7 +760,7 @@ impl Database {
             )
             .await?;
         self.crr
-            .track_update("collections", id, &["name"])
+            .track_update("collections", id, &[Collections::NAME])
             .await
             .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
@@ -804,7 +779,7 @@ impl Database {
             )
             .await?;
         self.crr
-            .track_update("tags", id, &["name"])
+            .track_update("tags", id, &[Tags::NAME])
             .await
             .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
@@ -841,7 +816,11 @@ impl Database {
             )
             .await?;
         self.crr
-            .track_update("papers", paper_id, &["pdf_path", "date_modified"])
+            .track_update(
+                "papers",
+                paper_id,
+                &[Papers::PDF_PATH, Papers::DATE_MODIFIED],
+            )
             .await
             .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();

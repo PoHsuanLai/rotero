@@ -2,6 +2,7 @@ use rotero_models::Collection;
 use turso::Value;
 
 use crate::Database;
+use crate::crr::{Collections, PaperCollections};
 use crate::queries;
 
 impl Database {
@@ -24,7 +25,7 @@ impl Database {
         .await?;
 
         self.crr()
-            .track_insert("collections", &uuid, &["name", "parent_id", "position"])
+            .track_insert("collections", &uuid, Collections::ALL)
             .await?;
 
         Ok(uuid)
@@ -49,7 +50,7 @@ impl Database {
         )
         .await?;
         self.crr()
-            .track_update("collections", id, &["name"])
+            .track_update("collections", id, &[Collections::NAME])
             .await?;
         Ok(())
     }
@@ -72,7 +73,7 @@ impl Database {
         )
         .await?;
         self.crr()
-            .track_update("collections", id, &["parent_id"])
+            .track_update("collections", id, &[Collections::PARENT_ID])
             .await?;
         Ok(())
     }
@@ -155,6 +156,21 @@ impl Database {
         Ok(ids)
     }
 
+    /// List the collections a single paper belongs to.
+    pub async fn list_collections_for_paper(
+        &self,
+        paper_id: &str,
+    ) -> Result<Vec<Collection>, crate::DbError> {
+        let conn = self.conn();
+        let mut rows = conn
+            .query(
+                queries::COLLECTION_LIST_FOR_PAPER,
+                [Value::Text(paper_id.to_string())],
+            )
+            .await?;
+        crate::collect_rows(&mut rows).await.map_err(Into::into)
+    }
+
     /// Add a paper to a collection (idempotent via INSERT OR IGNORE).
     pub async fn add_paper_to_collection(
         &self,
@@ -172,7 +188,7 @@ impl Database {
         .await?;
         let pk = format!("{paper_id}:{collection_id}");
         self.crr()
-            .track_insert("paper_collections", &pk, &["paper_id", "collection_id"])
+            .track_insert("paper_collections", &pk, PaperCollections::ALL)
             .await?;
         Ok(())
     }

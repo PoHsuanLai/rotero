@@ -111,6 +111,8 @@ pub fn PdfViewerSection() -> Element {
                     value: "{current_resident}",
                     min: "1",
                     max: "50",
+                    onfocusin: crate::ui::keybindings::editable_focus_in,
+                    onfocusout: crate::ui::keybindings::editable_focus_out,
                     onchange: move |evt| {
                         if let Ok(v) = evt.value().parse::<u32>() {
                             let v = v.clamp(1, 50);

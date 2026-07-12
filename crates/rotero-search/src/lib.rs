@@ -7,6 +7,8 @@
 pub mod arxiv;
 /// CrossRef API client for DOI-based metadata lookup.
 pub mod crossref;
+/// Deduplication and backfill-merging of papers from multiple providers.
+pub mod merge;
 /// OpenAlex API client for search, autocomplete, and open-access PDF discovery.
 pub mod openalex;
 /// Semantic Scholar API client for paper search and citation data.
@@ -99,3 +101,25 @@ pub static ALL_PROVIDERS: &[SearchProvider] = &[
     SearchProvider::ArXiv,
     SearchProvider::SemanticScholar,
 ];
+
+/// Search every online provider in parallel and return one deduplicated result set.
+///
+/// The single backend shared by the UI search bar and the agent's MCP tool.
+/// Each provider is queried concurrently via [`SearchProvider::search_full`]
+/// (richer metadata than `search`, since a fan-out is not a keystroke type-ahead);
+/// providers that error are logged and skipped so partial results still return.
+/// Same-DOI hits across providers are folded via [`merge::dedupe_by_doi`], keeping
+/// the most complete record and backfilling its gaps from the others.
+pub async fn search_all(query: &str, per_provider_limit: usize) -> Vec<Paper> {
+    let futures = ALL_PROVIDERS.iter().map(|provider| async move {
+        // A failing provider drops out of the fan-out; the rest still return results.
+        provider
+            .search_full(query, per_provider_limit)
+            .await
+            .unwrap_or_default()
+    });
+
+    let per_provider = futures_util::future::join_all(futures).await;
+    let flattened: Vec<Paper> = per_provider.into_iter().flatten().collect();
+    merge::dedupe_by_doi(flattened)
+}

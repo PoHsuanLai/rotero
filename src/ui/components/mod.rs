@@ -1,4 +1,3 @@
-pub mod collection_tree_item;
 pub mod confirm_dialog;
 pub mod context_menu;
 pub mod icon_button;
@@ -7,5 +6,4 @@ pub mod modal;
 pub mod path_field;
 pub mod settings_field;
 pub mod settings_select;
-pub mod tag_badge;
 pub mod toggle_switch;

@@ -32,12 +32,13 @@ pub fn CollectionContextMenu(
                         class: "input input--sm",
                         r#type: "text",
                         value: "{rename_value}",
+                        onfocusin: crate::ui::keybindings::editable_focus_in,
+                        onfocusout: crate::ui::keybindings::editable_focus_out,
                         oninput: move |evt| rename_value.set(evt.value()),
                         onkeydown: {
                             let cid = coll_id.clone();
                             let db = db.clone();
                             move |evt: Event<KeyboardData>| {
-                                evt.stop_propagation();
                                 if evt.key() == Key::Enter {
                                     let new_name = rename_value().trim().to_string();
                                     if !new_name.is_empty() {
@@ -162,12 +163,13 @@ pub fn SidebarTagContextMenu(
                         class: "input input--sm",
                         r#type: "text",
                         value: "{rename_value}",
+                        onfocusin: crate::ui::keybindings::editable_focus_in,
+                        onfocusout: crate::ui::keybindings::editable_focus_out,
                         oninput: move |evt| rename_value.set(evt.value()),
                         onkeydown: {
                             let tid = tag_id.clone();
                             let db = db.clone();
                             move |evt: Event<KeyboardData>| {
-                                evt.stop_propagation();
                                 if evt.key() == Key::Enter {
                                     let new_name = rename_value().trim().to_string();
                                     if !new_name.is_empty() {

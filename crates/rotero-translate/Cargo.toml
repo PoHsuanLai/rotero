@@ -19,7 +19,13 @@ async-trait = "0.1"
 
 # The JS translator engine (phase 2). Off by default so lean builds stay small
 # and fast; the desktop app opts in. Runs upstream Zotero translators unmodified.
-boa_engine = { version = "0.21", optional = true }
+# Pinned to a boa `main` revision (post-0.21.1) for the fix to boa-dev/boa#4485:
+# 0.21.1's VM leaked the caller's last-evaluated expression as a no-`return`
+# function's result, so a constructor after an `Obj.member = function(){}`
+# assignment returned the stale function instead of a new instance. That broke
+# the singleton idiom (`var X = new function(){}`) large import translators
+# (RIS/BibTeX/MODS) use. Revert to a crates.io release once >0.21.1 ships the fix.
+boa_engine = { git = "https://github.com/boa-dev/boa", rev = "8a1e8fe07f626f7a067afc2c9885d5d87de4bb5d", optional = true }
 skyscraper = { version = "0.7", optional = true }
 # CSS node handles for the engine's querySelector layer. ego-tree is already
 # built transitively via scraper; naming it lets the DOM adapter hold NodeIds.

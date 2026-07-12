@@ -3,6 +3,7 @@ use rotero_models::Note;
 use turso::Value;
 
 use crate::Database;
+use crate::crr::Notes;
 use crate::queries;
 
 impl Database {
@@ -23,13 +24,7 @@ impl Database {
         )
         .await?;
 
-        self.crr()
-            .track_insert(
-                "notes",
-                &uuid,
-                &["paper_id", "title", "body", "created_at", "modified_at"],
-            )
-            .await?;
+        self.crr().track_insert("notes", &uuid, Notes::ALL).await?;
 
         Ok(uuid)
     }
@@ -65,7 +60,11 @@ impl Database {
         )
         .await?;
         self.crr()
-            .track_update("notes", id, &["title", "body", "modified_at"])
+            .track_update(
+                "notes",
+                id,
+                &[Notes::TITLE, Notes::BODY, Notes::MODIFIED_AT],
+            )
             .await?;
         Ok(())
     }

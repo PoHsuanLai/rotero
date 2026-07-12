@@ -36,11 +36,20 @@ pub fn LibraryPanel() -> Element {
         }
     });
 
+    // Bumped whenever a paper's tag/collection membership changes anywhere (the
+    // overview toggles, the context menu, drag-and-drop). The filter effect below
+    // reads it so the tag/collection-filtered list re-queries after such a change
+    // — otherwise the cached `tag_paper_ids` / `collection_paper_ids` goes stale
+    // and a newly-tagged paper won't appear in that tag's view.
+    let membership_refresh = use_context::<Signal<crate::state::app_state::MembershipRefresh>>();
+
     {
         let db_coll = db.clone();
         use_effect(move || {
             let view = current_view.read().clone();
             let search_query = saved_search_query.read().clone();
+            // Subscribe to membership changes so the filtered list stays fresh.
+            let _ = membership_refresh.read().0;
             match view {
                 LibraryView::Collection(coll_id) => {
                     let db = db_coll.clone();
@@ -215,10 +224,10 @@ pub fn LibraryPanel() -> Element {
             if (!window.__rotero_drag_ghost) {
                 window.__rotero_drag_ghost = true;
                 document.addEventListener('dragstart', function(e) {
-                    let card = e.target.closest('.library-card, .sidebar-collection-item');
+                    let card = e.target.closest('.library-card, .coll-row');
                     if (!card) return;
                     // Find the title text
-                    let titleEl = card.querySelector('.library-card-title, .sidebar-collection-name');
+                    let titleEl = card.querySelector('.library-card-title, .coll-row-name');
                     let text = titleEl ? titleEl.textContent.trim() : 'Paper';
                     if (text.length > 40) text = text.substring(0, 37) + '...';
                     // Create compact ghost

@@ -28,15 +28,71 @@ pub use js_translator::JsTranslator;
 pub use registry::{TranslatorRegistry, has_usable};
 
 /// The document a translator operates on, plus its provenance.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TranslationContext {
     /// Final URL after redirects.
     pub url: String,
     /// Response `Content-Type`, if known.
     pub content_type: Option<String>,
     /// The page body (HTML) or raw text (RIS/BibTeX/CSL). Held behind an [`Arc`]
-    /// so candidate translators can share it without copying.
+    /// so candidate translators can share it without copying. For the extension's
+    /// send-HTML path this is the *rendered* DOM (`outerHTML`).
     pub body: Arc<str>,
+    /// Optional *raw server HTML* (a page-context fetch of the page's own URL),
+    /// carrying inline `<script>` data an SPA strips from the rendered [`body`].
+    /// When present, JS translators parse against this instead. `None` for the
+    /// server-fetch path and offline tests, preserving prior behavior.
+    pub raw_body: Option<Arc<str>>,
+    /// Optional queue that routes a JS translator's follow-up HTTP requests to an
+    /// external driver (the connector's browser-proxy loop), so they run in the
+    /// user's authenticated tab. `None` uses the anonymous direct fetch.
+    #[cfg(feature = "translator-engine")]
+    pub fetch_queue: Option<tokio::sync::mpsc::UnboundedSender<crate::engine::BrokeredFetch>>,
+}
+
+impl std::fmt::Debug for TranslationContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TranslationContext")
+            .field("url", &self.url)
+            .field("content_type", &self.content_type)
+            .field("body_len", &self.body.len())
+            .field("has_raw_body", &self.raw_body.is_some())
+            .finish()
+    }
+}
+
+impl TranslationContext {
+    /// Build a context with no follow-up-fetch broker (the common case: server
+    /// fetches, offline tests, and non-brokered translation). The optional
+    /// browser-proxy queue is attached separately via [`with_fetch_queue`].
+    ///
+    /// [`with_fetch_queue`]: TranslationContext::with_fetch_queue
+    pub fn new(
+        url: String,
+        content_type: Option<String>,
+        body: Arc<str>,
+        raw_body: Option<Arc<str>>,
+    ) -> Self {
+        Self {
+            url,
+            content_type,
+            body,
+            raw_body,
+            #[cfg(feature = "translator-engine")]
+            fetch_queue: None,
+        }
+    }
+
+    /// Attach a queue that routes JS translators' follow-up fetches to an external
+    /// driver (the connector's browser-proxy loop).
+    #[cfg(feature = "translator-engine")]
+    pub fn with_fetch_queue(
+        mut self,
+        queue: tokio::sync::mpsc::UnboundedSender<crate::engine::BrokeredFetch>,
+    ) -> Self {
+        self.fetch_queue = Some(queue);
+        self
+    }
 }
 
 /// An in-process translator that extracts [`ZoteroItem`]s from a document.
@@ -113,9 +169,10 @@ pub async fn fetch_context(url: &str) -> Result<TranslationContext, TranslateErr
     let final_url = resp.url().to_string();
     let body = resp.text().await?;
 
-    Ok(TranslationContext {
-        url: final_url,
+    Ok(TranslationContext::new(
+        final_url,
         content_type,
-        body: Arc::from(body),
-    })
+        Arc::from(body),
+        None,
+    ))
 }

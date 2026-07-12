@@ -1,6 +1,40 @@
 use std::fmt::Write;
 
-use rotero_models::Paper;
+use rotero_models::{CreatorRole, Paper};
+
+/// Maps a Zotero item type to the BibTeX entry type used on export. Types that
+/// have no distinct BibTeX entry fall back to `misc`, and the journal-article
+/// default keeps `article` so existing exports are unchanged.
+fn bibtex_entry_type(item_type: &str) -> &'static str {
+    match item_type {
+        "journalArticle" | "magazineArticle" | "newspaperArticle" => "article",
+        "book" => "book",
+        "bookSection" | "encyclopediaArticle" | "dictionaryEntry" => "incollection",
+        "conferencePaper" => "inproceedings",
+        "thesis" => "phdthesis",
+        "report" => "techreport",
+        "manuscript" | "preprint" => "unpublished",
+        "letter" | "email" | "instantMessage" => "misc",
+        "webpage" | "blogPost" | "forumPost" => "misc",
+        _ => "misc",
+    }
+}
+
+/// Join a set of creators of a given role as a BibTeX name list, or `None` if
+/// there are none. Names are wrapped in a protective brace group.
+fn creator_field(paper: &Paper, role: &CreatorRole, bibtex_key: &str) -> Option<String> {
+    let names: Vec<String> = paper
+        .creators
+        .iter()
+        .filter(|c| &c.role == role)
+        .map(|c| c.display_name())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if names.is_empty() {
+        return None;
+    }
+    Some(format!("  {bibtex_key} = {{{{{}}}}}", names.join(" and ")))
+}
 
 /// Exports a slice of papers as a BibTeX string.
 pub fn export_bibtex(papers: &[Paper]) -> String {
@@ -11,15 +45,18 @@ pub fn export_bibtex(papers: &[Paper]) -> String {
             Some(k) if !k.is_empty() => k.to_string(),
             _ => generate_cite_key(paper),
         };
-        let _ = writeln!(output, "@article{{{key},");
+        let _ = writeln!(output, "@{}{{{key},", bibtex_entry_type(&paper.item_type));
 
         let mut fields: Vec<String> = Vec::new();
 
         fields.push(format!("  title = {{{}}}", sanitize_bibtex(&paper.title)));
 
-        if !paper.authors.is_empty() {
-            let authors_str = paper.authors.join(" and ");
-            fields.push(format!("  author = {{{{{authors_str}}}}}"));
+        // Authors and editors export to their distinct BibTeX fields.
+        if let Some(f) = creator_field(paper, &CreatorRole::Author, "author") {
+            fields.push(f);
+        }
+        if let Some(f) = creator_field(paper, &CreatorRole::Editor, "editor") {
+            fields.push(f);
         }
 
         if let Some(year) = paper.year {
@@ -54,6 +91,22 @@ pub fn export_bibtex(papers: &[Paper]) -> String {
             fields.push(format!("  publisher = {{{{{publisher}}}}}"));
         }
 
+        if let Some(ref series) = paper.publication.series {
+            fields.push(format!("  series = {{{{{series}}}}}"));
+        }
+
+        if let Some(ref isbn) = paper.publication.isbn {
+            fields.push(format!("  isbn = {{{isbn}}}"));
+        }
+
+        if let Some(ref issn) = paper.publication.issn {
+            fields.push(format!("  issn = {{{issn}}}"));
+        }
+
+        if let Some(ref place) = paper.publication.place {
+            fields.push(format!("  address = {{{{{place}}}}}"));
+        }
+
         // Skip abstract — not needed for citation formatting and often contains
         // characters (unbalanced braces, HTML tags) that break BibTeX parsing
 
@@ -73,18 +126,29 @@ fn sanitize_bibtex(s: &str) -> String {
 
 /// Format: `lastnameYeartitleword` (e.g., `eysenbach2019attention`).
 pub fn generate_cite_key(paper: &Paper) -> String {
+    // Prefer the first author's structured surname; fall back to the last token
+    // of the display name for institutional/mononym creators.
     let author_part = paper
-        .authors
-        .first()
-        .map(|a| {
-            a.split_whitespace()
-                .last()
-                .unwrap_or("unknown")
+        .creators
+        .iter()
+        .find(|c| c.role.is_author())
+        .map(|c| {
+            let surname = if !c.last_name.is_empty() {
+                c.last_name.clone()
+            } else {
+                c.display_name()
+                    .split_whitespace()
+                    .last()
+                    .unwrap_or("unknown")
+                    .to_string()
+            };
+            surname
                 .to_lowercase()
                 .chars()
                 .filter(|c| c.is_ascii_alphanumeric())
                 .collect::<String>()
         })
+        .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "unknown".to_string());
 
     let year_part = paper
@@ -156,4 +220,61 @@ pub fn generate_unique_cite_key(paper: &Paper, existing_keys: &[String]) -> Stri
     }
 
     base
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rotero_models::{Creator, CreatorRole, Paper};
+
+    #[test]
+    fn book_exports_as_book_entry() {
+        let mut p = Paper::new("A Treatise".to_string());
+        p.item_type = "book".to_string();
+        p.year = Some(1999);
+        p.creators = vec![Creator::author("Ada", "Lovelace")];
+        p.publication.publisher = Some("Acme Press".into());
+        p.publication.isbn = Some("978-0-13-468599-1".into());
+        let bib = export_bibtex(&[p]);
+        assert!(bib.contains("@book{"), "expected @book, got: {bib}");
+        assert!(bib.contains("author = {{Ada Lovelace}}"));
+        assert!(bib.contains("isbn = {978-0-13-468599-1}"));
+    }
+
+    #[test]
+    fn journal_article_still_exports_as_article() {
+        let mut p = Paper::new("A Paper".to_string());
+        p.creators = vec![Creator::author("Jane", "Doe")];
+        let bib = export_bibtex(&[p]);
+        assert!(bib.contains("@article{"));
+    }
+
+    #[test]
+    fn authors_and_editors_split_into_distinct_fields() {
+        let mut p = Paper::new("Edited Volume".to_string());
+        p.item_type = "bookSection".to_string();
+        p.creators = vec![
+            Creator::author("Ada", "Lovelace"),
+            Creator {
+                first_name: "Ed".into(),
+                last_name: "Itor".into(),
+                name: String::new(),
+                role: CreatorRole::Editor,
+            },
+        ];
+        let bib = export_bibtex(&[p]);
+        assert!(bib.contains("author = {{Ada Lovelace}}"));
+        assert!(bib.contains("editor = {{Ed Itor}}"));
+    }
+
+    #[test]
+    fn cite_key_uses_structured_surname() {
+        // "de Koning" would break the split-on-space surname guess; the
+        // structured last_name gives the correct key.
+        let mut p = Paper::new("Genome Assembly".to_string());
+        p.year = Some(2020);
+        p.creators = vec![Creator::author("A. P.", "de Koning")];
+        let key = generate_cite_key(&p);
+        assert!(key.starts_with("dekoning2020"), "got: {key}");
+    }
 }

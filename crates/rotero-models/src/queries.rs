@@ -1,10 +1,11 @@
-/// SELECT columns for paper queries.
-pub const PAPER_SELECT_COLS: &str = "id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key, pdf_url";
+/// SELECT columns for paper queries. `item_type` is appended last so the
+/// positional `Paper::from_row` indices for the earlier columns stay fixed.
+pub const PAPER_SELECT_COLS: &str = "id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key, pdf_url, item_type";
 
 /// Insert a new paper row with all columns.
 pub const PAPER_INSERT: &str = "\
-    INSERT INTO papers (id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key, pdf_url) \
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)";
+    INSERT INTO papers (id, title, authors, year, doi, abstract_text, journal, volume, issue, pages, publisher, url, pdf_path, date_added, date_modified, is_favorite, is_read, extra_meta, citation_count, citation_key, pdf_url, item_type) \
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)";
 
 /// Count total papers in the library.
 pub const PAPER_COUNT: &str = "SELECT COUNT(*) FROM papers";
@@ -48,7 +49,7 @@ pub const PAPER_UPDATE_FULLTEXT: &str = "UPDATE papers SET fulltext = ?1 WHERE i
 pub const PAPER_UPDATE_METADATA: &str = "\
     UPDATE papers SET title = ?1, authors = ?2, year = ?3, doi = ?4, abstract_text = ?5, \
     journal = ?6, volume = ?7, issue = ?8, pages = ?9, publisher = ?10, url = ?11, \
-    date_modified = ?12 WHERE id = ?13";
+    date_modified = ?12, item_type = ?13 WHERE id = ?14";
 
 /// Set or replace the local PDF file path for a paper.
 pub const PAPER_UPDATE_PDF_PATH: &str =
@@ -113,6 +114,11 @@ pub const COLLECTION_DELETE: &str = "DELETE FROM collections WHERE id = ?1";
 /// List paper IDs belonging directly to a single collection.
 pub const COLLECTION_PAPER_IDS: &str =
     "SELECT paper_id FROM paper_collections WHERE collection_id = ?1";
+/// List the collections a single paper belongs to, ordered by name.
+pub const COLLECTION_LIST_FOR_PAPER: &str = "\
+    SELECT c.id, c.name, c.parent_id, c.position FROM collections c \
+    JOIN paper_collections pc ON pc.collection_id = c.id \
+    WHERE pc.paper_id = ?1 ORDER BY c.name";
 /// Add a paper to a collection (idempotent).
 pub const COLLECTION_ADD_PAPER: &str =
     "INSERT OR IGNORE INTO paper_collections (paper_id, collection_id) VALUES (?1, ?2)";
@@ -137,6 +143,14 @@ pub const TAG_UPDATE_COLOR: &str = "UPDATE tags SET color = ?1 WHERE id = ?2";
 pub const TAG_LIST_NULL_COLOR: &str = "SELECT id, name FROM tags WHERE color IS NULL";
 /// List paper IDs associated with a tag.
 pub const TAG_PAPER_IDS: &str = "SELECT paper_id FROM paper_tags WHERE tag_id = ?1";
+/// List the tags applied to a single paper, ordered by name.
+pub const TAG_LIST_FOR_PAPER: &str = "\
+    SELECT t.id, t.name, t.color FROM tags t \
+    JOIN paper_tags pt ON pt.tag_id = t.id \
+    WHERE pt.paper_id = ?1 ORDER BY t.name";
+/// Remove a tag association from a paper.
+pub const TAG_REMOVE_FROM_PAPER: &str =
+    "DELETE FROM paper_tags WHERE paper_id = ?1 AND tag_id = ?2";
 /// Delete a tag by ID.
 pub const TAG_DELETE: &str = "DELETE FROM tags WHERE id = ?1";
 

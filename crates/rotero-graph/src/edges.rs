@@ -80,7 +80,7 @@ pub fn compute_edges(
         let mut author_to_papers: HashMap<String, Vec<&str>> = HashMap::new();
         for paper in papers {
             if let Some(ref pid) = paper.id {
-                for author in &paper.authors {
+                for author in paper.author_names() {
                     let key = author.trim().to_lowercase();
                     if !key.is_empty() {
                         author_to_papers.entry(key).or_default().push(pid.as_str());

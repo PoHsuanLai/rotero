@@ -32,6 +32,8 @@ pub fn ConnectorSection() -> Element {
                         value: "{port}",
                         min: "1024",
                         max: "65535",
+                        onfocusin: crate::ui::keybindings::editable_focus_in,
+                        onfocusout: crate::ui::keybindings::editable_focus_out,
                         onchange: move |evt| {
                             if let Ok(p) = evt.value().parse::<u16>() {
                                 save_config(&mut config, |c| c.connector.connector_port = p);

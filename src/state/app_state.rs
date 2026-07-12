@@ -602,7 +602,7 @@ impl LibraryState {
             }
             SortField::FirstAuthor => {
                 papers.sort_by_cached_key(|p| {
-                    p.authors
+                    p.author_names()
                         .first()
                         .map(|s| s.to_lowercase())
                         .unwrap_or_default()
@@ -654,3 +654,12 @@ pub struct AnnotationContextInfo {
 
 #[derive(Debug, Clone)]
 pub struct DragPaper(pub Option<Vec<String>>);
+
+/// Bumped whenever a paper's tag/collection membership changes (add/remove) from
+/// anywhere — the overview toggles, the context menu, drag-and-drop. Two things
+/// observe it: the overview panel's chip list (to reflect the paper's own
+/// membership) and the library panel's filter effect (to re-query the
+/// tag/collection-filtered list, which is otherwise cached per view and would go
+/// stale). Membership isn't cached on `Paper` or in `LibraryState`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MembershipRefresh(pub u64);

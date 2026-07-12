@@ -40,6 +40,38 @@ impl RoteroMcp {
         json_result(&papers)
     }
 
+    #[tool(
+        description = "Search online academic databases (OpenAlex, arXiv, Semantic Scholar) for papers not yet in the library. Fans out to all providers, deduplicates by DOI, and returns merged results in the library's Paper format — pass a result straight to add_paper to import it. Prefer this over generic web search for finding papers."
+    )]
+    async fn search_online(
+        &self,
+        Parameters(params): Parameters<SearchOnlineParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let limit = params.limit.unwrap_or(20).min(50) as usize;
+        let papers = rotero_search::search_all(&params.query, limit).await;
+        json_result(&papers)
+    }
+
+    #[tool(
+        description = "Find an open-access PDF URL for a paper by DOI and/or title. Returns candidate URLs; pass one to download_pdf (with a paper_id) to attach it."
+    )]
+    async fn find_pdf(
+        &self,
+        Parameters(params): Parameters<FindPdfParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let title = params.title.as_deref().unwrap_or("");
+        let doi = params.doi.as_deref();
+        let mut urls = rotero_search::openalex::find_oa_pdf(doi, title)
+            .await
+            .unwrap_or_default();
+        if urls.is_empty()
+            && let Ok(Some(url)) = rotero_search::semantic_scholar::find_oa_pdf(doi, title).await
+        {
+            urls.push(url);
+        }
+        json_result(&urls)
+    }
+
     #[tool(description = "Get full metadata for a paper by its ID")]
     async fn get_paper(
         &self,
@@ -345,8 +377,14 @@ impl RoteroMcp {
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let paper = rotero_models::Paper {
             id: None,
+            item_type: "journalArticle".to_string(),
             title: params.title,
-            authors: params.authors.unwrap_or_default(),
+            creators: params
+                .authors
+                .unwrap_or_default()
+                .iter()
+                .map(|a| rotero_models::Creator::author_from_display(a))
+                .collect(),
             year: params.year,
             doi: params.doi,
             abstract_text: params.abstract_text,
@@ -356,6 +394,7 @@ impl RoteroMcp {
                 issue: params.issue,
                 pages: params.pages,
                 publisher: params.publisher,
+                ..Default::default()
             },
             links: rotero_models::PaperLinks {
                 url: params.url,
@@ -388,7 +427,10 @@ impl RoteroMcp {
             paper.title = title;
         }
         if let Some(authors) = params.authors {
-            paper.authors = authors;
+            paper.creators = authors
+                .iter()
+                .map(|a| rotero_models::Creator::author_from_display(a))
+                .collect();
         }
         if let Some(year) = params.year {
             paper.year = Some(year);
@@ -597,7 +639,7 @@ impl RoteroMcp {
         }
 
         // Save to library
-        let first_author = paper.authors.first().map(|s| s.as_str());
+        let first_author = paper.author_names().into_iter().next();
         let papers_dir = self.db.papers_dir();
         std::fs::create_dir_all(&papers_dir)
             .map_err(|e| err(format!("Failed to create papers dir: {e}")))?;
@@ -740,7 +782,7 @@ impl RoteroMcp {
             .map(|p| GraphNode {
                 id: p.id.clone().unwrap_or_default(),
                 title: p.title.clone(),
-                authors: p.authors.clone(),
+                authors: p.author_names(),
                 year: p.year,
             })
             .collect();
@@ -889,7 +931,7 @@ impl ServerHandler for RoteroMcp {
                      Year: {}\n\
                      Journal: {}\n",
                     paper.title,
-                    paper.authors.join(", "),
+                    paper.author_names().join(", "),
                     paper.year.map(|y| y.to_string()).unwrap_or_default(),
                     paper.publication.journal.as_deref().unwrap_or(""),
                 );
@@ -931,7 +973,7 @@ impl ServerHandler for RoteroMcp {
                         "## {} ({})\n**Authors:** {}\n**Journal:** {}\n",
                         paper.title,
                         paper.year.map(|y| y.to_string()).unwrap_or_default(),
-                        paper.authors.join(", "),
+                        paper.author_names().join(", "),
                         paper.publication.journal.as_deref().unwrap_or(""),
                     ));
                     if let Some(abstract_text) = &paper.abstract_text {

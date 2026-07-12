@@ -135,6 +135,180 @@ pub struct Publication {
     pub issue: Option<String>,
     pub pages: Option<String>,
     pub publisher: Option<String>,
+    /// ISBN, for books and book sections.
+    pub isbn: Option<String>,
+    /// ISSN, for serial publications.
+    pub issn: Option<String>,
+    /// Series title the work belongs to.
+    pub series: Option<String>,
+    /// Place of publication.
+    pub place: Option<String>,
+    /// Language of the work.
+    pub language: Option<String>,
+}
+
+/// The role a [`Creator`] plays for a work. Mirrors Zotero's creator types over
+/// the roles the translators emit; unknown roles round-trip through [`Other`].
+///
+/// [`Other`]: CreatorRole::Other
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CreatorRole {
+    Author,
+    Editor,
+    Translator,
+    SeriesEditor,
+    Inventor,
+    Director,
+    Contributor,
+    /// Any role not otherwise modeled, preserving the raw Zotero creator type.
+    Other(String),
+}
+
+impl CreatorRole {
+    /// Parse a Zotero `creatorType` string. An empty type is treated as author,
+    /// matching how the translators leave the primary creator's type implicit.
+    pub fn from_zotero(creator_type: &str) -> Self {
+        match creator_type {
+            "" | "author" => Self::Author,
+            "editor" => Self::Editor,
+            "translator" => Self::Translator,
+            "seriesEditor" => Self::SeriesEditor,
+            "inventor" => Self::Inventor,
+            "director" => Self::Director,
+            "contributor" => Self::Contributor,
+            other => Self::Other(other.to_string()),
+        }
+    }
+
+    /// The Zotero `creatorType` string for this role.
+    pub fn as_zotero(&self) -> &str {
+        match self {
+            Self::Author => "author",
+            Self::Editor => "editor",
+            Self::Translator => "translator",
+            Self::SeriesEditor => "seriesEditor",
+            Self::Inventor => "inventor",
+            Self::Director => "director",
+            Self::Contributor => "contributor",
+            Self::Other(s) => s,
+        }
+    }
+
+    /// Whether this creator is an author (the role the flat display list shows).
+    pub fn is_author(&self) -> bool {
+        matches!(self, Self::Author)
+    }
+}
+
+/// An author or contributor on a paper: a structured name plus a role.
+///
+/// A personal name splits into `first_name`/`last_name`; an institutional name
+/// (a corporation, committee, …) uses the single `name` field instead, leaving
+/// the split fields empty.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Creator {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub first_name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub last_name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    pub role: CreatorRole,
+}
+
+impl Creator {
+    /// A personal author from a first and last name.
+    pub fn author(first_name: impl Into<String>, last_name: impl Into<String>) -> Self {
+        Self {
+            first_name: first_name.into(),
+            last_name: last_name.into(),
+            name: String::new(),
+            role: CreatorRole::Author,
+        }
+    }
+
+    /// An author parsed from a "First Last" display string: the text before the
+    /// last space is the given name, the remainder the surname. A single-token
+    /// name is treated as an institutional/mononym `name`. Used by the
+    /// bibliography importers, which parse author names into display strings.
+    pub fn author_from_display(display: &str) -> Self {
+        match display.trim().rsplit_once(' ') {
+            Some((first, last)) => Self::author(first.trim(), last.trim()),
+            None => Self {
+                first_name: String::new(),
+                last_name: String::new(),
+                name: display.trim().to_string(),
+                role: CreatorRole::Author,
+            },
+        }
+    }
+
+    /// The creator rendered as a display name: the institutional `name` if set,
+    /// else "First Last" (or whichever half is present).
+    pub fn display_name(&self) -> String {
+        if !self.name.is_empty() {
+            self.name.clone()
+        } else if self.first_name.is_empty() {
+            self.last_name.clone()
+        } else if self.last_name.is_empty() {
+            self.first_name.clone()
+        } else {
+            format!("{} {}", self.first_name, self.last_name)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Creator {
+    /// Accept both the current object shape (`{firstName, lastName, name, role}`)
+    /// and the legacy shape (a bare display-name string, `"John Doe"`) that older
+    /// DB rows stored for the `authors` column. A legacy string is split on the
+    /// last space into first/last and assigned the author role.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct CreatorObj {
+            #[serde(default)]
+            first_name: String,
+            #[serde(default)]
+            last_name: String,
+            #[serde(default)]
+            name: String,
+            #[serde(default = "default_role")]
+            role: CreatorRole,
+        }
+        fn default_role() -> CreatorRole {
+            CreatorRole::Author
+        }
+
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            Str(String),
+            Obj(CreatorObj),
+        }
+
+        Ok(match Repr::deserialize(deserializer)? {
+            Repr::Str(display) => match display.rsplit_once(' ') {
+                Some((first, last)) => Creator::author(first.trim(), last.trim()),
+                None => Creator {
+                    first_name: String::new(),
+                    last_name: String::new(),
+                    name: display,
+                    role: CreatorRole::Author,
+                },
+            },
+            Repr::Obj(o) => Creator {
+                first_name: o.first_name,
+                last_name: o.last_name,
+                name: o.name,
+                role: o.role,
+            },
+        })
+    }
 }
 
 /// URLs and local file paths for a paper.
@@ -197,12 +371,21 @@ pub struct SearchRank {
     pub position: usize,
 }
 
+/// The Zotero item type when a paper carries no explicit one.
+fn default_item_type() -> String {
+    "journalArticle".to_string()
+}
+
 /// A research paper with full metadata, links, library status, and citation info.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Paper {
     pub id: Option<String>,
+    /// The Zotero item type (`journalArticle`, `book`, `conferencePaper`, …).
+    /// Drives per-type citation formatting and venue labeling.
+    #[serde(default = "default_item_type")]
+    pub item_type: String,
     pub title: String,
-    pub authors: Vec<String>,
+    pub creators: Vec<Creator>,
     pub year: Option<i32>,
     pub doi: Option<String>,
     pub abstract_text: Option<String>,
@@ -215,6 +398,25 @@ pub struct Paper {
     pub search_rank: Option<SearchRank>,
 }
 
+impl Default for Paper {
+    fn default() -> Self {
+        Self {
+            id: None,
+            item_type: default_item_type(),
+            title: String::new(),
+            creators: Vec::new(),
+            year: None,
+            doi: None,
+            abstract_text: None,
+            publication: Publication::default(),
+            links: PaperLinks::default(),
+            status: LibraryStatus::default(),
+            citation: CitationInfo::default(),
+            search_rank: None,
+        }
+    }
+}
+
 impl Paper {
     /// Create a new paper with the given title and default values for all other fields.
     pub fn new(title: String) -> Self {
@@ -224,14 +426,26 @@ impl Paper {
         }
     }
 
+    /// The display names of the paper's authors, in order. Non-author creators
+    /// (editors, translators, …) are excluded; this is the drop-in for call sites
+    /// that treated authors as a flat list of display strings.
+    pub fn author_names(&self) -> Vec<String> {
+        self.creators
+            .iter()
+            .filter(|c| c.role.is_author())
+            .map(|c| c.display_name())
+            .collect()
+    }
+
     /// Format authors for display: "Unknown", "A, B", or "A et al."
     pub fn formatted_authors(&self) -> String {
-        if self.authors.is_empty() {
+        let names = self.author_names();
+        if names.is_empty() {
             "Unknown".to_string()
-        } else if self.authors.len() <= 2 {
-            self.authors.join(", ")
+        } else if names.len() <= 2 {
+            names.join(", ")
         } else {
-            format!("{} et al.", self.authors[0])
+            format!("{} et al.", names[0])
         }
     }
 
@@ -273,7 +487,7 @@ impl Paper {
         if self.links.pdf_path.is_some() {
             c += 2;
         }
-        if !self.authors.is_empty() {
+        if !self.creators.is_empty() {
             c += 1;
         }
         c
@@ -500,6 +714,75 @@ mod tests {
             let parsed = PaperId::parse(&stored).unwrap();
             assert_eq!(&parsed, id, "round-trip failed for {stored}");
         }
+    }
+
+    #[test]
+    fn creator_legacy_string_deserializes() {
+        // Old DB rows stored the authors column as an array of display strings.
+        let creators: Vec<Creator> = serde_json::from_str(r#"["John Doe", "Jane"]"#).unwrap();
+        assert_eq!(creators.len(), 2);
+        assert_eq!(creators[0], Creator::author("John", "Doe"));
+        assert_eq!(creators[0].role, CreatorRole::Author);
+        // A single-token name has no first/last split.
+        assert_eq!(creators[1].name, "Jane");
+        assert_eq!(creators[1].display_name(), "Jane");
+    }
+
+    #[test]
+    fn creator_object_deserializes_with_role() {
+        let creators: Vec<Creator> = serde_json::from_str(
+            r#"[{"firstName":"A","lastName":"Ed","role":"Editor"},
+                {"name":"World Health Organization","role":"Author"}]"#,
+        )
+        .unwrap();
+        assert_eq!(creators[0].role, CreatorRole::Editor);
+        assert_eq!(creators[0].display_name(), "A Ed");
+        assert_eq!(creators[1].display_name(), "World Health Organization");
+    }
+
+    #[test]
+    fn creator_roundtrips_through_json() {
+        let creators = vec![
+            Creator::author("Ada", "Lovelace"),
+            Creator {
+                first_name: "Grace".into(),
+                last_name: "Hopper".into(),
+                name: String::new(),
+                role: CreatorRole::Editor,
+            },
+        ];
+        let json = serde_json::to_string(&creators).unwrap();
+        let back: Vec<Creator> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, creators);
+    }
+
+    #[test]
+    fn author_names_excludes_non_authors() {
+        let paper = Paper {
+            creators: vec![
+                Creator::author("Ada", "Lovelace"),
+                Creator {
+                    first_name: "Ed".into(),
+                    last_name: "Itor".into(),
+                    name: String::new(),
+                    role: CreatorRole::Editor,
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(paper.author_names(), vec!["Ada Lovelace"]);
+        assert_eq!(paper.formatted_authors(), "Ada Lovelace");
+    }
+
+    #[test]
+    fn paper_defaults_to_journal_article() {
+        assert_eq!(Paper::default().item_type, "journalArticle");
+        // A full paper JSON that omits item_type (pre-enrichment shape) still reads,
+        // falling back to the journalArticle default.
+        let mut value = serde_json::to_value(Paper::default()).unwrap();
+        value.as_object_mut().unwrap().remove("item_type");
+        let p: Paper = serde_json::from_value(value).unwrap();
+        assert_eq!(p.item_type, "journalArticle");
     }
 
     #[test]

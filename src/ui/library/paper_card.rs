@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::state::app_state::{DragPaper, LibraryState, PdfTabManager};
+use crate::ui::helpers::{item_type_icon, item_type_is_special, item_type_label};
 use rotero_db::Database;
 use rotero_models::Paper;
 
@@ -25,6 +26,14 @@ pub fn PaperCard(
     let authors = paper.formatted_authors();
     let year = paper.year.map(|y| y.to_string()).unwrap_or_default();
     let journal = paper.publication.journal.clone().unwrap_or_default();
+    let type_label = item_type_label(&paper.item_type);
+    let type_icon = item_type_icon(&paper.item_type);
+    let type_special = item_type_is_special(&paper.item_type);
+    let type_badge_class = if type_special {
+        "type-badge type-badge--special"
+    } else {
+        "type-badge"
+    };
     let citation_count = paper.citation.citation_count;
     let has_pdf = paper.links.pdf_path.is_some();
     let is_read = paper.status.is_read;
@@ -100,6 +109,11 @@ pub fn PaperCard(
             div { class: "library-card-body",
                 div { class: "library-card-title", "{title}" }
                 div { class: "library-card-meta",
+                    span { class: "{type_badge_class}", title: "{type_label}",
+                        i { class: "bi {type_icon}" }
+                        "{type_label}"
+                    }
+                    span { class: "library-card-sep", "\u{00b7}" }
                     span { class: "library-card-authors", "{authors}" }
                     if !year.is_empty() {
                         span { class: "library-card-sep", "\u{00b7}" }

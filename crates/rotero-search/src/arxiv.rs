@@ -113,7 +113,10 @@ fn parse_arxiv_atom(xml: &str, arxiv_id: &str) -> Result<Paper, String> {
 
     Ok(Paper {
         title,
-        authors,
+        creators: authors
+            .iter()
+            .map(|a| rotero_models::Creator::author_from_display(a))
+            .collect(),
         year,
         doi: Some(PaperId::ArXiv(arxiv_id.to_string()).to_stored_string()),
         abstract_text,

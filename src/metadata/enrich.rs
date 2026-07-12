@@ -1,4 +1,5 @@
 use rotero_models::{Paper, PaperId};
+use rotero_search::merge::merge_into;
 
 /// Tries CrossRef first (most complete), then fills gaps from OpenAlex and Semantic Scholar.
 pub async fn enrich_paper(paper: &Paper) -> Option<Paper> {
@@ -39,14 +40,7 @@ async fn fetch_from_sources_doi(doi: &str) -> Option<Paper> {
     {
         match super::semantic_scholar::fetch_by_doi(doi).await {
             Ok(s2_paper) => match primary {
-                Some(ref mut p) => {
-                    if p.abstract_text.is_none() {
-                        p.abstract_text = s2_paper.abstract_text;
-                    }
-                    if p.citation.citation_count.is_none() {
-                        p.citation.citation_count = s2_paper.citation.citation_count;
-                    }
-                }
+                Some(ref mut p) => merge_into(p, s2_paper),
                 None => primary = Some(s2_paper),
             },
             Err(e) => tracing::debug!("Semantic Scholar failed for {doi}: {e}"),
@@ -76,15 +70,7 @@ async fn fetch_from_sources_arxiv(arxiv_id: &str) -> Option<Paper> {
     match super::semantic_scholar::fetch_by_arxiv_id(arxiv_id).await {
         Ok(s2_paper) => {
             if let Some(ref mut p) = primary {
-                if p.abstract_text.is_none() {
-                    p.abstract_text = s2_paper.abstract_text;
-                }
-                if p.year.is_none() {
-                    p.year = s2_paper.year;
-                }
-                if p.citation.citation_count.is_none() {
-                    p.citation.citation_count = s2_paper.citation.citation_count;
-                }
+                merge_into(p, s2_paper);
             } else {
                 primary = Some(s2_paper);
             }

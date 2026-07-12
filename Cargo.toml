@@ -26,6 +26,7 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3"
+futures-util = "0.3"
 
 # Internal crates
 rotero-models = { path = "crates/rotero-models" }
@@ -73,7 +74,7 @@ urlencoding = "2"
 which = "8.0.2"
 pulldown-cmark = "0.13.3"
 pulldown-latex = "0.7.1"
-futures-util = "0.3"
+futures-util.workspace = true
 libc = "0.2.184"
 axum = "0.8"
 arboard = "3"
@@ -92,3 +93,11 @@ desktop = ["dioxus/desktop", "dep:rfd", "dep:rotero-connector", "dep:rotero-tran
 mobile = ["dioxus/mobile", "dep:apple-utils"]
 cloudkit = ["dep:objc2", "dep:objc2-cloud-kit", "dep:objc2-foundation", "dep:block2"]
 pdfium-static = ["rotero-pdf/static"]
+# Opt-in: run the upstream `translators/*.js` corpus in-process (boa engine) and
+# proxy gated publishers' follow-up fetches through the browser. Requires
+# desktop. Off by default — the app then uses only the Rust hub translators.
+translator-engine = [
+    "desktop",
+    "rotero-connector/translator-engine",
+    "rotero-translate/translator-engine",
+]

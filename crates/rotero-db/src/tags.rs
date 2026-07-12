@@ -2,6 +2,7 @@ use rotero_models::Tag;
 use turso::Value;
 
 use crate::Database;
+use crate::crr::{PaperTags, Tags};
 use crate::queries;
 
 impl Database {
@@ -40,9 +41,7 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_insert("tags", &uuid, &["name", "color"])
-            .await?;
+        self.crr().track_insert("tags", &uuid, Tags::ALL).await?;
         Ok(uuid)
     }
 
@@ -70,9 +69,41 @@ impl Database {
         .await?;
         let pk = format!("{paper_id}:{tag_id}");
         self.crr()
-            .track_insert("paper_tags", &pk, &["paper_id", "tag_id"])
+            .track_insert("paper_tags", &pk, PaperTags::ALL)
             .await?;
         Ok(())
+    }
+
+    /// Remove a tag association from a paper.
+    pub async fn remove_tag_from_paper(
+        &self,
+        paper_id: &str,
+        tag_id: &str,
+    ) -> Result<(), crate::DbError> {
+        let conn = self.conn();
+        conn.execute(
+            queries::TAG_REMOVE_FROM_PAPER,
+            [
+                Value::Text(paper_id.to_string()),
+                Value::Text(tag_id.to_string()),
+            ],
+        )
+        .await?;
+        let pk = format!("{paper_id}:{tag_id}");
+        self.crr().track_delete("paper_tags", &pk).await?;
+        Ok(())
+    }
+
+    /// List the tags applied to a single paper.
+    pub async fn list_tags_for_paper(&self, paper_id: &str) -> Result<Vec<Tag>, crate::DbError> {
+        let conn = self.conn();
+        let mut rows = conn
+            .query(
+                queries::TAG_LIST_FOR_PAPER,
+                [Value::Text(paper_id.to_string())],
+            )
+            .await?;
+        crate::collect_rows(&mut rows).await.map_err(Into::into)
     }
 
     /// Rename a tag.
@@ -86,7 +117,7 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr().track_update("tags", id, &["name"]).await?;
+        self.crr().track_update("tags", id, &[Tags::NAME]).await?;
         Ok(())
     }
 
@@ -101,7 +132,7 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr().track_update("tags", id, &["color"]).await?;
+        self.crr().track_update("tags", id, &[Tags::COLOR]).await?;
         Ok(())
     }
 

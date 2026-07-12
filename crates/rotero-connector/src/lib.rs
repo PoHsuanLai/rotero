@@ -6,6 +6,9 @@
 
 /// Axum request handlers for all connector API endpoints.
 pub mod handlers;
+/// Resumable `/api/scrape` sessions for the browser-proxied fetch protocol.
+#[cfg(feature = "translator-engine")]
+pub mod scrape_session;
 /// `/api/scrape` outcome telemetry (hit vs. miss).
 pub mod telemetry;
 
@@ -47,6 +50,10 @@ pub struct ConnectorState {
     /// In-process translators (the corpus JS engine + Rust hubs) — the sole
     /// metadata-extraction path for `/api/scrape`.
     pub translator_registry: rotero_translate::TranslatorRegistry,
+    /// Live browser-proxied scrape sessions, parked between `/api/scrape` and
+    /// `/api/scrape/continue` round-trips. Shared with the reaper task via `Arc`.
+    #[cfg(feature = "translator-engine")]
+    pub scrape_sessions: Arc<scrape_session::SessionStore>,
 }
 
 /// Default port the connector listens on (`21984`).
@@ -62,7 +69,7 @@ pub fn router(state: Arc<ConnectorState>) -> Router {
         .allow_methods([Method::GET, Method::POST])
         .allow_headers(Any);
 
-    Router::new()
+    let router = Router::new()
         .route("/api/status", get(handlers::status))
         .route("/api/collections", get(handlers::collections))
         .route("/api/tags", get(handlers::tags))
@@ -77,9 +84,13 @@ pub fn router(state: Arc<ConnectorState>) -> Router {
         .route("/word/taskpane.css", get(word_taskpane_css))
         .route("/word/assets/icon-16.png", get(word_icon_16))
         .route("/word/assets/icon-32.png", get(word_icon_32))
-        .route("/word/assets/icon-80.png", get(word_icon_80))
-        .layer(cors)
-        .with_state(state)
+        .route("/word/assets/icon-80.png", get(word_icon_80));
+
+    // The browser-proxied continuation endpoint exists only with the JS engine.
+    #[cfg(feature = "translator-engine")]
+    let router = router.route("/api/scrape/continue", post(handlers::scrape_continue));
+
+    router.layer(cors).with_state(state)
 }
 
 async fn word_taskpane_html() -> impl IntoResponse {
@@ -129,6 +140,13 @@ async fn word_icon_80() -> impl IntoResponse {
 
 /// Starts the connector HTTP server, binding to `127.0.0.1:{port}`.
 pub async fn start_server(state: Arc<ConnectorState>, port: u16) -> Result<(), String> {
+    // Reap scrape sessions the extension abandoned (popup closed mid-fetch),
+    // freeing their parked engine threads.
+    #[cfg(feature = "translator-engine")]
+    tokio::spawn(scrape_session::run_reaper(Arc::clone(
+        &state.scrape_sessions,
+    )));
+
     let app = router(state);
     let addr = format!("127.0.0.1:{port}");
 

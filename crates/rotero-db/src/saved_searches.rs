@@ -3,6 +3,7 @@ use rotero_models::SavedSearch;
 use turso::Value;
 
 use crate::Database;
+use crate::crr::SavedSearches;
 use crate::queries;
 
 impl Database {
@@ -25,7 +26,7 @@ impl Database {
         .await?;
 
         self.crr()
-            .track_insert("saved_searches", &uuid, &["name", "query", "created_at"])
+            .track_insert("saved_searches", &uuid, SavedSearches::ALL)
             .await?;
 
         Ok(uuid)
@@ -56,7 +57,7 @@ impl Database {
         )
         .await?;
         self.crr()
-            .track_update("saved_searches", id, &["name"])
+            .track_update("saved_searches", id, &[SavedSearches::NAME])
             .await?;
         Ok(())
     }

@@ -1,4 +1,4 @@
-use rotero_models::{Paper, PaperLinks, Publication};
+use rotero_models::{Creator, Paper, PaperLinks, Publication};
 use serde::Deserialize;
 
 /// CSL-JSON is the standard JSON format used by Zotero, Mendeley, and others.
@@ -48,12 +48,14 @@ struct CslName {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 struct CslDate {
+    // CSL-JSON date-parts components may be either numbers or numeric strings
+    // (e.g. `["2013", 1, 1]`), so each element is a `StringOrNumber`.
     #[serde(default)]
-    date_parts: Vec<Vec<serde_json::Number>>,
+    date_parts: Vec<Vec<StringOrNumber>>,
     raw: Option<String>,
 }
 
-/// CSL-JSON sometimes uses strings, sometimes numbers for volume/issue.
+/// CSL-JSON sometimes uses strings, sometimes numbers (volume/issue, date-parts).
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum StringOrNumber {
@@ -66,6 +68,16 @@ impl std::fmt::Display for StringOrNumber {
         match self {
             StringOrNumber::Str(s) => write!(f, "{s}"),
             StringOrNumber::Num(n) => write!(f, "{n}"),
+        }
+    }
+}
+
+impl StringOrNumber {
+    /// The value as an `i32`, parsing a string component if needed.
+    fn as_i32(&self) -> Option<i32> {
+        match self {
+            StringOrNumber::Num(n) => n.as_i64().map(|v| v as i32),
+            StringOrNumber::Str(s) => s.trim().parse().ok(),
         }
     }
 }
@@ -99,7 +111,7 @@ impl CslItem {
             if let Some(parts) = d.date_parts.first()
                 && let Some(y) = parts.first()
             {
-                return y.as_i64().map(|v| v as i32);
+                return y.as_i32();
             }
             // Fallback: parse raw date string
             d.raw
@@ -108,7 +120,10 @@ impl CslItem {
 
         Some(Paper {
             title,
-            authors,
+            creators: authors
+                .iter()
+                .map(|a| Creator::author_from_display(a))
+                .collect(),
             year,
             doi: self.doi,
             abstract_text: self.abstract_text,
@@ -118,6 +133,7 @@ impl CslItem {
                 issue: self.issue.map(|v| v.to_string()),
                 pages: self.page,
                 publisher: self.publisher,
+                ..Default::default()
             },
             links: PaperLinks {
                 url: self.url,
@@ -158,7 +174,7 @@ mod tests {
         assert_eq!(papers.len(), 1);
         let p = &papers[0];
         assert_eq!(p.title, "A test paper");
-        assert_eq!(p.authors, vec!["John Smith", "Jane Doe"]);
+        assert_eq!(p.author_names(), vec!["John Smith", "Jane Doe"]);
         assert_eq!(p.year, Some(2023));
         assert_eq!(p.doi.as_deref(), Some("10.1234/test"));
         assert_eq!(p.publication.journal.as_deref(), Some("Nature"));
@@ -174,7 +190,7 @@ mod tests {
     fn test_literal_author() {
         let input = r#"[{"title": "Test", "author": [{"literal": "WHO"}]}]"#;
         let papers = import_csl_json(input).unwrap();
-        assert_eq!(papers[0].authors, vec!["WHO"]);
+        assert_eq!(papers[0].author_names(), vec!["WHO"]);
     }
 
     #[test]
@@ -183,5 +199,14 @@ mod tests {
         let papers = import_csl_json(input).unwrap();
         assert_eq!(papers[0].publication.volume.as_deref(), Some("5"));
         assert_eq!(papers[0].publication.issue.as_deref(), Some("12"));
+    }
+
+    #[test]
+    fn test_string_date_parts() {
+        // CSL-JSON allows the year component as a numeric string, not just a
+        // number (Zotero emits `["2013", 1, 1]`).
+        let input = r#"[{"title": "Test", "issued": {"date-parts": [["2013", 1, 1]]}}]"#;
+        let papers = import_csl_json(input).unwrap();
+        assert_eq!(papers[0].year, Some(2013));
     }
 }

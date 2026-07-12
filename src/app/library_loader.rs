@@ -103,7 +103,10 @@ pub fn LoadLibraryData() -> Element {
                         let stub = rotero_models::Paper {
                             id: Some(paper_id.clone()),
                             title: title.clone(),
-                            authors: authors.clone(),
+                            creators: authors
+                                .iter()
+                                .map(|a| rotero_models::Creator::author_from_display(a))
+                                .collect(),
                             year: *year,
                             ..Default::default()
                         };

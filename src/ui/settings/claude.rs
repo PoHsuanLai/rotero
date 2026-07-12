@@ -166,6 +166,8 @@ pub fn AgentSection() -> Element {
                                             r#type: "password",
                                             placeholder: "{selected_env_var}",
                                             value: "{api_key_input.read()}",
+                                            onfocusin: crate::ui::keybindings::editable_focus_in,
+                                            onfocusout: crate::ui::keybindings::editable_focus_out,
                                             oninput: move |e| {
                                                 api_key_input.set(e.value());
                                             },

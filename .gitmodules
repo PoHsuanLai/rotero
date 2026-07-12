@@ -1,3 +1,6 @@
 [submodule "crates/rotero-translate/vendor/translators"]
 	path = crates/rotero-translate/vendor/translators
 	url = https://github.com/zotero/translators.git
+[submodule "crates/rotero-translate/vendor/utilities"]
+	path = crates/rotero-translate/vendor/utilities
+	url = https://github.com/zotero/utilities.git

@@ -174,7 +174,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                             let pid_ctx = paper_id.clone();
                             rsx! {
                                 div {
-                                    class: "sidebar-collection-item",
+                                    class: "coll-row coll-row--sidebar",
                                     draggable: "true",
                                     ondragstart: move |_| {
                                         drag_paper.set(DragPaper(Some(vec![pid_drag.clone()])));
@@ -196,8 +196,8 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                         evt.prevent_default();
                                         recent_ctx.set(Some((pid_ctx.clone(), evt.client_coordinates().x, evt.client_coordinates().y)));
                                     },
-                                    i { class: "sidebar-collection-icon {recent_icon}" }
-                                    span { class: "sidebar-collection-name", "{truncated}" }
+                                    i { class: "coll-row-icon {recent_icon}" }
+                                    span { class: "coll-row-name", "{truncated}" }
                                 }
                             }
                         }
@@ -219,7 +219,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                         let db_unnest = db.clone();
                         rsx! {
                             div {
-                                class: "sidebar-collection-item sidebar-collection-item--droptarget",
+                                class: "coll-row coll-row--sidebar coll-row--droptarget",
                                 style: "justify-content: center; font-style: italic; opacity: 0.7;",
                                 ondragover: move |evt| { evt.prevent_default(); },
                                 ondrop: move |evt| {
@@ -240,8 +240,8 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                                         drag_coll.set(None);
                                     }
                                 },
-                                i { class: "sidebar-collection-icon bi bi-arrow-bar-left" }
-                                span { class: "sidebar-collection-name", "Move to top level" }
+                                i { class: "coll-row-icon bi bi-arrow-bar-left" }
+                                span { class: "coll-row-name", "Move to top level" }
                             }
                         }
                     }

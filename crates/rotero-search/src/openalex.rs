@@ -285,7 +285,10 @@ fn work_to_paper(work: OpenAlexWork, doi: &str) -> Result<Paper, String> {
 
     Ok(Paper {
         title,
-        authors,
+        creators: authors
+            .iter()
+            .map(|a| rotero_models::Creator::author_from_display(a))
+            .collect(),
         year: work.publication_year,
         doi: if doi.is_empty() {
             None

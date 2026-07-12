@@ -3,6 +3,7 @@ use rotero_models::{Annotation, AnnotationType};
 use turso::Value;
 
 use crate::Database;
+use crate::crr::Annotations;
 use crate::queries;
 
 impl Database {
@@ -40,20 +41,7 @@ impl Database {
         .await?;
 
         self.crr()
-            .track_insert(
-                "annotations",
-                &uuid,
-                &[
-                    "paper_id",
-                    "page",
-                    "ann_type",
-                    "color",
-                    "content",
-                    "geometry",
-                    "created_at",
-                    "modified_at",
-                ],
-            )
+            .track_insert("annotations", &uuid, Annotations::ALL)
             .await?;
 
         Ok(uuid)
@@ -95,7 +83,11 @@ impl Database {
         )
         .await?;
         self.crr()
-            .track_update("annotations", id, &["content", "modified_at"])
+            .track_update(
+                "annotations",
+                id,
+                &[Annotations::CONTENT, Annotations::MODIFIED_AT],
+            )
             .await?;
         Ok(())
     }
@@ -118,7 +110,11 @@ impl Database {
         )
         .await?;
         self.crr()
-            .track_update("annotations", id, &["color", "modified_at"])
+            .track_update(
+                "annotations",
+                id,
+                &[Annotations::COLOR, Annotations::MODIFIED_AT],
+            )
             .await?;
         Ok(())
     }
