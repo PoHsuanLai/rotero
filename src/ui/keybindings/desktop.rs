@@ -1,6 +1,8 @@
 use dioxus::desktop::use_muda_event_handler;
 use dioxus::prelude::*;
 
+use super::EditableFocused;
+
 use crate::app::{DevicePixelRatio, RenderChannel, ShowSettings};
 use crate::state::app_state::{
     AnnotationMode, LibraryState, LibraryView, PdfTab, PdfTabManager, ViewerToolState,
@@ -25,40 +27,6 @@ use rotero_db::Database;
 // the keys that native text editing owns —
 // the set defined in `command_yields_to_text_editing`. Every other shortcut still
 // fires while typing, and menu-backed ones also work via the native macOS menu.
-
-/// True while a text input/textarea holds focus. Provided via context at the app
-/// root and read once per keystroke by `handle_keydown`. A newtype (not a bare
-/// `Signal<bool>`) so it can't be confused with any other boolean context.
-#[derive(Clone, Copy)]
-pub struct EditableFocused(pub Signal<bool>);
-
-/// `onfocusin` handler for an editable input: flags that a text field is focused
-/// so the global shortcut handler yields the keys native text editing owns. Attach
-/// alongside [`editable_focus_out`] to every `<input>`/`<textarea>`:
-///
-/// ```ignore
-/// rsx! { input { onfocusin: editable_focus_in, onfocusout: editable_focus_out, /* … */ } }
-/// ```
-///
-/// These are plain `fn`s (not hooks), so they can be attached anywhere — including
-/// inside a `for`/`if` in `rsx!` or a `.map()` over a list of inputs.
-pub fn editable_focus_in(_: FocusEvent) {
-    set_editable_focused(true);
-}
-
-/// `onfocusout` counterpart to [`editable_focus_in`]. Clears the focus flag.
-pub fn editable_focus_out(_: FocusEvent) {
-    set_editable_focused(false);
-}
-
-/// Set the "an editable element is focused" flag. Reads `EditableFocused` from
-/// context lazily (via `try_consume_context`), so it works at event time from
-/// anywhere a Dioxus runtime is active.
-fn set_editable_focused(focused: bool) {
-    if let Some(EditableFocused(mut sig)) = try_consume_context::<EditableFocused>() {
-        sig.set(focused);
-    }
-}
 
 /// A semantic action, decoupled from the key that triggers it. This is the unit
 /// a rebinding UI lets users remap.
