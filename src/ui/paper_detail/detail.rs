@@ -6,7 +6,7 @@ use rotero_db::Database;
 
 use super::DetailShell;
 use super::detail_fields::DetailFields;
-use super::fields::{AddToCollectionSelect, TagEditor};
+use super::fields::{CollectionsField, TagsField};
 use super::notes::NotesSection;
 
 #[component]
@@ -158,12 +158,12 @@ pub fn PaperDetail() -> Element {
 
             div { class: "detail-field",
                 label { class: "detail-label", "Collection" }
-                AddToCollectionSelect { paper_id: paper_id.clone() }
+                CollectionsField { key: "{paper_id}", paper_id: paper_id.clone() }
             }
 
             div { class: "detail-field",
                 label { class: "detail-label", "Tags" }
-                TagEditor { paper_id: paper_id.clone() }
+                TagsField { key: "{paper_id}", paper_id: paper_id.clone() }
             }
 
             div { class: "detail-cite-section",

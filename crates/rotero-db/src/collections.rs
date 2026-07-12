@@ -156,6 +156,21 @@ impl Database {
         Ok(ids)
     }
 
+    /// List the collections a single paper belongs to.
+    pub async fn list_collections_for_paper(
+        &self,
+        paper_id: &str,
+    ) -> Result<Vec<Collection>, crate::DbError> {
+        let conn = self.conn();
+        let mut rows = conn
+            .query(
+                queries::COLLECTION_LIST_FOR_PAPER,
+                [Value::Text(paper_id.to_string())],
+            )
+            .await?;
+        crate::collect_rows(&mut rows).await.map_err(Into::into)
+    }
+
     /// Add a paper to a collection (idempotent via INSERT OR IGNORE).
     pub async fn add_paper_to_collection(
         &self,

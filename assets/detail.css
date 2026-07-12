@@ -92,6 +92,9 @@
   color: var(--text-primary);
 }
 
+/* The collection/tag editors reuse the shared `.coll-row*` and `.chip*`
+   component classes (assets/components.css) — no detail-only styles needed. */
+
 .detail-value--title {
   font-size: var(--text-xl);
   font-weight: 700;

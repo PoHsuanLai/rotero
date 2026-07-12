@@ -83,6 +83,7 @@ pub fn App() -> Element {
     use_context_provider(|| Signal::new(ShowSettings(false)));
     use_context_provider(|| Signal::new(None::<Option<String>>));
     use_context_provider(|| Signal::new(DragPaper(None)));
+    use_context_provider(|| Signal::new(crate::state::app_state::MembershipRefresh::default()));
     use_context_provider(|| Signal::new(crate::state::undo::UndoStack::default()));
     use_context_provider(|| Signal::new(None::<crate::ui::import_export::OaState>));
     #[cfg(feature = "desktop")]

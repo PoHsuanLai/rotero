@@ -1,8 +1,15 @@
 use dioxus::prelude::*;
 
-use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
+use crate::state::app_state::{LibraryState, LibraryView, MembershipRefresh, PdfTabManager};
 use crate::ui::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
 use rotero_db::Database;
+
+/// Which nested picker the paper context menu is currently showing, if any.
+#[derive(Clone, Copy, PartialEq)]
+enum Submenu {
+    Collections,
+    Tags,
+}
 
 #[cfg(feature = "desktop")]
 fn download_pdf_menu_item(
@@ -87,6 +94,12 @@ pub fn PaperContextMenu(
     let db = use_context::<Database>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
+    let refresh = use_context::<Signal<MembershipRefresh>>();
+
+    // The "Add to Collection" / "Add Tag" rows swap the menu body to a picker.
+    // The component can't nest true flyouts, so it mirrors the sidebar's
+    // in-place expand pattern with a back button.
+    let submenu = use_signal(|| None::<Submenu>);
 
     let is_multi = paper_ids.len() > 1;
     let count = paper_ids.len();
@@ -181,6 +194,21 @@ pub fn PaperContextMenu(
     } else {
         None
     };
+
+    // When a picker is open, swap the whole menu body for it.
+    if let Some(sub) = submenu() {
+        return rsx! {
+            SubmenuPicker {
+                which: sub,
+                paper_ids: paper_ids.clone(),
+                x,
+                y,
+                submenu,
+                refresh,
+                on_close: move |_| on_close.call(()),
+            }
+        };
+    }
 
     rsx! {
         ContextMenu {
@@ -280,21 +308,26 @@ pub fn PaperContextMenu(
                 },
             }
 
-            // Add Tag — single only (needs detail panel focus)
-            if !is_multi {
-                ContextMenuItem {
-                    label: "Add Tag".to_string(),
-                    icon: Some("bi-tag".to_string()),
-                    on_click: {
-                        let pid = pids[0].clone();
-                        move |_| {
-                            lib_state.with_mut(|s| {
-                                s.select_one(pid.clone());
-                            });
-                            document::eval("setTimeout(() => { let el = document.getElementById('tag-editor-input'); if (el) el.focus(); }, 100)");
-                        }
-                    },
-                }
+            // Add to Collection / Add Tag — open an in-place picker submenu.
+            // Works for single and multi selection.
+            ContextMenuItem {
+                label: "Add to Collection".to_string(),
+                icon: Some("bi-folder-plus".to_string()),
+                // Keep the menu mounted; opening the submenu closes it otherwise.
+                close_on_click: Some(false),
+                on_click: {
+                    let mut submenu = submenu;
+                    move |_| submenu.set(Some(Submenu::Collections))
+                },
+            }
+            ContextMenuItem {
+                label: "Add Tag".to_string(),
+                icon: Some("bi-tag".to_string()),
+                close_on_click: Some(false),
+                on_click: {
+                    let mut submenu = submenu;
+                    move |_| submenu.set(Some(Submenu::Tags))
+                },
             }
 
             ContextMenuSeparator {}
@@ -322,7 +355,9 @@ pub fn PaperContextMenu(
                         ContextMenuItem {
                             label: remove_label,
                             icon: Some("bi-folder-minus".to_string()),
-                            on_click: move |_| {
+                            on_click: {
+                                let mut refresh = refresh;
+                                move |_| {
                                 let db = db_remove.clone();
                                 let pids = pids.clone();
                                 let cid = cid.clone();
@@ -333,8 +368,9 @@ pub fn PaperContextMenu(
                                     if let Ok(ids) = db.list_paper_ids_in_subtree(&cid).await {
                                         lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
                                     }
+                                    refresh.with_mut(|r| r.0 = r.0.wrapping_add(1));
                                 });
-                            },
+                            }},
                         }
                     }
                 }
@@ -352,6 +388,159 @@ pub fn PaperContextMenu(
                         s.confirm_delete = Some(pids_del.clone());
                     });
                 },
+            }
+        }
+    }
+}
+
+/// The in-place "Add to Collection" / "Add Tag" picker. Reuses the same
+/// `ContextMenu` chrome as the parent, opening with a "‹ Back" row. Adds apply
+/// to every paper in the selection and are idempotent, so a paper already in the
+/// collection/tag is a no-op.
+#[component]
+fn SubmenuPicker(
+    which: Submenu,
+    paper_ids: Vec<String>,
+    x: f64,
+    y: f64,
+    submenu: Signal<Option<Submenu>>,
+    refresh: Signal<MembershipRefresh>,
+    on_close: EventHandler<()>,
+) -> Element {
+    let lib_state = use_context::<Signal<LibraryState>>();
+    let db = use_context::<Database>();
+    let mut new_tag = use_signal(String::new);
+
+    let collections = lib_state.read().collections.clone();
+    let tags = lib_state.read().tags.clone();
+
+    rsx! {
+        ContextMenu {
+            x,
+            y,
+            on_close: move |_| on_close.call(()),
+
+            // Back to the main menu (does not close the menu).
+            ContextMenuItem {
+                label: match which {
+                    Submenu::Collections => "Add to Collection".to_string(),
+                    Submenu::Tags => "Add Tag".to_string(),
+                },
+                icon: Some("bi-chevron-left".to_string()),
+                close_on_click: Some(false),
+                on_click: {
+                    let mut submenu = submenu;
+                    move |_| submenu.set(None)
+                },
+            }
+
+            ContextMenuSeparator {}
+
+            div { class: "context-menu-scroll",
+                match which {
+                    Submenu::Collections => rsx! {
+                        if collections.is_empty() {
+                            div { class: "context-menu-empty", "No collections yet" }
+                        }
+                        for coll in collections.iter() {
+                            {
+                                let cid = coll.id.clone().unwrap_or_default();
+                                let cname = coll.name.clone();
+                                let db = db.clone();
+                                let pids = paper_ids.clone();
+                                let mut refresh = refresh;
+                                rsx! {
+                                    ContextMenuItem {
+                                        label: cname,
+                                        icon: Some("bi-folder".to_string()),
+                                        close_on_click: Some(false),
+                                        on_click: move |_| {
+                                            let db = db.clone();
+                                            let pids = pids.clone();
+                                            let cid = cid.clone();
+                                            spawn(async move {
+                                                for pid in &pids {
+                                                    let _ = db.add_paper_to_collection(pid, &cid).await;
+                                                }
+                                                refresh.with_mut(|r| r.0 = r.0.wrapping_add(1));
+                                                on_close.call(());
+                                            });
+                                        },
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    Submenu::Tags => rsx! {
+                        div { class: "context-menu-rename",
+                            input {
+                                class: "input input--sm",
+                                r#type: "text",
+                                placeholder: "New tag...",
+                                autofocus: true,
+                                value: "{new_tag}",
+                                onfocusin: crate::ui::keybindings::editable_focus_in,
+                                onfocusout: crate::ui::keybindings::editable_focus_out,
+                                oninput: move |evt| new_tag.set(evt.value()),
+                                onkeydown: {
+                                    let db = db.clone();
+                                    let pids = paper_ids.clone();
+                                    let mut refresh = refresh;
+                                    move |evt: Event<KeyboardData>| {
+                                        if evt.key() == Key::Enter {
+                                            let name = new_tag().trim().to_string();
+                                            if name.is_empty() { return; }
+                                            let db = db.clone();
+                                            let pids = pids.clone();
+                                            spawn(async move {
+                                                if let Ok(tid) = db.get_or_create_tag(&name, None).await {
+                                                    for pid in &pids {
+                                                        let _ = db.add_tag_to_paper(pid, &tid).await;
+                                                    }
+                                                    refresh.with_mut(|r| r.0 = r.0.wrapping_add(1));
+                                                }
+                                                on_close.call(());
+                                            });
+                                        }
+                                    }
+                                },
+                            }
+                        }
+                        if !tags.is_empty() {
+                            ContextMenuSeparator {}
+                        }
+                        for tag in tags.iter() {
+                            {
+                                let tid = tag.id.clone().unwrap_or_default();
+                                let tname = tag.name.clone();
+                                let bg = tag.color.clone().unwrap_or_else(|| "#6b7085".to_string());
+                                let db = db.clone();
+                                let pids = paper_ids.clone();
+                                let mut refresh = refresh;
+                                rsx! {
+                                    div {
+                                        class: "context-menu-item",
+                                        onclick: move |evt: Event<MouseData>| {
+                                            evt.stop_propagation();
+                                            let db = db.clone();
+                                            let pids = pids.clone();
+                                            let tid = tid.clone();
+                                            spawn(async move {
+                                                for pid in &pids {
+                                                    let _ = db.add_tag_to_paper(pid, &tid).await;
+                                                }
+                                                refresh.with_mut(|r| r.0 = r.0.wrapping_add(1));
+                                                on_close.call(());
+                                            });
+                                        },
+                                        span { class: "context-menu-tag-dot", style: "background: {bg};" }
+                                        span { class: "context-menu-label", "{tname}" }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                }
             }
         }
     }

@@ -21,7 +21,7 @@ pub mod saved_search;
 pub mod tag;
 
 pub use annotation::{Annotation, AnnotationType};
-pub use collection::Collection;
+pub use collection::{Collection, children_of, collection_tree, has_children};
 pub use merge::merge_and_rank;
 pub use note::Note;
 pub use paper::{
