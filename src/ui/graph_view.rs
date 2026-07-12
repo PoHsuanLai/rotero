@@ -17,7 +17,6 @@ enum EdgeMode {
     Collections,
     Authors,
     Journals,
-    Citations,
 }
 
 impl EdgeMode {
@@ -27,7 +26,6 @@ impl EdgeMode {
             Self::Collections => "Collections",
             Self::Authors => "Authors",
             Self::Journals => "Journals",
-            Self::Citations => "Citations",
         }
     }
 
@@ -37,7 +35,6 @@ impl EdgeMode {
             show_collection_edges: self == Self::Collections,
             show_author_edges: self == Self::Authors,
             show_journal_edges: self == Self::Journals,
-            show_citation_edges: self == Self::Citations,
             ..Default::default()
         }
     }
@@ -48,17 +45,15 @@ impl EdgeMode {
             Self::Collections => "#6366f1",
             Self::Authors => "#f59e0b",
             Self::Journals => "#94a3b8",
-            Self::Citations => "#e11d48",
         }
     }
 }
 
-const ALL_MODES: [EdgeMode; 5] = [
+const ALL_MODES: [EdgeMode; 4] = [
     EdgeMode::Tags,
     EdgeMode::Collections,
     EdgeMode::Authors,
     EdgeMode::Journals,
-    EdgeMode::Citations,
 ];
 
 #[component]
@@ -87,7 +82,6 @@ pub fn GraphView() -> Element {
 
             let tag_pairs = db.list_all_paper_tags().await.unwrap_or_default();
             let coll_pairs = db.list_all_paper_collections().await.unwrap_or_default();
-            let citation_pairs = db.list_all_citations().await.unwrap_or_default();
 
             let filter = mode.to_filter();
 
@@ -96,7 +90,6 @@ pub fn GraphView() -> Element {
                 &tags,
                 &tag_pairs,
                 &coll_pairs,
-                &citation_pairs,
                 &filter,
                 500,
             );
