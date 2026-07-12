@@ -20,6 +20,7 @@ pub fn build_and_simulate(
     tags: &[Tag],
     paper_tag_pairs: &[(String, String)],
     paper_collection_pairs: &[(String, String)],
+    citation_pairs: &[(String, String)],
     filter: &GraphFilter,
     iterations: usize,
 ) -> GraphData {
@@ -28,6 +29,7 @@ pub fn build_and_simulate(
         tags,
         paper_tag_pairs,
         paper_collection_pairs,
+        citation_pairs,
         filter,
     );
 
