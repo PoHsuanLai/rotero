@@ -12,7 +12,12 @@ pub const PAPER_COUNT: &str = "SELECT COUNT(*) FROM papers";
 
 /// Direct identifier lookup, used as a fast path when the query parses as a DOI
 /// or other [`PaperId`](crate::PaperId).
-pub const PAPER_SEARCH_BY_DOI: &str = "SELECT {COLS} FROM papers WHERE doi = ?1 LIMIT 50";
+// DOIs are case-insensitive by specification, so match without regard to case.
+pub const PAPER_SEARCH_BY_DOI: &str =
+    "SELECT {COLS} FROM papers WHERE doi = ?1 COLLATE NOCASE LIMIT 50";
+
+pub const PAPER_SEARCH_BY_URL: &str =
+    "SELECT {COLS} FROM papers WHERE url = ?1 OR pdf_url = ?1 LIMIT 50";
 
 /// Full-text search ranked by BM25 relevance.
 ///
@@ -207,6 +212,11 @@ pub const GRAPH_ALL_PAPER_TAGS: &str = "SELECT paper_id, tag_id FROM paper_tags"
 /// Fetch all paper-collection associations (for graph/export).
 pub const GRAPH_ALL_PAPER_COLLECTIONS: &str =
     "SELECT paper_id, collection_id FROM paper_collections";
+/// Fetch all directed citation edges (citing → cited) for the graph.
+pub const GRAPH_ALL_CITATIONS: &str = "SELECT citing_paper_id, cited_paper_id FROM paper_citations";
+/// Upsert one citation edge; ignore if it already exists.
+pub const CITATION_INSERT: &str =
+    "INSERT OR IGNORE INTO paper_citations (citing_paper_id, cited_paper_id) VALUES (?1, ?2)";
 
 /// Fetch a single paper by ID.
 pub const PAPER_GET_BY_ID: &str = "SELECT {COLS} FROM papers WHERE id = ?1";
