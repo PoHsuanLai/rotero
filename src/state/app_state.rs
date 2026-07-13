@@ -62,7 +62,7 @@ pub struct NavPanels {
 }
 
 /// Where a [`PageLink`] jumps to: an in-document location or an external URI.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LinkDest {
     /// Jump to another page in this document, optionally at a fractional y
     /// position (0..1) down the target page. `None` jumps to the page top.

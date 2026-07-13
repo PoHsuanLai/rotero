@@ -1,5 +1,6 @@
 mod annotation_panel;
 pub(crate) mod annotation_render;
+mod citation_card;
 mod navigation;
 mod page_overlay;
 mod search_bar;
@@ -9,6 +10,8 @@ mod viewer;
 
 pub use tab_bar::PdfTabBar;
 pub use viewer::PdfViewer;
+
+pub(crate) use citation_card::CitationCard;
 
 use dioxus::prelude::*;
 

@@ -30,9 +30,6 @@ pub(crate) fn PdfPageWithOverlay(
     let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
     let ann_ctx = use_context::<AnnCtxState>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
-    let render_ch = use_context::<crate::app::RenderChannel>();
-    let lib_state = use_context::<Signal<crate::state::app_state::LibraryState>>();
-    let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
 
     let mgr = tabs.read();
     let tab = mgr.tab();
@@ -60,6 +57,9 @@ pub(crate) fn PdfPageWithOverlay(
     let page_links: Vec<crate::state::app_state::PageLink> =
         tab.links.get(&page_index).cloned().unwrap_or_default();
     drop(mgr);
+
+    // Open citation preview card: `Some((link dest, viewport x, viewport y))`.
+    let mut card = use_signal(|| None::<(crate::state::app_state::LinkDest, f64, f64)>);
 
     let selection_color = {
         let hex = &config.read().pdf.selection_color;
@@ -332,7 +332,6 @@ pub(crate) fn PdfPageWithOverlay(
                     let lw = link.w_frac * width as f64;
                     let lh = link.h_frac * height as f64;
                     let dest = link.dest.clone();
-                    let db = db.clone();
                     let is_external = matches!(dest, LinkDest::External { .. });
                     let title = match &dest {
                         LinkDest::External { uri } => uri.clone(),
@@ -349,63 +348,26 @@ pub(crate) fn PdfPageWithOverlay(
                             class,
                             title: "{title}",
                             style: "left: {lx}px; top: {ly}px; width: {lw}px; height: {lh}px;",
-                            onclick: move |evt| {
+                            onclick: move |evt: Event<MouseData>| {
                                 evt.stop_propagation();
-                                // Future back-navigation would push the current
-                                // (page, scroll position) onto a history stack here,
-                                // before an internal jump. Not built yet — data-first pass.
-                                match dest.clone() {
-                                    LinkDest::Internal { page, y_frac } => {
-                                        let render_tx = render_ch.sender();
-                                        let data_dir = config.read().effective_library_path();
-                                        spawn(async move {
-                                            crate::state::commands::ensure_window_rendered(
-                                                &render_tx, &mut tabs, tab_id, page, &data_dir,
-                                            ).await;
-                                            let js = match y_frac {
-                                                Some(f) => super::scroll_to_page_at_js(page, f),
-                                                None => super::scroll_to_page_js(page, "start"),
-                                            };
-                                            let _ = document::eval(&js);
-                                        });
-                                    }
-                                    LinkDest::External { uri } => {
-                                        // If the link resolves to a paper already in
-                                        // the library (matched by DOI/arXiv/URL), open
-                                        // that paper's PDF; otherwise fall back to the
-                                        // system browser.
-                                        //
-                                        // A richer intercept UX (a "found in your
-                                        // library" dialog) would slot in here later;
-                                        // this is the data/resolution path only.
-                                        let db = db.clone();
-                                        let mut tabs = tabs;
-                                        let mut lib_state = lib_state;
-                                        let config = config;
-                                        let dpr_sig = dpr_sig;
-                                        spawn(async move {
-                                            let matched = db
-                                                .find_paper_by_link(&uri)
-                                                .await
-                                                .ok()
-                                                .flatten();
-                                            if let Some(paper) = matched
-                                                && let (Some(pid), Some(rel)) =
-                                                    (paper.id.as_deref(), paper.links.pdf_path.as_deref())
-                                            {
-                                                crate::state::commands::open_paper_pdf(
-                                                    &db, &mut tabs, &mut lib_state, &config,
-                                                    &dpr_sig, pid, rel, &paper.title,
-                                                );
-                                            } else {
-                                                let _ = open::that(&uri);
-                                            }
-                                        });
-                                    }
-                                }
+                                // Open a preview card anchored at the click rather
+                                // than navigating away — the card offers Jump/Open/
+                                // Import as appropriate.
+                                let c = evt.client_coordinates();
+                                card.set(Some((dest.clone(), c.x, c.y)));
                             },
                         }
                     }
+                }
+            }
+
+            if let Some((dest, cx, cy)) = card() {
+                super::CitationCard {
+                    x: cx,
+                    y: cy,
+                    link: dest,
+                    tab_id,
+                    on_close: move |_| card.set(None),
                 }
             }
 
