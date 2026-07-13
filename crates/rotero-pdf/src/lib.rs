@@ -14,4 +14,6 @@ pub use renderer::{
     BookmarkEntry, ExtractedAnnotation, ExtractedLink, LinkTarget, PdfDocumentInfo, PdfEngine,
     PdfError, RenderedPage,
 };
-pub use text_extract::{PageTextData, PdfDocMetadata, SearchMatch, TextSegment, group_into_lines};
+pub use text_extract::{
+    PageTextData, PdfDocMetadata, SearchMatch, TextSegment, group_into_lines, text_block_at,
+};

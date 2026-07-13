@@ -89,6 +89,74 @@ fn group_into_lines_ref(segments: &[TextSegment]) -> Vec<Vec<&TextSegment>> {
     lines
 }
 
+/// Extract a contiguous block of text starting at a vertical position on a page.
+///
+/// Used to pull a single reference-list entry out of a References section given
+/// the target `y` (in the same pixel space as [`TextSegment::y`], origin
+/// top-left) that an internal citation link points at. Groups `segments` into
+/// lines, finds the first line at or below `start_y`, then accumulates lines
+/// downward until a paragraph-sized vertical gap (the next reference) or
+/// `max_lines` is reached. Returns the joined, trimmed text (lines separated by
+/// `\n`), or an empty string if nothing sits at/below `start_y`.
+pub fn text_block_at(segments: &[TextSegment], start_y: f64, max_lines: usize) -> String {
+    let lines = group_into_lines_ref(segments);
+    if lines.is_empty() {
+        return String::new();
+    }
+
+    // Line y/height, using the tallest segment on the line as its metrics.
+    let line_metrics = |line: &[&TextSegment]| -> (f64, f64) {
+        let y = line.iter().map(|s| s.y).fold(f64::MAX, f64::min);
+        let h = line.iter().map(|s| s.height).fold(0.0_f64, f64::max);
+        (y, h)
+    };
+    let line_text = |line: &[&TextSegment]| -> String {
+        line.iter()
+            .map(|s| s.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+
+    // First line whose top is at/below start_y, allowing a small tolerance so a
+    // link that lands mid-line still catches that line.
+    let start = lines.iter().position(|line| {
+        let (y, h) = line_metrics(line);
+        y + h * 0.5 >= start_y
+    });
+    let Some(start) = start else {
+        return String::new();
+    };
+
+    let mut out: Vec<String> = Vec::new();
+    let (_, mut prev_h) = line_metrics(&lines[start]);
+    let mut prev_bottom = {
+        let (y, h) = line_metrics(&lines[start]);
+        y + h
+    };
+    for line in &lines[start..] {
+        if out.len() >= max_lines {
+            break;
+        }
+        let (y, h) = line_metrics(line);
+        if !out.is_empty() {
+            // A gap larger than ~1.8× line height marks a paragraph / the next
+            // reference entry — stop before it.
+            let gap = y - prev_bottom;
+            if gap > prev_h.max(h) * 1.8 {
+                break;
+            }
+        }
+        let text = line_text(line);
+        if !text.trim().is_empty() {
+            out.push(text);
+        }
+        prev_bottom = y + h;
+        prev_h = h;
+    }
+
+    out.join("\n").trim().to_string()
+}
+
 /// Concatenates same-line segments so multi-word queries match across word boundaries.
 pub fn search_in_text_data(text_data: &[PageTextData], query: &str) -> Vec<SearchMatch> {
     if query.is_empty() {
@@ -144,4 +212,68 @@ pub fn search_in_text_data(text_data: &[PageTextData], query: &str) -> Vec<Searc
     }
 
     matches
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One word-segment at (x, y) with a fixed height/width; other font fields
+    /// are irrelevant to line grouping.
+    fn seg(text: &str, x: f64, y: f64) -> TextSegment {
+        TextSegment {
+            text: text.to_string(),
+            x,
+            y,
+            width: 20.0,
+            height: 10.0,
+            font_size: 10.0,
+            font_family: "serif".into(),
+            font_weight: "normal".into(),
+            font_style: "normal".into(),
+        }
+    }
+
+    #[test]
+    fn text_block_at_starts_at_y_and_stops_at_paragraph_gap() {
+        // Two reference entries, each two lines, separated by a large gap.
+        // ref A: y=100,110 ; ref B: y=140,150 (gap 100->... A bottom 120, B top 140 = 20 > 1.8*10)
+        let segs = vec![
+            seg("Ng", 0.0, 100.0),
+            seg("A.", 25.0, 100.0),
+            seg("Inverse", 0.0, 110.0),
+            seg("RL", 25.0, 110.0),
+            seg("Smith", 0.0, 140.0),
+            seg("B.", 25.0, 140.0),
+            seg("Deep", 0.0, 150.0),
+        ];
+
+        // Ask for the block starting at ref A.
+        let block = text_block_at(&segs, 100.0, 10);
+        assert!(block.starts_with("Ng"), "block was: {block:?}");
+        assert!(block.contains("Inverse RL"), "block was: {block:?}");
+        // Must stop before ref B's paragraph.
+        assert!(
+            !block.contains("Smith"),
+            "block should stop at gap: {block:?}"
+        );
+    }
+
+    #[test]
+    fn text_block_at_respects_max_lines() {
+        let segs = vec![
+            seg("l1", 0.0, 10.0),
+            seg("l2", 0.0, 20.0),
+            seg("l3", 0.0, 30.0),
+        ];
+        let block = text_block_at(&segs, 0.0, 2);
+        assert_eq!(block, "l1\nl2");
+    }
+
+    #[test]
+    fn text_block_at_empty_when_nothing_below() {
+        let segs = vec![seg("top", 0.0, 10.0)];
+        assert_eq!(text_block_at(&segs, 500.0, 10), "");
+        assert_eq!(text_block_at(&[], 0.0, 10), "");
+    }
 }
