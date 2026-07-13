@@ -36,6 +36,10 @@ pub(crate) fn CitationCard(
     x: f64,
     /// Viewport y of the click.
     y: f64,
+    /// The `css_zoom` of the page wrapper this card is mounted inside. CSS
+    /// `zoom` scales fixed-position descendants too, so the card cancels it with
+    /// `zoom: 1/css_zoom` to render at true size regardless of page zoom/DPI.
+    css_zoom: f32,
     link: LinkDest,
     tab_id: TabId,
     on_close: EventHandler<()>,
@@ -47,6 +51,9 @@ pub(crate) fn CitationCard(
     let dpr_sig = use_context::<Signal<DevicePixelRatio>>();
     let render_ch = use_context::<RenderChannel>();
     let import_channel = use_context::<ImportChannel>();
+
+    // Cancel the page wrapper's CSS `zoom` so the card renders at true size.
+    let inv_zoom = if css_zoom > 0.0 { 1.0 / css_zoom } else { 1.0 };
 
     // Reference-block text for internal links (shown verbatim, always available).
     let mut ref_text = use_signal(|| None::<String>);
@@ -183,12 +190,13 @@ pub(crate) fn CitationCard(
     rsx! {
         div {
             class: "citation-card-backdrop",
+            style: "zoom: {inv_zoom};",
             onclick: move |_| on_close.call(()),
         }
         div {
             id: CARD_ID,
             class: "citation-card",
-            style: "left: {x}px; top: {y}px;",
+            style: "left: {x}px; top: {y}px; zoom: {inv_zoom};",
             tabindex: "-1",
             onmounted: move |evt| {
                 spawn(async move {
@@ -211,6 +219,17 @@ pub(crate) fn CitationCard(
                     }
                 } else {
                     div { class: "citation-card-loading", "Reading reference…" }
+                }
+            }
+
+            // External links: show the linked URI immediately as a header, so the
+            // card always has visible content while metadata resolves.
+            if !is_internal {
+                if let Some(uri) = external_uri.read().as_ref() {
+                    div { class: "citation-card-uri",
+                        i { class: "bi bi-link-45deg" }
+                        span { class: "citation-card-uri-text", "{uri}" }
+                    }
                 }
             }
 

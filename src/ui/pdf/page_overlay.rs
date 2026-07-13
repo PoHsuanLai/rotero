@@ -365,6 +365,7 @@ pub(crate) fn PdfPageWithOverlay(
                 super::CitationCard {
                     x: cx,
                     y: cy,
+                    css_zoom,
                     link: dest,
                     tab_id,
                     on_close: move |_| card.set(None),
