@@ -105,3 +105,25 @@ jobs:
           targets: aarch64-apple-ios
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --target aarch64-apple-ios --features mobile --no-default-features
+
+  # Windows and macOS aren't covered by the Linux jobs above, and the platform
+  # split in the agent/updater code only shows up when it's actually compiled
+  # for those targets.
+  check-windows:
+    name: Check Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -W clippy::all
+      - run: cargo test --workspace
+
+  check-macos:
+    name: Check macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -W clippy::all

@@ -58,6 +58,11 @@ jobs:
           cargo clippy --workspace --fix --allow-dirty --allow-staged -- -W clippy::all
 
       - name: Commit and push fixes
+        # The branch name is attacker-controlled (anyone can open a PR), so it
+        # goes through the environment rather than being interpolated into the
+        # script, where a name like `$(...)` would execute.
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           if [ -z "$(git status --porcelain)" ]; then
             echo "No formatting or clippy fixes needed."
@@ -67,4 +72,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "style: auto-fix fmt/clippy"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          git push origin "HEAD:$HEAD_REF"

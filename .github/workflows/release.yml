@@ -100,6 +100,119 @@ jobs:
             ${{ env.DMG_NAME }}
             ${{ env.ZIP_NAME }}
 
+  # The archive names below are a contract with `update_asset_suffix()` in
+  # src/updates.rs — the in-app updater matches on these suffixes. Renaming an
+  # artifact without updating that function silently disables updates for that
+  # platform.
+  build-windows:
+    name: Build Windows
+    needs: [test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Dioxus CLI
+        run: cargo install dioxus-cli --locked
+
+      - name: Download PDFium
+        shell: bash
+        run: |
+          mkdir -p lib
+          TMP=$(mktemp -d)
+          curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz" -o "$TMP/pdfium.tgz"
+          tar -xzf "$TMP/pdfium.tgz" -C "$TMP"
+          # Windows ships the DLL under bin/; lib/ holds only the import library.
+          cp "$TMP/bin/pdfium.dll" lib/pdfium.dll
+          rm -rf "$TMP"
+
+      - name: Build
+        shell: bash
+        run: PDFIUM_DYNAMIC_LIB_PATH="$PWD/lib" dx bundle --release --package-types msi
+
+      - name: Stage the portable zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The updater replaces the bare executable, so ship a zip containing
+          # it (plus the PDFium DLL it loads at runtime) alongside the MSI.
+          EXE=$(find target/dx/rotero/release -name 'rotero.exe' | head -1)
+          test -n "$EXE" || { echo "rotero.exe not found"; exit 1; }
+          STAGE=$(mktemp -d)
+          cp "$EXE" "$STAGE/"
+          cp lib/pdfium.dll "$STAGE/"
+          ZIP_NAME="Rotero-${{ github.ref_name }}-windows-x64.zip"
+          (cd "$STAGE" && 7z a -tzip "$OLDPWD/$ZIP_NAME" .)
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+          MSI=$(find target/dx/rotero/release -name '*.msi' | head -1)
+          if [ -n "$MSI" ]; then
+            MSI_NAME="Rotero-${{ github.ref_name }}-windows-x64.msi"
+            cp "$MSI" "$MSI_NAME"
+            echo "MSI_NAME=$MSI_NAME" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: |
+            Rotero-*-windows-x64.zip
+            Rotero-*-windows-x64.msi
+          if-no-files-found: error
+
+  build-linux:
+    name: Build Linux
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev libxdo-dev
+
+      - name: Install Dioxus CLI
+        run: cargo install dioxus-cli --locked
+
+      - name: Download PDFium
+        run: |
+          mkdir -p lib
+          TMP=$(mktemp -d)
+          curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-x64.tgz" -o "$TMP/pdfium.tgz"
+          tar -xzf "$TMP/pdfium.tgz" -C "$TMP"
+          cp "$TMP/lib/libpdfium.so" lib/libpdfium.so
+          rm -rf "$TMP"
+
+      - name: Build
+        run: PDFIUM_DYNAMIC_LIB_PATH="$PWD/lib" dx bundle --release --package-types deb
+
+      - name: Stage the portable tarball
+        run: |
+          set -euo pipefail
+          BIN=$(find target/dx/rotero/release -type f -name 'rotero' -perm -u+x | head -1)
+          test -n "$BIN" || { echo "rotero binary not found"; exit 1; }
+          STAGE=$(mktemp -d)
+          cp "$BIN" "$STAGE/"
+          cp lib/libpdfium.so "$STAGE/"
+          TAR_NAME="Rotero-${{ github.ref_name }}-linux-x64.tar.gz"
+          tar -czf "$TAR_NAME" -C "$STAGE" .
+          echo "TAR_NAME=$TAR_NAME" >> "$GITHUB_ENV"
+          DEB=$(find target/dx/rotero/release -name '*.deb' | head -1)
+          if [ -n "$DEB" ]; then
+            cp "$DEB" "Rotero-${{ github.ref_name }}-linux-x64.deb"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: |
+            Rotero-*-linux-x64.tar.gz
+            Rotero-*-linux-x64.deb
+          if-no-files-found: error
+
   build-extension:
     name: Package Browser Extension
     needs: [test]
@@ -119,7 +232,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: [build-macos, build-extension]
+    needs: [build-macos, build-windows, build-linux, build-extension]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -133,4 +246,8 @@ jobs:
           files: |
             Rotero-*.dmg
             Rotero-*-macos-*.zip
+            Rotero-*-windows-x64.zip
+            Rotero-*-windows-x64.msi
+            Rotero-*-linux-x64.tar.gz
+            Rotero-*-linux-x64.deb
             Rotero-Extension-*.zip

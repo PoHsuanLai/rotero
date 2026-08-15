@@ -38,18 +38,34 @@ Memory with 5 PDF tabs open (avg of 5 runs, macOS):
 
 ## Status
 
-Under active development. Known limitations:
+Under active development.
+
+| Platform | Status |
+|---|---|
+| macOS (Apple silicon) | Prebuilt `.dmg`, in-app updates. Actively used. |
+| Windows (x64) | Prebuilt `.zip`/`.msi`, in-app updates. Builds and passes CI, but not yet exercised on real hardware — please report what breaks. |
+| Linux (x64) | Prebuilt `.tar.gz`/`.deb`, in-app updates. Same caveat as Windows. |
+| macOS (Intel) | Build from source. |
+| iOS / Android | Planned, not yet available. |
+
+Known limitations:
 
 - PDF virtual text layer (selection/copy) needs refinement
 - Sync is file-based (shared/cloud folder); iCloud sync is not yet enabled in release builds
-- Mobile app (iOS/Android) planned, not yet available
-- macOS arm64 is the only prebuilt binary — other platforms build from source
 
 ## Install
 
 Download the latest release from the [Releases page](https://github.com/PoHsuanLai/rotero/releases/latest).
 
+- **macOS** — `Rotero-*-macos-arm64.dmg`
+- **Windows** — `Rotero-*-windows-x64.msi` (installer) or `.zip` (portable)
+- **Linux** — `Rotero-*-linux-x64.deb` or `.tar.gz` (portable)
+
+The portable archives contain the executable plus the PDFium library it loads at runtime; keep the two together.
+
 > **macOS note:** On first launch, macOS may show "Apple could not verify “Rotero” is free of malware that may harm your Mac or compromise your privacy." This is because the app is not notarized with an Apple Developer account. To open it: go to System Settings → Privacy & Security → scroll down to "Rotero was blocked to protect your Mac." -> click "Open Anyway". You only need to do this once.
+
+> **Windows note:** The build is unsigned, so SmartScreen will warn on first launch. Choose "More info" → "Run anyway".
 
 ### Build from source
 

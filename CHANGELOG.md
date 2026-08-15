@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.2.1
+
+Rotero now builds, ships, and updates itself on Windows and Linux, not just macOS. Getting there meant replacing the places that shelled out to platform binaries with portable Rust — which also fixed four real bugs, one of them on macOS.
+
+### Added
+- **Windows and Linux builds** — releases now include a Windows `.zip` and `.msi`, and a Linux `.tar.gz` and `.deb`, alongside the macOS `.dmg`
+- **In-app updates on every platform** — Windows and Linux swap the running executable via `self-replace`; macOS keeps the `.app` bundle swap
+- CI now compiles and tests on Windows and macOS, not only Linux — the reason the Windows break went unnoticed for so long
+- One-click download on the website: the macOS button resolves the real installer URL instead of dropping you on the releases page
+
+### Fixed
+- **Quitting could hang instead of exiting (macOS, Linux).** The agent reaper's signal handler locked a mutex and allocated inside a real signal context; a signal arriving while a child process was being registered would deadlock the handler.
+- **The AI agent leaked processes on Windows.** Children are now spawned into a job object, so the agent and anything it spawned are cleaned up together — previously only the immediate child was killed.
+- **Bundled Node.js install was broken on Windows.** The archive unpacked into a nested directory while the launcher looked for the binary at the top level, so setup failed for anyone without Node.js already installed.
+- **`npm` could not be run on Windows**, because it ships as a batch file, which needs `cmd.exe`.
+- **Update checks failed on Windows and Linux** with a confusing message about a missing macOS file. Each platform now looks for its own build, and platforms without one say so and offer the releases page.
+- Update failures no longer report "Failed to check for updates" when it was the *install* that failed, and no longer show raw network/filesystem errors — each failure now explains what to do next.
+- A pre-release tag (`v0.3.0-rc1`) is no longer offered as an upgrade over the matching final release.
+- The auto-fix CI workflow interpolated a pull-request branch name directly into a shell command, so a specially-named branch could run arbitrary commands in CI.
+
+### Changed
+- Node.js is downloaded and unpacked in-process; `curl` and `tar` are no longer required on `PATH`
+- An unsupported OS or CPU now reports that clearly instead of silently downloading the Windows x64 build
+- Dependencies updated across the workspace, including nine major versions (`scraper`, `lopdf`, `biblatex`, `hayagriva`, `rfd`, `base64`, `tower-http`, `ego-tree`, `pulldown-latex`)
+- First unit tests in the app crate (18), covering the process registry, archive extraction, version comparison, and platform asset selection
+
 ## v0.2.0
 
 The Node translation server is gone. Web imports now run entirely in-process in Rust, so there's no sidecar to install, start, or crash. This release also makes PDF citations navigable: links jump within a document, resolve to papers in your library, and feed a new citation graph.

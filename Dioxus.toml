@@ -4,4 +4,5 @@ name = "Rotero"
 [bundle]
 identifier = "com.rotero.Rotero"
 publisher = "Rotero"
-icon = ["assets/icon.icns"]
+# macOS uses the .icns, Windows the .ico; the bundler picks per platform.
+icon = ["assets/icon.icns", "assets/icon.ico", "assets/icon.png"]
