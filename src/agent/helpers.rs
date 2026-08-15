@@ -12,19 +12,29 @@ use super::types::{AgentAuthMethod, AgentModel, ChatEvent, ChatRequest, SlashCom
 /// file directly — it has to go through `cmd.exe /C`. Everywhere else, and for
 /// real executables on Windows, the program is invoked directly.
 pub(crate) fn command_for_program(program: &Path) -> Command {
-    #[cfg(windows)]
-    {
-        let is_batch = program
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
-        if is_batch {
-            let mut cmd = Command::new("cmd");
-            cmd.arg("/C").arg(program);
-            return cmd;
+    std::cfg_select! {
+        windows => {
+            if is_batch_file(program) {
+                let mut cmd = Command::new("cmd");
+                cmd.arg("/C").arg(program);
+                cmd
+            } else {
+                Command::new(program)
+            }
         }
+        _ => Command::new(program),
     }
-    Command::new(program)
+}
+
+/// Whether `program` is a Windows batch file, which `CreateProcess` refuses to
+/// execute directly. Defined on all platforms so it stays unit-testable; only
+/// the Windows arm of `command_for_program` calls it.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn is_batch_file(program: &Path) -> bool {
+    program
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"))
 }
 
 pub(crate) fn agent_working_dir() -> PathBuf {
@@ -428,4 +438,26 @@ pub(crate) fn extract_auth_methods(init_result: &serde_json::Value) -> Vec<Agent
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognises_windows_batch_extensions() {
+        assert!(is_batch_file(Path::new("C:/node/npm.cmd")));
+        assert!(is_batch_file(Path::new("npm.bat")));
+        // Windows extensions are case-insensitive.
+        assert!(is_batch_file(Path::new("NPM.CMD")));
+    }
+
+    #[test]
+    fn real_executables_are_not_batch_files() {
+        assert!(!is_batch_file(Path::new("C:/node/node.exe")));
+        assert!(!is_batch_file(Path::new("/usr/local/bin/node")));
+        assert!(!is_batch_file(Path::new("npm")));
+        // A name merely containing "cmd" is not a batch file.
+        assert!(!is_batch_file(Path::new("/usr/bin/cmdline")));
+    }
 }
