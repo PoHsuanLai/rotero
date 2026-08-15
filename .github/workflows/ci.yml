@@ -112,6 +112,12 @@ jobs:
   check-windows:
     name: Check Windows
     runs-on: windows-latest
+    env:
+      # Windows runners are the slowest here, and linking dominates. `-C
+      # debuginfo=0` drops PDB generation, which CI never reads.
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -119,15 +125,33 @@ jobs:
           # translator sources (git submodules) at runtime.
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          # A failed run still leaves a usable dependency cache; without this
+          # the next run recompiles the whole tree again.
+          cache-on-failure: true
+      # `clippy --all-targets` and `cargo test` cannot share artifacts —
+      # clippy stops at metadata while test needs real codegen, so running
+      # both builds the workspace twice. `clippy --tests` covers the same
+      # code, and the test run below reuses what it produced.
+      - run: cargo test --workspace --no-run
       - run: cargo clippy --workspace --all-targets -- -W clippy::all
       - run: cargo test --workspace
 
   check-macos:
     name: Check macOS
     runs-on: macos-latest
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - run: cargo clippy --workspace --all-targets -- -W clippy::all
