@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.2
+
+Ships the Windows and Linux installers that v0.2.1 built but failed to publish. Everything else in v0.2.1 is unchanged — if you already run it, there is nothing new here beyond the installers.
+
+### Fixed
+- **Windows `.msi` and Linux `.deb` are now published.** They were built correctly in v0.2.1, but the release job looked for them in the wrong directory and shipped without them rather than failing. The portable `.zip`/`.tar.gz` were unaffected.
+
+### Changed
+- Release builds fetch a prebuilt Dioxus CLI instead of compiling it, cutting roughly 8 minutes from each of the three build jobs
+
 ## v0.2.1
 
 Rotero now builds, ships, and updates itself on Windows and Linux, not just macOS. Getting there meant replacing the places that shelled out to platform binaries with portable Rust — which also fixed four real bugs, one of them on macOS.
