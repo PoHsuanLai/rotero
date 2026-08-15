@@ -165,3 +165,15 @@ run-ios device="iPhone 17 Pro": setup-pdfium-ios
 build-ios: setup-pdfium-ios
     PDFIUM_STATIC_LIB_PATH="{{justfile_directory()}}/lib/ios-device" \
     dx bundle --platform ios --features "mobile,pdfium-static" --no-default-features
+
+# Capture the user guide screenshots (macOS only; pass shot ids to redo a subset)
+docs-screenshots *SHOTS: setup-pdfium
+    {{justfile_directory()}}/website/tooling/capture.sh {{SHOTS}}
+
+# Report how much of the app the user guide documents
+docs-coverage:
+    node {{justfile_directory()}}/website/tooling/coverage/check.mjs
+
+# Serve the website (including the guide) with hot reload
+docs-dev:
+    cd {{justfile_directory()}}/website && npm run dev

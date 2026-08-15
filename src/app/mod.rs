@@ -1,5 +1,8 @@
 mod chat_handler;
 mod library_loader;
+// Poses the UI for documentation screenshots. Debug builds only.
+#[cfg(all(feature = "desktop", debug_assertions))]
+mod shot_driver;
 mod sync_loop;
 #[cfg(feature = "desktop")]
 mod update_checker;
@@ -193,6 +196,7 @@ pub fn App() -> Element {
                 LoadLibraryData {}
                 SyncLoop {}
                 {update_checker_element()}
+                {shot_driver_element()}
                 Layout {}
             }
         }
@@ -232,6 +236,16 @@ fn update_checker_element() -> Element {
 
 #[cfg(not(feature = "desktop"))]
 fn update_checker_element() -> Element {
+    rsx! {}
+}
+
+#[cfg(all(feature = "desktop", debug_assertions))]
+fn shot_driver_element() -> Element {
+    rsx! { shot_driver::ShotDriver {} }
+}
+
+#[cfg(not(all(feature = "desktop", debug_assertions)))]
+fn shot_driver_element() -> Element {
     rsx! {}
 }
 
