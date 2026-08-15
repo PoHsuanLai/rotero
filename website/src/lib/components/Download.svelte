@@ -4,34 +4,49 @@
   const RELEASES_PAGE = 'https://github.com/PoHsuanLai/rotero/releases/latest';
   const LATEST_API = 'https://api.github.com/repos/PoHsuanLai/rotero/releases/latest';
 
-  /** Direct link to the macOS installer, resolved from the latest release. */
-  let dmgUrl: string | null = null;
+  type Platform = 'macos' | 'windows' | 'linux';
+
+  /** How to recognise each platform's installer among the release assets. */
+  const INSTALLER: Record<Platform, { label: string; match: (name: string) => boolean }> = {
+    macos: { label: 'macOS', match: (n) => n.endsWith('.dmg') },
+    windows: { label: 'Windows', match: (n) => n.endsWith('windows-x64.msi') },
+    linux: { label: 'Linux', match: (n) => n.endsWith('linux-x64.deb') },
+  };
+
+  /** Direct installer URLs, resolved from the latest release at runtime. */
+  let urls: Partial<Record<Platform, string>> = {};
   let version: string | null = null;
-  /** True while the release lookup is still in flight. */
-  let loading = true;
-  /** Whether the visitor is on a Mac — decides which button leads. */
-  let isMac = false;
+  /** The visitor's platform, so their download leads. */
+  let host: Platform = 'macos';
 
   let el: HTMLElement;
 
-  onMount(() => {
-    isMac = /Mac|iPhone|iPad/.test(navigator.platform ?? navigator.userAgent);
+  function detectPlatform(): Platform {
+    const ua = `${navigator.userAgent} ${navigator.platform ?? ''}`;
+    if (/Win/i.test(ua)) return 'windows';
+    // Android reports "Linux" too, but has no desktop build either way.
+    if (/Linux|X11/i.test(ua) && !/Android/i.test(ua)) return 'linux';
+    return 'macos';
+  }
 
-    // Static site, so the asset URL has to be resolved in the browser. Any
+  onMount(() => {
+    host = detectPlatform();
+
+    // Static site, so the asset URLs have to be resolved in the browser. Any
     // failure (rate limit, offline) just leaves the releases-page fallback.
     fetch(LATEST_API)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((release) => {
         version = release.tag_name ?? null;
-        const dmg = (release.assets ?? []).find((a: { name: string }) =>
-          a.name.endsWith('.dmg')
-        );
-        if (dmg) dmgUrl = dmg.browser_download_url;
+        const assets: { name: string; browser_download_url: string }[] = release.assets ?? [];
+        const found: Partial<Record<Platform, string>> = {};
+        for (const [key, spec] of Object.entries(INSTALLER) as [Platform, typeof INSTALLER.macos][]) {
+          const asset = assets.find((a) => spec.match(a.name));
+          if (asset) found[key] = asset.browser_download_url;
+        }
+        urls = found;
       })
-      .catch(() => {})
-      .finally(() => {
-        loading = false;
-      });
+      .catch(() => {});
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -44,6 +59,11 @@
     if (el) observer.observe(el);
     return () => observer.disconnect();
   });
+
+  /** Platforms ordered so the visitor's own comes first. */
+  $: ordered = (['macos', 'windows', 'linux'] as Platform[]).sort(
+    (a, b) => (a === host ? -1 : 0) - (b === host ? -1 : 0)
+  );
 </script>
 
 <section id="download">
@@ -55,38 +75,39 @@
       <p class="download-sub">Free and open source. No account required.</p>
 
       <div class="download-buttons">
-        <a
-          href={dmgUrl ?? RELEASES_PAGE}
-          class="dl-btn macos"
-          class:secondary={!isMac}
-          download={dmgUrl ? '' : null}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-          <div>
-            <span class="dl-label">Download for</span>
-            <span class="dl-platform">
-              macOS
-              {#if version}<span class="dl-version">{version}</span>{/if}
-            </span>
-          </div>
-        </a>
-
-        <a
-          href="https://github.com/PoHsuanLai/rotero#build-from-source"
-          class="dl-btn linux"
-          class:secondary={isMac}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.368 1.884 1.43.199.023.395-.048.543-.164.734-.484.996-1.23 1.246-1.836.028-.067.058-.131.086-.2.016-.027.028-.058.042-.089.074.015.147.028.221.042h.006c.549.106 1.058-.058 1.412-.378.354-.32.59-.805.763-1.334l.005-.01c.348-1.084.276-2.083-.34-2.678-.09-.085-.178-.162-.266-.228-.053-.098-.108-.197-.164-.297-.34-.614-.655-1.397-.773-2.1a4.96 4.96 0 01-.033-.365c.035-.396.098-.728.163-1.085.076-.353.153-.748.166-1.2.012-.453-.048-.993-.364-1.484-.32-.49-.874-.843-1.594-.977a4.88 4.88 0 00-.382-.052c-.068-.275-.28-.673-.654-.924-.455-.306-1.14-.414-2.1-.277-.04-.133-.076-.27-.113-.396l-.001-.001c-.198-.704-.461-1.434-.73-1.89-.267-.45-.556-.76-.946-.86-.39-.1-.76 0-1.1.2a3.427 3.427 0 00-.397.297z"/></svg>
-          <div>
-            <span class="dl-label">Linux &amp; Windows</span>
-            <span class="dl-platform">Build from source</span>
-          </div>
-        </a>
+        {#each ordered as platform (platform)}
+          <a
+            href={urls[platform] ?? RELEASES_PAGE}
+            class="dl-btn {platform}"
+            class:secondary={platform !== host}
+            download={urls[platform] ? '' : null}
+          >
+            {#if platform === 'macos'}
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+            {:else if platform === 'windows'}
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5l7.5-1.04v7.25H3V5.5zm0 13l7.5 1.04v-7.16H3v6.12zm8.32 1.15L21 21v-8.45h-9.68v7.1zM11.32 4.3v7.35H21V3l-9.68 1.3z"/></svg>
+            {:else}
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.368 1.884 1.43.199.023.395-.048.543-.164.734-.484.996-1.23 1.246-1.836.028-.067.058-.131.086-.2.016-.027.028-.058.042-.089.074.015.147.028.221.042h.006c.549.106 1.058-.058 1.412-.378.354-.32.59-.805.763-1.334l.005-.01c.348-1.084.276-2.083-.34-2.678-.09-.085-.178-.162-.266-.228-.053-.098-.108-.197-.164-.297-.34-.614-.655-1.397-.773-2.1a4.96 4.96 0 01-.033-.365c.035-.396.098-.728.163-1.085.076-.353.153-.748.166-1.2.012-.453-.048-.993-.364-1.484-.32-.49-.874-.843-1.594-.977a4.88 4.88 0 00-.382-.052c-.068-.275-.28-.673-.654-.924-.455-.306-1.14-.414-2.1-.277-.04-.133-.076-.27-.113-.396l-.001-.001c-.198-.704-.461-1.434-.73-1.89-.267-.45-.556-.76-.946-.86-.39-.1-.76 0-1.1.2a3.427 3.427 0 00-.397.297z"/></svg>
+            {/if}
+            <div>
+              <span class="dl-label">Download for</span>
+              <span class="dl-platform">
+                {INSTALLER[platform].label}
+                {#if platform === host && version}<span class="dl-version">{version}</span>{/if}
+              </span>
+            </div>
+          </a>
+        {/each}
       </div>
 
       <p class="download-note">
-        Apple silicon (arm64). macOS will ask you to confirm the first launch —
-        the app is signed but not notarized.
+        macOS on Apple silicon, Windows and Linux on x64. Both macOS and Windows
+        warn on first launch because the app isn&rsquo;t signed with a paid
+        developer certificate.
+        <br />
+        Building from source needs <a href="https://github.com/casey/just">just</a>:
+        <code>just run</code> — it fetches PDFium first, which a plain
+        <code>cargo build</code> won&rsquo;t.
       </p>
     </div>
   </div>
