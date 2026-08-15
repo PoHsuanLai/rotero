@@ -1,0 +1,18 @@
+{
+  "_comment": "Items intentionally left out of the user guide. Each needs a reason, so a deliberate omission stays distinguishable from one nobody has written yet. Keyed by inventory, then by the exact id the checker extracts.",
+
+  "commands": {
+    "Escape": "Described as behavior on the shortcuts page rather than as a named command; it is not rebindable.",
+    "SelectNext": "Covered as arrow-key navigation in prose; the internal command name is not user-facing.",
+    "SelectPrev": "Covered as arrow-key navigation in prose; the internal command name is not user-facing."
+  },
+
+  "endpoints": {
+    "/word/taskpane.html": "Internal plumbing for the Word add-in; users never request it directly.",
+    "/word/taskpane.js": "Internal plumbing for the Word add-in.",
+    "/word/taskpane.css": "Internal plumbing for the Word add-in.",
+    "/word/assets/icon-16.png": "Static asset served for the Word ribbon.",
+    "/word/assets/icon-32.png": "Static asset served for the Word ribbon.",
+    "/word/assets/icon-80.png": "Static asset served for the Word ribbon."
+  }
+}

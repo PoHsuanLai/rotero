@@ -28,9 +28,12 @@
     </button>
 
     <div class="nav-links" class:mobile-open={mobileOpen}>
-      <a href="#features" onclick={navClick}>Features</a>
-      <a href="#why" onclick={navClick}>Why Rotero</a>
-      <a href="#download" onclick={navClick}>Download</a>
+      <!-- Absolute, because these sections live on the home page: a bare
+           "#features" resolves against the current path and breaks on /docs. -->
+      <a href="{base}/#features" onclick={navClick}>Features</a>
+      <a href="{base}/#why" onclick={navClick}>Why Rotero</a>
+      <a href="{base}/#download" onclick={navClick}>Download</a>
+      <a href="{base}/docs" onclick={navClick}>Docs</a>
     </div>
 
     <div class="nav-actions">

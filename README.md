@@ -16,6 +16,8 @@
 
 A fast, private, local-first reference manager built with Rust. Read, annotate, cite, and explore your papers — without the bloat.
 
+📖 **[Read the user guide](https://pohsuanlai.github.io/rotero/docs)** — installing, importing papers, annotating, citing, and connecting the browser extension, Word add-in, and MCP server.
+
 <p align="center">
   <img src="assets/screenshot-reader.png" alt="Rotero PDF Reader" width="800" />
 </p>
@@ -81,7 +83,7 @@ Other commands: `just check`, `just lint`, `just build-release`, `just run-relea
 
 ## Browser Extension
 
-Download `Rotero-Extension.zip` from the [Releases page](https://github.com/PoHsuanLai/rotero/releases/latest), unzip it, then:
+Download `Rotero-Extension-*.zip` from the [Releases page](https://github.com/PoHsuanLai/rotero/releases/latest), unzip it, then:
 
 1. Go to `chrome://extensions/` → enable **Developer mode** (top right)
 2. Click **Load unpacked** → select the unzipped folder
@@ -106,7 +108,7 @@ Features:
 - **Bibliography** — generate a bibliography from all cited papers in the document
 - **Refresh** — update all citations and bibliography to a different CSL style
 
-Citations are stored as Word content controls with metadata, so they survive editing and can be refreshed at any time. Supports 14 CSL styles (APA, Chicago, MLA, Vancouver, IEEE, etc.).
+Citations are stored as Word content controls with metadata, so they survive editing and can be refreshed at any time. Supports 14 CSL styles (APA, Chicago, MLA, Vancouver, Nature, etc.).
 
 > The add-in taskpane is served locally from the Rotero connector (`localhost:21984`). All data stays on your machine.
 

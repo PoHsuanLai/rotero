@@ -2,6 +2,7 @@
   import Nav from '$lib/components/Nav.svelte';
   import Footer from '$lib/components/Footer.svelte';
   import DocsSidebar from '$lib/components/docs/DocsSidebar.svelte';
+  import DocsSearch from '$lib/components/docs/DocsSearch.svelte';
   import Toc from '$lib/components/docs/Toc.svelte';
 
   let { children } = $props();
@@ -16,6 +17,7 @@
   </button>
 
   <aside class="rail left" class:open={menuOpen}>
+    <DocsSearch />
     <DocsSidebar onNavigate={() => (menuOpen = false)} />
   </aside>
 
