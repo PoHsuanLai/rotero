@@ -57,7 +57,7 @@ pub fn DocumentEditorPanel(document_id: String) -> Element {
             let db = db.clone();
             let id = id.clone();
             spawn(async move {
-                if let Ok(Some(d)) = rotero_db::documents::get_document(db.conn(), &id).await {
+                if let Ok(Some(d)) = db.get_document(&id).await {
                     let token = d.last_pdf_path.is_some() as u64;
                     doc.set(Some(d));
                     preview_token.set(token);
@@ -88,9 +88,7 @@ pub fn DocumentEditorPanel(document_id: String) -> Element {
                     if rx.changed().await.is_err() {
                         break;
                     }
-                    if let Ok(Some(fresh)) =
-                        rotero_db::documents::get_document(db.conn(), &id).await
-                    {
+                    if let Ok(Some(fresh)) = db.get_document(&id).await {
                         let recompiled = fresh.last_pdf_path.is_some();
                         // Push the agent's rewritten body into the live editor.
                         external_body.set(Some(fresh.body.clone()));
@@ -171,7 +169,7 @@ pub fn DocumentEditorPanel(document_id: String) -> Element {
         move |updated: Document| {
             let db = db.clone();
             spawn(async move {
-                let _ = rotero_db::documents::update_document(db.conn(), &updated).await;
+                let _ = db.update_document(&updated).await;
             });
         }
     };
@@ -279,7 +277,7 @@ pub fn DocumentEditorPanel(document_id: String) -> Element {
                         let path = dir.join(format!("{id}.pdf"));
                         if std::fs::write(&path, &pdf).is_ok() {
                             d.last_pdf_path = Some(path.to_string_lossy().to_string());
-                            let _ = rotero_db::documents::update_document(db.conn(), &d).await;
+                            let _ = db.update_document(&d).await;
                             doc.set(Some(d));
                             preview_token.with_mut(|t| *t += 1);
                             status.set(String::new());

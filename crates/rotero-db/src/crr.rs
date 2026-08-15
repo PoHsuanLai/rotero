@@ -118,6 +118,31 @@ pub fn rotero_schema() -> Schema {
             ("query", empty_text()),
             ("created_at", SkeletonValue::NowRfc3339),
         ]),
+        TableSpec::new(
+            "documents",
+            [
+                "title",
+                "body",
+                "collection_id",
+                "template",
+                "csl_style",
+                "kind",
+                "last_pdf_path",
+                "created_at",
+                "modified_at",
+                "format",
+            ],
+        )
+        .with_skeleton([
+            ("title", empty_text()),
+            ("body", empty_text()),
+            ("template", text("article")),
+            ("csl_style", text("apa")),
+            ("kind", text("summary")),
+            ("created_at", SkeletonValue::NowRfc3339),
+            ("modified_at", SkeletonValue::NowRfc3339),
+            ("format", text("typst")),
+        ]),
         TableSpec::new("paper_collections", []).with_pk(PkSpec::composite(
             "paper_id",
             "collection_id",

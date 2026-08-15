@@ -841,19 +841,56 @@ impl Database {
         self.data_dir.join("documents")
     }
 
+    /// CRR columns tracked for the `documents` table (mirrors `rotero_db::crr`).
+    const DOCUMENT_TRACKED: &'static [&'static str] = &[
+        "title",
+        "body",
+        "collection_id",
+        "template",
+        "csl_style",
+        "kind",
+        "last_pdf_path",
+        "created_at",
+        "modified_at",
+        "format",
+    ];
+
     /// Create a new document, returning its generated ID.
     pub async fn insert_document(
         &self,
         doc: &rotero_models::Document,
     ) -> Result<String, turso::Error> {
-        let id = rotero_db::documents::insert_document(&self.conn, doc).await?;
+        let uuid = uuid::Uuid::now_v7().to_string();
+        self.conn
+            .execute(
+                queries::DOCUMENT_INSERT,
+                turso::params::Params::Positional(vec![
+                    Value::Text(uuid.clone()),
+                    Value::Text(doc.title.clone()),
+                    Value::Text(doc.body.clone()),
+                    opt_text(doc.collection_id.as_ref()),
+                    Value::Text(doc.template.clone()),
+                    Value::Text(doc.csl_style.clone()),
+                    Value::Text(doc.kind.as_str().to_string()),
+                    opt_text(doc.last_pdf_path.as_ref()),
+                    Value::Text(doc.created_at.to_rfc3339()),
+                    Value::Text(doc.modified_at.to_rfc3339()),
+                    Value::Text(doc.format.as_str().to_string()),
+                ]),
+            )
+            .await?;
+        self.crr
+            .track_insert("documents", &uuid, Self::DOCUMENT_TRACKED)
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
-        Ok(id)
+        Ok(uuid)
     }
 
     /// List all documents, newest first.
     pub async fn list_documents(&self) -> Result<Vec<rotero_models::Document>, turso::Error> {
-        rotero_db::documents::list_documents(&self.conn).await
+        let mut rows = self.conn.query(queries::DOCUMENT_LIST, ()).await?;
+        rotero_db::collect_rows(&mut rows).await
     }
 
     /// Fetch a document by ID.
@@ -861,7 +898,12 @@ impl Database {
         &self,
         id: &str,
     ) -> Result<Option<rotero_models::Document>, turso::Error> {
-        rotero_db::documents::get_document(&self.conn, id).await
+        let mut rows = self
+            .conn
+            .query(queries::DOCUMENT_GET, [Value::Text(id.to_string())])
+            .await?;
+        let docs: Vec<rotero_models::Document> = rotero_db::collect_rows(&mut rows).await?;
+        Ok(docs.into_iter().next())
     }
 
     /// Persist all editable fields of a document.
@@ -869,14 +911,55 @@ impl Database {
         &self,
         doc: &rotero_models::Document,
     ) -> Result<(), turso::Error> {
-        rotero_db::documents::update_document(&self.conn, doc).await?;
+        let id = doc.id.clone().unwrap_or_default();
+        self.conn
+            .execute(
+                queries::DOCUMENT_UPDATE,
+                turso::params::Params::Positional(vec![
+                    Value::Text(doc.title.clone()),
+                    Value::Text(doc.body.clone()),
+                    opt_text(doc.collection_id.as_ref()),
+                    Value::Text(doc.template.clone()),
+                    Value::Text(doc.csl_style.clone()),
+                    Value::Text(doc.kind.as_str().to_string()),
+                    opt_text(doc.last_pdf_path.as_ref()),
+                    Value::Text(chrono::Utc::now().to_rfc3339()),
+                    Value::Text(doc.format.as_str().to_string()),
+                    Value::Text(id.clone()),
+                ]),
+            )
+            .await?;
+        self.crr
+            .track_update(
+                "documents",
+                &id,
+                &[
+                    "title",
+                    "body",
+                    "collection_id",
+                    "template",
+                    "csl_style",
+                    "kind",
+                    "last_pdf_path",
+                    "modified_at",
+                    "format",
+                ],
+            )
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }
 
     /// Delete a document by ID.
     pub async fn delete_document(&self, id: &str) -> Result<(), turso::Error> {
-        rotero_db::documents::delete_document(&self.conn, id).await?;
+        self.conn
+            .execute(queries::DOCUMENT_DELETE, [Value::Text(id.to_string())])
+            .await?;
+        self.crr
+            .track_delete("documents", id)
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }

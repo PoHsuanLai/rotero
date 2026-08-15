@@ -1,11 +1,11 @@
 use chrono::Utc;
 use rotero_models::{Document, DocumentFormat, DocumentKind};
-use turso::{Connection, Value};
+use turso::Value;
 
-use crate::crr;
+use crate::Database;
 use crate::queries;
 
-/// Columns tracked for CRR (must match the registry entry in `crr::mod`).
+/// Columns tracked for CRR (must match the `documents` entry in [`crate::crr`]).
 const TRACKED: &[&str] = &[
     "title",
     "body",
@@ -19,112 +19,115 @@ const TRACKED: &[&str] = &[
     "format",
 ];
 
+/// Columns updated (and re-tracked) by [`Database::update_document`].
+const UPDATE_TRACKED: &[&str] = &[
+    "title",
+    "body",
+    "collection_id",
+    "template",
+    "csl_style",
+    "kind",
+    "last_pdf_path",
+    "modified_at",
+    "format",
+];
+
 fn opt_text(s: &Option<String>) -> Value {
     s.clone().map(Value::Text).unwrap_or(Value::Null)
 }
 
-/// Insert a new document and return its generated UUID.
-pub async fn insert_document(conn: &Connection, doc: &Document) -> Result<String, turso::Error> {
-    let uuid = uuid::Uuid::now_v7().to_string();
-    conn.execute(
-        queries::DOCUMENT_INSERT,
-        turso::params::Params::Positional(vec![
-            Value::Text(uuid.clone()),
-            Value::Text(doc.title.clone()),
-            Value::Text(doc.body.clone()),
-            opt_text(&doc.collection_id),
-            Value::Text(doc.template.clone()),
-            Value::Text(doc.csl_style.clone()),
-            Value::Text(doc.kind.as_str().to_string()),
-            opt_text(&doc.last_pdf_path),
-            Value::Text(doc.created_at.to_rfc3339()),
-            Value::Text(doc.modified_at.to_rfc3339()),
-            Value::Text(doc.format.as_str().to_string()),
-        ]),
-    )
-    .await?;
-
-    crr::track_insert(conn, "documents", &uuid, TRACKED).await?;
-    Ok(uuid)
-}
-
-/// List all documents, newest first.
-pub async fn list_documents(conn: &Connection) -> Result<Vec<Document>, turso::Error> {
-    let mut rows = conn.query(queries::DOCUMENT_LIST, ()).await?;
-    crate::collect_rows(&mut rows).await
-}
-
-/// List documents linked to a specific collection, newest first.
-pub async fn list_documents_for_collection(
-    conn: &Connection,
-    collection_id: &str,
-) -> Result<Vec<Document>, turso::Error> {
-    let mut rows = conn
-        .query(
-            queries::DOCUMENT_LIST_FOR_COLLECTION,
-            [Value::Text(collection_id.to_string())],
+impl Database {
+    /// Insert a new document and return its generated UUID.
+    pub async fn insert_document(&self, doc: &Document) -> Result<String, crate::DbError> {
+        let conn = self.conn();
+        let uuid = uuid::Uuid::now_v7().to_string();
+        conn.execute(
+            queries::DOCUMENT_INSERT,
+            turso::params::Params::Positional(vec![
+                Value::Text(uuid.clone()),
+                Value::Text(doc.title.clone()),
+                Value::Text(doc.body.clone()),
+                opt_text(&doc.collection_id),
+                Value::Text(doc.template.clone()),
+                Value::Text(doc.csl_style.clone()),
+                Value::Text(doc.kind.as_str().to_string()),
+                opt_text(&doc.last_pdf_path),
+                Value::Text(doc.created_at.to_rfc3339()),
+                Value::Text(doc.modified_at.to_rfc3339()),
+                Value::Text(doc.format.as_str().to_string()),
+            ]),
         )
         .await?;
-    crate::collect_rows(&mut rows).await
-}
 
-/// Fetch a single document by ID.
-pub async fn get_document(
-    conn: &Connection,
-    id: &str,
-) -> Result<Option<Document>, turso::Error> {
-    let mut rows = conn
-        .query(queries::DOCUMENT_GET, [Value::Text(id.to_string())])
-        .await?;
-    let docs: Vec<Document> = crate::collect_rows(&mut rows).await?;
-    Ok(docs.into_iter().next())
-}
+        self.crr().track_insert("documents", &uuid, TRACKED).await?;
+        Ok(uuid)
+    }
 
-/// Update all editable fields of a document, touching its modified timestamp.
-pub async fn update_document(conn: &Connection, doc: &Document) -> Result<(), turso::Error> {
-    let id = doc.id.clone().unwrap_or_default();
-    conn.execute(
-        queries::DOCUMENT_UPDATE,
-        turso::params::Params::Positional(vec![
-            Value::Text(doc.title.clone()),
-            Value::Text(doc.body.clone()),
-            opt_text(&doc.collection_id),
-            Value::Text(doc.template.clone()),
-            Value::Text(doc.csl_style.clone()),
-            Value::Text(doc.kind.as_str().to_string()),
-            opt_text(&doc.last_pdf_path),
-            Value::Text(Utc::now().to_rfc3339()),
-            Value::Text(doc.format.as_str().to_string()),
-            Value::Text(id.clone()),
-        ]),
-    )
-    .await?;
-    crr::track_update(
-        conn,
-        "documents",
-        &id,
-        &[
-            "title",
-            "body",
-            "collection_id",
-            "template",
-            "csl_style",
-            "kind",
-            "last_pdf_path",
-            "modified_at",
-            "format",
-        ],
-    )
-    .await?;
-    Ok(())
-}
+    /// List all documents, newest first.
+    pub async fn list_documents(&self) -> Result<Vec<Document>, crate::DbError> {
+        let mut rows = self.conn().query(queries::DOCUMENT_LIST, ()).await?;
+        Ok(crate::collect_rows(&mut rows).await?)
+    }
 
-/// Delete a document by ID.
-pub async fn delete_document(conn: &Connection, id: &str) -> Result<(), turso::Error> {
-    conn.execute(queries::DOCUMENT_DELETE, [Value::Text(id.to_string())])
-        .await?;
-    crr::track_delete(conn, "documents", id).await?;
-    Ok(())
+    /// List documents linked to a specific collection, newest first.
+    pub async fn list_documents_for_collection(
+        &self,
+        collection_id: &str,
+    ) -> Result<Vec<Document>, crate::DbError> {
+        let mut rows = self
+            .conn()
+            .query(
+                queries::DOCUMENT_LIST_FOR_COLLECTION,
+                [Value::Text(collection_id.to_string())],
+            )
+            .await?;
+        Ok(crate::collect_rows(&mut rows).await?)
+    }
+
+    /// Fetch a single document by ID.
+    pub async fn get_document(&self, id: &str) -> Result<Option<Document>, crate::DbError> {
+        let mut rows = self
+            .conn()
+            .query(queries::DOCUMENT_GET, [Value::Text(id.to_string())])
+            .await?;
+        let docs: Vec<Document> = crate::collect_rows(&mut rows).await?;
+        Ok(docs.into_iter().next())
+    }
+
+    /// Update all editable fields of a document, touching its modified timestamp.
+    pub async fn update_document(&self, doc: &Document) -> Result<(), crate::DbError> {
+        let id = doc.id.clone().unwrap_or_default();
+        self.conn()
+            .execute(
+                queries::DOCUMENT_UPDATE,
+                turso::params::Params::Positional(vec![
+                    Value::Text(doc.title.clone()),
+                    Value::Text(doc.body.clone()),
+                    opt_text(&doc.collection_id),
+                    Value::Text(doc.template.clone()),
+                    Value::Text(doc.csl_style.clone()),
+                    Value::Text(doc.kind.as_str().to_string()),
+                    opt_text(&doc.last_pdf_path),
+                    Value::Text(Utc::now().to_rfc3339()),
+                    Value::Text(doc.format.as_str().to_string()),
+                    Value::Text(id.clone()),
+                ]),
+            )
+            .await?;
+        self.crr()
+            .track_update("documents", &id, UPDATE_TRACKED)
+            .await?;
+        Ok(())
+    }
+
+    /// Delete a document by ID.
+    pub async fn delete_document(&self, id: &str) -> Result<(), crate::DbError> {
+        self.conn()
+            .execute(queries::DOCUMENT_DELETE, [Value::Text(id.to_string())])
+            .await?;
+        self.crr().track_delete("documents", id).await?;
+        Ok(())
+    }
 }
 
 impl crate::FromRow for Document {
@@ -154,8 +157,8 @@ impl crate::FromRow for Document {
             last_pdf_path: text(7),
             created_at: parse_dt(8),
             modified_at: parse_dt(9),
-            // Column 10; rows written before the v11 migration read as empty and
-            // default to Typst.
+            // Column 10; rows written before the format migration read as empty
+            // and default to Typst.
             format: DocumentFormat::from_str_or_default(&text_or(10)),
         }
     }

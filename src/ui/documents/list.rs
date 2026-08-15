@@ -22,9 +22,7 @@ pub fn DocumentsListPanel() -> Element {
             let db = db.clone();
             let _gen = generation();
             async move {
-                rotero_db::documents::list_documents(db.conn())
-                    .await
-                    .unwrap_or_default()
+                db.list_documents().await.unwrap_or_default()
             }
         }
     });
@@ -49,7 +47,7 @@ pub fn DocumentsListPanel() -> Element {
                 Start writing in Typst. Use `= Heading` for sections, `$x^2$` for \
                 math, and `@citekey` to cite papers from a linked collection.\n"
                 .to_string();
-            if let Ok(id) = rotero_db::documents::insert_document(db.conn(), &doc).await {
+            if let Ok(id) = db.insert_document(&doc).await {
                 generation.with_mut(|g| *g += 1);
                 doc_tabs.with_mut(|m| {
                     m.open_or_switch(id.clone(), title);
