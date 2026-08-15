@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use super::node::find_npm;
 use super::types::AgentProvider;
@@ -30,7 +29,7 @@ pub(crate) fn ensure_agent_installed(provider: &AgentProvider) -> Result<PathBuf
     tracing::info!("Installing {} (first time setup)...", provider.npm_package);
 
     let npm_bin = find_npm()?;
-    let output = Command::new(&npm_bin)
+    let output = super::helpers::command_for_program(&npm_bin)
         .args([
             "install",
             "--prefix",

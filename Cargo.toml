@@ -57,10 +57,12 @@ rotero-mcp.workspace = true
 rmcp = { version = "1", features = ["server", "transport-streamable-http-server"] }
 
 dioxus = "0.7"
-rfd = { version = "0.14", optional = true }
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+rfd = { version = "0.17", optional = true }
+# `blocking` backs the Node.js download, which runs on the agent's own
+# std::thread rather than the tokio runtime.
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"] }
 directories = { version = "6", optional = true }
-base64 = "0.22"
+base64 = "0.23"
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
@@ -73,13 +75,24 @@ regex = "1"
 urlencoding = "2"
 which = "8.0.2"
 pulldown-cmark = "0.13.3"
-pulldown-latex = "0.7.1"
+pulldown-latex = "0.8"
 futures-util.workspace = true
-libc = "0.2.184"
 axum = "0.8"
 arboard = "3"
 open = "5"
 tempfile = { workspace = true, optional = true }
+# Spawns children into a process group (Unix) or job object (Windows) so the
+# whole tree can be killed together.
+process-wrap = { version = "9", features = ["std"] }
+# Node.js archive extraction: .tar.gz on Unix, .zip on Windows.
+flate2 = "1"
+tar = "0.4"
+zip = { version = "8", default-features = false, features = ["deflate"] }
+self-replace = "1"
+
+# Signal-based child reaping is Unix-only; Windows uses job objects instead.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.184"
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 objc2 = { version = "0.6", optional = true }

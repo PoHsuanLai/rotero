@@ -1,3 +1,8 @@
+// Release builds on Windows are GUI apps; without this the launcher also opens
+// a console window behind the WebView. Debug builds keep the console so
+// `tracing` output stays visible.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod agent;
 mod app;
 mod cache;

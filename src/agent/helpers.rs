@@ -1,9 +1,31 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::mpsc;
 
 use super::LoopResult;
 use super::install::{find_mcp_binary, find_pdfium_path};
 use super::types::{AgentAuthMethod, AgentModel, ChatEvent, ChatRequest, SlashCommand, ToolStatus};
+
+/// Builds a `Command` for an executable that may be a Windows batch file.
+///
+/// `npm` ships as `npm.cmd` on Windows, and `CreateProcess` cannot run a batch
+/// file directly — it has to go through `cmd.exe /C`. Everywhere else, and for
+/// real executables on Windows, the program is invoked directly.
+pub(crate) fn command_for_program(program: &Path) -> Command {
+    #[cfg(windows)]
+    {
+        let is_batch = program
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
+        if is_batch {
+            let mut cmd = Command::new("cmd");
+            cmd.arg("/C").arg(program);
+            return cmd;
+        }
+    }
+    Command::new(program)
+}
 
 pub(crate) fn agent_working_dir() -> PathBuf {
     #[cfg(feature = "desktop")]

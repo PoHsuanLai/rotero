@@ -16,7 +16,10 @@ pub const AVAILABLE_STYLES: &[(&str, ArchivedStyle)] = &[
         "Harvard Cite Them Right",
         ArchivedStyle::HarvardCiteThemRight,
     ),
-    ("Vancouver", ArchivedStyle::Vancouver),
+    // hayagriva 0.10 renamed `Vancouver` to `NlmCitationSequence`; it is the
+    // same NLM/Vancouver style. The display name is user-visible and stored
+    // with existing citations, so it stays as-is.
+    ("Vancouver", ArchivedStyle::NlmCitationSequence),
     ("MLA 9th", ArchivedStyle::ModernLanguageAssociation),
     ("Nature", ArchivedStyle::Nature),
     ("ACM", ArchivedStyle::AssociationForComputingMachinery),

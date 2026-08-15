@@ -1,3 +1,4 @@
+#[cfg(target_os = "macos")]
 use std::path::PathBuf;
 
 const REPO_OWNER: &str = "PoHsuanLai";
@@ -79,7 +80,20 @@ pub async fn check_for_update() -> Result<Option<UpdateInfo>, String> {
     }))
 }
 
+/// In-place update is macOS-only: the release workflow publishes a `.app`
+/// bundle, and the install path below is bundle-shaped throughout. Other
+/// platforms build from source, so send them to the releases page instead of
+/// failing part-way through an install.
+#[cfg(not(target_os = "macos"))]
+pub async fn apply_update(_download_url: &str) -> Result<(), String> {
+    Err("In-app update is only available on macOS. \
+         Download the latest release from \
+         https://github.com/PoHsuanLai/rotero/releases/latest"
+        .to_string())
+}
+
 /// Download the zip, extract the .app, replace the current bundle, and prepare for relaunch.
+#[cfg(target_os = "macos")]
 pub async fn apply_update(download_url: &str) -> Result<(), String> {
     let app_bundle = current_app_bundle()?;
 
@@ -146,6 +160,7 @@ pub async fn apply_update(download_url: &str) -> Result<(), String> {
 }
 
 /// Get the path to the current .app bundle (e.g. /Applications/Rotero.app).
+#[cfg(target_os = "macos")]
 fn current_app_bundle() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| format!("Can't find current exe: {e}"))?;
     // exe is like /path/to/Rotero.app/Contents/MacOS/rotero
@@ -165,6 +180,7 @@ fn current_app_bundle() -> Result<PathBuf, String> {
 }
 
 /// Find a .app bundle inside a directory.
+#[cfg(target_os = "macos")]
 fn find_app_in_dir(dir: &std::path::Path) -> Result<PathBuf, String> {
     let entries = std::fs::read_dir(dir).map_err(|e| format!("Failed to read extract dir: {e}"))?;
     for entry in entries.flatten() {

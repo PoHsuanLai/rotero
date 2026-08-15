@@ -8,10 +8,13 @@ rotero-models.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 tracing.workspace = true
+# Held at 0.8: 0.9 is a breaking API change (page indices u16 -> i32, rendering
+# returns Result, ~22 call sites) and touches core PDF rendering, so it wants
+# its own change rather than riding along with a release.
 pdfium-render = "0.8"
 image = "0.25"
-base64 = "0.22"
-lopdf = "0.40"
+base64 = "0.23"
+lopdf = "0.44"
 serde_json = "1"
 
 [features]

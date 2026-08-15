@@ -7,24 +7,33 @@ fn restart_app() {
     // Use the bundle identifier to relaunch via macOS `open -b`, which avoids
     // opening a Terminal window. This works even after the .app bundle has been
     // replaced on disk (the old exe path may no longer exist).
-    let launched = std::process::Command::new("open")
-        .arg("-b")
-        .arg("com.rotero.Rotero")
-        .spawn()
-        .is_ok();
+    #[cfg(target_os = "macos")]
+    {
+        let launched = std::process::Command::new("open")
+            .arg("-b")
+            .arg("com.rotero.Rotero")
+            .spawn()
+            .is_ok();
 
-    if !launched {
-        // Fallback: try to find and open the .app bundle directly.
-        if let Ok(exe) = std::env::current_exe() {
-            let mut path = exe.as_path();
-            while let Some(parent) = path.parent() {
-                if path.extension().and_then(|e| e.to_str()) == Some("app") {
-                    let _ = std::process::Command::new("open").arg(path).spawn();
-                    break;
+        if !launched {
+            // Fallback: try to find and open the .app bundle directly.
+            if let Ok(exe) = std::env::current_exe() {
+                let mut path = exe.as_path();
+                while let Some(parent) = path.parent() {
+                    if path.extension().and_then(|e| e.to_str()) == Some("app") {
+                        let _ = std::process::Command::new("open").arg(path).spawn();
+                        break;
+                    }
+                    path = parent;
                 }
-                path = parent;
             }
         }
+    }
+
+    // Elsewhere there is no bundle indirection — re-exec the binary directly.
+    #[cfg(not(target_os = "macos"))]
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = std::process::Command::new(exe).spawn();
     }
 
     std::process::exit(0);

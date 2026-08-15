@@ -15,6 +15,10 @@ setup-pdfium:
     ARCH=$(uname -m)
     OS=$(uname -s)
 
+    # Where the shared library sits inside the archive. Windows ships the DLL
+    # under bin/ (lib/ holds only the import library); the others use lib/.
+    ARCHIVE_SUBDIR="lib"
+
     if [ "$OS" = "Darwin" ]; then
         if [ "$ARCH" = "arm64" ]; then
             PDFIUM_URL="https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz"
@@ -30,8 +34,22 @@ setup-pdfium:
         fi
         LIB_NAME="libpdfium.so"
     else
-        echo "Unsupported OS: $OS"
-        exit 1
+        # MSYS/MinGW/Cygwin shells on Windows report MINGW64_NT-*, CYGWIN_NT-*, etc.
+        case "$OS" in
+            MINGW*|MSYS*|CYGWIN*)
+                if [ "$ARCH" = "aarch64" ]; then
+                    PDFIUM_URL="https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-arm64.tgz"
+                else
+                    PDFIUM_URL="https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz"
+                fi
+                LIB_NAME="pdfium.dll"
+                ARCHIVE_SUBDIR="bin"
+                ;;
+            *)
+                echo "Unsupported OS: $OS"
+                exit 1
+                ;;
+        esac
     fi
 
     if [ -f "$PDFIUM_DIR/$LIB_NAME" ]; then
@@ -44,7 +62,7 @@ setup-pdfium:
     curl -sL "$PDFIUM_URL" -o "$TMP/pdfium.tgz"
     tar -xzf "$TMP/pdfium.tgz" -C "$TMP"
 
-    cp "$TMP/lib/$LIB_NAME" "$PDFIUM_DIR/$LIB_NAME"
+    cp "$TMP/$ARCHIVE_SUBDIR/$LIB_NAME" "$PDFIUM_DIR/$LIB_NAME"
     rm -rf "$TMP"
 
     echo "PDFium installed to $PDFIUM_DIR/$LIB_NAME"

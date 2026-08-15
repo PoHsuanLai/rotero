@@ -90,34 +90,27 @@ fn download_node(node_dir: &PathBuf) -> Result<(), String> {
         ));
     }
 
-    // Extract
-    if ext == "zip" {
-        let output = Command::new("tar")
-            .args([
-                "-xf",
-                &tmp_archive.to_string_lossy(),
-                "-C",
-                &node_dir.to_string_lossy(),
-            ])
-            .output()
-            .map_err(|e| format!("Failed to extract: {e}"))?;
-        if !output.status.success() {
-            return Err("Failed to extract zip".into());
-        }
-    } else {
-        let output = Command::new("tar")
-            .args([
-                "-xf",
-                &tmp_archive.to_string_lossy(),
-                "-C",
-                &node_dir.to_string_lossy(),
-                "--strip-components=1",
-            ])
-            .output()
-            .map_err(|e| format!("Failed to extract: {e}"))?;
-        if !output.status.success() {
-            return Err("Failed to extract tarball".into());
-        }
+    // Extract. Both archives wrap everything in a `node-{version}-{os}-{arch}/`
+    // directory, and `node_binary_path` expects the contents flattened into
+    // `node_dir`, so strip that leading component for both formats.
+    //
+    // bsdtar (macOS, and the `tar.exe` bundled with Windows 10+) reads zip as
+    // well as tar, so one invocation covers both.
+    let output = Command::new("tar")
+        .args([
+            "-xf",
+            &tmp_archive.to_string_lossy(),
+            "-C",
+            &node_dir.to_string_lossy(),
+            "--strip-components=1",
+        ])
+        .output()
+        .map_err(|e| format!("Failed to extract: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to extract {ext}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
 
     let _ = std::fs::remove_file(&tmp_archive);
