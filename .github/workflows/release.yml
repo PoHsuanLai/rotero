@@ -153,12 +153,10 @@ jobs:
           ZIP_NAME="Rotero-${{ github.ref_name }}-windows-x64.zip"
           (cd "$STAGE" && 7z a -tzip "$OLDPWD/$ZIP_NAME" .)
           echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
-          MSI=$(find target/dx/rotero/release -name '*.msi' | head -1)
-          if [ -n "$MSI" ]; then
-            MSI_NAME="Rotero-${{ github.ref_name }}-windows-x64.msi"
-            cp "$MSI" "$MSI_NAME"
-            echo "MSI_NAME=$MSI_NAME" >> "$GITHUB_ENV"
-          fi
+          # dx puts installers under bundle/<platform>/, not release/.
+          MSI=$(find target/dx -name '*.msi' | head -1)
+          test -n "$MSI" || { echo "MSI not found"; exit 1; }
+          cp "$MSI" "Rotero-${{ github.ref_name }}-windows-x64.msi"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -212,10 +210,10 @@ jobs:
           TAR_NAME="Rotero-${{ github.ref_name }}-linux-x64.tar.gz"
           tar -czf "$TAR_NAME" -C "$STAGE" .
           echo "TAR_NAME=$TAR_NAME" >> "$GITHUB_ENV"
-          DEB=$(find target/dx/rotero/release -name '*.deb' | head -1)
-          if [ -n "$DEB" ]; then
-            cp "$DEB" "Rotero-${{ github.ref_name }}-linux-x64.deb"
-          fi
+          # dx puts installers under bundle/<platform>/, not release/.
+          DEB=$(find target/dx -name '*.deb' | head -1)
+          test -n "$DEB" || { echo "deb not found"; exit 1; }
+          cp "$DEB" "Rotero-${{ github.ref_name }}-linux-x64.deb"
 
       - uses: actions/upload-artifact@v4
         with:
