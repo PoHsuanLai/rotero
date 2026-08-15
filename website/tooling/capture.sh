@@ -43,11 +43,36 @@ echo "==> Building the app"
 # Debug build: the shot driver is compiled out of release builds by design.
 cargo build -q -p rotero
 
+# macOS only gives a process a window if it looks like an app bundle; a bare
+# executable launched from a shell stays an accessory process with no window.
+# This wraps the freshly built binary in the minimum bundle that satisfies that,
+# rather than depending on `dx bundle` (which builds release, without the driver).
+APP_BUNDLE="$FIXTURE/Rotero.app"
+rm -rf "$APP_BUNDLE"
+mkdir -p "$APP_BUNDLE/Contents/MacOS"
+cp "$ROOT/target/debug/rotero" "$APP_BUNDLE/Contents/MacOS/Rotero"
+cp "$ROOT/lib/libpdfium.dylib" "$APP_BUNDLE/Contents/MacOS/" 2>/dev/null || true
+cat >"$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Rotero</string>
+  <key>CFBundleDisplayName</key><string>Rotero</string>
+  <key>CFBundleExecutable</key><string>Rotero</string>
+  <key>CFBundleIdentifier</key><string>com.rotero.Rotero.shots</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.0.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+PLIST
+
 echo "==> Launching against the fixture"
 PDFIUM_DYNAMIC_LIB_PATH="$ROOT/lib" \
 ROTERO_DATA_DIR="$FIXTURE" \
 ROTERO_SHOT_SCRIPT="$SCRIPT_FILE" \
-  "$ROOT/target/debug/rotero" >"$APP_LOG" 2>&1 &
+  "$APP_BUNDLE/Contents/MacOS/Rotero" >"$APP_LOG" 2>&1 &
 APP_PID=$!
 
 echo "==> Waiting for the window"
@@ -59,7 +84,22 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 if [[ -z "$WINDOW_ID" ]]; then
-  echo "the app window never appeared; see $APP_LOG" >&2
+  echo "" >&2
+  echo "Could not find the Rotero window." >&2
+  if [[ "$(swift "$HERE/list-windows.swift" 2>/dev/null | awk -F'\t' '{print $2}' | sort -u | wc -l)" -le 1 ]]; then
+    cat >&2 <<'HINT'
+
+Only this terminal's own windows are visible to the window list, which means
+macOS has not granted it Screen Recording permission. Without it,
+CGWindowListCopyWindowInfo hides other applications' windows and
+screencapture cannot target them.
+
+Grant it in System Settings > Privacy & Security > Screen Recording, add the
+terminal you are running this from, then restart that terminal and re-run.
+HINT
+  else
+    echo "The app may have failed to start; see $APP_LOG" >&2
+  fi
   exit 1
 fi
 echo "    window $WINDOW_ID"

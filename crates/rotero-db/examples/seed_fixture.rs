@@ -561,14 +561,15 @@ the deoptimization survey."
 /// Pins the display settings the screenshots assume, so a capture run does not
 /// depend on whatever the developer last selected.
 fn write_config(target: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    // `SyncConfig` serializes flat, and unknown or missing keys fall back to
+    // defaults — so this only needs the fields the screenshots depend on.
     let config = serde_json::json!({
-        "ui": {
-            "dark_mode": false,
-            "ui_scale": "default",
-        },
-        "sync": {
-            "enabled": false,
-        },
+        "dark_mode": false,
+        "ui_scale": "default",
+        "sync_enabled": false,
+        "connector_enabled": false,
+        "auto_check_updates": false,
+        "auto_fetch_metadata": false,
     });
     std::fs::write(
         target.join("config.json"),
