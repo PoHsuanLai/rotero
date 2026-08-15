@@ -21,8 +21,9 @@ A fast, private, local-first reference manager built with Rust. Read, annotate, 
 </p>
 
 ## Why Rotero
-- **Zotero web translators compatible** — One-click import from Google Scholar, arXiv, PubMed, and 40+ academic sites
-- **Citation graph** — Interactive visualization of how your papers connect
+- **Zotero web translators compatible** — One-click import from Google Scholar, arXiv, PubMed, and 40+ academic sites, running entirely in-process (no Node sidecar)
+- **Navigable citations** — Click a citation in a PDF to preview the reference, jump within the document, or open the cited paper from your library
+- **Citation graph** — Interactive visualization of how your papers connect, including directed citing → cited edges
 - **AI research assistant** — Chat with your papers via ACP — use your Claude subscription, no API costs
 - **CRR sync** — Custom conflict-free replicated relations for multi-device sync
 - **Local-first** — SQLite database, no accounts, no telemetry, no cloud dependency
@@ -40,7 +41,9 @@ Memory with 5 PDF tabs open (avg of 5 runs, macOS):
 Under active development. Known limitations:
 
 - PDF virtual text layer (selection/copy) needs refinement
+- Sync is file-based (shared/cloud folder); iCloud sync is not yet enabled in release builds
 - Mobile app (iOS/Android) planned, not yet available
+- macOS arm64 is the only prebuilt binary — other platforms build from source
 
 ## Install
 
@@ -93,14 +96,15 @@ Citations are stored as Word content controls with metadata, so they survive edi
 
 ## Architecture
 
-Cargo workspace with 9 crates:
+Cargo workspace with 9 library crates + the app:
 
 | Crate | Purpose | Key deps |
 |---|---|---|
 | `rotero-models` | Shared data types | serde |
-| `rotero-db` | SQLite CRUD | turso |
-| `rotero-pdf` | PDF rendering + annotation writing | pdfium-render, lopdf |
-| `rotero-bib` | BibTeX/RIS/CSL + citation generation | biblatex, hayagriva |
+| `rotero-db` | SQLite CRUD, schema, migrations | turso |
+| `rotero-pdf` | PDF rendering, annotation writing, link extraction | pdfium-render, lopdf |
+| `rotero-search` | Metadata API clients (arXiv, CrossRef, OpenAlex, S2, Unpaywall) | reqwest |
+| `rotero-bib` | BibTeX/RIS/NBIB/CSL + citation generation | biblatex, hayagriva |
 | `rotero-connector` | Browser extension + Word add-in HTTP server | axum |
 | `rotero-translate` | In-process metadata extraction (embedded JS engine runs Zotero translators) | boa, scraper, reqwest |
 | `rotero-graph` | Citation graph visualization | — |

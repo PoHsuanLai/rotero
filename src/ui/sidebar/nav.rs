@@ -29,7 +29,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
         .iter()
         .filter(|p| p.links.pdf_path.is_some())
         .collect();
-    recent_papers.sort_by(|a, b| b.status.date_modified.cmp(&a.status.date_modified));
+    recent_papers.sort_by_key(|p| std::cmp::Reverse(p.status.date_modified));
     let recent_opened: Vec<_> = recent_papers.into_iter().take(5).collect();
 
     let mut coll_ctx = use_signal(|| None::<(String, String, f64, f64)>);

@@ -21,7 +21,9 @@ pub fn SyncSection() -> Element {
     let is_custom = config.read().sync.library_path.is_some();
     let enabled = config.read().sync.sync_enabled;
     let transport = config.read().sync.sync_transport.clone();
-    let is_cloudkit = transport == SyncTransport::CloudKit;
+    // CloudKit is only selectable in builds that compiled the backend in. A config
+    // left on CloudKit by such a build falls back to the file-sync UI here.
+    let is_cloudkit = cfg!(feature = "cloudkit") && transport == SyncTransport::CloudKit;
     let folder = config
         .read()
         .sync
@@ -81,14 +83,16 @@ pub fn SyncSection() -> Element {
                         value: if is_cloudkit { "cloudkit" } else { "file" },
                         onchange: move |evt: Event<FormData>| {
                             let val = evt.value();
-                            let transport = if val == "cloudkit" {
+                            let transport = if val == "cloudkit" && cfg!(feature = "cloudkit") {
                                 SyncTransport::CloudKit
                             } else {
                                 SyncTransport::File
                             };
                             save_config(&mut config, |c| c.sync.sync_transport = transport);
                         },
-                        option { value: "cloudkit", "iCloud" }
+                        if cfg!(feature = "cloudkit") {
+                            option { value: "cloudkit", "iCloud" }
+                        }
                         option { value: "file", "Shared folder" }
                     }
                 }

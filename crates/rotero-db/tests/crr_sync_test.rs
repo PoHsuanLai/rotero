@@ -124,7 +124,7 @@ async fn test_two_device_sync() {
     let papers_b = db_b.list_papers().await.unwrap();
     assert_eq!(papers_b.len(), 1);
     assert_eq!(papers_b[0].title, "Shared Paper");
-    assert_eq!(papers_b[0].status.is_favorite, true);
+    assert!(papers_b[0].status.is_favorite);
 
     // Verify B has the collection
     let colls_b = db_b.list_collections().await.unwrap();
