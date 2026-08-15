@@ -1,14 +1,18 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::Stdio;
 use std::sync::mpsc;
+
+use process_wrap::std::{ChildWrapper, CommandWrap};
 
 use super::helpers::{first_allow_option_id, handle_notification};
 use super::node::find_or_install_node;
 use super::types::ChatEvent;
 
 pub(crate) struct RawAcpConnection {
-    pub(crate) child: Child,
+    /// The node child, wrapped so it owns a process group (Unix) or job object
+    /// (Windows) — killing it takes any grandchildren the agent spawned with it.
+    pub(crate) child: Box<dyn ChildWrapper>,
     pub(crate) incoming: mpsc::Receiver<String>,
     pub(crate) next_id: u64,
 }
@@ -16,39 +20,46 @@ pub(crate) struct RawAcpConnection {
 impl RawAcpConnection {
     pub(crate) fn spawn(entry_point: &PathBuf, extra_args: &[&str]) -> Result<Self, String> {
         let node_bin = find_or_install_node()?;
-        let mut cmd = Command::new(&node_bin);
-        cmd.arg(entry_point);
-        for arg in extra_args {
-            cmd.arg(arg);
-        }
         let config = crate::sync::engine::SyncConfig::load();
-        for (key, val) in &config.agent.agent_api_keys {
-            if !val.is_empty() {
-                cmd.env(key, val);
+
+        let mut cmd = CommandWrap::with_new(&node_bin, |cmd| {
+            cmd.arg(entry_point);
+            for arg in extra_args {
+                cmd.arg(arg);
             }
-        }
+            for (key, val) in &config.agent.agent_api_keys {
+                if !val.is_empty() {
+                    cmd.env(key, val);
+                }
+            }
+            cmd.stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null());
+        });
 
-        cmd.stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-
-        // Put the child in its own process group (setsid) so we can kill it and
-        // any grandchildren as a group — used by the signal reaper on app exit.
+        // Own the whole process tree so the agent's grandchildren die with it.
+        // A new session on Unix (setsid); a job object on Windows, which the
+        // kernel tears down with the process.
         #[cfg(unix)]
-        unsafe {
-            use std::os::unix::process::CommandExt;
-            cmd.pre_exec(|| {
-                // Detach into a new session/process group. Errors are non-fatal.
-                libc::setsid();
-                Ok(())
-            });
+        cmd.wrap(process_wrap::std::ProcessSession);
+        #[cfg(windows)]
+        {
+            // CreationFlags must be wrapped before JobObject, or the job
+            // object's own flags overwrite these.
+            //
+            // CREATE_NO_WINDOW: node is a console app, and spawning it from a
+            // GUI process would otherwise flash a console window.
+            cmd.wrap(process_wrap::std::CreationFlags(
+                windows::Win32::System::Threading::CREATE_NO_WINDOW,
+            ));
+            cmd.wrap(process_wrap::std::JobObject);
         }
 
         let mut child = cmd
             .spawn()
             .map_err(|e| format!("Failed to spawn node: {e}"))?;
         super::reaper::register(child.id() as i32);
-        let stdout = child.stdout.take().ok_or("No stdout")?;
+        let stdout = child.stdout().take().ok_or("No stdout")?;
 
         let (line_tx, line_rx) = mpsc::channel();
         std::thread::Builder::new()
@@ -134,7 +145,7 @@ impl RawAcpConnection {
     }
 
     pub(crate) fn write_message(&mut self, msg: &serde_json::Value) -> Result<(), String> {
-        let stdin = self.child.stdin.as_mut().ok_or("No stdin")?;
+        let stdin = self.child.stdin().as_mut().ok_or("No stdin")?;
         let line = serde_json::to_string(msg).map_err(|e| format!("JSON error: {e}"))?;
         stdin
             .write_all(line.as_bytes())
@@ -165,11 +176,7 @@ impl RawAcpConnection {
 
     pub(crate) fn kill(&mut self) {
         let pid = self.child.id() as i32;
-        // Kill the whole process group (setsid at spawn) to also reap grandchildren.
-        #[cfg(unix)]
-        unsafe {
-            libc::kill(-pid, libc::SIGKILL);
-        }
+        // Kills the process group / job object, so grandchildren go too.
         let _ = self.child.kill();
         let _ = self.child.wait();
         super::reaper::unregister(pid);

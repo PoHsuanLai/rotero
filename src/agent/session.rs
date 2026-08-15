@@ -147,7 +147,7 @@ pub(crate) fn connect_and_run(
                     "method": "session/prompt",
                     "params": prompt_params,
                 });
-                if let Some(stdin) = conn.child.stdin.as_mut() {
+                if let Some(stdin) = conn.child.stdin().as_mut() {
                     let line = serde_json::to_string(&msg).unwrap();
                     let _ = stdin.write_all(line.as_bytes());
                     let _ = stdin.write_all(b"\n");

@@ -94,6 +94,11 @@ self-replace = "1"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.184"
 
+[target.'cfg(windows)'.dependencies]
+# Only for CREATE_NO_WINDOW. Must track the version process-wrap links against,
+# or the creation-flag type is a different, incompatible type.
+windows = { version = "0.62", features = ["Win32_System_Threading"] }
+
 [target.'cfg(target_vendor = "apple")'.dependencies]
 objc2 = { version = "0.6", optional = true }
 objc2-cloud-kit = { version = "0.3", optional = true }

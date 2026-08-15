@@ -6485,6 +6485,7 @@ dependencies = [
  "tracing-subscriber",
  "urlencoding",
  "which 8.0.5",
+ "windows 0.62.2",
  "zip",
 ]
 
