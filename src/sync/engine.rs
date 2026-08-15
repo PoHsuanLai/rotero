@@ -276,15 +276,30 @@ fn default_library_path() -> PathBuf {
     app_support_dir()
 }
 
-#[cfg(feature = "desktop")]
+/// The directory holding the database, `pdfs/`, `cache/`, and `config.json`.
+///
+/// `ROTERO_DATA_DIR` overrides the platform default, which points the whole
+/// library — not just the database — somewhere else. The documentation
+/// screenshot harness uses it to run against a seeded fixture library instead
+/// of the real one.
 fn app_support_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("ROTERO_DATA_DIR")
+        && !dir.is_empty()
+    {
+        return PathBuf::from(dir);
+    }
+    platform_data_dir()
+}
+
+#[cfg(feature = "desktop")]
+fn platform_data_dir() -> PathBuf {
     let dirs = directories::ProjectDirs::from("com", "rotero", "Rotero")
         .expect("Could not determine data directory");
     dirs.data_dir().to_path_buf()
 }
 
 #[cfg(not(feature = "desktop"))]
-fn app_support_dir() -> PathBuf {
+fn platform_data_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home).join("Documents").join("Rotero")
 }
@@ -304,4 +319,35 @@ pub fn check_external_modification(
 
 pub fn file_modified_time(path: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(path).ok().and_then(|m| m.modified().ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `ROTERO_DATA_DIR` has to redirect the config and the library together —
+    /// the screenshot harness relies on it to keep a capture run out of the
+    /// real library. One test covers both, because the env var is process-wide
+    /// and parallel tests would race on it.
+    #[test]
+    fn data_dir_env_override_redirects_config_and_library() {
+        let default_config = {
+            unsafe { std::env::remove_var("ROTERO_DATA_DIR") };
+            config_path()
+        };
+
+        unsafe { std::env::set_var("ROTERO_DATA_DIR", "/tmp/rotero-fixture-test") };
+        let overridden = PathBuf::from("/tmp/rotero-fixture-test");
+        assert_eq!(app_support_dir(), overridden);
+        assert_eq!(config_path(), overridden.join("config.json"));
+        assert_eq!(default_library_path(), overridden);
+
+        // An empty value is treated as unset, so an exported-but-blank variable
+        // in a shell profile doesn't silently point the library at "".
+        unsafe { std::env::set_var("ROTERO_DATA_DIR", "") };
+        assert_eq!(config_path(), default_config);
+
+        unsafe { std::env::remove_var("ROTERO_DATA_DIR") };
+        assert_eq!(config_path(), default_config);
+    }
 }
