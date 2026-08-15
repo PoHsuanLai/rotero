@@ -449,6 +449,173 @@ impl PdfEngine {
 
         Ok(result)
     }
+
+    /// Reads all links from the PDF — both intra-document jumps and external URIs.
+    ///
+    /// Academic PDFs embed intra-document links on in-text citation markers,
+    /// figure/table/section cross-references, and TOC entries, and external URI
+    /// links on DOIs and web references. Links whose action can't be resolved to
+    /// either an in-document page or a URI are skipped.
+    pub fn extract_links(&mut self, pdf_path: &str) -> Result<Vec<ExtractedLink>, PdfError> {
+        use pdfium_render::prelude::{PdfDestination, PdfDestinationViewSettings, PdfLink};
+
+        let document = self.open_document(pdf_path)?;
+        let page_count = document.pages().len() as u32;
+        let mut result = Vec::new();
+
+        // Page heights (PDF points), indexed by page, so a link can record the
+        // height of its *target* page (needed to turn a target y into a fraction
+        // when the source and target pages differ in size).
+        let page_heights: Vec<f32> = (0..page_count)
+            .map(|p| {
+                document
+                    .pages()
+                    .get(p as u16)
+                    .map(|pg| pg.height().value)
+                    .unwrap_or(0.0)
+            })
+            .collect();
+
+        /// Reads `(page, y)` from a resolved destination.
+        fn target_of(dest: &PdfDestination) -> Option<(u32, Option<f32>)> {
+            let target_page = dest.page_index().ok()? as u32;
+            // Pull the top y coordinate when the view settings expose one.
+            let target_y = match dest.view_settings().ok() {
+                Some(PdfDestinationViewSettings::SpecificCoordinatesAndZoom(_, y, _)) => {
+                    y.map(|p| p.value)
+                }
+                Some(PdfDestinationViewSettings::FitPageHorizontallyToWindow(y))
+                | Some(PdfDestinationViewSettings::FitBoundsHorizontallyToWindow(y)) => {
+                    y.map(|p| p.value)
+                }
+                _ => None,
+            };
+            Some((target_page, target_y))
+        }
+
+        // Turns a raw target `(page, y-in-points)` into a `LinkTarget::Internal`.
+        let internal = |page: u32, y_pts: Option<f32>| {
+            let y_frac = y_pts.and_then(|y| {
+                let th = page_heights.get(page as usize).copied().unwrap_or(0.0);
+                (th > 0.0).then(|| ((th - y) / th).clamp(0.0, 1.0))
+            });
+            LinkTarget::Internal { page, y_frac }
+        };
+
+        // Resolves a link to its target. Internal destinations win; otherwise a
+        // URI action becomes an external link. Each borrowed destination/action
+        // is consumed where it is owned so it never outlives its source.
+        let resolve = |link: &PdfLink| -> Option<LinkTarget> {
+            if let Some(dest) = link.destination() {
+                let (p, y) = target_of(&dest)?;
+                return Some(internal(p, y));
+            }
+            let action = link.action()?;
+            if let Some(local) = action.as_local_destination_action()
+                && let Ok(dest) = local.destination()
+            {
+                let (p, y) = target_of(&dest)?;
+                return Some(internal(p, y));
+            }
+            if let Some(uri) = action.as_uri_action()
+                && let Ok(url) = uri.uri()
+                && !url.is_empty()
+            {
+                return Some(LinkTarget::External { uri: url });
+            }
+            None
+        };
+
+        for i in 0..page_count {
+            let page = document
+                .pages()
+                .get(i as u16)
+                .map_err(|e| PdfError::RenderError(e.to_string()))?;
+
+            let pw = page.width().value;
+            let ph = page.height().value;
+
+            let push_link = |rect: &pdfium_render::prelude::PdfRect,
+                             target: LinkTarget,
+                             out: &mut Vec<ExtractedLink>| {
+                out.push(ExtractedLink {
+                    page: i,
+                    rect_pts: [
+                        rect.left().value,
+                        rect.bottom().value,
+                        rect.right().value,
+                        rect.top().value,
+                    ],
+                    page_width_pts: pw,
+                    page_height_pts: ph,
+                    target,
+                });
+            };
+
+            // Primary source: page-level links.
+            let mut had_page_link = false;
+            for link in page.links().iter() {
+                if let (Ok(rect), Some(target)) = (link.rect(), resolve(&link)) {
+                    push_link(&rect, target, &mut result);
+                    had_page_link = true;
+                }
+            }
+
+            // Fallback: some PDFs store links only as Link annotations. Use them
+            // only when the page yielded no page-level links, to avoid duplicates.
+            if !had_page_link {
+                for ann in page.annotations().iter() {
+                    if ann.annotation_type() != PdfPageAnnotationType::Link {
+                        continue;
+                    }
+                    let Some(link_ann) = ann.as_link_annotation() else {
+                        continue;
+                    };
+                    let Ok(link) = link_ann.link() else { continue };
+                    if let (Ok(rect), Some(target)) = (link.rect(), resolve(&link)) {
+                        push_link(&rect, target, &mut result);
+                    }
+                }
+            }
+        }
+
+        Ok(result)
+    }
+}
+
+/// Where a [`ExtractedLink`] points.
+#[derive(Debug, Clone)]
+pub enum LinkTarget {
+    /// A jump to another location in the same document.
+    Internal {
+        /// Zero-based destination page.
+        page: u32,
+        /// Target position down the destination page as a top-down fraction
+        /// (0..1) of its height, when the destination specifies one. `None`
+        /// falls back to a page-top jump.
+        y_frac: Option<f32>,
+    },
+    /// A link to an external resource (web URL, DOI, `mailto:`, etc.).
+    External {
+        /// The raw URI string from the PDF's URI action.
+        uri: String,
+    },
+}
+
+/// A link extracted from a PDF page, with the source rectangle in PDF point
+/// coordinates and its resolved [`LinkTarget`].
+#[derive(Debug, Clone)]
+pub struct ExtractedLink {
+    /// Zero-based source page where the clickable rectangle appears.
+    pub page: u32,
+    /// [x1 (left), y1 (bottom), x2 (right), y2 (top)] source rect in PDF points.
+    pub rect_pts: [f32; 4],
+    /// Width of the source page in PDF points.
+    pub page_width_pts: f32,
+    /// Height of the source page in PDF points.
+    pub page_height_pts: f32,
+    /// The resolved destination.
+    pub target: LinkTarget,
 }
 
 /// An annotation extracted from a PDF page, with bounds in PDF point coordinates.

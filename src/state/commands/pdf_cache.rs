@@ -81,6 +81,39 @@ pub async fn load_outline(
     Ok(())
 }
 
+/// Extracts intra-document links (citation/figure/section jumps) once and stores
+/// them on the tab, keyed by source page for the overlay.
+pub async fn load_links(
+    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
+    tabs: &mut Signal<PdfTabManager>,
+    tab_id: TabId,
+) -> Result<(), String> {
+    let pdf_path = {
+        let mgr = tabs.read();
+        mgr.tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .ok_or("Tab not found")?
+            .pdf_path
+            .clone()
+    };
+    let (reply_tx, reply_rx) = oneshot::channel();
+    render_tx
+        .send(RenderRequest::ExtractLinks {
+            pdf_path,
+            reply: reply_tx,
+        })
+        .map_err(|e| e.to_string())?;
+    let links = recv_reply(reply_rx).await?;
+    let by_page = crate::state::app_state::build_page_links(&links);
+    tabs.with_mut(|mgr| {
+        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+            tab.links = by_page;
+        }
+    });
+    Ok(())
+}
+
 pub async fn precache_pdf(
     render_tx: &std::sync::mpsc::Sender<RenderRequest>,
     pdf_path: &str,

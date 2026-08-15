@@ -709,10 +709,20 @@ impl RoteroMcp {
         let tags = self.db.list_tags().await.map_err(err)?;
         let paper_tags = self.db.list_all_paper_tags().await.map_err(err)?;
         let paper_colls = self.db.list_all_paper_collections().await.map_err(err)?;
+        let citations = self.db.list_all_citations().await.map_err(err)?;
 
-        let filter = rotero_graph::data::GraphFilter::default();
-        let edges =
-            rotero_graph::edges::compute_edges(&papers, &tags, &paper_tags, &paper_colls, &filter);
+        let filter = rotero_graph::data::GraphFilter {
+            show_citation_edges: true,
+            ..Default::default()
+        };
+        let edges = rotero_graph::edges::compute_edges(
+            &papers,
+            &tags,
+            &paper_tags,
+            &paper_colls,
+            &citations,
+            &filter,
+        );
 
         let paper_map: std::collections::HashMap<&str, &rotero_models::Paper> = papers
             .iter()
@@ -762,11 +772,21 @@ impl RoteroMcp {
         let tags = self.db.list_tags().await.map_err(err)?;
         let paper_tags = self.db.list_all_paper_tags().await.map_err(err)?;
         let paper_colls = self.db.list_all_paper_collections().await.map_err(err)?;
+        let citations = self.db.list_all_citations().await.map_err(err)?;
 
         let max_edges = params.max_edges.unwrap_or(100).min(500) as usize;
-        let filter = rotero_graph::data::GraphFilter::default();
-        let mut edges =
-            rotero_graph::edges::compute_edges(&papers, &tags, &paper_tags, &paper_colls, &filter);
+        let filter = rotero_graph::data::GraphFilter {
+            show_citation_edges: true,
+            ..Default::default()
+        };
+        let mut edges = rotero_graph::edges::compute_edges(
+            &papers,
+            &tags,
+            &paper_tags,
+            &paper_colls,
+            &citations,
+            &filter,
+        );
         edges.truncate(max_edges);
 
         // Collect node IDs that appear in edges

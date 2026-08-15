@@ -25,6 +25,8 @@ pub enum EdgeType {
     Author,
     /// Papers were published in the same journal.
     Journal,
+    /// The source paper cites the target paper (directed A → B).
+    Citation,
 }
 
 /// A weighted, typed edge between two paper nodes.
@@ -51,6 +53,7 @@ pub struct GraphFilter {
     pub show_collection_edges: bool,
     pub show_author_edges: bool,
     pub show_journal_edges: bool,
+    pub show_citation_edges: bool,
     pub max_edges_per_node: usize,
     pub max_author_group_size: usize,
 }
@@ -62,6 +65,7 @@ impl Default for GraphFilter {
             show_collection_edges: true,
             show_author_edges: true,
             show_journal_edges: false,
+            show_citation_edges: false,
             max_edges_per_node: 15,
             max_author_group_size: 20,
         }

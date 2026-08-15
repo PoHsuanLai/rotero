@@ -218,6 +218,29 @@
   user-select: none;
 }
 
+/* Clickable intra-document link hotspot (citations, figures, sections). Sits
+   above the text layer so clicks land on it; invisible until hovered. */
+.pdf-link-hotspot {
+  position: absolute;
+  z-index: 4;
+  cursor: pointer;
+  border-radius: 2px;
+  background: transparent;
+  transition: background-color 0.1s ease;
+}
+
+.pdf-link-hotspot:hover {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 22%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 55%, transparent);
+}
+
+/* External links (web URLs, DOIs) tint green to distinguish them from
+   in-document jumps. */
+.pdf-link-external:hover {
+  background: color-mix(in srgb, #10b981 22%, transparent);
+  outline: 1px solid color-mix(in srgb, #10b981 55%, transparent);
+}
+
 /* Slot for a page not yet in the resident render window. Reserves scroll height
    so every page is reachable; fills in with the real page once rendered. */
 .pdf-page-placeholder {
@@ -565,4 +588,93 @@
 .annotation-edit-actions {
   display: flex;
   gap: var(--space-1);
+}
+
+/* ── Citation preview card ─────────────────────────────────────────────────
+   Floating card anchored at a clicked citation link. Sits above every page
+   layer (link hotspots are z-index 4); matches the app-wide context-menu
+   convention (backdrop 199 / menu 200). */
+.citation-card-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+  background: transparent;
+}
+
+.citation-card {
+  position: fixed;
+  z-index: 200;
+  width: 340px;
+  max-width: 90vw;
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  outline: none;
+  animation: citation-card-enter 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes citation-card-enter {
+  from { opacity: 0; transform: scale(0.97) translateY(-4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Verbatim reference text pulled from the References section (internal links). */
+.citation-card-reftext {
+  font-size: var(--text-base, 1rem);
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  border-left: 2px solid var(--accent, #3b82f6);
+  padding-left: var(--space-2);
+}
+
+/* The linked URI shown as a header on external-link cards. */
+.citation-card-uri {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.citation-card-uri-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.citation-card-uri .bi {
+  flex-shrink: 0;
+}
+
+.citation-card-loading,
+.citation-card-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-base, 1rem);
+  color: var(--text-secondary);
+}
+
+/* A resolved paper inside the card reuses .library-card-* body styles but
+   drops the row chrome (no hover/border of its own). */
+.citation-card-result {
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: default;
+}
+
+.citation-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }

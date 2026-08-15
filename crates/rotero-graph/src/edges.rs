@@ -30,6 +30,7 @@ pub fn compute_edges(
     tags: &[Tag],
     paper_tag_pairs: &[(String, String)],
     paper_collection_pairs: &[(String, String)],
+    citation_pairs: &[(String, String)],
     filter: &GraphFilter,
 ) -> Vec<MergedEdge> {
     let tag_name_map: HashMap<&str, &str> = tags
@@ -117,6 +118,24 @@ pub fn compute_edges(
         }
     }
 
+    // Citations — directed (citing → cited). Unlike the shared-attribute edges
+    // above, these are NOT normalized by id order, so A→B and B→A stay distinct.
+    if filter.show_citation_edges {
+        for (citing, cited) in citation_pairs {
+            if citing != cited
+                && paper_ids.contains(citing.as_str())
+                && paper_ids.contains(cited.as_str())
+            {
+                raw_edges.push(RawEdge {
+                    source: citing.clone(),
+                    target: cited.clone(),
+                    rel_type: EdgeType::Citation,
+                    label: "cites".to_string(),
+                });
+            }
+        }
+    }
+
     merge_edges(raw_edges, filter.max_edges_per_node)
 }
 
@@ -197,9 +216,78 @@ fn merge_edges(raw: Vec<RawEdge>, max_per_node: usize) -> Vec<MergedEdge> {
 
 fn edge_type_priority(t: EdgeType) -> u8 {
     match t {
+        // Citations are the strongest signal — an explicit A→B reference — so if
+        // a pair also shares metadata, the citation label wins.
+        EdgeType::Citation => 4,
         EdgeType::Tag => 3,
         EdgeType::Collection => 2,
         EdgeType::Author => 1,
         EdgeType::Journal => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::GraphFilter;
+
+    fn paper(id: &str) -> Paper {
+        Paper {
+            id: Some(id.to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn citation_only_filter() -> GraphFilter {
+        GraphFilter {
+            show_tag_edges: false,
+            show_collection_edges: false,
+            show_author_edges: false,
+            show_journal_edges: false,
+            show_citation_edges: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn citation_edges_are_directed() {
+        let papers = [paper("a"), paper("b")];
+        let cites = [("a".to_string(), "b".to_string())];
+        let edges = compute_edges(&papers, &[], &[], &[], &cites, &citation_only_filter());
+        assert_eq!(edges.len(), 1);
+        // Preserved as citing → cited, NOT normalized by id order.
+        assert_eq!(edges[0].source, "a");
+        assert_eq!(edges[0].target, "b");
+        assert_eq!(edges[0].rel_type, EdgeType::Citation);
+    }
+
+    #[test]
+    fn opposite_directions_are_distinct_edges() {
+        let papers = [paper("a"), paper("b")];
+        let cites = [
+            ("a".to_string(), "b".to_string()),
+            ("b".to_string(), "a".to_string()),
+        ];
+        let edges = compute_edges(&papers, &[], &[], &[], &cites, &citation_only_filter());
+        assert_eq!(edges.len(), 2);
+    }
+
+    #[test]
+    fn citations_hidden_when_filter_off() {
+        let papers = [paper("a"), paper("b")];
+        let cites = [("a".to_string(), "b".to_string())];
+        let edges = compute_edges(&papers, &[], &[], &[], &cites, &GraphFilter::default());
+        assert!(edges.is_empty());
+    }
+
+    #[test]
+    fn dangling_and_self_citations_are_skipped() {
+        let papers = [paper("a")];
+        let cites = [
+            ("a".to_string(), "a".to_string()),       // self-citation
+            ("a".to_string(), "missing".to_string()), // target not in library
+        ];
+        let edges = compute_edges(&papers, &[], &[], &[], &cites, &citation_only_filter());
+        assert!(edges.is_empty());
     }
 }

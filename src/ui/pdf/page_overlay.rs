@@ -54,7 +54,12 @@ pub(crate) fn PdfPageWithOverlay(
         .filter(|m| m.page_index == page_index)
         .flat_map(|m| m.bounds.iter().copied())
         .collect();
+    let page_links: Vec<crate::state::app_state::PageLink> =
+        tab.links.get(&page_index).cloned().unwrap_or_default();
     drop(mgr);
+
+    // Open citation preview card: `Some((link dest, viewport x, viewport y))`.
+    let mut card = use_signal(|| None::<(crate::state::app_state::LinkDest, f64, f64)>);
 
     let selection_color = {
         let hex = &config.read().pdf.selection_color;
@@ -313,6 +318,57 @@ pub(crate) fn PdfPageWithOverlay(
                 div {
                     key: "search-{page_index}-{si}",
                     style: "position: absolute; left: {sx}px; top: {sy}px; width: {sw}px; height: {sh}px; background: rgba(255, 165, 0, 0.35); pointer-events: none; z-index: 2; border-radius: 2px;",
+                }
+            }
+
+            // Clickable intra-document link hotspots (citations, figures, sections).
+            // Positioned by scaling the stored fractional rect to the rendered image
+            // pixel size (width/height), so they track the page at any zoom.
+            for (li, link) in page_links.iter().enumerate() {
+                {
+                    use crate::state::app_state::LinkDest;
+                    let lx = link.x_frac * width as f64;
+                    let ly = link.y_frac * height as f64;
+                    let lw = link.w_frac * width as f64;
+                    let lh = link.h_frac * height as f64;
+                    let dest = link.dest.clone();
+                    let is_external = matches!(dest, LinkDest::External { .. });
+                    let title = match &dest {
+                        LinkDest::External { uri } => uri.clone(),
+                        LinkDest::Internal { .. } => String::new(),
+                    };
+                    let class = if is_external {
+                        "pdf-link-hotspot pdf-link-external"
+                    } else {
+                        "pdf-link-hotspot"
+                    };
+                    rsx! {
+                        div {
+                            key: "link-{page_index}-{li}",
+                            class,
+                            title: "{title}",
+                            style: "left: {lx}px; top: {ly}px; width: {lw}px; height: {lh}px;",
+                            onclick: move |evt: Event<MouseData>| {
+                                evt.stop_propagation();
+                                // Open a preview card anchored at the click rather
+                                // than navigating away — the card offers Jump/Open/
+                                // Import as appropriate.
+                                let c = evt.client_coordinates();
+                                card.set(Some((dest.clone(), c.x, c.y)));
+                            },
+                        }
+                    }
+                }
+            }
+
+            if let Some((dest, cx, cy)) = card() {
+                super::CitationCard {
+                    x: cx,
+                    y: cy,
+                    css_zoom,
+                    link: dest,
+                    tab_id,
+                    on_close: move |_| card.set(None),
                 }
             }
 

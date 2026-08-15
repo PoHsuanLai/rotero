@@ -5,7 +5,7 @@ use turso::Connection;
 use super::tables::{CREATE_FTS_INDEX, CREATE_TABLES};
 
 /// Current schema version; incremented with each migration.
-pub(super) const SCHEMA_VERSION: i64 = 11;
+pub(super) const SCHEMA_VERSION: i64 = 13;
 
 /// Create the application tables and run pending migrations.
 ///
@@ -30,6 +30,54 @@ async fn rebuild_fts_index(conn: &Connection) {
         .execute("DROP INDEX IF EXISTS idx_papers_fts", ())
         .await;
     let _ = conn.execute(CREATE_FTS_INDEX, ()).await;
+}
+
+/// Rewrite each `papers.doi` to its canonical stored form.
+///
+/// Only rows whose canonical form differs from the stored value are touched.
+/// Unparseable-but-present values are left unchanged (they canonicalize to
+/// themselves). Best-effort: a failed row is skipped so one bad value can't
+/// abort the migration.
+async fn backfill_canonical_dois(conn: &Connection) {
+    use rotero_models::PaperId;
+
+    let mut updates: Vec<(String, String)> = Vec::new(); // (id, canonical_doi)
+    let Ok(mut rows) = conn
+        .query(
+            "SELECT id, doi FROM papers WHERE doi IS NOT NULL AND doi != ''",
+            (),
+        )
+        .await
+    else {
+        return;
+    };
+    while let Ok(Some(row)) = rows.next().await {
+        let Some(id) = row.get_value(0).ok().and_then(|v| v.as_text().cloned()) else {
+            continue;
+        };
+        let Some(doi) = row.get_value(1).ok().and_then(|v| v.as_text().cloned()) else {
+            continue;
+        };
+        let canonical = match PaperId::parse(&doi) {
+            Some(pid) => pid.to_stored_string(),
+            None => continue, // keep unrecognized values verbatim
+        };
+        if canonical != doi {
+            updates.push((id, canonical));
+        }
+    }
+
+    for (id, canonical) in updates {
+        let _ = conn
+            .execute(
+                "UPDATE papers SET doi = ?1 WHERE id = ?2",
+                turso::params::Params::Positional(vec![
+                    turso::Value::Text(canonical),
+                    turso::Value::Text(id),
+                ]),
+            )
+            .await;
+    }
 }
 
 async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
@@ -156,6 +204,37 @@ async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
         // match set). turso maintains the index incrementally on writes, so this
         // only needs to run once — hence a versioned migration, not every open.
         rebuild_fts_index(conn).await;
+    }
+
+    if current_version < 12 {
+        // Canonicalize existing `doi` values to one stored form. Earlier importers
+        // wrote the same arXiv paper as both `arXiv:X` and `10.48550/arXiv.X`;
+        // writes now go through `Paper::canonical_doi`, but pre-existing rows still
+        // hold the raw form. This backfills them so the column is uniform.
+        backfill_canonical_dois(conn).await;
+    }
+
+    if current_version < 13 {
+        // Citation-relationship storage + one-time-task bookkeeping. The tables
+        // are created here for existing DBs (CREATE_TABLES handles fresh ones).
+        // Population happens in the app layer on startup (needs pdfium), guarded
+        // by an `app_flags` row.
+        let _ = conn
+            .execute(
+                "CREATE TABLE IF NOT EXISTS paper_citations (
+                    citing_paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+                    cited_paper_id  TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+                    PRIMARY KEY (citing_paper_id, cited_paper_id)
+                )",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "CREATE TABLE IF NOT EXISTS app_flags (key TEXT PRIMARY KEY, value TEXT)",
+                (),
+            )
+            .await;
     }
 
     // The Zotero `item_type` column is added by the idempotent ensure block

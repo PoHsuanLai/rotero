@@ -61,6 +61,69 @@ pub struct NavPanels {
     pub outline: Vec<BookmarkEntry>,
 }
 
+/// Where a [`PageLink`] jumps to: an in-document location or an external URI.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LinkDest {
+    /// Jump to another page in this document, optionally at a fractional y
+    /// position (0..1) down the target page. `None` jumps to the page top.
+    Internal { page: u32, y_frac: Option<f64> },
+    /// Open an external resource (web URL, DOI, etc.).
+    External { uri: String },
+}
+
+/// A clickable link on a page, ready for overlay rendering.
+///
+/// The source rectangle is stored as fractions of the page's width/height so
+/// the overlay can scale it to the rendered image at any zoom (mirrors how the
+/// text layer positions glyphs by percentage).
+#[derive(Debug, Clone)]
+pub struct PageLink {
+    /// Left edge, as a fraction (0..1) of page width.
+    pub x_frac: f64,
+    /// Top edge, as a fraction (0..1) of page height.
+    pub y_frac: f64,
+    /// Width, as a fraction (0..1) of page width.
+    pub w_frac: f64,
+    /// Height, as a fraction (0..1) of page height.
+    pub h_frac: f64,
+    /// The link's destination.
+    pub dest: LinkDest,
+}
+
+/// Converts extracted links (PDF-point space, y-up) into per-page [`PageLink`]s
+/// (fractional, y-down) keyed by source page index.
+pub fn build_page_links(links: &[rotero_pdf::ExtractedLink]) -> HashMap<u32, Vec<PageLink>> {
+    let mut map: HashMap<u32, Vec<PageLink>> = HashMap::new();
+    for l in links {
+        if l.page_width_pts <= 0.0 || l.page_height_pts <= 0.0 {
+            continue;
+        }
+        let [left, bottom, right, top] = l.rect_pts;
+        let pw = l.page_width_pts as f64;
+        let ph = l.page_height_pts as f64;
+        // PDF points are y-up; flip to y-down for screen coordinates.
+        let x_frac = (left.min(right) as f64 / pw).clamp(0.0, 1.0);
+        let w_frac = ((right - left).abs() as f64 / pw).clamp(0.0, 1.0);
+        let y_frac = ((ph - top.max(bottom) as f64) / ph).clamp(0.0, 1.0);
+        let h_frac = ((top - bottom).abs() as f64 / ph).clamp(0.0, 1.0);
+        let dest = match &l.target {
+            rotero_pdf::LinkTarget::Internal { page, y_frac } => LinkDest::Internal {
+                page: *page,
+                y_frac: y_frac.map(|f| f as f64),
+            },
+            rotero_pdf::LinkTarget::External { uri } => LinkDest::External { uri: uri.clone() },
+        };
+        map.entry(l.page).or_default().push(PageLink {
+            x_frac,
+            y_frac,
+            w_frac,
+            h_frac,
+            dest,
+        });
+    }
+    map
+}
+
 #[derive(Debug, Clone)]
 pub struct PdfTab {
     pub id: TabId,
@@ -76,6 +139,9 @@ pub struct PdfTab {
     pub search: SearchState,
     pub nav: NavPanels,
     pub annotations: Vec<Annotation>,
+    /// Clickable intra-document links, keyed by source page index. Extracted
+    /// once when the tab opens.
+    pub links: HashMap<u32, Vec<PageLink>>,
 }
 
 impl PdfTab {
@@ -106,6 +172,7 @@ impl PdfTab {
             search: SearchState::default(),
             nav: NavPanels::default(),
             annotations: Vec::new(),
+            links: HashMap::new(),
         }
     }
 

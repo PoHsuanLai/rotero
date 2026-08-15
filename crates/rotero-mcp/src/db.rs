@@ -499,6 +499,24 @@ impl Database {
         Ok(pairs)
     }
 
+    /// List all directed (citing, cited) citation edges.
+    pub async fn list_all_citations(&self) -> Result<Vec<(String, String)>, turso::Error> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT citing_paper_id, cited_paper_id FROM paper_citations",
+                (),
+            )
+            .await?;
+        let mut pairs = Vec::new();
+        while let Some(row) = rows.next().await? {
+            if let (Some(a), Some(b)) = (get_opt_text(&row, 0), get_opt_text(&row, 1)) {
+                pairs.push((a, b));
+            }
+        }
+        Ok(pairs)
+    }
+
     /// List all papers in the library (up to 10,000).
     pub async fn list_all_papers(&self) -> Result<Vec<Paper>, turso::Error> {
         let sql = queries::PAPER_LIST_PAGINATED.replace("{COLS}", queries::PAPER_SELECT_COLS);
@@ -531,7 +549,7 @@ impl Database {
                         .year
                         .map(|y| Value::Integer(y as i64))
                         .unwrap_or(Value::Null),
-                    opt_text(paper.doi.as_ref()),
+                    opt_text(paper.canonical_doi().as_ref()),
                     opt_text(paper.abstract_text.as_ref()),
                     opt_text(paper.publication.journal.as_ref()),
                     opt_text(paper.publication.volume.as_ref()),
@@ -580,7 +598,7 @@ impl Database {
                         .year
                         .map(|y| Value::Integer(y as i64))
                         .unwrap_or(Value::Null),
-                    opt_text(paper.doi.as_ref()),
+                    opt_text(paper.canonical_doi().as_ref()),
                     opt_text(paper.abstract_text.as_ref()),
                     opt_text(paper.publication.journal.as_ref()),
                     opt_text(paper.publication.volume.as_ref()),

@@ -77,6 +77,67 @@ impl PaperId {
         None
     }
 
+    /// Parse an identifier out of a link URL.
+    ///
+    /// Recognizes the URL forms links inside PDFs use to point at a paper, then
+    /// defers to [`PaperId::parse`] for canonicalization:
+    /// - `https://doi.org/10.1038/nature12373` → `Doi(...)`
+    /// - `https://arxiv.org/abs/2401.11660` (and `/pdf/`, versioned) → `ArXiv(...)`
+    /// - `https://pubmed.ncbi.nlm.nih.gov/12345678` → `Pmid(...)`
+    /// - a bare `10.…` / `arXiv:…` string → delegates to `parse`
+    ///
+    /// Returns `None` for URLs that don't carry a recognizable identifier.
+    pub fn from_url(url: &str) -> Option<Self> {
+        let s = url.trim();
+        // Strip scheme and any `www.` so host matching is uniform.
+        let rest = s
+            .strip_prefix("https://")
+            .or_else(|| s.strip_prefix("http://"))
+            .unwrap_or(s);
+        let rest = rest.strip_prefix("www.").unwrap_or(rest);
+
+        // doi.org / dx.doi.org → the path is the bare DOI.
+        for host in ["doi.org/", "dx.doi.org/"] {
+            if let Some(doi) = rest.strip_prefix(host) {
+                return Self::parse(doi.trim_end_matches('/'));
+            }
+        }
+
+        // arxiv.org/abs/ID or arxiv.org/pdf/ID(.pdf), possibly versioned.
+        if let Some(after) = rest.strip_prefix("arxiv.org/") {
+            let after = after
+                .strip_prefix("abs/")
+                .or_else(|| after.strip_prefix("pdf/"))
+                .unwrap_or(after);
+            let id = after.trim_end_matches('/').trim_end_matches(".pdf");
+            // Drop a trailing version suffix (`v2`) so it matches the unversioned
+            // form libraries usually store.
+            let id = match id.rfind('v') {
+                Some(pos)
+                    if !id[pos + 1..].is_empty()
+                        && id[pos + 1..].bytes().all(|b| b.is_ascii_digit()) =>
+                {
+                    &id[..pos]
+                }
+                _ => id,
+            };
+            if !id.is_empty() {
+                return Some(Self::ArXiv(id.to_string()));
+            }
+        }
+
+        // PubMed.
+        if let Some(after) = rest.strip_prefix("pubmed.ncbi.nlm.nih.gov/") {
+            let id = after.trim_end_matches('/');
+            if !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()) {
+                return Some(Self::Pmid(id.to_string()));
+            }
+        }
+
+        // Not a known host — maybe the "URL" is itself a bare identifier.
+        Self::parse(s)
+    }
+
     /// Serialize to the backward-compatible string format stored in the DB.
     pub fn to_stored_string(&self) -> String {
         match self {
@@ -84,6 +145,22 @@ impl PaperId {
             Self::ArXiv(id) => format!("arXiv:{id}"),
             Self::Pmid(id) => format!("PMID:{id}"),
             Self::Isbn(id) => format!("ISBN:{id}"),
+        }
+    }
+
+    /// All equivalent stored-string forms this identifier may appear as in the DB.
+    ///
+    /// The `doi` column is populated from many importers, so an arXiv paper can
+    /// be stored either canonically (`arXiv:2401.11660`) or as its raw arXiv-DOI
+    /// (`10.48550/arXiv.2401.11660`). A lookup that must match a stored value
+    /// should try every variant. The canonical [`to_stored_string`] form is
+    /// always first.
+    ///
+    /// [`to_stored_string`]: Self::to_stored_string
+    pub fn stored_string_variants(&self) -> Vec<String> {
+        match self {
+            Self::ArXiv(id) => vec![format!("arXiv:{id}"), format!("10.48550/arXiv.{id}")],
+            other => vec![other.to_stored_string()],
         }
     }
 
@@ -454,6 +531,20 @@ impl Paper {
         self.doi.as_deref().and_then(PaperId::parse)
     }
 
+    /// The `doi` field canonicalized to its stored form.
+    ///
+    /// Different importers and providers write the same identifier in different
+    /// shapes (e.g. `10.48550/arXiv.X` vs `arXiv:X`). Passing every write through
+    /// this keeps the `doi` column in one canonical form, so later exact lookups
+    /// match. An unrecognized (but non-empty) value is preserved unchanged.
+    pub fn canonical_doi(&self) -> Option<String> {
+        let raw = self.doi.as_deref()?;
+        match PaperId::parse(raw) {
+            Some(pid) => Some(pid.to_stored_string()),
+            None => Some(raw.to_string()),
+        }
+    }
+
     /// Web URL that resolves this paper's identifier in a browser, or `None` if
     /// it has no identifier. Routes arXiv/PMID/ISBN to their own resolvers
     /// rather than doi.org (which rejects non-DOIs like `arXiv:ID`); an
@@ -618,6 +709,35 @@ mod tests {
         }
     }
 
+    fn with_doi(doi: Option<&str>) -> Paper {
+        Paper {
+            doi: doi.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn canonical_doi_normalizes_arxiv_doi() {
+        assert_eq!(
+            with_doi(Some("10.48550/arXiv.2401.11660")).canonical_doi(),
+            Some("arXiv:2401.11660".to_string())
+        );
+    }
+
+    #[test]
+    fn canonical_doi_preserves_plain_doi_and_unknown() {
+        assert_eq!(
+            with_doi(Some("10.1038/nature12373")).canonical_doi(),
+            Some("10.1038/nature12373".to_string())
+        );
+        // Unparseable but non-empty → kept verbatim.
+        assert_eq!(
+            with_doi(Some("not-an-identifier")).canonical_doi(),
+            Some("not-an-identifier".to_string())
+        );
+        assert_eq!(with_doi(None).canonical_doi(), None);
+    }
+
     #[test]
     fn rank_puts_exact_title_first() {
         // Exact title given last, buried among partial matches.
@@ -684,6 +804,57 @@ mod tests {
             PaperId::parse("PMID:12345678"),
             Some(PaperId::Pmid("12345678".into()))
         );
+    }
+
+    #[test]
+    fn from_url_doi() {
+        assert_eq!(
+            PaperId::from_url("https://doi.org/10.1038/nature12373"),
+            Some(PaperId::Doi("10.1038/nature12373".into()))
+        );
+        assert_eq!(
+            PaperId::from_url("http://dx.doi.org/10.1145/1234"),
+            Some(PaperId::Doi("10.1145/1234".into()))
+        );
+    }
+
+    #[test]
+    fn from_url_arxiv() {
+        // All of these, versioned or not, resolve to the same unversioned ID.
+        for url in [
+            "https://arxiv.org/abs/2401.11660",
+            "https://arxiv.org/pdf/2401.11660",
+            "https://arxiv.org/pdf/2401.11660.pdf",
+            "https://www.arxiv.org/abs/2401.11660v2",
+        ] {
+            assert_eq!(
+                PaperId::from_url(url),
+                Some(PaperId::ArXiv("2401.11660".into())),
+                "url: {url}"
+            );
+        }
+    }
+
+    #[test]
+    fn from_url_pmid() {
+        assert_eq!(
+            PaperId::from_url("https://pubmed.ncbi.nlm.nih.gov/12345678"),
+            Some(PaperId::Pmid("12345678".into()))
+        );
+    }
+
+    #[test]
+    fn from_url_bare_identifier() {
+        // A non-URL identifier string still resolves.
+        assert_eq!(
+            PaperId::from_url("10.1038/nature12373"),
+            Some(PaperId::Doi("10.1038/nature12373".into()))
+        );
+    }
+
+    #[test]
+    fn from_url_unrecognized() {
+        assert_eq!(PaperId::from_url("https://example.com/paper.html"), None);
     }
 
     #[test]

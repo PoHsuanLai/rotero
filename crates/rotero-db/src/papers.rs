@@ -126,7 +126,7 @@ impl Database {
                     .year
                     .map(|y| Value::Integer(y as i64))
                     .unwrap_or(Value::Null),
-                opt_text(paper.doi.as_ref()),
+                opt_text(paper.canonical_doi().as_ref()),
                 opt_text(paper.abstract_text.as_ref()),
                 opt_text(paper.publication.journal.as_ref()),
                 opt_text(paper.publication.volume.as_ref()),
@@ -215,6 +215,37 @@ impl Database {
         Ok(rotero_models::rank_local_results(candidates, query))
     }
 
+    /// Resolve a link URL (as found inside a PDF) to a library paper.
+    ///
+    /// Tries, in order: the identifier the URL carries (DOI / arXiv / PMID,
+    /// canonicalized to the stored form and matched exactly against `doi`), then
+    /// an exact match of the raw URL against the stored `url` / `pdf_url`.
+    /// Returns the first match, or `None` if nothing in the library matches.
+    pub async fn find_paper_by_link(&self, url: &str) -> Result<Option<Paper>, crate::DbError> {
+        let conn = self.conn();
+
+        if let Some(pid) = rotero_models::PaperId::from_url(url) {
+            // Try every stored form the identifier may take (arXiv papers are
+            // stored either as `arXiv:X` or as their raw `10.48550/arXiv.X` DOI).
+            for stored in pid.stored_string_variants() {
+                let hits = search_papers_by_doi(conn, &stored).await?;
+                if let Some(p) = hits.into_iter().next() {
+                    return Ok(Some(p));
+                }
+            }
+        }
+
+        let trimmed = url.trim();
+        if !trimmed.is_empty() {
+            let hits = search_papers_by_url(conn, trimmed).await?;
+            if let Some(p) = hits.into_iter().next() {
+                return Ok(Some(p));
+            }
+        }
+
+        Ok(None)
+    }
+
     /// Fetch papers by a list of IDs.
     pub async fn get_papers_by_ids(&self, ids: &[String]) -> Result<Vec<Paper>, crate::DbError> {
         let conn = self.conn();
@@ -295,7 +326,7 @@ impl Database {
                     .year
                     .map(|y| Value::Integer(y as i64))
                     .unwrap_or(Value::Null),
-                opt_text(paper.doi.as_ref()),
+                opt_text(paper.canonical_doi().as_ref()),
                 opt_text(paper.abstract_text.as_ref()),
                 opt_text(paper.publication.journal.as_ref()),
                 opt_text(paper.publication.volume.as_ref()),
@@ -562,6 +593,15 @@ async fn search_papers_by_doi(
     let mut rows = conn
         .query(&sql, [Value::Text(stored_id.to_string())])
         .await?;
+    crate::collect_rows(&mut rows).await.map_err(Into::into)
+}
+
+async fn search_papers_by_url(
+    conn: &turso::Connection,
+    url: &str,
+) -> Result<Vec<Paper>, crate::DbError> {
+    let sql = queries::PAPER_SEARCH_BY_URL.replace("{COLS}", queries::PAPER_SELECT_COLS);
+    let mut rows = conn.query(&sql, [Value::Text(url.to_string())]).await?;
     crate::collect_rows(&mut rows).await.map_err(Into::into)
 }
 

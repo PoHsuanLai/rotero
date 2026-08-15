@@ -81,6 +81,17 @@ pub async fn open_pdf(
             tab.paper_id.clone(),
         )
     };
+    // Extract intra-document links (citation/figure/section jumps) in the
+    // background so hotspots are ready shortly after the page renders. Independent
+    // of the render/text path below, and covers both cache-hit and fresh opens.
+    {
+        let render_tx_links = render_tx.clone();
+        let mut tabs_links = *tabs;
+        spawn(async move {
+            let _ = super::load_links(&render_tx_links, &mut tabs_links, tab_id).await;
+        });
+    }
+
     let render_scale = zoom * dpr;
     let cache_dir = data_dir.to_path_buf();
     let cache_path = path.clone();
@@ -266,9 +277,28 @@ pub async fn open_pdf(
         let mut tabs_bg = *tabs;
         let paper_id_bg = paper_id.clone();
         let path_bg = path.clone();
+        let data_dir_bg = data_dir.to_path_buf();
         spawn(async move {
             extract_remaining_text(&render_tx_bg, &mut tabs_bg, tab_id, &path_bg, render_scale)
                 .await;
+            // The initial `save_text` above only wrote the first batch. Rewrite the
+            // on-disk text cache with text for the WHOLE document so the cached
+            // `text.json` (read by search and the MCP text tool) isn't truncated.
+            let all_text: std::collections::HashMap<u32, rotero_pdf::PageTextData> = {
+                let mgr = tabs_bg.read();
+                mgr.tabs
+                    .iter()
+                    .find(|t| t.id == tab_id)
+                    .map(|t| t.render.text_data.clone())
+                    .unwrap_or_default()
+            };
+            if !all_text.is_empty() {
+                let dir = data_dir_bg.clone();
+                let path_save = path_bg.clone();
+                std::thread::spawn(move || {
+                    crate::cache::save_text(&dir, &path_save, &all_text);
+                });
+            }
             #[cfg(feature = "desktop")]
             if let Some(pid) = paper_id_bg {
                 save_fulltext_to_db(&tabs_bg, tab_id, &pid).await;
