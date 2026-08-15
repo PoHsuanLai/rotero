@@ -391,7 +391,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if target.exists() {
         std::fs::remove_dir_all(&target)?;
     }
-    std::fs::create_dir_all(target.join("pdfs"))?;
+    std::fs::create_dir_all(target.join("papers"))?;
 
     let db = Database::open(target.clone()).await?;
 
@@ -479,12 +479,18 @@ async fn ensure_collection_path(
 
 /// Copies the PDF fixture into the library so the reader screenshots have a
 /// real document, with real citations, to open.
+///
+/// Returns the name only: `papers.pdf_path` holds a path relative to
+/// `Database::papers_dir()`, and `resolve_pdf_path` rejects anything that
+/// resolves outside it — an absolute path here leaves the reader stuck on
+/// "Loading PDF…".
 fn install_pdf(target: &Path) -> Result<String, Box<dyn std::error::Error>> {
     let source = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../rotero-pdf/tests/fixtures/pdfs/tracemonkey.pdf");
-    let dest = target.join("pdfs").join("tracemonkey.pdf");
-    std::fs::copy(&source, &dest)?;
-    Ok(dest.to_string_lossy().into_owned())
+    let papers = target.join("papers");
+    std::fs::create_dir_all(&papers)?;
+    std::fs::copy(&source, papers.join("tracemonkey.pdf"))?;
+    Ok("tracemonkey.pdf".to_string())
 }
 
 /// Highlights and a note on the PDF-backed paper, so the annotation panel and

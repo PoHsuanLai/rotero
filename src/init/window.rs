@@ -107,9 +107,20 @@ pub(crate) fn launch_desktop(config: &crate::sync::engine::SyncConfig) {
 
     let menu = build_menu_bar();
 
+    // `ROTERO_WINDOW_SIZE=1600x1000` overrides the default. The documentation
+    // screenshot harness uses it to capture a roomier window than the launch
+    // default, which crops panels at 1200x800.
+    let (width, height) = std::env::var("ROTERO_WINDOW_SIZE")
+        .ok()
+        .and_then(|spec| {
+            let (w, h) = spec.split_once(['x', 'X'])?;
+            Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
+        })
+        .unwrap_or((1200.0, 800.0));
+
     let window = WindowBuilder::new()
         .with_title("Rotero")
-        .with_inner_size(LogicalSize::new(1200.0, 800.0))
+        .with_inner_size(LogicalSize::new(width, height))
         .with_min_inner_size(LogicalSize::new(600.0, 400.0))
         .with_theme(None);
 

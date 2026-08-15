@@ -24,6 +24,39 @@ pub fn ShotDriver() -> Element {
         };
 
         spawn(async move {
+            // Most of the app's controls are `button.btn` distinguished only by
+            // their label, so steps select by text. Defined once here rather
+            // than repeated inside every step in the manifest.
+            // A raw string, not a `\`-continued one: continuations fold the
+            // source onto a single line, which would put everything after the
+            // first `//` inside a comment.
+            let _ = document::eval(
+                r#"
+                window.byText = (sel, text) =>
+                    [...document.querySelectorAll(sel)]
+                        .find(el => el.textContent.trim().includes(text));
+
+                // `el.click()` produces an event with no trigger button, and
+                // handlers that require a primary click — paper selection runs
+                // off onmouseup — ignore it. `buttons` is the mask of buttons
+                // still held (1 while down, 0 once released); `button` stays 0
+                // for primary throughout, which is what Dioxus reads.
+                window.realClick = (el) => {
+                    if (!el) return false;
+                    const send = (type, buttons) => el.dispatchEvent(
+                        new MouseEvent(type, {
+                            bubbles: true, cancelable: true, view: window,
+                            button: 0, buttons
+                        })
+                    );
+                    send('mousedown', 1);
+                    send('mouseup', 0);
+                    send('click', 0);
+                    return true;
+                };
+                "#,
+            );
+
             loop {
                 sleep_ms(250).await;
 

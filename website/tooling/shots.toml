@@ -1,24 +1,27 @@
 # Screenshots embedded in the user guide.
 #
 # Each shot names an output file and the steps that put the app into the state
-# it captures. Steps run in order against the app's WebView, then the window is
-# captured whole.
+# it captures. Steps run in order against the app's WebView, then the whole
+# window is captured. Before each shot the harness resets to the library root,
+# so shots do not depend on each other.
 #
 # Step forms:
-#   click    = "<css selector>"    click the first match
-#   type     = "<css selector>|<text>"  focus and type into a field
-#   eval     = "<javascript>"      arbitrary setup, for state a click can't reach
-#   wait     = <milliseconds>      let rendering settle
+#   click    = "<css selector>"          click the first match
+#   type     = "<css selector>|<text>"   focus and type into a field
+#   eval     = "<javascript>"            for state a plain click cannot reach
+#   wait     = <milliseconds>            let rendering settle
 #
-# Reset returns to the library root so shots don't depend on each other.
+# Most toolbar controls are `button.btn` distinguished only by their label, so
+# steps find them by text rather than by class. `byText` is injected by the
+# capture script.
 
 [[shot]]
 id = "library-overview"
 file = "library-overview.png"
 description = "The library list with the sidebar, paper rows, and detail panel"
 steps = [
-  { click = ".paper-card:nth-of-type(3)" },
-  { wait = 400 },
+  { eval = "realClick(document.querySelectorAll('.library-card')[2])" },
+  { wait = 700 },
 ]
 
 [[shot]]
@@ -26,8 +29,8 @@ id = "sidebar-collections"
 file = "sidebar-collections.png"
 description = "Nested collections and colored tags in the sidebar"
 steps = [
-  { eval = "document.querySelectorAll('.collection-row .chevron').forEach(c => c.click())" },
-  { wait = 400 },
+  { eval = "byText('.sidebar-nav-item', 'Favorites')?.click()" },
+  { wait = 700 },
 ]
 
 [[shot]]
@@ -36,7 +39,7 @@ file = "search-unified.png"
 description = "Unified search showing library hits above web results"
 steps = [
   { type = "#library-search-input|deoptimization" },
-  { wait = 2500 },
+  { wait = 4000 },
 ]
 
 [[shot]]
@@ -44,8 +47,9 @@ id = "pdf-reader"
 file = "pdf-reader.png"
 description = "The PDF reader with a page open and the tab bar showing"
 steps = [
-  { click = ".paper-card .open-btn" },
-  { wait = 2500 },
+  { eval = "byText('.library-card .btn', 'Open')?.click()" },
+  # A 1 MB PDF rendering in a debug build takes a while to paint the first page.
+  { wait = 14000 },
 ]
 
 [[shot]]
@@ -53,10 +57,11 @@ id = "pdf-annotations"
 file = "pdf-annotations.png"
 description = "Annotation panel beside a page with existing highlights"
 steps = [
-  { click = ".paper-card .open-btn" },
-  { wait = 2500 },
-  { click = ".pdf-toolbar [title='Notes']" },
-  { wait = 600 },
+  { eval = "byText('.library-card .btn', 'Open')?.click()" },
+  # A 1 MB PDF rendering in a debug build takes a while to paint the first page.
+  { wait = 14000 },
+  { eval = "byText('.pdf-toolbar button', 'Notes')?.click()" },
+  { wait = 1200 },
 ]
 
 [[shot]]
@@ -64,8 +69,12 @@ id = "graph-citations"
 file = "graph-citations.png"
 description = "Citation graph in Citations edge mode"
 steps = [
-  { click = ".library-header .graph-btn" },
-  { wait = 1800 },
+  { eval = "byText('button', 'Graph')?.click()" },
+  { wait = 3000 },
+  # The view opens on Tags; this shot is named for the Citations mode, which
+  # is the one showing directed citing → cited edges.
+  { eval = "byText('.graph-mode-btn, button', 'Citations')?.click()" },
+  { wait = 2500 },
 ]
 
 [[shot]]
@@ -74,7 +83,7 @@ file = "settings-general.png"
 description = "Settings dialog on the General tab"
 steps = [
   { click = ".sidebar-settings-btn" },
-  { wait = 600 },
+  { wait = 900 },
 ]
 
 [[shot]]
@@ -83,9 +92,9 @@ file = "settings-keybindings.png"
 description = "The keybindings table with editable shortcut chips"
 steps = [
   { click = ".sidebar-settings-btn" },
-  { wait = 400 },
-  { eval = "[...document.querySelectorAll('.settings-tab')].find(t => t.textContent.includes('Keybindings'))?.click()" },
-  { wait = 600 },
+  { wait = 700 },
+  { eval = "byText('.settings-tab', 'Keybindings')?.click()" },
+  { wait = 900 },
 ]
 
 [[shot]]
@@ -93,8 +102,10 @@ id = "citation-dialog"
 file = "citation-dialog.png"
 description = "Generate Citation dialog with the style picker and preview"
 steps = [
-  { click = ".paper-card:nth-of-type(1)" },
-  { wait = 400 },
-  { eval = "[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Cite')?.click()" },
-  { wait = 800 },
+  # The Cite button stays disabled until a paper is selected, so this has to
+  # match the selection that library-overview makes, not just any click.
+  { eval = "realClick(document.querySelectorAll('.library-card')[2])" },
+  { wait = 1200 },
+  { eval = "byText('button', 'Cite')?.click()" },
+  { wait = 1500 },
 ]

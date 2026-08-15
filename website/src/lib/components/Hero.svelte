@@ -24,7 +24,7 @@
         Read, annotate, cite, and explore your papers — without the bloat.
       </p>
       <div class="hero-actions">
-        <a href="#download" class="btn-primary">
+        <a href="{base}/#download" class="btn-primary">
           Download Rotero
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
         </a>
