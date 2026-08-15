@@ -9,7 +9,7 @@ use crate::state::app_state::{
 };
 use crate::state::undo::{UndoStack, forward_action, reverse_action};
 use crate::sync::engine::SyncConfig;
-use crate::updates::{UpdateState, UpdateStatus};
+use crate::updates::UpdateState;
 use rotero_db::Database;
 
 // ── Keybinding architecture ────────────────────────────────────────────────
@@ -612,33 +612,8 @@ fn action_open_settings(mut show_settings: Signal<ShowSettings>) {
     show_settings.set(ShowSettings(true));
 }
 
-fn action_check_updates(mut update_state: Signal<UpdateState>) {
-    update_state.with_mut(|s| {
-        s.status = UpdateStatus::Checking;
-        s.show_dialog = true;
-        s.error = None;
-    });
-    spawn(async move {
-        match crate::updates::check_for_update().await {
-            Ok(Some(info)) => {
-                update_state.with_mut(|s| {
-                    s.status = UpdateStatus::Available;
-                    s.info = Some(info);
-                });
-            }
-            Ok(None) => {
-                update_state.with_mut(|s| {
-                    s.status = UpdateStatus::UpToDate;
-                });
-            }
-            Err(e) => {
-                update_state.with_mut(|s| {
-                    s.status = UpdateStatus::Error;
-                    s.error = Some(e);
-                });
-            }
-        }
-    });
+fn action_check_updates(update_state: Signal<UpdateState>) {
+    crate::updates::run_interactive_check(update_state);
 }
 
 fn action_open_pdf(

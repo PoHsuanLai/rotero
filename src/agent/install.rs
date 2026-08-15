@@ -74,13 +74,19 @@ pub(crate) fn resolve_bin_entry(pkg_root: &Path) -> Result<PathBuf, String> {
 }
 
 pub(crate) fn find_mcp_binary() -> Option<PathBuf> {
+    // `.exe` on Windows, empty elsewhere. Without it both filesystem probes
+    // below silently miss on Windows and only the PATH lookup can succeed.
+    let exe_name = format!("rotero-mcp{}", std::env::consts::EXE_SUFFIX);
+
     if let Ok(exe) = std::env::current_exe() {
-        let sibling = exe.with_file_name("rotero-mcp");
+        let sibling = exe.with_file_name(&exe_name);
         if sibling.exists() {
             return Some(sibling);
         }
     }
 
+    // Dev-build fallback only: CARGO_MANIFEST_DIR is baked in at compile time,
+    // so in a shipped bundle these paths point at the build machine.
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     for dir in [
         &manifest_dir,
@@ -88,7 +94,7 @@ pub(crate) fn find_mcp_binary() -> Option<PathBuf> {
         &manifest_dir.join("../.."),
     ] {
         for profile in ["release", "debug"] {
-            let candidate = dir.join("target").join(profile).join("rotero-mcp");
+            let candidate = dir.join("target").join(profile).join(&exe_name);
             if candidate.exists() {
                 return Some(candidate);
             }

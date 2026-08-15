@@ -9,7 +9,7 @@ use crate::updates::{UpdateState, UpdateStatus};
 #[component]
 pub fn UpdateSection() -> Element {
     let mut config = use_context::<Signal<SyncConfig>>();
-    let mut update_state = use_context::<Signal<UpdateState>>();
+    let update_state = use_context::<Signal<UpdateState>>();
     let enabled = config.read().update.auto_check_updates;
     let checking = update_state.read().status == UpdateStatus::Checking;
 
@@ -30,34 +30,7 @@ pub fn UpdateSection() -> Element {
                 button {
                     class: "btn btn--sm",
                     disabled: checking,
-                    onclick: move |_| {
-                        update_state.with_mut(|s| {
-                            s.status = UpdateStatus::Checking;
-                            s.show_dialog = true;
-                            s.error = None;
-                        });
-                        spawn(async move {
-                            match crate::updates::check_for_update().await {
-                                Ok(Some(info)) => {
-                                    update_state.with_mut(|s| {
-                                        s.status = UpdateStatus::Available;
-                                        s.info = Some(info);
-                                    });
-                                }
-                                Ok(None) => {
-                                    update_state.with_mut(|s| {
-                                        s.status = UpdateStatus::UpToDate;
-                                    });
-                                }
-                                Err(e) => {
-                                    update_state.with_mut(|s| {
-                                        s.status = UpdateStatus::Error;
-                                        s.error = Some(e);
-                                    });
-                                }
-                            }
-                        });
-                    },
+                    onclick: move |_| crate::updates::run_interactive_check(update_state),
                     if checking { "Checking\u{2026}" } else { "Check Now" }
                 }
             }

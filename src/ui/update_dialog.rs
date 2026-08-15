@@ -175,14 +175,30 @@ pub fn UpdateDialog() -> Element {
                         }
                     },
                     UpdateStatus::Error => {
-                        let err = update_state.read().error.clone().unwrap_or_default();
+                        let err = update_state.read().error.clone();
+                        // The heading now comes from the error itself: this
+                        // state is reached from both the check and the
+                        // install, and used to claim the check had failed
+                        // either way.
+                        let headline = err
+                            .as_ref()
+                            .map(|e| e.headline())
+                            .unwrap_or("Something went wrong");
+                        let guidance = err.as_ref().map(|e| e.guidance()).unwrap_or_default();
                         rsx! {
                             div { class: "settings-section",
-                                p { class: "settings-description", "Failed to check for updates:" }
-                                p { class: "settings-description", style: "color: var(--color-error, #ef4444);",
-                                    "{err}"
+                                p { class: "settings-description", "{headline}" }
+                                p { class: "settings-description", style: "color: var(--color-error, #ef4444); white-space: pre-wrap;",
+                                    "{guidance}"
                                 }
-                                div { style: "margin-top: 16px;",
+                                div { style: "margin-top: 16px; display: flex; gap: 8px;",
+                                    button {
+                                        class: "btn btn--secondary",
+                                        onclick: move |_| {
+                                            let _ = open::that(crate::updates::RELEASES_PAGE);
+                                        },
+                                        "Open releases page"
+                                    }
                                     button {
                                         class: "btn btn--primary",
                                         onclick: move |_| {
