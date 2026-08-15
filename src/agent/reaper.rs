@@ -6,6 +6,12 @@
 //! `pre_exec(setsid)`), so we kill the whole group by its negative PID — this
 //! also reaps any grandchildren the node agent spawned. SIGKILL of the parent
 //! still can't be caught by anything, but that is the only uncatchable case.
+//!
+//! Signal reaping is Unix-only. Windows has no equivalent of process groups
+//! addressed by negative PID, nor of installing a handler that re-raises with
+//! default semantics, so the signal machinery is `#[cfg(unix)]` and its caller
+//! in `main` is gated to match. On Windows, cleanup falls back to
+//! `RawAcpConnection`'s `Drop`, which still kills the child directly.
 
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
@@ -31,6 +37,7 @@ pub(crate) fn unregister(pid: i32) {
 /// `kill(2)` and touches a `Mutex` — acceptable here because our own signal
 /// handler runs on a normal thread context (see `install_signal_handler`) rather
 /// than a raw async-signal context.
+#[cfg(unix)]
 fn kill_all() {
     let pids: Vec<i32> = registry().lock().unwrap().iter().copied().collect();
     for pid in pids {
@@ -44,6 +51,7 @@ fn kill_all() {
 /// Installs handlers for SIGTERM/SIGINT/SIGHUP that reap tracked children and
 /// then restore the default action and re-raise, so the process still exits with
 /// normal semantics. Call once at startup.
+#[cfg(unix)]
 pub(crate) fn install_signal_handler() {
     static INSTALLED: OnceLock<()> = OnceLock::new();
     if INSTALLED.set(()).is_err() {
@@ -57,6 +65,7 @@ pub(crate) fn install_signal_handler() {
     }
 }
 
+#[cfg(unix)]
 extern "C" fn handle_signal(sig: i32) {
     kill_all();
     // Restore default handler and re-raise so the process terminates as expected.
