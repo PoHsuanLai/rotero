@@ -35,13 +35,37 @@ const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 /// How long to wait for the TCP/TLS handshake alone.
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// The base URL for a provider, honouring a test-only environment override.
+///
+/// The app never sets these; they exist so tests can point a provider at a local
+/// stub and assert on parsing, retries, and timeouts without reaching the real
+/// API — where rate limits and downtime would make the suite flaky and an
+/// offline machine could not run it at all.
+///
+/// An empty value counts as unset, matching `ROTERO_DATA_DIR`'s existing
+/// behaviour so there is one rule for all of them.
+pub(crate) fn base_url(env_var: &str, default: &str) -> String {
+    std::env::var(env_var)
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| default.to_string())
+}
+
 /// Returns the shared HTTP client, initializing it on first call.
 pub fn shared_client() -> &'static reqwest::Client {
     SHARED_CLIENT.get_or_init(|| {
+        // `ROTERO_HTTP_TIMEOUT_MS` shortens the timeout for tests that assert on
+        // the give-up path; waiting out the real one would add 20s per case.
+        let timeout = std::env::var("ROTERO_HTTP_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .map(std::time::Duration::from_millis)
+            .unwrap_or(REQUEST_TIMEOUT);
+
         reqwest::Client::builder()
             .user_agent("Rotero/0.1.0 (mailto:rotero@example.com)")
-            .timeout(REQUEST_TIMEOUT)
-            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(timeout)
+            .connect_timeout(CONNECT_TIMEOUT.min(timeout))
             .build()
             .expect("Failed to build HTTP client")
     })

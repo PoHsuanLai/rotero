@@ -87,7 +87,8 @@ run-release: setup-pdfium
 bundle: setup-pdfium
     PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" dx bundle --release
 
-# Run the test suite (PDFium is downloaded first so the PDF tests don't skip)
+# Run the test suite (PDFium is downloaded first so the PDF tests don't skip).
+# Needs no network: provider tests run against a local stub.
 test: setup-pdfium
     PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" cargo test --workspace
 

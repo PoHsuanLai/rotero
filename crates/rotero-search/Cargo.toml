@@ -10,3 +10,9 @@ serde_json.workspace = true
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 urlencoding = "2"
 futures-util.workspace = true
+
+[dev-dependencies]
+# Local stub server, so provider tests assert on parsing and error handling
+# without depending on a live API being reachable, fast, or unthrottled.
+wiremock = "0.6"
+tokio = { workspace = true }

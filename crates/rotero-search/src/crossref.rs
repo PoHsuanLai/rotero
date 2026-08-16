@@ -1,7 +1,11 @@
 use rotero_models::{Paper, PaperLinks, Publication};
 use serde::Deserialize;
 
-const CROSSREF_API: &str = "https://api.crossref.org/works";
+/// Base URL for this provider. `ROTERO_CROSSREF_API` overrides it so tests can
+/// point at a local stub; unset or empty uses the real endpoint.
+fn crossref_api_url() -> String {
+    crate::base_url("ROTERO_CROSSREF_API", "https://api.crossref.org/works")
+}
 
 #[derive(Debug, Deserialize)]
 struct CrossRefResponse {
@@ -44,7 +48,8 @@ struct CrossRefDate {
 
 /// Fetches paper metadata from the CrossRef API by DOI.
 pub async fn fetch_by_doi(doi: &str) -> Result<Paper, String> {
-    let url = format!("{CROSSREF_API}/{doi}");
+    let crossref_api = crossref_api_url();
+    let url = format!("{crossref_api}/{doi}");
 
     let client = crate::shared_client();
     let resp = client

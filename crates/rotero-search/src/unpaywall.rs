@@ -1,6 +1,10 @@
 use serde::Deserialize;
 
-const UNPAYWALL_API: &str = "https://api.unpaywall.org/v2";
+/// Base URL for this provider. `ROTERO_UNPAYWALL_API` overrides it so tests can
+/// point at a local stub; unset or empty uses the real endpoint.
+fn unpaywall_api_url() -> String {
+    crate::base_url("ROTERO_UNPAYWALL_API", "https://api.unpaywall.org/v2")
+}
 const EMAIL: &str = "rotero.app@proton.me";
 
 #[derive(Debug, Deserialize)]
@@ -16,7 +20,8 @@ struct OaLocation {
 
 /// Check Unpaywall for an open-access PDF URL for the given DOI.
 pub async fn fetch_oa_url(doi: &str) -> Result<Option<String>, String> {
-    let url = format!("{UNPAYWALL_API}/{doi}?email={EMAIL}");
+    let unpaywall_api = unpaywall_api_url();
+    let url = format!("{unpaywall_api}/{doi}?email={EMAIL}");
 
     let client = crate::shared_client();
     let resp = client

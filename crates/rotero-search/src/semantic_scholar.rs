@@ -1,7 +1,14 @@
 use rotero_models::{CitationInfo, Paper, PaperId, ProviderKind, Publication, SearchRank};
 use serde::Deserialize;
 
-const S2_API: &str = "https://api.semanticscholar.org/graph/v1/paper";
+/// Base URL for this provider. `ROTERO_S2_API` overrides it so tests can
+/// point at a local stub; unset or empty uses the real endpoint.
+fn s2_api_url() -> String {
+    crate::base_url(
+        "ROTERO_S2_API",
+        "https://api.semanticscholar.org/graph/v1/paper",
+    )
+}
 const S2_FIELDS: &str = "title,authors,year,abstract,venue,externalIds,publicationVenue,citationCount,openAccessPdf,matchScore";
 
 #[derive(Debug, Deserialize)]
@@ -106,7 +113,8 @@ pub async fn fetch_by_paper_id(id: &PaperId) -> Result<Paper, String> {
     if query.is_empty() {
         return Err("Semantic Scholar does not support this identifier type".into());
     }
-    let url = format!("{S2_API}/{query}?fields={S2_FIELDS}");
+    let s2_api = s2_api_url();
+    let url = format!("{s2_api}/{query}?fields={S2_FIELDS}");
     let paper = fetch_paper(&url).await?;
     let doi = paper
         .external_ids
@@ -131,7 +139,8 @@ pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<Paper, String> {
 /// Tries DOI lookup first, then falls back to title search.
 pub async fn find_oa_pdf(doi: Option<&str>, title: &str) -> Result<Option<String>, String> {
     let paper = if let Some(doi) = doi {
-        let url = format!("{S2_API}/DOI:{doi}?fields=openAccessPdf");
+        let s2_api = s2_api_url();
+        let url = format!("{s2_api}/DOI:{doi}?fields=openAccessPdf");
         fetch_paper(&url).await.ok()
     } else {
         None
