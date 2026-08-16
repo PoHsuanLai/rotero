@@ -54,7 +54,12 @@ async fn migrate_v11_with_dois(rows: &[(&str, &str)]) -> Vec<rotero_models::Pape
     }
 
     rotero_db::schema::initialize_db(&conn).await.unwrap();
-    let db = Database::from_conn(conn, dir.path().to_path_buf());
+    drop(conn);
+    // Read-only: this fixture is a pre-migration database, and attaching avoids
+    // initializing CRR metadata that the migration under test does not need.
+    let db = Database::attach_readonly(dir.path().to_path_buf())
+        .await
+        .unwrap();
     let mut papers = db.list_papers().await.unwrap();
     papers.sort_by(|a, b| a.id.cmp(&b.id));
     papers

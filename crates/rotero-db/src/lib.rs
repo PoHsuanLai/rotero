@@ -5,12 +5,16 @@
 
 /// PDF annotation CRUD operations.
 pub mod annotations;
+/// One-time repair for libraries written without CRR change tracking.
+mod backfill;
 /// Collection (folder) CRUD and paper-collection membership.
 pub mod collections;
 /// Rotero's CRR (conflict-free replicated relations) schema configuration for sync.
 pub mod crr;
 /// Graph queries for paper-tag and paper-collection relationships.
 pub mod graph;
+/// Structural invariants an initialized database must satisfy.
+pub mod health;
 /// Per-paper note CRUD operations.
 pub mod notes;
 /// Paper CRUD, search, duplicate detection, and citation helpers.
@@ -177,18 +181,54 @@ impl Database {
                 .map_err(|e| format!("Failed to backfill item_type CRR clocks: {e}"))?;
         }
 
-        Ok(Self {
+        let db = Self {
             conn,
             data_dir,
             crr,
-        })
+        };
+
+        // Adopt rows written by a build that never initialized CRR. Gated on a
+        // persisted flag, so this is one indexed query per table on a single
+        // launch and nothing afterwards. Non-fatal: a library that opens is more
+        // useful than one that refuses to, and the health check reports the
+        // underlying problem either way.
+        if let Err(e) = db.backfill_untracked_rows().await {
+            tracing::error!("CRR backfill failed: {e}");
+        }
+
+        Ok(db)
     }
 
-    /// Wrap an existing connection and data directory into a `Database`.
+    /// Open a library for inspection **without** initializing anything.
     ///
-    /// Assumes the schema and CRR metadata tables already exist (call
-    /// [`schema::initialize_db`] and construct via [`Database::open`] otherwise).
-    pub fn from_conn(conn: Connection, data_dir: PathBuf) -> Self {
+    /// Unlike [`Database::open`], this runs neither `initialize_db` nor
+    /// `crr.init()`, so it reports the database exactly as it was left on disk.
+    /// That is what a health check needs: opening normally would recreate any
+    /// missing CRR metadata and mask the defect being looked for.
+    ///
+    /// Not for serving the app — writes through this handle may fail change
+    /// tracking. Use [`Database::open`].
+    pub async fn attach_readonly(data_dir: PathBuf) -> Result<Self, String> {
+        let db_path = data_dir.join("rotero.db");
+        let db = turso::Builder::new_local(&db_path.to_string_lossy())
+            .experimental_index_method(true)
+            .build()
+            .await
+            .map_err(|e| format!("Failed to open database: {e}"))?;
+        let conn = db
+            .connect()
+            .map_err(|e| format!("Failed to connect: {e}"))?;
+        Ok(Self::from_conn(conn, data_dir))
+    }
+
+    /// Wrap an existing connection without initializing anything.
+    ///
+    /// Private on purpose. Every public constructor either initializes the
+    /// database ([`Database::open`]) or documents that it deliberately does not
+    /// ([`Database::attach_readonly`]); an exposed version of this is what let a
+    /// startup path build a `Database` whose CRR metadata was never created,
+    /// committing rows that then failed change tracking.
+    fn from_conn(conn: Connection, data_dir: PathBuf) -> Self {
         let crr = Arc::new(CrrStore::new(TursoDb::new(conn.clone()), rotero_schema()));
         Self {
             conn,
@@ -205,6 +245,14 @@ impl Database {
     /// Returns the CRR change-tracking store for sync operations.
     pub fn crr(&self) -> &CrrStore {
         &self.crr
+    }
+
+    /// Shares this database's CRR store.
+    ///
+    /// For wrappers around the same connection (e.g. the embedded MCP server)
+    /// that would otherwise construct a second, separately-initialized store.
+    pub fn crr_arc(&self) -> Arc<CrrStore> {
+        Arc::clone(&self.crr)
     }
 
     /// Returns the root library data directory (contains `rotero.db` and `papers/`).

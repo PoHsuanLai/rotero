@@ -5,7 +5,7 @@ use turso::Connection;
 use super::tables::{CREATE_FTS_INDEX, CREATE_TABLES};
 
 /// Current schema version; incremented with each migration.
-pub(super) const SCHEMA_VERSION: i64 = 13;
+pub const SCHEMA_VERSION: i64 = 13;
 
 /// Create the application tables and run pending migrations.
 ///
@@ -573,7 +573,12 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
     Ok(())
 }
 
-async fn get_schema_version(conn: &Connection) -> i64 {
+/// The schema version recorded in the database, or 0 if absent or unreadable.
+///
+/// Note the conflation of "no version row" with "the query failed": callers that
+/// need to distinguish a genuinely fresh database from a transient read error
+/// cannot, which is tracked separately as a migration-safety fix.
+pub async fn get_schema_version(conn: &Connection) -> i64 {
     let result = conn
         .query("SELECT version FROM schema_version LIMIT 1", ())
         .await;

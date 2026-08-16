@@ -22,38 +22,27 @@ pub struct Database {
 
 impl Database {
     /// Open the SQLite database at the given path.
+    ///
+    /// Delegates to [`rotero_db::Database::open`] so the standalone server runs
+    /// the same schema and CRR initialization as the app. Opening the connection
+    /// directly here skipped both, so writes against a fresh path committed and
+    /// then failed change tracking.
     pub async fn open(db_path: &Path) -> Result<Self, String> {
         let data_dir = db_path.parent().ok_or("Invalid db path")?.to_path_buf();
-
-        let db_path_str = db_path.to_string_lossy().to_string();
-
-        let db = turso::Builder::new_local(&db_path_str)
-            .build()
-            .await
-            .map_err(|e| format!("Failed to open database: {e}"))?;
-
-        let conn = db
-            .connect()
-            .map_err(|e| format!("Failed to connect: {e}"))?;
-
-        let crr = Arc::new(rotero_db::crr::make_crr_store(conn.clone()));
-        Ok(Self {
-            conn,
-            data_dir,
-            on_change: None,
-            crr,
-        })
+        let db = rotero_db::Database::open(data_dir).await?;
+        Ok(Self::from_db(&db))
     }
 
-    /// Create from an existing connection (for embedding in the main app).
-    #[allow(dead_code)]
-    pub fn from_conn(conn: Connection, data_dir: std::path::PathBuf) -> Self {
-        let crr = Arc::new(rotero_db::crr::make_crr_store(conn.clone()));
+    /// Wrap the app's already-initialized database for embedded use.
+    ///
+    /// Shares the caller's CRR store rather than building a parallel one, so
+    /// there is exactly one initialized store per process.
+    pub fn from_db(db: &rotero_db::Database) -> Self {
         Self {
-            conn,
-            data_dir,
+            conn: db.conn().clone(),
+            data_dir: db.data_dir().to_path_buf(),
             on_change: None,
-            crr,
+            crr: db.crr_arc(),
         }
     }
 
