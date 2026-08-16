@@ -87,6 +87,15 @@ run-release: setup-pdfium
 bundle: setup-pdfium
     PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" dx bundle --release
 
+# Run the test suite (PDFium is downloaded first so the PDF tests don't skip)
+test: setup-pdfium
+    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" cargo test --workspace
+
+# Launch a built app and assert it works: database health, connector, a saved
+# paper that persists, and PDFium resolution. Pass a .app bundle or a binary.
+smoke BUNDLE="target/dx/rotero/release/macos/Rotero.app":
+    {{justfile_directory()}}/scripts/smoke-bundle.sh {{BUNDLE}}
+
 # Check all crates compile
 check:
     cargo check --workspace
