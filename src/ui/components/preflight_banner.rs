@@ -15,10 +15,23 @@ pub fn PreflightBanner() -> Element {
     #[cfg(feature = "desktop")]
     {
         let mut dismissed = use_signal(|| false);
-        // Startup state does not change after launch, so read it once rather
-        // than re-snapshotting on every render.
-        let preflight = use_hook(crate::init::preflight::snapshot);
+        // Most of these are decided at startup, but sync runs on a timer and can
+        // start failing at any point, so poll rather than snapshotting once.
+        let mut preflight = use_signal(crate::init::preflight::snapshot);
+        use_future(move || async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                let latest = crate::init::preflight::snapshot();
+                if latest != *preflight.peek() {
+                    // A newly-reported problem is worth showing again, even if
+                    // the user dismissed an earlier one.
+                    dismissed.set(false);
+                    preflight.set(latest);
+                }
+            }
+        });
 
+        let preflight = preflight();
         if preflight.is_healthy() || dismissed() {
             return rsx! {};
         }

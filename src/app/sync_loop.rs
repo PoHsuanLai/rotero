@@ -37,16 +37,24 @@ pub fn SyncLoop() -> Element {
                             std::path::PathBuf::from(folder),
                             site_id,
                         );
+                        // A sync that has been failing for days looks identical
+                        // to one that has nothing to do, so record the reason
+                        // where the user can see it and clear it once a round
+                        // trip succeeds.
+                        let mut failure: Option<String> = None;
                         if let Err(e) = engine.export_changes(&db).await {
                             tracing::warn!("File sync export failed: {e}");
+                            failure = Some(format!("could not send changes: {e}"));
                         }
                         let imported = match engine.import_changes(&db).await {
                             Ok(n) => n,
                             Err(e) => {
                                 tracing::warn!("File sync import failed: {e}");
+                                failure = Some(format!("could not receive changes: {e}"));
                                 0
                             }
                         };
+                        crate::init::preflight::record(|p| p.sync_folder = failure);
                         let papers_dir = db.papers_dir();
                         let papers = lib_state.read().papers.clone();
                         for paper in &papers {
@@ -60,10 +68,28 @@ pub fn SyncLoop() -> Element {
                     crate::sync::engine::SyncTransport::CloudKit => {
                         #[cfg(feature = "cloudkit")]
                         {
-                            let engine = ck_engine.get_or_insert_with(|| {
-                                crate::sync::cloudkit_sync::CloudKitSyncEngine::new(site_id.clone())
-                                    .expect("Failed to init CloudKit")
-                            });
+                            // Reported, not panicked: this runs inside a UI
+                            // future, so an unavailable iCloud account used to
+                            // take the whole app down.
+                            if ck_engine.is_none() {
+                                match crate::sync::cloudkit_sync::CloudKitSyncEngine::new(
+                                    site_id.clone(),
+                                ) {
+                                    Ok(engine) => ck_engine = Some(engine),
+                                    Err(e) => {
+                                        tracing::error!("CloudKit unavailable: {e}");
+                                        crate::init::preflight::record(|p| {
+                                            p.sync_folder =
+                                                Some(format!("iCloud sync is unavailable: {e}"));
+                                        });
+                                        // Skip this tick and retry on the next,
+                                        // as the file transport does when its
+                                        // folder is unset.
+                                        continue;
+                                    }
+                                }
+                            }
+                            let engine = ck_engine.as_mut().expect("just initialized");
                             if let Err(e) = engine.export_changes(&db).await {
                                 tracing::warn!("CloudKit export failed: {e}");
                             }
@@ -77,7 +103,17 @@ pub fn SyncLoop() -> Element {
                         }
                         #[cfg(not(feature = "cloudkit"))]
                         {
+                            // The settings pane renders the file-sync UI in this
+                            // state, so sync looks configured and simply never
+                            // runs. Say so rather than logging into the void.
                             tracing::warn!("CloudKit sync selected but not compiled in");
+                            crate::init::preflight::record(|p| {
+                                p.sync_folder = Some(
+                                    "iCloud sync is selected but this build does not include it; \
+                                     choose folder sync in Settings"
+                                        .to_string(),
+                                );
+                            });
                             0
                         }
                     }

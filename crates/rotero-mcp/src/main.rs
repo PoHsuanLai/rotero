@@ -17,9 +17,20 @@ struct Cli {
 }
 
 fn default_db_path() -> PathBuf {
-    let dirs = directories::ProjectDirs::from("com", "rotero", "Rotero")
-        .expect("Could not determine data directory");
-    dirs.data_dir().join("rotero.db")
+    // A server that exits with a panic message is harder to diagnose than one
+    // that reports a path it could not resolve, so fall back and let the open
+    // fail with something actionable. `ROTERO_DB_PATH` overrides this anyway.
+    match directories::ProjectDirs::from("com", "rotero", "Rotero") {
+        Some(dirs) => dirs.data_dir().join("rotero.db"),
+        None => {
+            tracing::warn!(
+                "Could not determine the platform data directory; \
+                 set ROTERO_DB_PATH to point at your library"
+            );
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            PathBuf::from(home).join(".rotero").join("rotero.db")
+        }
+    }
 }
 
 #[tokio::main]

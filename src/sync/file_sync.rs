@@ -69,6 +69,13 @@ impl FileSyncEngine {
 
     pub fn save_state(&self, state: &SyncState) -> Result<(), String> {
         let path = self.state_path();
+        // The sync folder may not exist yet — a cloud provider often has not
+        // materialized it on a machine's first run — and without this the write
+        // failed every 30 seconds with nothing to show for it.
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create sync state dir: {e}"))?;
+        }
         let json = serde_json::to_string_pretty(state).map_err(|e| e.to_string())?;
         std::fs::write(&path, json).map_err(|e| format!("Failed to save sync state: {e}"))?;
         Ok(())

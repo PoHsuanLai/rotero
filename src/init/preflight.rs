@@ -24,16 +24,14 @@ pub struct Preflight {
     pub mcp_port: Option<String>,
     /// The configured sync folder is unusable.
     pub sync_folder: Option<String>,
+    /// Settings could not be read and were reset to defaults.
+    pub config: Option<String>,
 }
 
 impl Preflight {
     /// Whether every check passed.
     pub fn is_healthy(&self) -> bool {
-        self.db.is_none()
-            && self.pdf_engine.is_none()
-            && self.connector_port.is_none()
-            && self.mcp_port.is_none()
-            && self.sync_folder.is_none()
+        self.issues().is_empty()
     }
 
     /// Each failure, paired with the name of the subsystem it belongs to.
@@ -44,6 +42,7 @@ impl Preflight {
             ("Browser connector", self.connector_port.as_deref()),
             ("MCP server", self.mcp_port.as_deref()),
             ("Sync", self.sync_folder.as_deref()),
+            ("Settings", self.config.as_deref()),
         ]
         .into_iter()
         .filter_map(|(name, msg)| msg.map(|m| (name, m)))

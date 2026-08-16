@@ -89,6 +89,8 @@ process-wrap = { version = "9", features = ["std"] }
 # Node.js archive extraction: .tar.gz on Unix, .zip on Windows.
 flate2 = "1"
 tar = "0.4"
+# Verifies the Node.js download against nodejs.org's published SHASUMS256.
+sha2 = "0.10"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 self-replace = "1"
 
