@@ -33,14 +33,10 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
                 }
             };
             rt.block_on(async {
-                let (conn, db_lib_path) = match SHARED_DB.get() {
-                    Some(pair) => (pair.0.clone(), pair.1.clone()),
-                    None => {
-                        tracing::error!("Connector: SHARED_DB not initialized");
-                        return;
-                    }
+                let Some(db) = SHARED_DB.get().cloned() else {
+                    tracing::error!("Connector: SHARED_DB not initialized");
+                    return;
                 };
-                let db = rotero_db::Database::from_conn(conn.clone(), db_lib_path);
 
                 let db_collections = db.clone();
                 let db_tags = db.clone();
@@ -185,6 +181,12 @@ pub(crate) fn start_connector(config: &crate::sync::engine::SyncConfig) {
 
                 if let Err(e) = rotero_connector::start_server(state, port).await {
                     tracing::error!("Browser connector error: {e}");
+                    // Usually the port is taken — commonly by a second Rotero.
+                    // Without this the browser extension and Word add-in simply
+                    // stop working, with nothing in the UI to say why.
+                    super::preflight::record(|p| {
+                        p.connector_port = Some(format!("port {port} is unavailable: {e}"));
+                    });
                 }
             });
         });

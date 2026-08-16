@@ -16,11 +16,11 @@ pub(crate) fn start_mcp_server() {
             }
         };
         rt.block_on(async {
-            let Some((conn, lib_path)) = SHARED_DB.get() else {
+            let Some(db) = SHARED_DB.get() else {
                 tracing::error!("MCP: SHARED_DB not initialized");
                 return;
             };
-            let mut mcp_db = rotero_mcp::Database::from_conn(conn.clone(), lib_path.clone());
+            let mut mcp_db = rotero_mcp::Database::from_db(db);
             // Wire up change notifications so the UI refreshes after MCP writes.
             if let Some(tx) = super::connector::CONNECTOR_TX.get() {
                 let tx = tx.clone();
@@ -52,15 +52,20 @@ pub(crate) fn start_mcp_server() {
                 Ok(l) => l,
                 Err(e) => {
                     tracing::error!("Failed to bind MCP port {mcp_port}: {e}");
+                    super::preflight::record(|p| {
+                        p.mcp_port = Some(format!("port {mcp_port} is unavailable: {e}"));
+                    });
                     return;
                 }
             };
+            // Only now is the port real. Publishing it before the bind handed the
+            // agent an HTTP endpoint that was never listening, which suppressed
+            // the working stdio fallback.
+            MCP_HTTP_PORT.get_or_init(|| mcp_port);
             tracing::info!("MCP server listening on 127.0.0.1:{mcp_port}");
             if let Err(e) = axum::serve(listener, app).await {
                 tracing::error!("MCP server error: {e}");
             }
         });
     });
-
-    MCP_HTTP_PORT.get_or_init(|| mcp_port);
 }

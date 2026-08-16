@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use super::chat_panel::ChatPanel;
+use super::components::preflight_banner::PreflightBanner;
 use super::graph_view::GraphView;
 #[cfg(feature = "desktop")]
 use super::keybindings::GlobalKeyHandler;
@@ -61,6 +62,7 @@ pub fn Layout() -> Element {
                 on_toggle: move |_| sidebar_collapsed.toggle(),
             }
             div { class: "main-panel",
+                PreflightBanner {}
                 match view {
                     LibraryView::PdfViewer if has_tabs => rsx! {
                         PdfTabBar {}

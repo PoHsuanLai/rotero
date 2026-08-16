@@ -155,8 +155,15 @@ pub fn App() -> Element {
     let db_resource = use_resource(move || async move {
         let _ = db_gen;
         #[cfg(feature = "desktop")]
-        if let Some((conn, lib_path)) = crate::SHARED_DB.get() {
-            return Ok(Database::from_conn(conn.clone(), lib_path.clone()));
+        {
+            if let Some(db) = crate::SHARED_DB.get() {
+                return Ok(db.clone());
+            }
+            // Startup already tried and failed; report that rather than
+            // reopening, so the user sees the original cause.
+            if let Some(e) = crate::init::database::DB_INIT_ERROR.get() {
+                return Err(e.clone());
+            }
         }
         let config = SyncConfig::load();
         Database::open(config.effective_library_path()).await

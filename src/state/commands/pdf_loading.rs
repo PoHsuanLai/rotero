@@ -53,9 +53,8 @@ async fn save_fulltext_to_db(tabs: &Signal<PdfTabManager>, tab_id: TabId, paper_
             .unwrap_or_default()
     };
     if !fulltext.is_empty()
-        && let Some((conn, lib_path)) = crate::init::database::SHARED_DB.get()
+        && let Some(db) = crate::init::database::SHARED_DB.get()
     {
-        let db = rotero_db::Database::from_conn(conn.clone(), lib_path.clone());
         let _ = db.update_paper_fulltext(paper_id, &fulltext).await;
     }
 }

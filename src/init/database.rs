@@ -1,32 +1,61 @@
+/// The process-wide library database, opened once before the UI starts.
+///
+/// Holds a fully initialized [`rotero_db::Database`] rather than a bare
+/// connection: the background connector and MCP threads clone it, and handing
+/// them a connection meant each had to reconstruct the CRR store itself. One of
+/// those reconstructions skipped `crr.init()`, which committed rows and then
+/// failed change tracking — silently losing tags and notes.
 #[cfg(feature = "desktop")]
-pub static SHARED_DB: std::sync::OnceLock<(rotero_db::turso::Connection, std::path::PathBuf)> =
-    std::sync::OnceLock::new();
+pub static SHARED_DB: std::sync::OnceLock<rotero_db::Database> = std::sync::OnceLock::new();
 
+/// Why the database could not be opened, when it could not be.
+///
+/// The window still launches on failure so the app can render the error; without
+/// this the process exited and a GUI user saw only a silent bounce, with the
+/// reason in a log file they had no reason to open.
 #[cfg(feature = "desktop")]
-pub(crate) fn init_database(config: &crate::sync::engine::SyncConfig) -> Result<(), String> {
-    let lib_path = config.effective_library_path();
-    std::fs::create_dir_all(&lib_path)
-        .map_err(|e| format!("Failed to create library directory: {e}"))?;
-    let papers_dir = lib_path.join("papers");
-    let _ = std::fs::create_dir_all(papers_dir.join("unsorted"));
-    let db_path = lib_path.join("rotero.db");
-    let db_path_str = db_path.to_string_lossy().to_string();
-    let rt = tokio::runtime::Runtime::new()
-        .map_err(|e| format!("Failed to create init runtime: {e}"))?;
-    let (conn, _lib_path) = rt.block_on(async {
-        let db = rotero_db::turso::Builder::new_local(&db_path_str)
-            .experimental_index_method(true)
-            .build()
-            .await
-            .map_err(|e| format!("Failed to open database: {e}"))?;
-        let conn = db
-            .connect()
-            .map_err(|e| format!("Failed to connect to database: {e}"))?;
-        rotero_db::schema::initialize_db(&conn)
-            .await
-            .map_err(|e| format!("Failed to initialize schema: {e}"))?;
-        Ok::<_, String>((conn, lib_path.clone()))
-    })?;
-    let _ = SHARED_DB.set((conn, lib_path));
-    Ok(())
+pub static DB_INIT_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Open the library database, creating and migrating it if needed.
+///
+/// Delegates to [`rotero_db::Database::open`] so the desktop app and the tests
+/// exercise the same initialization. Do not reimplement the open sequence here:
+/// a second copy is what shipped a database without CRR metadata.
+#[cfg(feature = "desktop")]
+pub(crate) async fn init_database(
+    config: &crate::sync::engine::SyncConfig,
+) -> Result<rotero_db::Database, String> {
+    rotero_db::Database::open(config.effective_library_path()).await
+}
+
+#[cfg(test)]
+mod tests {
+    /// `init_database` must delegate rather than re-derive the open sequence.
+    ///
+    /// Crude, but it is the cheap backstop for the specific regression that
+    /// shipped: an `init_database` that called `initialize_db` directly and so
+    /// never ran `crr.init()`.
+    #[test]
+    fn init_database_delegates_to_database_open() {
+        // Only the code above this test module: comments name these functions
+        // deliberately, and so do the assertion messages below.
+        let src = include_str!("database.rs");
+        let code: String = src
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            code.contains("Database::open"),
+            "init_database must delegate to Database::open"
+        );
+        assert!(
+            !code.contains("initialize_db("),
+            "init_database must not call initialize_db directly — that bypasses crr.init()"
+        );
+    }
 }

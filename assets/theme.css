@@ -133,3 +133,47 @@
 .db-error h1 {
   margin-bottom: var(--space-2);
 }
+
+
+/* --- Preflight banner --- */
+.preflight-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--destructive-bg, rgba(220, 38, 38, 0.08));
+  border-bottom: 1px solid var(--destructive);
+  color: var(--destructive);
+  font-size: var(--text-sm);
+}
+
+.preflight-banner-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+}
+
+.preflight-banner-issue {
+  display: flex;
+  gap: var(--space-2);
+  /* Long bind errors wrap rather than pushing the dismiss button off-screen. */
+  overflow-wrap: anywhere;
+}
+
+.preflight-banner-subsystem {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.preflight-banner-dismiss {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: var(--text-lg);
+  line-height: 1;
+  padding: 0 var(--space-1);
+  flex-shrink: 0;
+}
