@@ -81,23 +81,82 @@ impl PdfEngine {
         })
     }
 
-    /// Resolution order: explicit `lib_path`, then `PDFIUM_DYNAMIC_LIB_PATH` env var, then system paths.
+    /// Directories to search for the PDFium shared library, in order.
+    ///
+    /// The executable's own directory and, on macOS, the bundle's `Frameworks/`
+    /// come before the system search. A shipped bundle carries PDFium next to
+    /// the binary, and `bind_to_system_library` cannot find it there: it passes
+    /// a bare filename to `dlopen`, which consults only the system search path —
+    /// `@rpath` does not apply to a bare-name `dlopen`, so an `install_name_tool
+    /// -add_rpath` on the executable has no effect on it either.
+    #[cfg(not(feature = "static"))]
+    fn candidate_dirs(lib_path: Option<&str>) -> Vec<String> {
+        let mut dirs = Vec::new();
+
+        if let Some(path) = lib_path {
+            dirs.push(path.to_string());
+        }
+
+        // Empty is unset: `std::env::var` returns `Ok("")` for `FOO=`, and taking
+        // that branch would bind against `/libpdfium.dylib`.
+        if let Ok(dir) = std::env::var("PDFIUM_DYNAMIC_LIB_PATH")
+            && !dir.is_empty()
+        {
+            dirs.push(dir);
+        }
+
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(exe_dir) = exe.parent()
+        {
+            dirs.push(exe_dir.to_string_lossy().into_owned());
+
+            // Contents/MacOS/rotero -> Contents/Frameworks, the conventional
+            // place for a bundled dylib.
+            #[cfg(target_os = "macos")]
+            if let Some(contents) = exe_dir.parent() {
+                dirs.push(contents.join("Frameworks").to_string_lossy().into_owned());
+            }
+        }
+
+        dirs
+    }
+
+    /// Bind to PDFium, searching an explicit path, `PDFIUM_DYNAMIC_LIB_PATH`, the
+    /// executable's directory, and finally the system library path.
+    ///
+    /// On failure the error lists every location tried: "not found" is otherwise
+    /// indistinguishable from "found but unloadable", and the difference decides
+    /// whether the fix is packaging or the binary itself.
     #[cfg(not(feature = "static"))]
     pub fn new(lib_path: Option<&str>) -> Result<Self, PdfError> {
-        let bindings = if let Some(path) = lib_path {
-            Pdfium::bind_to_library(path).map_err(|e| PdfError::BindError(e.to_string()))?
-        } else if let Ok(dir) = std::env::var("PDFIUM_DYNAMIC_LIB_PATH") {
-            let lib_name = Pdfium::pdfium_platform_library_name_at_path(&dir);
-            Pdfium::bind_to_library(lib_name)
-                .map_err(|e| PdfError::BindError(format!("PDFIUM_DYNAMIC_LIB_PATH={dir}: {e}")))?
-        } else {
-            Pdfium::bind_to_system_library().map_err(|e| PdfError::BindError(e.to_string()))?
-        };
+        let mut attempts: Vec<String> = Vec::new();
 
-        Ok(Self {
-            pdfium: Pdfium::new(bindings),
-            cached_bytes: None,
-        })
+        for dir in Self::candidate_dirs(lib_path) {
+            let candidate = Pdfium::pdfium_platform_library_name_at_path(&dir);
+            match Pdfium::bind_to_library(&candidate) {
+                Ok(bindings) => {
+                    return Ok(Self {
+                        pdfium: Pdfium::new(bindings),
+                        cached_bytes: None,
+                    });
+                }
+                Err(e) => attempts.push(format!("{}: {e}", candidate.display())),
+            }
+        }
+
+        match Pdfium::bind_to_system_library() {
+            Ok(bindings) => Ok(Self {
+                pdfium: Pdfium::new(bindings),
+                cached_bytes: None,
+            }),
+            Err(e) => {
+                attempts.push(format!("system library: {e}"));
+                Err(PdfError::BindError(format!(
+                    "could not load PDFium; tried {}",
+                    attempts.join("; ")
+                )))
+            }
+        }
     }
 
     fn get_pdf_bytes(&mut self, pdf_path: &str) -> Result<Vec<u8>, PdfError> {
