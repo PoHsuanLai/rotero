@@ -170,6 +170,11 @@ build-ios: setup-pdfium-ios
 docs-screenshots *SHOTS: setup-pdfium
     {{justfile_directory()}}/website/tooling/capture.sh {{SHOTS}}
 
+# Capture the extension popup and Word task pane (headless; pass popup/taskpane
+# to redo one). Separate from docs-screenshots because these need no GUI.
+docs-screenshots-web *SHOTS:
+    cd {{justfile_directory()}}/website && node tooling/capture-web.mjs {{SHOTS}}
+
 # Report how much of the app the user guide documents
 docs-coverage:
     node {{justfile_directory()}}/website/tooling/coverage/check.mjs

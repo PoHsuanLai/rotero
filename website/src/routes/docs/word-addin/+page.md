@@ -7,6 +7,8 @@ description: Insert and restyle citations and bibliographies in Microsoft Word f
 <script>
   import { base } from '$app/paths';
   import Callout from '$lib/components/docs/Callout.svelte';
+  import Figure from '$lib/components/docs/Figure.svelte';
+  import Pin from '$lib/components/docs/Pin.svelte';
 </script>
 
 The Word add-in puts your library inside Microsoft Word: search your papers,
@@ -52,6 +54,12 @@ Windows loads add-ins from a trusted catalog folder rather than a fixed path.
 After installing, a **Rotero** group appears in Word's **Home** tab with three
 buttons: **Insert Citation**, **Bibliography**, and **Refresh**. Each opens the
 taskpane on the matching view.
+
+<Figure src="word-taskpane.png" alt="The Rotero task pane docked in Word, on the Cite view: a search box reading trace-based, two matching papers with checkboxes and the first one selected, a style dropdown set to APA 7th, and an Insert Citation button." caption="The task pane on the Cite view, with one paper selected and APA 7th chosen." width={360}>
+  <Pin n={1} x={92} y={8}>View tabs</Pin>
+  <Pin n={2} x={92} y={42}>Search results</Pin>
+  <Pin n={3} x={92} y={75}>Citation style</Pin>
+</Figure>
 
 ### Cite
 

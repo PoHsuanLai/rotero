@@ -7,6 +7,8 @@ description: Install the Rotero Connector for Chrome and save papers from any we
 <script>
   import { base } from '$app/paths';
   import Callout from '$lib/components/docs/Callout.svelte';
+  import Figure from '$lib/components/docs/Figure.svelte';
+  import Pin from '$lib/components/docs/Pin.svelte';
 </script>
 
 The Rotero Connector is a Chrome extension that reads the page you are looking
@@ -40,6 +42,13 @@ The filename carries the version number. The README currently calls it
 
 Click the Rotero icon in the toolbar. A 340px panel opens with the extracted
 paper and everything you need to file it.
+
+<Figure src="extension-popup.png" alt="The Rotero Connector popup showing a green status dot, the extracted paper card, a nested collection tree with Optimization selected, colored tag chips with two selected, and an Add button." caption="The popup on an ACM paper page, filed into Optimization and tagged." width={340}>
+  <Pin n={1} x={6} y={5}>Status dot</Pin>
+  <Pin n={2} x={90} y={13}>Extracted paper</Pin>
+  <Pin n={3} x={90} y={53}>Collections</Pin>
+  <Pin n={4} x={90} y={79}>Tags</Pin>
+</Figure>
 
 The header reads **Rotero** with a status dot beside it — green when the
 connector answers, red when it does not. If Rotero is not running you get a
