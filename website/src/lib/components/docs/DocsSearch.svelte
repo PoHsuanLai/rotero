@@ -12,6 +12,7 @@
   let open = $state(false);
   let loading = $state(false);
   let pagefind: any = null;
+  let root: HTMLElement | undefined = $state();
 
   /**
    * The index only exists in a production build, so it is imported lazily and
@@ -67,9 +68,15 @@
   }
 </script>
 
-<svelte:window onclick={() => (open = false)} />
+<!--
+  Closing on outside clicks is decided by where the click landed rather than by
+  a `stopPropagation` handler on the container: the container is not an
+  interactive control, and giving it a click listener would oblige it to carry a
+  keyboard equivalent. Escape is handled on the input.
+-->
+<svelte:window onclick={(e) => { if (!root?.contains(e.target as Node)) open = false; }} />
 
-<div class="search" onclick={(e) => e.stopPropagation()} role="search">
+<div class="search" bind:this={root} role="search">
   <input
     type="search"
     bind:value={query}

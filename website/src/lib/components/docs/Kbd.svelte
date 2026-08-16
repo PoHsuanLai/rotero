@@ -10,14 +10,18 @@
   }
 
   let { keys }: Props = $props();
-  let display = $state(keys);
+
+  // Resolved after mount: `navigator` does not exist while prerendering, and
+  // the server has no way to know the reader's platform.
+  let isApple = $state(true);
 
   onMount(() => {
-    const isApple = /Mac|iPhone|iPad/.test(navigator.platform ?? navigator.userAgent);
-    if (!isApple) {
-      display = keys.replace(/⌘/g, 'Ctrl+').replace(/⇧/g, 'Shift+').replace(/\+\+/g, '+');
-    }
+    isApple = /Mac|iPhone|iPad/.test(navigator.platform ?? navigator.userAgent);
   });
+
+  const display = $derived(
+    isApple ? keys : keys.replace(/⌘/g, 'Ctrl+').replace(/⇧/g, 'Shift+').replace(/\+\+/g, '+')
+  );
 </script>
 
 <kbd>{display}</kbd>
