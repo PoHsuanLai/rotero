@@ -144,12 +144,18 @@ pub async fn verify_database_health(db: &Database) -> Vec<HealthIssue> {
         issues.push(HealthIssue::SchemaFingerprintDrift { stored, expected });
     }
 
-    let found = crate::schema::migrations::get_schema_version(db.conn()).await;
-    if found != crate::schema::migrations::SCHEMA_VERSION {
-        issues.push(HealthIssue::SchemaVersion {
-            found,
-            expected: crate::schema::migrations::SCHEMA_VERSION,
-        });
+    let expected = crate::schema::migrations::SCHEMA_VERSION;
+    match crate::schema::migrations::get_schema_version(db.conn()).await {
+        Ok(found) if found != expected => {
+            issues.push(HealthIssue::SchemaVersion { found, expected });
+        }
+        Ok(_) => {}
+        // Unreadable is its own problem: reporting it as version 0 is what let a
+        // populated library be treated as fresh.
+        Err(_) => issues.push(HealthIssue::SchemaVersion {
+            found: -1,
+            expected,
+        }),
     }
 
     issues

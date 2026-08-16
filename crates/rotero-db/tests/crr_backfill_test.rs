@@ -5,11 +5,15 @@
 //! machine that created them. Adding `crr.init()` back creates the clock tables
 //! but leaves them empty, so the rows still need to be adopted explicitly.
 
+mod common;
+
 use rotero_db::Database;
 
 /// Build a library the way the broken build did: app tables, no CRR metadata,
 /// with rows already written into it.
 async fn broken_library_with_rows(dir: &std::path::Path, titles: &[&str]) {
+    common::open_uninitialized_db(dir).await;
+
     let db_path = dir.join("rotero.db");
     let raw = turso::Builder::new_local(db_path.to_str().unwrap())
         .experimental_index_method(true)
@@ -17,7 +21,6 @@ async fn broken_library_with_rows(dir: &std::path::Path, titles: &[&str]) {
         .await
         .unwrap();
     let conn = raw.connect().unwrap();
-    rotero_db::schema::initialize_db(&conn).await.unwrap();
 
     for (i, title) in titles.iter().enumerate() {
         conn.execute(

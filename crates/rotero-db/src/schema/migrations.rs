@@ -7,11 +7,35 @@ use super::tables::{CREATE_FTS_INDEX, CREATE_TABLES};
 /// Current schema version; incremented with each migration.
 pub const SCHEMA_VERSION: i64 = 13;
 
+/// Why a database could not be prepared for use.
+#[derive(Debug, thiserror::Error)]
+pub enum SchemaError {
+    /// A driver error from creating tables or running a migration.
+    #[error(transparent)]
+    Turso(#[from] turso::Error),
+    /// The library was written by a newer build than this one.
+    ///
+    /// Distinct from a driver error because it is the user's to resolve, and
+    /// because continuing would let older code write a schema it does not
+    /// understand — the way a synced library gets corrupted.
+    #[error(
+        "This library was created by a newer version of Rotero \
+         (library schema v{found}, this version supports v{supported}). \
+         Update Rotero to open it."
+    )]
+    NewerSchema {
+        /// The version recorded in the library.
+        found: i64,
+        /// The newest version this build understands.
+        supported: i64,
+    },
+}
+
 /// Create the application tables and run pending migrations.
 ///
 /// CRR metadata tables are created separately by [`crate::Database::open`] via
 /// the `recrr` store's `init()`.
-pub async fn initialize_db(conn: &Connection) -> Result<(), turso::Error> {
+pub async fn initialize_db(conn: &Connection) -> Result<(), SchemaError> {
     conn.execute_batch(CREATE_TABLES).await?;
 
     run_migrations(conn).await?;
@@ -80,8 +104,20 @@ async fn backfill_canonical_dois(conn: &Connection) {
     }
 }
 
-async fn run_migrations(conn: &Connection) -> Result<(), turso::Error> {
-    let current_version = get_schema_version(conn).await;
+async fn run_migrations(conn: &Connection) -> Result<(), SchemaError> {
+    let current_version = get_schema_version(conn).await?;
+
+    // Refuse a library from a newer build rather than running its rows through
+    // migrations that predate its schema. Every migration below is written
+    // against columns this build knows about; a newer database may have renamed
+    // or dropped them, and the writes would corrupt data that is also syncing to
+    // the machine that created it.
+    if current_version > SCHEMA_VERSION {
+        return Err(SchemaError::NewerSchema {
+            found: current_version,
+            supported: SCHEMA_VERSION,
+        });
+    }
 
     if current_version < 1 {
         // Fresh database
@@ -573,26 +609,26 @@ async fn migrate_to_text_ids(conn: &Connection) -> Result<(), turso::Error> {
     Ok(())
 }
 
-/// The schema version recorded in the database, or 0 if absent or unreadable.
+/// The schema version recorded in the database.
 ///
-/// Note the conflation of "no version row" with "the query failed": callers that
-/// need to distinguish a genuinely fresh database from a transient read error
-/// cannot, which is tracked separately as a migration-safety fix.
-pub async fn get_schema_version(conn: &Connection) -> i64 {
-    let result = conn
+/// `Ok(0)` means genuinely fresh — the `schema_version` table has no row yet.
+/// A read failure is an error rather than 0, because those routed a populated
+/// database into the fresh-database branch, which inserts a second
+/// `schema_version` row and leaves the real version permanently ambiguous under
+/// `LIMIT 1`.
+pub async fn get_schema_version(conn: &Connection) -> Result<i64, turso::Error> {
+    // The table is created before this runs, so a query error here is a real
+    // driver failure and not "the schema does not exist yet".
+    let mut rows = conn
         .query("SELECT version FROM schema_version LIMIT 1", ())
-        .await;
-    match result {
-        Ok(mut rows) => {
-            if let Ok(Some(row)) = rows.next().await {
-                row.get_value(0)
-                    .ok()
-                    .and_then(|v| v.as_integer().copied())
-                    .unwrap_or(0)
-            } else {
-                0
-            }
-        }
-        Err(_) => 0,
+        .await?;
+
+    match rows.next().await? {
+        Some(row) => Ok(row
+            .get_value(0)
+            .ok()
+            .and_then(|v| v.as_integer().copied())
+            .unwrap_or(0)),
+        None => Ok(0),
     }
 }

@@ -46,5 +46,9 @@ async fn main() {
     for issue in &issues {
         eprintln!("  - {issue}");
     }
+    // Opening repairs most of these, so say so: "broken until the app next runs"
+    // and "broken and stuck" are very different findings, and this checker
+    // deliberately attaches without initializing so it can see the former at all.
+    eprintln!("(most of these are repaired the next time the app opens this library)");
     std::process::exit(1);
 }
