@@ -493,6 +493,31 @@ pub struct LibraryState {
     pub saved_searches: Vec<rotero_models::SavedSearch>,
     pub sort_field: SortField,
     pub sort_ascending: bool,
+    /// In-flight and failed imports, keyed the same way search-result rows are
+    /// (`result_key`), so a row can find its own state without a DOI.
+    ///
+    /// Successful imports are removed once the paper lands in `papers`, which
+    /// the result list already treats as "imported" — keeping them here too
+    /// would give that fact two sources of truth.
+    pub import_status: HashMap<String, ImportStatus>,
+}
+
+/// Where a queued import has got to.
+///
+/// Without this the result list infers everything from DOI membership in
+/// `papers`, so a queued, running, or failed import is indistinguishable from
+/// one never started: the button stays live and a second click duplicates the
+/// work.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImportStatus {
+    /// Accepted, waiting on a concurrency slot.
+    Queued,
+    /// Fetching metadata and writing the library row.
+    Importing,
+    /// Row is saved; fetching the open-access PDF.
+    Downloading,
+    /// Failed, with a message worth showing the user.
+    Failed(String),
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

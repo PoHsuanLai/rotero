@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::state::app_state::LibraryState;
+use crate::state::app_state::{ImportStatus, LibraryState};
 use crate::state::commands::ImportChannel;
 
 /// The "From the web" panel: a single consolidated list of results merged and
@@ -33,7 +33,7 @@ pub(crate) fn ExternalResults() -> Element {
         rotero_models::merge_and_rank(&batches, &state.search.query)
     });
 
-    let (existing_dois, still_searching, previewed_key) = {
+    let (existing_dois, still_searching, previewed_key, import_states) = {
         let state = lib_state.read();
         let dois: std::collections::HashSet<String> = state
             .papers
@@ -42,7 +42,12 @@ pub(crate) fn ExternalResults() -> Element {
             .filter(|d| !d.is_empty())
             .collect();
         let previewed = state.previewed_web.as_ref().map(result_key);
-        (dois, state.search.web_searching(), previewed)
+        (
+            dois,
+            state.search.web_searching(),
+            previewed,
+            state.import_status.clone(),
+        )
     };
 
     let results = merged.read().clone();
@@ -96,6 +101,7 @@ pub(crate) fn ExternalResults() -> Element {
                     let has_abstract = !abstract_text.is_empty();
                     let already_imported = is_imported(paper, &existing_dois);
                     let row_key = result_key(paper);
+                    let import_state = import_states.get(&row_key).cloned();
                     let selected = previewed_key.as_deref() == Some(row_key.as_str());
                     let paper_select = paper.clone();
                     let paper_import = paper.clone();
@@ -151,13 +157,52 @@ pub(crate) fn ExternalResults() -> Element {
                                         "Imported"
                                     }
                                 } else {
-                                    button {
-                                        class: "btn btn--sm btn--primary",
-                                        onclick: move |evt| {
-                                            evt.stop_propagation();
-                                            import_channel.import(paper_import.clone());
+                                    match import_state {
+                                        Some(ImportStatus::Queued) => rsx! {
+                                            button {
+                                                class: "btn btn--sm btn--ghost",
+                                                disabled: true,
+                                                "Queued"
+                                            }
                                         },
-                                        "Import"
+                                        Some(ImportStatus::Importing) => rsx! {
+                                            button {
+                                                class: "btn btn--sm btn--ghost",
+                                                disabled: true,
+                                                "Importing\u{2026}"
+                                            }
+                                        },
+                                        Some(ImportStatus::Downloading) => rsx! {
+                                            button {
+                                                class: "btn btn--sm btn--ghost",
+                                                disabled: true,
+                                                "Fetching PDF\u{2026}"
+                                            }
+                                        },
+                                        // Retryable, with the reason on hover: a
+                                        // failure the user cannot see or act on
+                                        // is indistinguishable from a dead button.
+                                        Some(ImportStatus::Failed(msg)) => rsx! {
+                                            button {
+                                                class: "btn btn--sm btn--danger",
+                                                title: "{msg}",
+                                                onclick: move |evt| {
+                                                    evt.stop_propagation();
+                                                    import_channel.import(paper_import.clone());
+                                                },
+                                                "Retry"
+                                            }
+                                        },
+                                        None => rsx! {
+                                            button {
+                                                class: "btn btn--sm btn--primary",
+                                                onclick: move |evt| {
+                                                    evt.stop_propagation();
+                                                    import_channel.import(paper_import.clone());
+                                                },
+                                                "Import"
+                                            }
+                                        },
                                     }
                                 }
                             }

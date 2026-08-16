@@ -23,11 +23,25 @@ use rotero_models::Paper;
 /// Shared HTTP client — reuses connections and TLS sessions across all API calls.
 static SHARED_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
+/// How long a metadata lookup may take in total.
+///
+/// reqwest applies no total timeout by default, so a host that accepts the
+/// connection and then stalls holds the request open indefinitely. Import runs
+/// these lookups in sequence, so one unresponsive provider used to park the
+/// whole queue — the "import is stuck forever" report. Metadata responses are
+/// small; anything past this is a hang, not slowness.
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// How long to wait for the TCP/TLS handshake alone.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// Returns the shared HTTP client, initializing it on first call.
 pub fn shared_client() -> &'static reqwest::Client {
     SHARED_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
             .user_agent("Rotero/0.1.0 (mailto:rotero@example.com)")
+            .timeout(REQUEST_TIMEOUT)
+            .connect_timeout(CONNECT_TIMEOUT)
             .build()
             .expect("Failed to build HTTP client")
     })

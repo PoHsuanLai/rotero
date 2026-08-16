@@ -7,6 +7,8 @@ mod pdf_loading;
 
 pub use citations::*;
 pub use import::*;
+#[cfg(test)]
+mod import_queue_test;
 pub use library_helpers::*;
 pub use pdf_cache::*;
 pub use pdf_extract::*;
