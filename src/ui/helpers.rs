@@ -3,12 +3,41 @@ use dioxus::prelude::*;
 use crate::sync::engine::SyncConfig;
 
 /// Update a config field and persist to disk.
-/// Avoids the AlreadyBorrowed panic from `config.read().save()` right after `config.with_mut()`.
+///
+/// Avoids the AlreadyBorrowed panic from `config.read().save()` right after
+/// `config.with_mut()`.
+///
+/// A failed write is reported rather than discarded. This one function backs
+/// every settings control in the app, so swallowing its error meant that when
+/// the config could not be written — a full disk, a permissions problem, a
+/// library path pointing somewhere gone — every setting appeared to save and
+/// reverted on the next launch. The API key field was the worst of them: it
+/// clears itself to signal acceptance, so the key looked stored while never
+/// reaching disk.
 pub fn save_config(config: &mut Signal<SyncConfig>, f: impl FnOnce(&mut SyncConfig)) {
+    let mut error = None;
     config.with_mut(|c| {
         f(c);
-        let _ = c.save();
+        if let Err(e) = c.save() {
+            error = Some(e);
+        }
     });
+
+    if let Some(e) = error {
+        report_error(format!("Settings could not be saved: {e}"));
+    }
+}
+
+/// Surface a failure to the user, if the library state is reachable.
+///
+/// Falls back to logging when called from outside a component (no context), so
+/// it is safe anywhere.
+pub fn report_error(message: impl Into<String>) {
+    let message = message.into();
+    match try_consume_context::<Signal<crate::state::app_state::LibraryState>>() {
+        Some(mut lib_state) => lib_state.with_mut(|s| s.report_error(message)),
+        None => tracing::error!("{message}"),
+    }
 }
 
 /// The short, human display label for a Zotero item type, shown in the type

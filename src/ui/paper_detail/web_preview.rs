@@ -23,10 +23,18 @@ pub fn WebPreview() -> Element {
         None => return rsx! {},
     };
     // A web hit counts as already-imported when a library paper carries the
-    // same non-empty DOI.
-    let already_imported = paper.doi.as_deref().is_some_and(|doi| {
-        !doi.is_empty() && state.papers.iter().any(|p| p.doi.as_deref() == Some(doi))
-    });
+    // same non-empty DOI. Compared in canonical form, since that is what is
+    // stored — a raw comparison never matched an arXiv paper found through a
+    // provider that reports `10.48550/arXiv.X` for a stored `arXiv:X`.
+    let already_imported = paper
+        .canonical_doi()
+        .filter(|doi| !doi.is_empty())
+        .is_some_and(|doi| {
+            state
+                .papers
+                .iter()
+                .any(|p| p.canonical_doi().as_deref() == Some(doi.as_str()))
+        });
     drop(state);
 
     // Resolve the identifier to its correct site (doi.org for real DOIs,

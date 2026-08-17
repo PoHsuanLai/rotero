@@ -184,22 +184,29 @@ pub async fn download_and_save_pdf(
         return Err(PdfDownloadError::NoUrls);
     }
 
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (compatible; Rotero/0.1)")
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
+    let client = download_client()
         .map_err(|e| PdfDownloadError::AllFailed(format!("HTTP client error: {e}")))?;
 
     let mut last_error = String::new();
 
     for url in urls {
         tracing::info!("Trying PDF download from: {url}");
-        match try_download_pdf(&client, url).await {
+        match try_download_pdf(client, url).await {
             Ok(bytes) => {
                 tracing::info!("PDF download succeeded from {url} ({} bytes)", bytes.len());
-                return db
-                    .import_pdf_bytes(&bytes, title, first_author, year)
-                    .map_err(|e| PdfDownloadError::AllFailed(format!("Save failed: {e}")));
+                let db = db.clone();
+                let title = title.to_string();
+                let first_author = first_author.map(str::to_string);
+                // Writing a multi-megabyte PDF is blocking file I/O, and the
+                // caller runs on Dioxus's main-thread task set — doing it inline
+                // freezes the UI for the duration, which is invisible on a fast
+                // SSD and very visible on network or cloud-synced storage.
+                return tokio::task::spawn_blocking(move || {
+                    db.import_pdf_bytes(&bytes, &title, first_author.as_deref(), year)
+                })
+                .await
+                .map_err(|e| PdfDownloadError::AllFailed(format!("Save task failed: {e}")))?
+                .map_err(|e| PdfDownloadError::AllFailed(format!("Save failed: {e}")));
             }
             Err(e) => {
                 tracing::warn!("PDF download failed for {url}: {e}");
@@ -211,8 +218,49 @@ pub async fn download_and_save_pdf(
     Err(PdfDownloadError::AllFailed(last_error))
 }
 
+/// Largest PDF worth accepting. Publishers occasionally stream an endless
+/// response instead of returning an error; without a cap that fills memory and
+/// never completes.
+const MAX_PDF_BYTES: usize = 200 * 1024 * 1024;
+
+/// Ceiling on a single download attempt, including a slow trickle of bytes.
+/// Deliberately generous: a large legitimate PDF over a poor connection is
+/// normal, an hour-long one is not.
+const DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
+
+/// Shared client for PDF downloads.
+///
+/// Shared rather than per-call so the connection pool survives across the
+/// several URLs a single import tries.
+fn download_client() -> Result<&'static reqwest::Client, String> {
+    static CLIENT: std::sync::OnceLock<Result<reqwest::Client, String>> =
+        std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .user_agent("Mozilla/5.0 (compatible; Rotero/0.1)")
+                .redirect(reqwest::redirect::Policy::limited(10))
+                // No total `.timeout()`: it would abort a large but healthy
+                // download. The connect timeout plus the wrapper in
+                // `try_download_pdf` bound the hang cases instead.
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|e| e.to_string())
+        })
+        .as_ref()
+        .map_err(|e| e.clone())
+}
+
 /// Try to download a PDF from a single URL. Returns the raw bytes on success.
 async fn try_download_pdf(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
+    tokio::time::timeout(DOWNLOAD_TIMEOUT, download_once(client, url))
+        .await
+        .unwrap_or_else(|_| Err(format!("timed out after {}s", DOWNLOAD_TIMEOUT.as_secs())))
+}
+
+async fn download_once(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
+    use futures_util::StreamExt;
+
     let resp = client
         .get(url)
         .send()
@@ -229,16 +277,26 @@ async fn try_download_pdf(client: &reqwest::Client, url: &str) -> Result<Vec<u8>
         .and_then(|v| v.to_str().ok())
         .is_some_and(|ct| ct.contains("text/html"));
 
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| format!("Download failed: {e}"))?;
+    // Streamed rather than `.bytes()` so the size cap applies as data arrives,
+    // instead of after an unbounded body has already been buffered.
+    let mut stream = resp.bytes_stream();
+    let mut bytes: Vec<u8> = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Download failed: {e}"))?;
+        if bytes.len() + chunk.len() > MAX_PDF_BYTES {
+            return Err(format!(
+                "PDF exceeds {}MB limit",
+                MAX_PDF_BYTES / (1024 * 1024)
+            ));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
 
     if is_html || !bytes.starts_with(b"%PDF") {
         return Err("OA link did not return a PDF".to_string());
     }
 
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 /// Resolve URLs and download in one call.

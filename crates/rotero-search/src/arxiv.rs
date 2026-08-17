@@ -1,11 +1,16 @@
 use rotero_models::{Paper, PaperId, PaperLinks, ProviderKind, Publication, SearchRank};
 
-const ARXIV_API: &str = "https://export.arxiv.org/api/query";
+/// Base URL for this provider. `ROTERO_ARXIV_API` overrides it so tests can
+/// point at a local stub; unset or empty uses the real endpoint.
+fn arxiv_api_url() -> String {
+    crate::base_url("ROTERO_ARXIV_API", "https://export.arxiv.org/api/query")
+}
 
 /// Searches the arXiv API for papers matching the given query string.
 pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, String> {
+    let arxiv_api = arxiv_api_url();
     let url = format!(
-        "{ARXIV_API}?search_query=all:{}&start=0&max_results={limit}",
+        "{arxiv_api}?search_query=all:{}&start=0&max_results={limit}",
         urlencoding::encode(query)
     );
 
@@ -65,7 +70,8 @@ fn parse_arxiv_entries(xml: &str) -> Result<Vec<Paper>, String> {
 
 /// Fetch metadata from the arXiv API using an arXiv ID (e.g. "1802.06070").
 pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<Paper, String> {
-    let url = format!("{ARXIV_API}?id_list={}", urlencoding::encode(arxiv_id));
+    let arxiv_api = arxiv_api_url();
+    let url = format!("{arxiv_api}?id_list={}", urlencoding::encode(arxiv_id));
 
     let client = crate::shared_client();
     let resp = client

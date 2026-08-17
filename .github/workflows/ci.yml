@@ -36,7 +36,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev
-      - run: cargo clippy --workspace -- -W clippy::all
+      # `-D warnings`, not `-W`: with warn-level lints a clippy finding printed
+      # and the job still passed, so this gate never actually gated anything.
+      - run: cargo clippy --workspace --all-targets -- -D warnings
 
   fmt:
     name: Format
@@ -167,21 +169,109 @@ jobs:
       # both builds the workspace twice. `clippy --tests` covers the same
       # code, and the test run below reuses what it produced.
       - run: cargo test --workspace --no-run
-      - run: cargo clippy --workspace --all-targets -- -W clippy::all
+      - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
-  check-macos:
-    name: Check macOS
+  # macOS is the primary platform and used to be the only one that never ran the
+  # tests — the bug that broke every shipped build landed here.
+  test-macos:
+    name: Test macOS
     runs-on: macos-latest
     env:
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The rotero-translate coverage tests read the vendored Zotero
+          # translator sources (git submodules) at runtime.
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      - run: cargo clippy --workspace --all-targets -- -W clippy::all
+      # Without PDFium present every rotero-pdf test skips itself and the job
+      # still goes green, so the PDF layer was effectively untested in CI.
+      - name: Cache PDFium
+        uses: actions/cache@v4
+        with:
+          path: lib
+          # Keyed on the workflow too: the download URL lives here, not in the
+          # justfile, so a version change there would otherwise reuse a stale binary.
+          key: pdfium-macos-${{ hashFiles('justfile', '.github/workflows/ci.yml') }}
+      - name: Download PDFium
+        run: |
+          mkdir -p lib
+          if [ ! -f lib/libpdfium.dylib ]; then
+            TMP=$(mktemp -d)
+            curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz" -o "$TMP/pdfium.tgz"
+            tar -xzf "$TMP/pdfium.tgz" -C "$TMP"
+            cp "$TMP/lib/libpdfium.dylib" lib/libpdfium.dylib
+            rm -rf "$TMP"
+          fi
+      # `clippy --all-targets` and `cargo test` cannot share artifacts — clippy
+      # stops at metadata while test needs real codegen. Same ordering as the
+      # Windows job so the workspace is not built twice.
+      - run: cargo test --workspace --no-run
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        env:
+          PDFIUM_DYNAMIC_LIB_PATH: ${{ github.workspace }}/lib
+        run: cargo test --workspace
+
+  # Builds the real bundle and runs it. Every check above passed while the
+  # shipped artifact was broken, because nothing here had ever launched one:
+  # the app's startup path was not the path the tests exercised.
+  #
+  # Costs a full bundle build (~12 min), so it does not run on every PR — but it
+  # is the only job that exercises a real artifact, which is the thing every
+  # other job was green about while every shipped build was broken. It runs on
+  # master, and on any PR that touches the app or how it is packaged.
+  #
+  # `refs/tags` is deliberately not listed: this workflow has no tag trigger, so
+  # such a condition would never fire. The release workflow runs the same script
+  # on its own artifact before uploading it.
+  bundle-smoke:
+    name: Bundle smoke (macOS)
+    runs-on: macos-latest
+    if: |
+      github.ref == 'refs/heads/master' ||
+      contains(github.event.pull_request.labels.*.name, 'bundle-smoke')
+    env:
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - uses: cargo-bins/cargo-binstall@b629f84e79e8fbc4f76616a8efd340f3ea605cab # v1.21.1
+      - name: Install Dioxus CLI
+        run: cargo binstall dioxus-cli --version 0.7.10 -y --force
+      - name: Cache PDFium
+        uses: actions/cache@v4
+        with:
+          path: lib
+          key: pdfium-macos-${{ hashFiles('justfile', '.github/workflows/ci.yml') }}
+      - name: Download PDFium
+        run: |
+          mkdir -p lib
+          if [ ! -f lib/libpdfium.dylib ]; then
+            TMP=$(mktemp -d)
+            curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz" -o "$TMP/pdfium.tgz"
+            tar -xzf "$TMP/pdfium.tgz" -C "$TMP"
+            cp "$TMP/lib/libpdfium.dylib" lib/libpdfium.dylib
+            rm -rf "$TMP"
+          fi
+      - name: Bundle
+        run: PDFIUM_DYNAMIC_LIB_PATH="$PWD/lib" dx bundle --release
+      # Mirrors release.yml: PDFium ships beside the executable, where the
+      # runtime resolver looks for it.
+      - name: Stage PDFium into the bundle
+        run: |
+          APP_PATH="target/dx/rotero/release/macos/Rotero.app"
+          cp lib/libpdfium.dylib "$APP_PATH/Contents/MacOS/"
+      - name: Smoke the bundle
+        run: ./scripts/smoke-bundle.sh target/dx/rotero/release/macos/Rotero.app

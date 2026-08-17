@@ -104,7 +104,7 @@ pub struct FileSyncConfig {
     pub auto_export_bib_path: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct AgentConfig {
     #[serde(default = "default_agent_provider")]
     pub agent_provider: String,
@@ -118,6 +118,23 @@ impl Default for AgentConfig {
             agent_provider: default_agent_provider(),
             agent_api_keys: std::collections::HashMap::new(),
         }
+    }
+}
+
+/// Redacts the keys.
+///
+/// Written by hand rather than derived so that no future `{:?}` on a config —
+/// a log line, an error message, a diagnostics dump — can print them. Nothing
+/// does today; this is to keep it that way.
+impl std::fmt::Debug for AgentConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AgentConfig")
+            .field("agent_provider", &self.agent_provider)
+            .field(
+                "agent_api_keys",
+                &format!("<{} redacted>", self.agent_api_keys.len()),
+            )
+            .finish()
     }
 }
 
@@ -237,15 +254,53 @@ impl Default for SyncConfig {
 }
 
 impl SyncConfig {
+    /// Load the config, falling back to defaults if it is missing or unreadable.
+    ///
+    /// A config that exists but does not parse is preserved under a
+    /// `.corrupt-<timestamp>` name first. Returning defaults silently meant the
+    /// next `save` overwrote it, destroying the user's library path and their
+    /// plaintext agent API keys with no way back.
     pub fn load() -> Self {
         let path = config_path();
-        if path.exists()
-            && let Ok(content) = std::fs::read_to_string(&path)
-            && let Ok(config) = serde_json::from_str(&content)
-        {
-            return config;
+        if !path.exists() {
+            return Self::default();
         }
-        Self::default()
+
+        match std::fs::read_to_string(&path) {
+            Ok(content) => match serde_json::from_str(&content) {
+                Ok(config) => config,
+                Err(e) => {
+                    let stamp = chrono::Utc::now().format("%Y%m%d%H%M%S");
+                    let backup = path.with_extension(format!("json.corrupt-{stamp}"));
+                    let saved = std::fs::rename(&path, &backup).is_ok();
+                    tracing::error!(
+                        "Config at {} could not be parsed ({e}); {}",
+                        path.display(),
+                        if saved {
+                            format!("preserved as {}", backup.display())
+                        } else {
+                            "and it could not be preserved".to_string()
+                        }
+                    );
+                    #[cfg(feature = "desktop")]
+                    crate::init::preflight::record(|p| {
+                        p.config = Some(format!(
+                            "settings could not be read and were reset{}",
+                            if saved {
+                                format!("; the previous file is at {}", backup.display())
+                            } else {
+                                String::new()
+                            }
+                        ));
+                    });
+                    Self::default()
+                }
+            },
+            Err(e) => {
+                tracing::error!("Config at {} could not be read: {e}", path.display());
+                Self::default()
+            }
+        }
     }
 
     pub fn save(&self) -> Result<(), String> {
@@ -256,6 +311,10 @@ impl SyncConfig {
         }
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(&path, json).map_err(|e| format!("Failed to save config: {e}"))?;
+        // This file holds `agent_api_keys` in plaintext, and `fs::write` leaves
+        // it world-readable — any other account or non-sandboxed process on the
+        // machine could read them.
+        restrict_permissions(&path);
         Ok(())
     }
 
@@ -293,9 +352,16 @@ fn app_support_dir() -> PathBuf {
 
 #[cfg(feature = "desktop")]
 fn platform_data_dir() -> PathBuf {
-    let dirs = directories::ProjectDirs::from("com", "rotero", "Rotero")
-        .expect("Could not determine data directory");
-    dirs.data_dir().to_path_buf()
+    // Falls back rather than panicking: this runs before the window exists, so a
+    // panic here is indistinguishable from the app crashing on launch.
+    match directories::ProjectDirs::from("com", "rotero", "Rotero") {
+        Some(dirs) => dirs.data_dir().to_path_buf(),
+        None => {
+            tracing::error!("Could not determine the platform data directory; using ~/.rotero");
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            PathBuf::from(home).join(".rotero")
+        }
+    }
 }
 
 #[cfg(not(feature = "desktop"))]
@@ -319,6 +385,22 @@ pub fn check_external_modification(
 
 pub fn file_modified_time(path: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(path).ok().and_then(|m| m.modified().ok())
+}
+
+/// Make a file readable only by its owner, where the platform has the concept.
+///
+/// `config.json` holds `agent_api_keys` in plaintext and `fs::write` creates it
+/// world-readable.
+fn restrict_permissions(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
 }
 
 #[cfg(test)]

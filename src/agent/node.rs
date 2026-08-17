@@ -2,21 +2,40 @@ use std::path::{Path, PathBuf};
 
 const NODE_VERSION: &str = "v22.16.0";
 
-/// Find node binary: check PATH first, then local cache, then download.
+/// Oldest Node.js the ACP agent packages run on.
+///
+/// The `@google/gemini-cli` and `@zed-industries/codex-acp` packages require an
+/// active LTS. An older interpreter fails at parse time inside the child, whose
+/// stderr is discarded, so the user saw only a generic "Connection closed".
+const MIN_NODE_MAJOR: u32 = 20;
+
+/// Find a usable node: PATH if it is new enough, then the managed copy,
+/// downloading it if absent.
 pub(crate) fn find_or_install_node() -> Result<PathBuf, String> {
-    // 1. Check PATH
+    // A GUI .app inherits launchd's PATH, not the user's shell, so this
+    // usually only matches for terminal-launched runs. Version-check it anyway:
+    // handing the agent a node too old to run its packages produces a failure
+    // that cannot be diagnosed from the outside.
     if let Ok(path) = which::which("node") {
-        return Ok(path);
+        match node_major_version(&path) {
+            Some(major) if major >= MIN_NODE_MAJOR => return Ok(path),
+            Some(major) => tracing::info!(
+                "Ignoring node {major} on PATH ({}): agent packages need {MIN_NODE_MAJOR}+",
+                path.display()
+            ),
+            None => tracing::info!(
+                "Ignoring node on PATH ({}): could not determine its version",
+                path.display()
+            ),
+        }
     }
 
-    // 2. Check local cache
     let node_dir = node_cache_dir();
     let node_bin = node_binary_path(&node_dir);
     if node_bin.exists() {
         return Ok(node_bin);
     }
 
-    // 3. Download
     tracing::info!("Node.js not found, downloading {NODE_VERSION}...");
     download_node(&node_dir)?;
 
@@ -25,6 +44,35 @@ pub(crate) fn find_or_install_node() -> Result<PathBuf, String> {
     } else {
         Err("Downloaded Node.js but binary not found".into())
     }
+}
+
+/// The major version of a node binary, or `None` if it will not report one.
+///
+/// Bounded, because this runs an arbitrary binary found on `PATH`. Version
+/// managers (fnm, volta, asdf, mise) install shims there that can prompt, fetch,
+/// or wait on a lock, and an EDR wrapper can do worse — `Command::output()`
+/// would block the agent thread on any of those with no error and no recovery.
+fn node_major_version(node: &Path) -> Option<u32> {
+    let out = crate::agent::install::run_with_timeout(
+        std::process::Command::new(node).arg("--version"),
+        std::time::Duration::from_secs(10),
+    )
+    .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_node_major(std::str::from_utf8(&out.stdout).ok()?)
+}
+
+/// Parse the major version out of `node --version` output (`v22.16.0`).
+fn parse_node_major(version: &str) -> Option<u32> {
+    version
+        .trim()
+        .trim_start_matches('v')
+        .split('.')
+        .next()?
+        .parse()
+        .ok()
 }
 
 pub(crate) fn find_npm() -> Result<PathBuf, String> {
@@ -69,19 +117,20 @@ fn npm_binary_path(node_dir: &Path) -> PathBuf {
 /// Runs on the agent's own thread, so it uses the blocking HTTP client and
 /// decompresses in-process — no `curl`/`tar` on PATH required.
 fn download_node(node_dir: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(node_dir)
-        .map_err(|e| format!("Failed to create node cache dir: {e}"))?;
-
     let (os, arch, ext) = node_platform()?;
     let archive_name = format!("node-{NODE_VERSION}-{os}-{arch}.{ext}");
     let url = format!("https://nodejs.org/dist/{NODE_VERSION}/{archive_name}");
 
     tracing::info!("Downloading Node.js from {url}");
 
-    let resp = reqwest::blocking::Client::builder()
+    let client = reqwest::blocking::Client::builder()
         .user_agent("rotero")
+        .timeout(std::time::Duration::from_secs(600))
+        .connect_timeout(std::time::Duration::from_secs(30))
         .build()
-        .map_err(|e| format!("Failed to build HTTP client: {e}"))?
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
+
+    let resp = client
         .get(&url)
         .send()
         .map_err(|e| format!("Failed to download Node.js: {e}"))?;
@@ -95,14 +144,111 @@ fn download_node(node_dir: &Path) -> Result<(), String> {
         .bytes()
         .map_err(|e| format!("Failed to read Node.js download: {e}"))?;
 
-    if ext == "zip" {
-        unpack_zip(&bytes, node_dir)?;
+    verify_node_checksum(&client, &archive_name, &bytes)?;
+
+    // Unpack beside the destination and rename into place. Unpacking directly
+    // meant an interrupted download left a half-written tree whose `bin/node`
+    // existed but was truncated — and the `exists()` fast path then returned
+    // that broken binary on every later launch, permanently.
+    let parent = node_dir
+        .parent()
+        .ok_or_else(|| "Invalid node cache path".to_string())?;
+    std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create node cache dir: {e}"))?;
+
+    let staging = parent.join(format!(".node-staging-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&staging);
+    std::fs::create_dir_all(&staging)
+        .map_err(|e| format!("Failed to create node staging dir: {e}"))?;
+
+    let unpacked = if ext == "zip" {
+        unpack_zip(&bytes, &staging)
     } else {
-        unpack_tar_gz(&bytes, node_dir)?;
+        unpack_tar_gz(&bytes, &staging)
+    };
+    if let Err(e) = unpacked {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(e);
+    }
+
+    if !node_binary_path(&staging).exists() {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err("Node.js archive did not contain the expected binary".into());
+    }
+
+    // Move the old install aside rather than deleting it first. Deleting and
+    // then renaming leaves a window where a crash — or a rename that fails for
+    // any reason — leaves no Node at all, which is worse than the truncated
+    // binary the staging directory exists to prevent.
+    let previous = node_dir.with_extension("previous");
+    let _ = std::fs::remove_dir_all(&previous);
+    let had_previous = node_dir.exists() && std::fs::rename(node_dir, &previous).is_ok();
+
+    if let Err(e) = std::fs::rename(&staging, node_dir) {
+        let _ = std::fs::remove_dir_all(&staging);
+        if had_previous {
+            // Put the working install back.
+            let _ = std::fs::rename(&previous, node_dir);
+        }
+        return Err(format!("Failed to install Node.js: {e}"));
+    }
+
+    if had_previous {
+        let _ = std::fs::remove_dir_all(&previous);
     }
 
     tracing::info!("Node.js {NODE_VERSION} installed to {}", node_dir.display());
     Ok(())
+}
+
+/// Check the archive against the SHA-256 nodejs.org publishes for the release.
+///
+/// Without this a corrupted download is unpacked and executed as-is; the archive
+/// is a program the app then runs.
+///
+/// Scope worth being precise about: `SHASUMS256.txt` comes over the same TLS
+/// connection from the same host as the archive, and its detached signature is
+/// not checked. So this catches corruption in transit and a poisoned CDN cache,
+/// but not someone who controls the endpoint and serves both files. That is the
+/// same trade nvm and actions/setup-node make.
+fn verify_node_checksum(
+    client: &reqwest::blocking::Client,
+    archive_name: &str,
+    bytes: &[u8],
+) -> Result<(), String> {
+    let url = format!("https://nodejs.org/dist/{NODE_VERSION}/SHASUMS256.txt");
+    let manifest = client
+        .get(&url)
+        .send()
+        .and_then(|r| r.error_for_status())
+        .and_then(|r| r.text())
+        .map_err(|e| format!("Failed to fetch Node.js checksums: {e}"))?;
+
+    let expected = manifest
+        .lines()
+        .find_map(|line| {
+            let (sum, name) = line.split_once("  ")?;
+            (name.trim() == archive_name).then_some(sum.trim())
+        })
+        .ok_or_else(|| format!("No published checksum for {archive_name}"))?;
+
+    let actual = sha256_hex(bytes);
+    if actual != expected {
+        return Err(format!(
+            "Node.js download failed verification (expected {expected}, got {actual})"
+        ));
+    }
+    Ok(())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Strips the leading `node-{version}-{os}-{arch}/` directory every Node.js
@@ -226,6 +372,32 @@ fn node_platform() -> Result<(&'static str, &'static str, &'static str), String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_the_major_version_node_reports() {
+        assert_eq!(parse_node_major("v22.16.0\n"), Some(22));
+        assert_eq!(parse_node_major("v20.0.0"), Some(20));
+        // Some builds omit the `v`.
+        assert_eq!(parse_node_major("18.19.1\n"), Some(18));
+    }
+
+    #[test]
+    fn rejects_output_that_is_not_a_version() {
+        assert_eq!(parse_node_major(""), None);
+        assert_eq!(parse_node_major("not a version"), None);
+        // A shim printing a warning before the version must not be read as one.
+        assert_eq!(parse_node_major("warning: no version set"), None);
+    }
+
+    /// The minimum has to actually exclude the versions that fail, or the check
+    /// is decoration: the agent packages need an active LTS.
+    #[test]
+    fn the_minimum_excludes_end_of_life_releases() {
+        assert!(parse_node_major("v18.19.1").unwrap() < MIN_NODE_MAJOR);
+        assert!(parse_node_major("v16.20.2").unwrap() < MIN_NODE_MAJOR);
+        assert!(parse_node_major("v20.11.0").unwrap() >= MIN_NODE_MAJOR);
+        assert!(parse_node_major(NODE_VERSION).unwrap() >= MIN_NODE_MAJOR);
+    }
 
     #[test]
     fn strips_the_wrapping_directory() {

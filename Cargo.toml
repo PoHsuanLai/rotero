@@ -60,7 +60,9 @@ dioxus = "0.7"
 rfd = { version = "0.17", optional = true }
 # `blocking` backs the Node.js download, which runs on the agent's own
 # std::thread rather than the tokio runtime.
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"] }
+# `stream` backs the size-capped PDF download, which bounds the body as it
+# arrives rather than buffering an unbounded response first.
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking", "stream"] }
 directories = { version = "6", optional = true }
 base64 = "0.23"
 serde.workspace = true
@@ -87,6 +89,8 @@ process-wrap = { version = "9", features = ["std"] }
 # Node.js archive extraction: .tar.gz on Unix, .zip on Windows.
 flate2 = "1"
 tar = "0.4"
+# Verifies the Node.js download against nodejs.org's published SHASUMS256.
+sha2 = "0.10"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 self-replace = "1"
 
@@ -104,6 +108,11 @@ objc2 = { version = "0.6", optional = true }
 objc2-cloud-kit = { version = "0.3", optional = true }
 objc2-foundation = { version = "0.3", optional = true }
 block2 = { version = "0.6", optional = true }
+
+[dev-dependencies]
+# `test-util` provides the paused clock the import-queue tests use, so they
+# assert scheduling order without sleeping in real time.
+tokio = { version = "1", features = ["full", "test-util"] }
 
 [features]
 default = ["desktop"]

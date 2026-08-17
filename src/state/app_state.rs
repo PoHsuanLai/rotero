@@ -132,6 +132,13 @@ pub struct PdfTab {
     pub title: String,
     pub page_count: u32,
     pub is_loading: bool,
+    /// Why the document could not be opened, if it could not.
+    ///
+    /// Without this a failed open left `is_loading` set with nothing to show:
+    /// the viewer only retries while `is_loading && rendered_pages.is_empty()`,
+    /// and the tab-bar path needs `page_count > 0`, so neither fired and the
+    /// spinner ran until the tab was closed.
+    pub load_error: Option<String>,
     pub is_suspended: bool,
 
     pub render: PageRenderData,
@@ -160,6 +167,7 @@ impl PdfTab {
             title,
             page_count: 0,
             is_loading: true,
+            load_error: None,
             is_suspended: false,
             render: PageRenderData::default(),
             view: ViewState {
@@ -475,11 +483,30 @@ impl SortField {
     }
 }
 
+/// A message shown briefly in the corner of the window.
+///
+/// The app had no way at all to tell the user something went wrong outside of
+/// startup, which is why roughly twenty failing writes were discarded with
+/// `let _ =` — reporting them would have meant a button that silently did
+/// nothing instead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Toast {
+    /// Monotonic id, so the list can be keyed and dismissed precisely.
+    pub id: u64,
+    pub message: String,
+    /// Errors persist until dismissed; confirmations time out.
+    pub is_error: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct LibraryState {
     pub papers: Vec<Paper>,
     pub collections: Vec<Collection>,
     pub tags: Vec<Tag>,
+    /// Transient messages awaiting display. See [`Toast`].
+    pub toasts: Vec<Toast>,
+    /// Source of [`Toast::id`].
+    pub next_toast_id: u64,
     pub selected_paper_ids: HashSet<String>,
     pub anchor_paper_id: Option<String>,
     /// A web search result being previewed in the detail panel. Mutually
@@ -493,6 +520,31 @@ pub struct LibraryState {
     pub saved_searches: Vec<rotero_models::SavedSearch>,
     pub sort_field: SortField,
     pub sort_ascending: bool,
+    /// In-flight and failed imports, keyed the same way search-result rows are
+    /// (`result_key`), so a row can find its own state without a DOI.
+    ///
+    /// Successful imports are removed once the paper lands in `papers`, which
+    /// the result list already treats as "imported" — keeping them here too
+    /// would give that fact two sources of truth.
+    pub import_status: HashMap<String, ImportStatus>,
+}
+
+/// Where a queued import has got to.
+///
+/// Without this the result list infers everything from DOI membership in
+/// `papers`, so a queued, running, or failed import is indistinguishable from
+/// one never started: the button stays live and a second click duplicates the
+/// work.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImportStatus {
+    /// Accepted, waiting on a concurrency slot.
+    Queued,
+    /// Fetching metadata and writing the library row.
+    Importing,
+    /// Row is saved; fetching the open-access PDF.
+    Downloading,
+    /// Failed, with a message worth showing the user.
+    Failed(String),
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -511,6 +563,36 @@ pub enum LibraryView {
 }
 
 impl LibraryState {
+    /// Report a failed operation to the user.
+    ///
+    /// Writes that could fail used to be discarded with `let _ =`, because the
+    /// alternative was a button that did nothing with no explanation. This is
+    /// the missing half of that trade.
+    pub fn report_error(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        tracing::error!("{message}");
+        self.push_toast(message, true);
+    }
+
+    fn push_toast(&mut self, message: String, is_error: bool) {
+        // Repeating the same failure (a settings pane that saves on every
+        // keystroke, say) should not stack up identical messages.
+        if self.toasts.iter().any(|t| t.message == message) {
+            return;
+        }
+        self.next_toast_id += 1;
+        self.toasts.push(Toast {
+            id: self.next_toast_id,
+            message,
+            is_error,
+        });
+    }
+
+    /// Remove a toast the user dismissed, or one that timed out.
+    pub fn dismiss_toast(&mut self, id: u64) {
+        self.toasts.retain(|t| t.id != id);
+    }
+
     /// Returns the single selected paper when exactly one is selected.
     pub fn selected_paper(&self) -> Option<&Paper> {
         if self.selected_paper_ids.len() != 1 {
@@ -599,10 +681,40 @@ impl LibraryState {
             .collect()
     }
 
+    /// Search results with each row refreshed from the live library.
+    ///
+    /// `search.results` is a snapshot taken when the query ran, and no mutation
+    /// path updates it — every handler writes to `self.papers`. Rendering the
+    /// snapshot directly meant that while a query was active, favouriting a
+    /// paper updated the database and then appeared to revert, and a deleted
+    /// paper stayed on screen. Worse, the context menu reads `self.papers`, so
+    /// the row and its menu disagreed at the same moment.
+    ///
+    /// The snapshot still decides which papers appear and in what order — that
+    /// is the search ranking — but the values shown come from the live list, so
+    /// every existing mutation shows through with nothing to keep in sync. Rows
+    /// deleted since the query drop out.
+    pub fn resolved_search_results(&self, results: &[Paper]) -> Vec<Paper> {
+        results
+            .iter()
+            .filter_map(|hit| {
+                let Some(id) = hit.id.as_ref() else {
+                    // A web result that is not in the library has no id and
+                    // nothing to refresh from; show it as returned.
+                    return Some(hit.clone());
+                };
+                self.papers
+                    .iter()
+                    .find(|p| p.id.as_ref() == Some(id))
+                    .cloned()
+            })
+            .collect()
+    }
+
     /// Returns the ordered list of paper IDs for the current filtered view.
     pub fn filtered_paper_ids(&self) -> Vec<String> {
         let mut filtered: Vec<_> = if let Some(ref results) = self.search.results {
-            results.clone()
+            self.resolved_search_results(results)
         } else {
             match &self.view {
                 LibraryView::AllPapers => self.papers.clone(),
@@ -730,3 +842,114 @@ pub struct DragPaper(pub Option<Vec<String>>);
 /// stale). Membership isn't cached on `Paper` or in `LibraryState`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MembershipRefresh(pub u64);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn paper(id: &str, title: &str, favorite: bool) -> Paper {
+        Paper {
+            id: Some(id.to_string()),
+            title: title.to_string(),
+            status: rotero_models::LibraryStatus {
+                is_favorite: favorite,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    /// Search results are a snapshot taken when the query ran, and no mutation
+    /// path updates it. Reading through to `papers` is what stops a favourite
+    /// toggled during a search from appearing to revert.
+    #[test]
+    fn search_results_show_current_values_not_the_snapshot() {
+        let state = LibraryState {
+            papers: vec![paper("p1", "Renamed", true)],
+            ..Default::default()
+        };
+
+        // The snapshot still holds the values from when the search ran.
+        let snapshot = vec![paper("p1", "Original", false)];
+
+        let resolved = state.resolved_search_results(&snapshot);
+        assert_eq!(resolved.len(), 1);
+        assert!(
+            resolved[0].status.is_favorite,
+            "the live favourite state must win over the snapshot"
+        );
+        assert_eq!(resolved[0].title, "Renamed");
+    }
+
+    /// A paper deleted while a query is active must leave the results.
+    #[test]
+    fn a_deleted_paper_drops_out_of_search_results() {
+        let state = LibraryState {
+            papers: vec![paper("p2", "Kept", false)],
+            ..Default::default()
+        };
+
+        let snapshot = vec![paper("p1", "Deleted", false), paper("p2", "Kept", false)];
+
+        let resolved = state.resolved_search_results(&snapshot);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].id.as_deref(), Some("p2"));
+    }
+
+    /// Ranking order comes from the search, not from the library list.
+    #[test]
+    fn the_search_ordering_is_preserved() {
+        let state = LibraryState {
+            papers: vec![paper("a", "A", false), paper("b", "B", false)],
+            ..Default::default()
+        };
+
+        let snapshot = vec![paper("b", "B", false), paper("a", "A", false)];
+
+        let ids: Vec<_> = state
+            .resolved_search_results(&snapshot)
+            .into_iter()
+            .filter_map(|p| p.id)
+            .collect();
+        assert_eq!(ids, vec!["b".to_string(), "a".to_string()]);
+    }
+
+    /// Repeated identical failures must not stack up: a settings pane saves on
+    /// every keystroke, so one broken write would otherwise queue dozens.
+    #[test]
+    fn the_same_error_is_not_reported_twice() {
+        let mut state = LibraryState::default();
+        state.report_error("Settings could not be saved: disk full");
+        state.report_error("Settings could not be saved: disk full");
+
+        assert_eq!(state.toasts.len(), 1);
+        assert!(state.toasts[0].is_error);
+    }
+
+    /// Ids are unique, so dismissing one leaves the rest alone.
+    #[test]
+    fn dismissing_removes_only_the_named_toast() {
+        let mut state = LibraryState::default();
+        state.report_error("first");
+        state.report_error("second");
+        let first_id = state.toasts[0].id;
+
+        state.dismiss_toast(first_id);
+
+        assert_eq!(state.toasts.len(), 1);
+        assert_eq!(state.toasts[0].message, "second");
+    }
+
+    /// A web hit that is not in the library has no id to resolve against and
+    /// must still render.
+    #[test]
+    fn a_result_with_no_id_is_kept_as_returned() {
+        let state = LibraryState::default();
+        let mut hit = paper("unused", "From the web", false);
+        hit.id = None;
+
+        let resolved = state.resolved_search_results(&[hit]);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].title, "From the web");
+    }
+}

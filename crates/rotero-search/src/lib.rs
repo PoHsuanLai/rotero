@@ -23,11 +23,49 @@ use rotero_models::Paper;
 /// Shared HTTP client — reuses connections and TLS sessions across all API calls.
 static SHARED_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
+/// How long a metadata lookup may take in total.
+///
+/// reqwest applies no total timeout by default, so a host that accepts the
+/// connection and then stalls holds the request open indefinitely. Import runs
+/// these lookups in sequence, so one unresponsive provider used to park the
+/// whole queue — the "import is stuck forever" report. Metadata responses are
+/// small; anything past this is a hang, not slowness.
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// How long to wait for the TCP/TLS handshake alone.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The base URL for a provider, honouring a test-only environment override.
+///
+/// The app never sets these; they exist so tests can point a provider at a local
+/// stub and assert on parsing, retries, and timeouts without reaching the real
+/// API — where rate limits and downtime would make the suite flaky and an
+/// offline machine could not run it at all.
+///
+/// An empty value counts as unset, matching `ROTERO_DATA_DIR`'s existing
+/// behaviour so there is one rule for all of them.
+pub(crate) fn base_url(env_var: &str, default: &str) -> String {
+    std::env::var(env_var)
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| default.to_string())
+}
+
 /// Returns the shared HTTP client, initializing it on first call.
 pub fn shared_client() -> &'static reqwest::Client {
     SHARED_CLIENT.get_or_init(|| {
+        // `ROTERO_HTTP_TIMEOUT_MS` shortens the timeout for tests that assert on
+        // the give-up path; waiting out the real one would add 20s per case.
+        let timeout = std::env::var("ROTERO_HTTP_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .map(std::time::Duration::from_millis)
+            .unwrap_or(REQUEST_TIMEOUT);
+
         reqwest::Client::builder()
             .user_agent("Rotero/0.1.0 (mailto:rotero@example.com)")
+            .timeout(timeout)
+            .connect_timeout(CONNECT_TIMEOUT.min(timeout))
             .build()
             .expect("Failed to build HTTP client")
     })
@@ -122,4 +160,43 @@ pub async fn search_all(query: &str, per_provider_limit: usize) -> Vec<Paper> {
     let per_provider = futures_util::future::join_all(futures).await;
     let flattened: Vec<Paper> = per_provider.into_iter().flatten().collect();
     merge::dedupe_by_doi(flattened)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::base_url;
+
+    /// `FOO=` means unset, matching `ROTERO_DATA_DIR`.
+    ///
+    /// Asserted directly on `base_url` rather than through a provider call. The
+    /// integration test that used to cover this inferred the outcome from an
+    /// error string, and reqwest reports `"builder error"` rather than anything
+    /// naming a relative URL — so the assertion could never fail, and deleting
+    /// the `.filter(|s| !s.is_empty())` guard it protected did not break it.
+    #[test]
+    fn an_empty_override_falls_back_to_the_default() {
+        // Scoped to a variable no other test touches; these are process-wide.
+        let var = "ROTERO_TEST_EMPTY_OVERRIDE";
+
+        unsafe { std::env::set_var(var, "") };
+        assert_eq!(
+            base_url(var, "https://api.example.com/works"),
+            "https://api.example.com/works",
+            "an empty override must fall back, not yield an empty base URL"
+        );
+
+        unsafe { std::env::set_var(var, "http://127.0.0.1:1/works") };
+        assert_eq!(
+            base_url(var, "https://api.example.com/works"),
+            "http://127.0.0.1:1/works",
+            "a non-empty override must be honoured"
+        );
+
+        unsafe { std::env::remove_var(var) };
+        assert_eq!(
+            base_url(var, "https://api.example.com/works"),
+            "https://api.example.com/works",
+            "an unset override must fall back"
+        );
+    }
 }

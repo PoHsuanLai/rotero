@@ -381,6 +381,22 @@
   color: var(--text-secondary);
 }
 
+/* Shown in place of the spinner when a document cannot be opened, so a failed
+   load reports why instead of spinning forever. */
+.pdf-error-title {
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.pdf-error-detail {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  max-width: 42ch;
+  text-align: center;
+  line-height: 1.5;
+}
+
 
 /* --- Thumbnail Sidebar --- */
 .thumbnail-sidebar {

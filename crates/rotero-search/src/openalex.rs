@@ -1,7 +1,11 @@
 use rotero_models::{CitationInfo, Paper, ProviderKind, Publication, SearchRank};
 use serde::Deserialize;
 
-const OPENALEX_API: &str = "https://api.openalex.org/works";
+/// Base URL for this provider. `ROTERO_OPENALEX_API` overrides it so tests can
+/// point at a local stub; unset or empty uses the real endpoint.
+fn openalex_api_url() -> String {
+    crate::base_url("ROTERO_OPENALEX_API", "https://api.openalex.org/works")
+}
 const OPENALEX_AUTOCOMPLETE: &str = "https://api.openalex.org/autocomplete/works";
 
 #[derive(Debug, Deserialize)]
@@ -53,7 +57,8 @@ struct OpenAlexSearchResponse {
 
 /// Fetches paper metadata from OpenAlex by DOI.
 pub async fn fetch_by_doi(doi: &str) -> Result<Paper, String> {
-    let url = format!("{OPENALEX_API}/https://doi.org/{doi}");
+    let openalex_api = openalex_api_url();
+    let url = format!("{openalex_api}/https://doi.org/{doi}");
     let work = fetch_work(&url).await?;
     work_to_paper(work, doi)
 }
@@ -69,8 +74,9 @@ pub async fn search_by_title(title: &str) -> Result<Paper, String> {
 
 /// Searches OpenAlex for papers with full metadata (authors, abstract, etc.).
 pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, String> {
+    let openalex_api = openalex_api_url();
     let url = format!(
-        "{OPENALEX_API}?search={}&per_page={limit}",
+        "{openalex_api}?search={}&per_page={limit}",
         urlencoding::encode(query)
     );
 
@@ -121,7 +127,8 @@ pub async fn find_oa_pdf(doi: Option<&str>, title: &str) -> Result<Vec<String>, 
     let mut urls = Vec::new();
 
     let work = if let Some(doi) = doi {
-        let url = format!("{OPENALEX_API}/https://doi.org/{doi}");
+        let openalex_api = openalex_api_url();
+        let url = format!("{openalex_api}/https://doi.org/{doi}");
         fetch_work(&url).await.ok()
     } else {
         None
@@ -131,8 +138,9 @@ pub async fn find_oa_pdf(doi: Option<&str>, title: &str) -> Result<Vec<String>, 
     let work = match work {
         Some(w) => Some(w),
         None => {
+            let openalex_api = openalex_api_url();
             let url = format!(
-                "{OPENALEX_API}?search={}&per_page=1",
+                "{openalex_api}?search={}&per_page=1",
                 urlencoding::encode(title)
             );
             let client = crate::shared_client();

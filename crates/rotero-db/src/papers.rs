@@ -3,7 +3,7 @@ use rotero_models::{CitationInfo, Creator, LibraryStatus, Paper, PaperLinks, Pub
 use turso::Value;
 
 use crate::Database;
-use crate::crr::Papers;
+use crate::crr::{PaperCollections, PaperTags, Papers};
 use crate::queries;
 
 /// The `extra_meta` JSON key under which the venue fields that have no dedicated
@@ -397,13 +397,104 @@ impl Database {
         Ok(())
     }
 
-    /// Delete a paper by ID, cascading to annotations, notes, and memberships.
+    /// Delete a paper by ID along with its annotations, notes, and memberships.
+    ///
+    /// The children are removed explicitly rather than by foreign key. The schema
+    /// declares `ON DELETE CASCADE`, but `PRAGMA foreign_keys` is off, so nothing
+    /// ever fired and every deleted paper left its rows behind — this comment used
+    /// to claim a cascade that did not exist.
+    ///
+    /// Turning the pragma on would not be enough on its own: a cascade happens
+    /// inside SQLite, so the child rows would vanish locally with no `track_delete`
+    /// and peers would keep them forever, holding memberships that point at a
+    /// paper that no longer exists. Deleting them here means each one is tracked
+    /// and actually reaches the other devices.
     pub async fn delete_paper(&self, id: &str) -> Result<(), crate::DbError> {
+        let collections = self.collection_ids_for_paper(id).await?;
+        let tags = self.tag_ids_for_paper(id).await?;
+        let annotations = self.child_ids("annotations", "paper_id", id).await?;
+        let notes = self.child_ids("notes", "paper_id", id).await?;
+        let citing = self.citation_pks(id, true).await?;
+        let cited = self.citation_pks(id, false).await?;
+
         let conn = self.conn();
         conn.execute(queries::PAPER_DELETE, [Value::Text(id.to_string())])
             .await?;
+
+        for (table, column) in [("annotations", "paper_id"), ("notes", "paper_id")] {
+            conn.execute(
+                &format!("DELETE FROM {table} WHERE {column} = ?1"),
+                [Value::Text(id.to_string())],
+            )
+            .await?;
+        }
+        for table in ["paper_collections", "paper_tags"] {
+            conn.execute(
+                &format!("DELETE FROM {table} WHERE paper_id = ?1"),
+                [Value::Text(id.to_string())],
+            )
+            .await?;
+        }
+        conn.execute(
+            "DELETE FROM paper_citations WHERE citing_paper_id = ?1 OR cited_paper_id = ?1",
+            [Value::Text(id.to_string())],
+        )
+        .await?;
+
         self.crr().track_delete("papers", id).await?;
+        for annotation_id in &annotations {
+            self.crr()
+                .track_delete("annotations", annotation_id)
+                .await?;
+        }
+        for note_id in &notes {
+            self.crr().track_delete("notes", note_id).await?;
+        }
+        for collection_id in &collections {
+            self.crr()
+                .track_delete("paper_collections", &format!("{id}:{collection_id}"))
+                .await?;
+        }
+        for tag_id in &tags {
+            self.crr()
+                .track_delete("paper_tags", &format!("{id}:{tag_id}"))
+                .await?;
+        }
+        for pk in citing.iter().chain(cited.iter()) {
+            self.crr().track_delete("paper_citations", pk).await?;
+        }
+
         Ok(())
+    }
+
+    /// Primary keys of a paper's child rows in a table keyed by `column`.
+    async fn child_ids(
+        &self,
+        table: &str,
+        column: &str,
+        paper_id: &str,
+    ) -> Result<Vec<String>, crate::DbError> {
+        self.junction_ids(
+            &format!("SELECT id FROM {table} WHERE {column} = ?1"),
+            paper_id,
+        )
+        .await
+    }
+
+    /// Composite keys of a paper's citation edges, in whichever direction.
+    async fn citation_pks(
+        &self,
+        paper_id: &str,
+        outgoing: bool,
+    ) -> Result<Vec<String>, crate::DbError> {
+        let sql = if outgoing {
+            "SELECT citing_paper_id || ':' || cited_paper_id FROM paper_citations \
+             WHERE citing_paper_id = ?1"
+        } else {
+            "SELECT citing_paper_id || ':' || cited_paper_id FROM paper_citations \
+             WHERE cited_paper_id = ?1"
+        };
+        self.junction_ids(sql, paper_id).await
     }
 
     /// Returns groups of 2+ papers that share the same DOI or normalized title.
@@ -459,7 +550,23 @@ impl Database {
     }
 
     /// Transfer associations from `delete_id` to `keep_id`, then delete the duplicate.
+    ///
+    /// Each moved membership is tracked individually rather than left to the bulk
+    /// `INSERT ... SELECT`. Those statements wrote junction rows with no clock
+    /// entries at all, so a merge stayed local: the surviving paper kept its tags
+    /// on the machine that did the merge and lost them everywhere else, with the
+    /// other devices still holding memberships that pointed at a paper that no
+    /// longer existed. Extra sync rounds could not repair it, because there was
+    /// nothing in the clock to send.
     pub async fn merge_papers(&self, keep_id: &str, delete_id: &str) -> Result<(), crate::DbError> {
+        // Read the duplicate's memberships before moving them: `INSERT OR IGNORE`
+        // hides which rows it actually created, and a membership the survivor
+        // already had must not be re-tracked.
+        let collections = self.collection_ids_for_paper(delete_id).await?;
+        let existing_collections = self.collection_ids_for_paper(keep_id).await?;
+        let tags = self.tag_ids_for_paper(delete_id).await?;
+        let existing_tags = self.tag_ids_for_paper(keep_id).await?;
+
         let conn = self.conn();
         conn.execute(
             queries::PAPER_MERGE_COLLECTIONS,
@@ -477,8 +584,62 @@ impl Database {
             ],
         )
         .await?;
+
+        for collection_id in collections
+            .iter()
+            .filter(|id| !existing_collections.contains(id))
+        {
+            let pk = format!("{keep_id}:{collection_id}");
+            self.crr()
+                .track_insert("paper_collections", &pk, PaperCollections::ALL)
+                .await?;
+        }
+        for tag_id in tags.iter().filter(|id| !existing_tags.contains(id)) {
+            let pk = format!("{keep_id}:{tag_id}");
+            self.crr()
+                .track_insert("paper_tags", &pk, PaperTags::ALL)
+                .await?;
+        }
+
+        // `delete_paper` tracks the duplicate's own junction rows as deleted, so
+        // peers drop the memberships that pointed at it.
         self.delete_paper(delete_id).await?;
         Ok(())
+    }
+
+    /// Collection ids a paper belongs to.
+    async fn collection_ids_for_paper(
+        &self,
+        paper_id: &str,
+    ) -> Result<Vec<String>, crate::DbError> {
+        self.junction_ids(
+            "SELECT collection_id FROM paper_collections WHERE paper_id = ?1",
+            paper_id,
+        )
+        .await
+    }
+
+    /// Tag ids attached to a paper.
+    async fn tag_ids_for_paper(&self, paper_id: &str) -> Result<Vec<String>, crate::DbError> {
+        self.junction_ids(
+            "SELECT tag_id FROM paper_tags WHERE paper_id = ?1",
+            paper_id,
+        )
+        .await
+    }
+
+    async fn junction_ids(&self, sql: &str, paper_id: &str) -> Result<Vec<String>, crate::DbError> {
+        let mut rows = self
+            .conn()
+            .query(sql, [Value::Text(paper_id.to_string())])
+            .await?;
+        let mut ids = Vec::new();
+        while let Some(row) = rows.next().await? {
+            if let Some(id) = row.get_value(0)?.as_text() {
+                ids.push(id.clone());
+            }
+        }
+        Ok(ids)
     }
 
     /// Return (id, doi) pairs for papers that have a DOI but no citation count yet.

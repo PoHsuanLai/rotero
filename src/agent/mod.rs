@@ -1,6 +1,6 @@
 mod connection;
 mod helpers;
-mod install;
+pub(crate) mod install;
 pub(crate) mod node;
 pub(crate) mod reaper;
 mod session;
@@ -40,6 +40,34 @@ fn agent_main(
         .iter()
         .find(|p| p.id == config.agent.agent_provider)
         .unwrap_or(&AGENT_PROVIDERS[0]);
+
+    // Connecting eagerly meant every fresh install downloaded ~50MB of Node.js
+    // and ran `npm install` on first launch, whether or not the user ever opened
+    // the chat panel — and any failure in that path became a startup failure.
+    //
+    // Wait for something that actually needs the agent. The request is forwarded
+    // into a channel the session loop drains first, so the message that woke us
+    // is answered rather than dropped.
+    let (feed_tx, feed_rx) = mpsc::channel();
+    match req_rx.recv() {
+        Ok(ChatRequest::Shutdown) | Err(_) => return,
+        Ok(first) => {
+            if feed_tx.send(first).is_err() {
+                return;
+            }
+        }
+    }
+
+    // Everything arriving after the first request is relayed on a helper thread,
+    // so the session loop sees one uninterrupted stream.
+    std::thread::spawn(move || {
+        while let Ok(req) = req_rx.recv() {
+            if feed_tx.send(req).is_err() {
+                break;
+            }
+        }
+    });
+    let req_rx = feed_rx;
 
     loop {
         let result = connect_and_run(current_provider, &req_rx, &evt_tx);

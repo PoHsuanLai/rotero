@@ -656,11 +656,10 @@ impl RoteroMcp {
             })
             .collect();
         let safe_title = safe_title.trim();
-        let safe_title = if safe_title.len() > 80 {
-            &safe_title[..80]
-        } else {
-            safe_title
-        };
+        // By character: a byte cut at 80 panics when a title's multi-byte
+        // character lands on it, and titles come straight from paper metadata.
+        let safe_title = rotero_models::take_chars(safe_title, 80);
+        let safe_title = safe_title.as_str();
 
         let filename = if let Some(author) = first_author {
             let safe_author: String = author

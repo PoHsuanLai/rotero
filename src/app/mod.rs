@@ -127,6 +127,13 @@ pub fn App() -> Element {
         inner: Signal::new(commands::spawn_render_thread()),
     });
 
+    // Report a PDF engine that could not bind. Has to happen here rather than in
+    // `main`, because the render thread starts with the window.
+    #[cfg(feature = "desktop")]
+    use_future(|| async {
+        crate::init::preflight::check_pdf_engine().await;
+    });
+
     let mut chat_state: Signal<ChatState> =
         use_context_provider(|| Signal::new(ChatState::default()));
     let (agent_tx, agent_rx) = use_hook(|| {
@@ -155,8 +162,15 @@ pub fn App() -> Element {
     let db_resource = use_resource(move || async move {
         let _ = db_gen;
         #[cfg(feature = "desktop")]
-        if let Some((conn, lib_path)) = crate::SHARED_DB.get() {
-            return Ok(Database::from_conn(conn.clone(), lib_path.clone()));
+        {
+            if let Some(db) = crate::SHARED_DB.get() {
+                return Ok(db.clone());
+            }
+            // Startup already tried and failed; report that rather than
+            // reopening, so the user sees the original cause.
+            if let Some(e) = crate::init::database::DB_INIT_ERROR.get() {
+                return Err(e.clone());
+            }
         }
         let config = SyncConfig::load();
         Database::open(config.effective_library_path()).await

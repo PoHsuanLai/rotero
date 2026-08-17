@@ -3,12 +3,38 @@ use futures_util::StreamExt;
 use rotero_db::Database;
 use rotero_models::Paper;
 
-use crate::state::app_state::LibraryState;
+use crate::state::app_state::{ImportStatus, LibraryState};
 
 /// A paper to bring into the library, along with what should happen after it
 /// lands: metadata enrichment and an open-access PDF download.
 pub struct ImportRequest {
     pub paper: Paper,
+}
+
+/// Clears a paper's import status when it goes out of scope.
+///
+/// The status was previously removed only on the two success paths, so any early
+/// return — or a coroutine paused before it finished, which happens when the app
+/// root re-renders into a different branch — left the row showing a disabled
+/// "Importing…" button for the rest of the session. A `Failed` status is kept:
+/// that one is meant to persist so the row can offer a retry.
+struct StatusGuard {
+    lib_state: Signal<LibraryState>,
+    key: String,
+}
+
+impl Drop for StatusGuard {
+    fn drop(&mut self) {
+        self.lib_state.with_mut(|s| {
+            let keep = matches!(
+                s.import_status.get(&self.key),
+                Some(ImportStatus::Failed(_))
+            );
+            if !keep {
+                s.import_status.remove(&self.key);
+            }
+        });
+    }
 }
 
 /// Insert a paper into the library and, in the background, download its
@@ -23,21 +49,56 @@ pub struct ImportRequest {
 /// enriched from OpenAlex/CrossRef before insertion so the stored record and
 /// the PDF filename are complete.
 async fn run_import(db: &Database, mut lib_state: Signal<LibraryState>, paper: Paper) {
+    let key = import_key(&paper);
+    let _guard = StatusGuard {
+        lib_state,
+        key: key.clone(),
+    };
+    set_status(&mut lib_state, &key, ImportStatus::Importing);
+
     let paper = enrich_before_import(paper).await;
 
     let id = match db.insert_paper(&paper).await {
         Ok(id) => id,
         Err(e) => {
             tracing::error!("Import failed: {e}");
+            // Surfaced rather than only logged: an insert that commits its row
+            // and then fails change tracking is invisible otherwise, which is
+            // how a broken library looked like a no-op button.
+            set_status(&mut lib_state, &key, ImportStatus::Failed(e.to_string()));
             return;
         }
     };
 
     let mut paper = paper;
     paper.id = Some(id.clone());
-    lib_state.with_mut(|s| s.papers.insert(0, paper.clone()));
+    lib_state.with_mut(|s| {
+        s.papers.insert(0, paper.clone());
+        // The paper is in the library now, so the list's own DOI check takes
+        // over as the source of truth for "imported".
+        s.import_status.remove(&key);
+    });
 
+    set_status(&mut lib_state, &key, ImportStatus::Downloading);
     download_pdf_into_library(db, &mut lib_state, &paper, &id).await;
+    lib_state.with_mut(|s| {
+        s.import_status.remove(&key);
+    });
+}
+
+/// Identity for a queued import, matching the search result list's `result_key`
+/// so a row can look up its own status.
+fn import_key(paper: &Paper) -> String {
+    match paper.paper_id() {
+        Some(pid) => pid.to_stored_string(),
+        None => rotero_models::normalize_title(&paper.title),
+    }
+}
+
+fn set_status(lib_state: &mut Signal<LibraryState>, key: &str, status: ImportStatus) {
+    lib_state.with_mut(|s| {
+        s.import_status.insert(key.to_string(), status);
+    });
 }
 
 /// Resolve and download the open-access PDF for an already-imported paper,
@@ -106,13 +167,42 @@ async fn enrich_before_import(paper: Paper) -> Paper {
 #[derive(Clone, Copy)]
 pub struct ImportChannel {
     inner: Coroutine<ImportRequest>,
+    /// Carried so queuing can mark the row immediately; `Signal` is `Copy`, so
+    /// this keeps the handle `Copy` too.
+    lib_state: Signal<LibraryState>,
 }
 
 impl ImportChannel {
     /// Queue a paper for import + OA download. Returns immediately; the work
     /// runs in the app-root scope and survives the caller unmounting.
+    ///
+    /// Queuing the same paper twice is ignored. "Import All" is gated only on
+    /// whether a paper is already in the library, so clicking it again while the
+    /// first batch was still running queued everything a second time and
+    /// inserted duplicate rows — the two runs then raced on the same status
+    /// entry, which could also leave one behind.
     pub fn import(&self, paper: Paper) {
-        self.inner.send(ImportRequest { paper });
+        let key = import_key(&paper);
+        let mut lib_state = self.lib_state;
+
+        let queued = lib_state.with_mut(|s| {
+            // A failed import is retryable; anything else is still in flight.
+            let in_flight = matches!(
+                s.import_status.get(&key),
+                Some(ImportStatus::Queued | ImportStatus::Importing | ImportStatus::Downloading)
+            );
+            if in_flight {
+                return false;
+            }
+            // Marked queued before sending so the button changes on the click
+            // itself, rather than whenever a slot happens to free up.
+            s.import_status.insert(key.clone(), ImportStatus::Queued);
+            true
+        });
+
+        if queued {
+            self.inner.send(ImportRequest { paper });
+        }
     }
 }
 
@@ -123,10 +213,44 @@ pub fn use_import_coroutine(db: Database, lib_state: Signal<LibraryState>) -> Im
     let coro = use_coroutine(move |mut rx: UnboundedReceiver<ImportRequest>| {
         let db = db.clone();
         async move {
-            while let Some(req) = rx.next().await {
-                run_import(&db, lib_state, req.paper).await;
+            // Imports run concurrently but bounded. Awaiting each one inline
+            // made the queue strictly serial, so a single slow or hanging
+            // download blocked every paper behind it — the "import is stuck"
+            // report. The cap keeps bulk imports polite to rate-limited
+            // providers like Semantic Scholar.
+            const MAX_CONCURRENT: usize = 4;
+            let mut tasks: futures_util::stream::FuturesUnordered<_> = Default::default();
+
+            loop {
+                if tasks.len() >= MAX_CONCURRENT {
+                    // At capacity: only drain, so back-pressure reaches the
+                    // channel rather than growing an unbounded task set.
+                    tasks.next().await;
+                    continue;
+                }
+
+                tokio::select! {
+                    req = rx.next() => match req {
+                        Some(req) => {
+                            let db = db.clone();
+                            tasks.push(async move {
+                                run_import(&db, lib_state, req.paper).await;
+                            });
+                        }
+                        // Channel closed and nothing left to finish.
+                        None if tasks.is_empty() => break,
+                        None => {
+                            while tasks.next().await.is_some() {}
+                            break;
+                        }
+                    },
+                    _ = tasks.next(), if !tasks.is_empty() => {}
+                }
             }
         }
     });
-    ImportChannel { inner: coro }
+    ImportChannel {
+        inner: coro,
+        lib_state,
+    }
 }

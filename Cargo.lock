@@ -253,6 +253,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "assert-json-diff"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47e4f2b81832e72834d7518d8487a0396a28cc408186a2e8854c0f98011faf12"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "assoc"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1568,6 +1578,24 @@ name = "datasketches"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c286de4e81ea2590afc24d754e0f83810c566f50a1388fa75ebd57928c0d9745"
+
+[[package]]
+name = "deadpool"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0be2b1d1d6ec8d846f05e137292d0b89133caf95ef33695424c09568bdd39b1b"
+dependencies = [
+ "deadpool-runtime",
+ "lazy_static",
+ "num_cpus",
+ "tokio",
+]
+
+[[package]]
+name = "deadpool-runtime"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "092966b41edc516079bdf31ec78a2e0588d1d0c08f78b91d8307215928642b2b"
 
 [[package]]
 name = "defmt"
@@ -4786,6 +4814,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "num_cpus"
+version = "1.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b"
+dependencies = [
+ "hermit-abi",
+ "libc",
+]
+
+[[package]]
 name = "num_enum"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6185,7 +6223,7 @@ checksum = "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430"
 [[package]]
 name = "recrr"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/recrr?rev=52090958a077a0f1bce4227673b8b42949c7315e#52090958a077a0f1bce4227673b8b42949c7315e"
+source = "git+https://github.com/PoHsuanLai/recrr?rev=44f080a43ad5eee491df4b5f1cfd50b4f1edf5ac#44f080a43ad5eee491df4b5f1cfd50b4f1edf5ac"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6200,7 +6238,7 @@ dependencies = [
 [[package]]
 name = "recrr-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/recrr?rev=52090958a077a0f1bce4227673b8b42949c7315e#52090958a077a0f1bce4227673b8b42949c7315e"
+source = "git+https://github.com/PoHsuanLai/recrr?rev=44f080a43ad5eee491df4b5f1cfd50b4f1edf5ac#44f080a43ad5eee491df4b5f1cfd50b4f1edf5ac"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6322,12 +6360,14 @@ dependencies = [
  "tokio",
  "tokio-native-tls",
  "tokio-rustls",
+ "tokio-util",
  "tower",
  "tower-http 0.6.11",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams",
  "web-sys",
  "webpki-roots",
 ]
@@ -6477,6 +6517,7 @@ dependencies = [
  "self-replace",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tar",
  "tempfile",
  "thiserror 2.0.20",
@@ -6520,6 +6561,7 @@ dependencies = [
  "tower",
  "tower-http 0.7.0",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -6566,6 +6608,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -6606,7 +6649,9 @@ dependencies = [
  "rotero-models",
  "serde",
  "serde_json",
+ "tokio",
  "urlencoding",
+ "wiremock",
 ]
 
 [[package]]
@@ -9721,6 +9766,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "wiremock"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08db1edfb05d9b3c1542e521aea074442088292f00b5f28e435c714a98f85031"
+dependencies = [
+ "assert-json-diff",
+ "base64 0.22.1",
+ "deadpool",
+ "futures",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "log",
+ "once_cell",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
 ]
 
 [[package]]

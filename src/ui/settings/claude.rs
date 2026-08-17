@@ -99,10 +99,11 @@ pub fn AgentSection() -> Element {
                         String::new()
                     };
                     let has_key = !current_key.is_empty();
-                    let masked_key = if current_key.len() > 8 {
-                        format!("{}...{}", &current_key[..4], &current_key[current_key.len()-4..])
-                    } else if has_key {
-                        "*".repeat(current_key.len())
+                    // Masked by character, not byte: this runs during render, so
+                    // a key containing any multi-byte character used to panic
+                    // here and blank the settings pane.
+                    let masked_key = if has_key {
+                        rotero_models::mask_secret(&current_key)
                     } else {
                         String::new()
                     };

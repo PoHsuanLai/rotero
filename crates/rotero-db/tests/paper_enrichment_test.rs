@@ -61,8 +61,13 @@ async fn heals_v11_db_missing_item_type_column() {
     // Run migrations as the app does; the idempotent ensure block must add the
     // missing column even though the version is already at 11.
     rotero_db::schema::initialize_db(&conn).await.unwrap();
+    drop(conn);
 
-    let db = Database::from_conn(conn, dir.path().to_path_buf());
+    // Read-only: attaching leaves the migrated database exactly as the migration
+    // left it, which is what this asserts on.
+    let db = Database::attach_readonly(dir.path().to_path_buf())
+        .await
+        .unwrap();
     let papers = db.list_papers().await.expect("list_papers must not error");
     assert_eq!(papers.len(), 1);
     assert_eq!(papers[0].item_type, "journalArticle");

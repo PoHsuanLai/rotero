@@ -33,11 +33,11 @@ pub fn NotesSection(paper_id: String) -> Element {
                 {
                     let note_id = note.id.clone().unwrap_or_default();
                     let title = note.title.clone();
-                    let body_preview = if note.body.len() > 120 {
-                        format!("{}...", &note.body[..117])
-                    } else {
-                        note.body.clone()
-                    };
+                    // Note bodies come from highlighted PDF text and from the
+                    // agent, so ligatures, dashes, and non-Latin scripts are
+                    // routine. A byte slice here panicked whenever one straddled
+                    // the cut, blanking the detail panel.
+                    let body_preview = rotero_models::truncate_chars(&note.body, 117);
                     let body_html = crate::ui::markdown::md_to_html(&body_preview);
                     let db_del = db.clone();
                     let pid = paper_id.clone();

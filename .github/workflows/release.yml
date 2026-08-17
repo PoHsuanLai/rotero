@@ -77,6 +77,14 @@ jobs:
           xattr -cr "$APP_PATH"
           codesign --force --deep --sign - "$APP_PATH"
 
+      # Launch the signed bundle and assert it actually works before it becomes a
+      # release asset: the database initializes and passes its health check, the
+      # connector binds, a saved paper persists, and PDFium resolves. Every other
+      # check in this pipeline passed while shipping a build where none of that
+      # was true.
+      - name: Smoke the bundle
+        run: ./scripts/smoke-bundle.sh target/dx/rotero/release/macos/Rotero.app
+
       - name: Create zip for auto-update
         run: |
           APP_PATH="target/dx/rotero/release/macos/Rotero.app"

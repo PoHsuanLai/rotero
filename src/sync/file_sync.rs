@@ -41,7 +41,23 @@ impl FileSyncEngine {
         self.sync_folder.join("changesets")
     }
 
+    /// Where this device records its own sync progress.
+    ///
+    /// Qualified by site id because every field in [`SyncState`] is private to
+    /// one device: `last_exported_ver` counts local writes, and `peers` records
+    /// what *this* device has imported. A shared file let the fastest device
+    /// park the cursor at its own version, after which every slower device read
+    /// that number, found nothing newer than it, and exported nothing — while
+    /// reporting success. The cursor only ever moves up, so an affected device
+    /// never recovered on its own.
     fn state_path(&self) -> PathBuf {
+        self.sync_folder
+            .join(format!("sync_state_{}.json", self.site_id_hex()))
+    }
+
+    /// The pre-fix shared path, still read once so an existing install keeps its
+    /// progress instead of re-exporting its whole library.
+    fn legacy_state_path(&self) -> PathBuf {
         self.sync_folder.join("sync_state.json")
     }
 
@@ -51,8 +67,35 @@ impl FileSyncEngine {
 
     pub fn load_state(&self) -> SyncState {
         let path = self.state_path();
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            match serde_json::from_str(&content) {
+        if path.exists() {
+            return Self::read_state(&path);
+        }
+
+        // First run since the per-device split. The shared file's `peers` map is
+        // still useful — it records changesets someone already imported, and
+        // re-importing them is wasteful but harmless. `last_exported_ver` is not:
+        // it may belong to a different device entirely, and adopting it is what
+        // starved this one. Dropping it to 0 re-exports this device's history,
+        // which is exactly the repair an affected install needs.
+        let legacy = self.legacy_state_path();
+        if legacy.exists() {
+            let shared = Self::read_state(&legacy);
+            tracing::info!(
+                "Sync: adopting per-device state; re-exporting from 0 (shared cursor was {})",
+                shared.last_exported_ver
+            );
+            return SyncState {
+                last_exported_ver: 0,
+                peers: shared.peers,
+            };
+        }
+
+        SyncState::default()
+    }
+
+    fn read_state(path: &Path) -> SyncState {
+        match std::fs::read_to_string(path) {
+            Ok(content) => match serde_json::from_str(&content) {
                 Ok(state) => state,
                 Err(e) => {
                     tracing::warn!(
@@ -61,17 +104,25 @@ impl FileSyncEngine {
                     );
                     SyncState::default()
                 }
-            }
-        } else {
-            SyncState::default()
+            },
+            Err(_) => SyncState::default(),
         }
     }
 
     pub fn save_state(&self, state: &SyncState) -> Result<(), String> {
         let path = self.state_path();
+        // The sync folder may not exist yet — a cloud provider often has not
+        // materialized it on a machine's first run — and without this the write
+        // failed every 30 seconds with nothing to show for it.
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create sync state dir: {e}"))?;
+        }
         let json = serde_json::to_string_pretty(state).map_err(|e| e.to_string())?;
-        std::fs::write(&path, json).map_err(|e| format!("Failed to save sync state: {e}"))?;
-        Ok(())
+        // Write-then-rename: these files live in a folder a cloud daemon is
+        // actively syncing, and a partial `write` there is a file that parses as
+        // garbage on the next read.
+        write_atomic(&path, json.as_bytes()).map_err(|e| format!("Failed to save sync state: {e}"))
     }
 
     /// Returns the number of changes exported, or 0 if nothing to export.
@@ -113,7 +164,9 @@ impl FileSyncEngine {
         let path = dir.join(&filename);
         let data =
             serde_json::to_vec(&changeset).map_err(|e| format!("Failed to serialize: {e}"))?;
-        std::fs::write(&path, data).map_err(|e| format!("Failed to write changeset: {e}"))?;
+        // A peer scans for `*.crr` and parses whatever it finds, so a half-written
+        // file is a parse error that aborts that peer's whole import pass.
+        write_atomic(&path, &data).map_err(|e| format!("Failed to write changeset: {e}"))?;
 
         let count = changes.len();
         state.last_exported_ver = current_ver;
@@ -187,13 +240,16 @@ impl FileSyncEngine {
     }
 
     pub fn export_pdf(&self, library_papers_dir: &Path, rel_path: &str) -> Result<(), String> {
-        let src = library_papers_dir.join(rel_path);
+        let Some(safe) = safe_relative_path(rel_path) else {
+            return Err(format!("Refusing to sync PDF at unsafe path {rel_path:?}"));
+        };
+
+        let src = library_papers_dir.join(&safe);
         if !src.exists() {
             return Ok(());
         }
 
-        let dest_dir = self.sync_folder.join("papers");
-        let dest = dest_dir.join(rel_path);
+        let dest = self.sync_folder.join("papers").join(&safe);
         if dest.exists() {
             return Ok(());
         }
@@ -207,12 +263,18 @@ impl FileSyncEngine {
     }
 
     pub fn import_pdf(&self, library_papers_dir: &Path, rel_path: &str) -> Result<(), String> {
-        let src = self.sync_folder.join("papers").join(rel_path);
+        let Some(safe) = safe_relative_path(rel_path) else {
+            return Err(format!(
+                "Refusing to import PDF at unsafe path {rel_path:?}"
+            ));
+        };
+
+        let src = self.sync_folder.join("papers").join(&safe);
         if !src.exists() {
             return Ok(());
         }
 
-        let dest = library_papers_dir.join(rel_path);
+        let dest = library_papers_dir.join(&safe);
         if dest.exists() {
             return Ok(());
         }
@@ -223,5 +285,172 @@ impl FileSyncEngine {
         }
         std::fs::copy(&src, &dest).map_err(|e| format!("Failed to import PDF from sync: {e}"))?;
         Ok(())
+    }
+}
+
+/// A peer-supplied path, accepted only if it stays inside the directory it is
+/// joined onto.
+///
+/// `pdf_path` arrives over sync, so it is whatever another device wrote. It is
+/// then joined onto the papers directory — and `Path::join` with an absolute
+/// path *replaces* the base rather than extending it, so `/etc/foo` or
+/// `../../../.zshrc` would read and write outside the library entirely. Only
+/// ordinary path components are allowed: no root, no prefix, no `..`, and no
+/// bare `.`.
+fn safe_relative_path(rel_path: &str) -> Option<PathBuf> {
+    if rel_path.is_empty() {
+        return None;
+    }
+
+    let mut out = PathBuf::new();
+    for component in Path::new(rel_path).components() {
+        match component {
+            std::path::Component::Normal(part) => out.push(part),
+            // Anything else can leave the directory, so reject the whole path
+            // rather than silently dropping the offending component.
+            _ => return None,
+        }
+    }
+
+    (!out.as_os_str().is_empty()).then_some(out)
+}
+
+/// Write a file by creating a sibling temporary and renaming it into place.
+///
+/// Everything here lives in a folder a cloud daemon watches and uploads. A plain
+/// `write` is observable half-finished, and a truncated `.crr` is a parse error
+/// that aborts a peer's entire import pass. The rename is atomic because the
+/// temporary is in the same directory, hence the same filesystem.
+fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let tmp_name = format!(
+        ".{}.tmp",
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("state")
+    );
+    let tmp = dir.join(tmp_name);
+
+    std::fs::write(&tmp, data)?;
+    match std::fs::rename(&tmp, path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn engine(folder: &Path, site: u8) -> FileSyncEngine {
+        FileSyncEngine::new(folder.to_path_buf(), vec![site; 16])
+    }
+
+    /// Two devices must not share one export cursor.
+    ///
+    /// The shared file let the busier device park the cursor at its own
+    /// `db_ver`; the other then read that number, found nothing newer, and
+    /// exported nothing while reporting success — permanently, since the cursor
+    /// only moves up.
+    #[test]
+    fn each_device_keeps_its_own_export_cursor() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let a = engine(dir.path(), 1);
+        a.save_state(&SyncState {
+            last_exported_ver: 40,
+            peers: Default::default(),
+        })
+        .unwrap();
+
+        let b = engine(dir.path(), 2);
+        assert_eq!(
+            b.load_state().last_exported_ver,
+            0,
+            "a second device must not inherit the first device's cursor"
+        );
+
+        // And writing B's state must not disturb A's.
+        b.save_state(&SyncState {
+            last_exported_ver: 7,
+            peers: Default::default(),
+        })
+        .unwrap();
+        assert_eq!(a.load_state().last_exported_ver, 40);
+    }
+
+    /// An existing install keeps what its peers already delivered, but re-exports
+    /// its own history — the shared cursor may have belonged to another device,
+    /// and trusting it is what starved this one.
+    #[test]
+    fn a_shared_state_file_is_adopted_without_its_cursor() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut peers = std::collections::HashMap::new();
+        peers.insert("aa".to_string(), 12);
+        let legacy = serde_json::to_string(&SyncState {
+            last_exported_ver: 99,
+            peers,
+        })
+        .unwrap();
+        std::fs::write(dir.path().join("sync_state.json"), legacy).unwrap();
+
+        let state = engine(dir.path(), 1).load_state();
+        assert_eq!(
+            state.last_exported_ver, 0,
+            "the shared cursor must not be adopted"
+        );
+        assert_eq!(
+            state.peers.get("aa"),
+            Some(&12),
+            "already-imported peer progress is still valid and worth keeping"
+        );
+    }
+
+    /// `pdf_path` arrives from a peer, and `Path::join` with an absolute path
+    /// replaces the base instead of extending it.
+    #[test]
+    fn peer_supplied_paths_cannot_escape_the_papers_directory() {
+        for escape in [
+            "../../../.zshrc",
+            "/etc/passwd",
+            "a/../../b.pdf",
+            "..",
+            "",
+            "./x.pdf",
+        ] {
+            assert!(
+                safe_relative_path(escape).is_none(),
+                "{escape:?} must be rejected"
+            );
+        }
+
+        assert_eq!(
+            safe_relative_path("2024/paper.pdf"),
+            Some(PathBuf::from("2024/paper.pdf")),
+            "an ordinary relative path must still work"
+        );
+    }
+
+    /// A reader must never observe a partially written file: peers scan for
+    /// `*.crr` and abort their whole import pass on one parse error.
+    #[test]
+    fn writes_are_atomic_and_leave_no_temporary_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.json");
+
+        write_atomic(&path, b"first").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"first");
+
+        write_atomic(&path, b"second").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"second");
+
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n != "state.json")
+            .collect();
+        assert!(leftovers.is_empty(), "stray temp files: {leftovers:?}");
     }
 }

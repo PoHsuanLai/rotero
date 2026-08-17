@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use rotero_db::FromRow;
-use rotero_db::crr::{Collections, PaperCollections, Papers, Tags};
+use rotero_db::crr::{Collections, Notes, PaperCollections, PaperTags, Papers, Tags};
 use rotero_models::queries;
 use rotero_models::{Annotation, Collection, Note, Paper, Tag};
 use turso::{Connection, Value};
@@ -22,38 +22,27 @@ pub struct Database {
 
 impl Database {
     /// Open the SQLite database at the given path.
+    ///
+    /// Delegates to [`rotero_db::Database::open`] so the standalone server runs
+    /// the same schema and CRR initialization as the app. Opening the connection
+    /// directly here skipped both, so writes against a fresh path committed and
+    /// then failed change tracking.
     pub async fn open(db_path: &Path) -> Result<Self, String> {
         let data_dir = db_path.parent().ok_or("Invalid db path")?.to_path_buf();
-
-        let db_path_str = db_path.to_string_lossy().to_string();
-
-        let db = turso::Builder::new_local(&db_path_str)
-            .build()
-            .await
-            .map_err(|e| format!("Failed to open database: {e}"))?;
-
-        let conn = db
-            .connect()
-            .map_err(|e| format!("Failed to connect: {e}"))?;
-
-        let crr = Arc::new(rotero_db::crr::make_crr_store(conn.clone()));
-        Ok(Self {
-            conn,
-            data_dir,
-            on_change: None,
-            crr,
-        })
+        let db = rotero_db::Database::open(data_dir).await?;
+        Ok(Self::from_db(&db))
     }
 
-    /// Create from an existing connection (for embedding in the main app).
-    #[allow(dead_code)]
-    pub fn from_conn(conn: Connection, data_dir: std::path::PathBuf) -> Self {
-        let crr = Arc::new(rotero_db::crr::make_crr_store(conn.clone()));
+    /// Wrap the app's already-initialized database for embedded use.
+    ///
+    /// Shares the caller's CRR store rather than building a parallel one, so
+    /// there is exactly one initialized store per process.
+    pub fn from_db(db: &rotero_db::Database) -> Self {
         Self {
-            conn,
-            data_dir,
+            conn: db.conn().clone(),
+            data_dir: db.data_dir().to_path_buf(),
             on_change: None,
-            crr,
+            crr: db.crr_arc(),
         }
     }
 
@@ -282,6 +271,10 @@ impl Database {
                 ]),
             )
             .await?;
+        self.crr
+            .track_insert("notes", &uuid, Notes::ALL)
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(uuid)
     }
@@ -299,6 +292,14 @@ impl Database {
                 ]),
             )
             .await?;
+        self.crr
+            .track_update(
+                "notes",
+                id,
+                &[Notes::TITLE, Notes::BODY, Notes::MODIFIED_AT],
+            )
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }
@@ -435,6 +436,10 @@ impl Database {
                 ]),
             )
             .await?;
+        self.crr
+            .track_insert("tags", &uuid, Tags::ALL)
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(uuid)
     }
@@ -450,6 +455,11 @@ impl Database {
                 ],
             )
             .await?;
+        let pk = format!("{paper_id}:{tag_id}");
+        self.crr
+            .track_insert("paper_tags", &pk, PaperTags::ALL)
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }
@@ -640,17 +650,25 @@ impl Database {
         Ok(())
     }
 
-    /// Delete a paper by ID (cascades to annotations, notes, memberships).
+    /// Delete a paper by ID along with its annotations, notes, and memberships.
+    ///
+    /// Delegates to `rotero_db` rather than issuing the delete here. The schema's
+    /// `ON DELETE CASCADE` never fires (foreign keys are off), so the children
+    /// have to be removed and tracked explicitly — and keeping one copy of that
+    /// means the agent's deletes cannot drift from the app's.
     pub async fn delete_paper(&self, id: &str) -> Result<(), turso::Error> {
-        self.conn
-            .execute(queries::PAPER_DELETE, [Value::Text(id.to_string())])
-            .await?;
-        self.crr
-            .track_delete("papers", id)
+        self.as_rotero_db()
+            .delete_paper(id)
             .await
             .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
+    }
+
+    /// View this handle as a `rotero_db::Database` sharing the same connection
+    /// and CRR store, so write paths can be reused instead of reimplemented.
+    fn as_rotero_db(&self) -> rotero_db::Database {
+        rotero_db::Database::from_parts(self.conn.clone(), self.data_dir.clone(), self.crr.clone())
     }
 
     /// Remove a tag from a paper.

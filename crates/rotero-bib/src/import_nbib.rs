@@ -121,8 +121,13 @@ fn parse_records(input: &str) -> Vec<Vec<TagValue>> {
             continue;
         }
 
-        // Tag line: "XXXX- value"
-        if line.len() >= 6 && &line[4..6] == "- " {
+        // Tag line: "XXXX- value". The tag and separator are ASCII by
+        // definition, so requiring the first six bytes to be ASCII both
+        // validates the line and makes the slices below safe. Indexing them
+        // directly panicked on a line opening with a multi-byte character,
+        // which is ordinary in a record's abstract continuation lines.
+        let head = line.as_bytes();
+        if head.len() >= 6 && head[..6].is_ascii() && &head[4..6] == b"- " {
             let tag = line[..4].trim().to_string();
             let value = line[6..].trim().to_string();
             current.push(TagValue { tag, value });

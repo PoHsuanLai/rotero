@@ -17,6 +17,9 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 scraper = "0.27"
 rotero-translate = { path = "../rotero-translate" }
 rotero-bib = { path = "../rotero-bib" }
+# v4 for the connector token: it must be unguessable, so it comes from the OS
+# RNG rather than the time-ordered v7 used for row ids elsewhere.
+uuid = { version = "1", features = ["v4"] }
 
 [features]
 default = []

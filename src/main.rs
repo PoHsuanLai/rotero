@@ -35,12 +35,35 @@ fn main() {
 
     #[cfg(feature = "desktop")]
     {
-        if let Err(e) = init::database::init_database(&config) {
-            tracing::error!("Failed to initialize database: {e}");
-            std::process::exit(1);
+        // The runtime outlives `main` deliberately. The connection opened here is
+        // used later from the connector, MCP, and Dioxus runtimes; dropping the
+        // runtime that created it invites a class of hang that only shows up in
+        // release builds.
+        let rt = Box::leak(Box::new(
+            tokio::runtime::Runtime::new().expect("Failed to create init runtime"),
+        ));
+
+        match rt.block_on(init::database::init_database(&config)) {
+            Ok(db) => {
+                // Same invariant the tests and the bundle smoke check assert, so
+                // a startup path that skips part of initialization is caught in
+                // the field too — not just in CI.
+                rt.block_on(init::preflight::check_database(&db));
+                let _ = init::database::SHARED_DB.set(db);
+                init::connector::start_connector(&config);
+                init::mcp::start_mcp_server();
+            }
+            Err(e) => {
+                // Launch anyway: the window renders the Database Error screen,
+                // which is the only way a GUI user learns what went wrong. The
+                // connector and MCP are skipped — with no database they would
+                // only log failures of their own.
+                tracing::error!("Failed to initialize database: {e}");
+                init::preflight::record(|p| p.db = Some(e.clone()));
+                let _ = init::database::DB_INIT_ERROR.set(e);
+            }
         }
-        init::connector::start_connector(&config);
-        init::mcp::start_mcp_server();
+
         init::window::launch_desktop(&config);
     }
 

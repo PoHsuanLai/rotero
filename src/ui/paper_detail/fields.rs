@@ -87,9 +87,15 @@ pub fn CollectionsField(paper_id: String) -> Element {
                                 let pid = pid.clone();
                                 spawn(async move {
                                     if now_member {
-                                        let _ = db.add_paper_to_collection(&pid, &cid).await;
+                                        if let Err(e) = db.add_paper_to_collection(&pid, &cid).await {
+                                            let mut lib_state = lib_state;
+                                            lib_state.with_mut(|s| s.report_error(format!("Could not add the paper to that collection: {e}")));
+                                        }
                                     } else {
-                                        let _ = db.remove_paper_from_collection(&pid, &cid).await;
+                                        if let Err(e) = db.remove_paper_from_collection(&pid, &cid).await {
+                                            let mut lib_state = lib_state;
+                                            lib_state.with_mut(|s| s.report_error(format!("Could not remove the paper from that collection: {e}")));
+                                        }
                                     }
                                     refresh.with_mut(|r| r.0 = r.0.wrapping_add(1));
                                 });
@@ -172,9 +178,15 @@ pub fn TagsField(paper_id: String) -> Element {
                                 let pid = pid.clone();
                                 spawn(async move {
                                     if now_member {
-                                        let _ = db.add_tag_to_paper(&pid, &tid).await;
+                                        if let Err(e) = db.add_tag_to_paper(&pid, &tid).await {
+                                            let mut lib_state = lib_state;
+                                            lib_state.with_mut(|s| s.report_error(format!("Could not attach that tag: {e}")));
+                                        }
                                     } else {
-                                        let _ = db.remove_tag_from_paper(&pid, &tid).await;
+                                        if let Err(e) = db.remove_tag_from_paper(&pid, &tid).await {
+                                            let mut lib_state = lib_state;
+                                            lib_state.with_mut(|s| s.report_error(format!("Could not remove that tag: {e}")));
+                                        }
                                     }
                                     refresh.with_mut(|r| r.0 = r.0.wrapping_add(1));
                                 });
@@ -206,7 +218,10 @@ pub fn TagsField(paper_id: String) -> Element {
                             let pid = paper_id.clone();
                             spawn(async move {
                                 if let Ok(tag_id) = db.get_or_create_tag(&tag_name, None).await {
-                                    let _ = db.add_tag_to_paper(&pid, &tag_id).await;
+                                    if let Err(e) = db.add_tag_to_paper(&pid, &tag_id).await {
+                                        let mut lib_state = lib_state;
+                                        lib_state.with_mut(|s| s.report_error(format!("Could not attach that tag: {e}")));
+                                    }
                                     if let Ok(tags) = db.list_tags().await {
                                         lib_state.with_mut(|s| s.tags = tags);
                                     }

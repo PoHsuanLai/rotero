@@ -53,14 +53,42 @@ async fn save_fulltext_to_db(tabs: &Signal<PdfTabManager>, tab_id: TabId, paper_
             .unwrap_or_default()
     };
     if !fulltext.is_empty()
-        && let Some((conn, lib_path)) = crate::init::database::SHARED_DB.get()
+        && let Some(db) = crate::init::database::SHARED_DB.get()
     {
-        let db = rotero_db::Database::from_conn(conn.clone(), lib_path.clone());
         let _ = db.update_paper_fulltext(paper_id, &fulltext).await;
     }
 }
 
+/// Open a PDF into its tab, always leaving the tab in a settled state.
+///
+/// Wraps [`open_pdf_inner`] so that however it exits — including the `?` on
+/// `recv_reply`, which is what fires when the PDF engine is unavailable — the
+/// spinner stops and the reason is recorded. Previously those paths skipped both
+/// `is_loading = false` sites, and neither retry condition could fire
+/// afterwards, so the tab said "Loading PDF…" until it was closed.
 pub async fn open_pdf(
+    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
+    tabs: &mut Signal<PdfTabManager>,
+    tab_id: TabId,
+    data_dir: &std::path::Path,
+    dpr: f32,
+) -> Result<(), String> {
+    let result = open_pdf_inner(render_tx, tabs, tab_id, data_dir, dpr).await;
+
+    if let Err(ref e) = result {
+        tracing::error!("Failed to open PDF in tab {tab_id:?}: {e}");
+        tabs.with_mut(|mgr| {
+            if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+                tab.is_loading = false;
+                tab.load_error = Some(e.clone());
+            }
+        });
+    }
+
+    result
+}
+
+async fn open_pdf_inner(
     render_tx: &std::sync::mpsc::Sender<RenderRequest>,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
@@ -224,6 +252,7 @@ pub async fn open_pdf(
             tab.view.render_zoom = render_scale;
             tab.render.rendered_pages = pages.into_iter().map(|p| (p.page_index, p)).collect();
             tab.is_loading = false;
+            tab.load_error = None;
         }
     });
     let page_dims: Vec<(u32, u32, u32)> = {

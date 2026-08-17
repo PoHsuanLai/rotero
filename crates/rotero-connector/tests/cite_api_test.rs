@@ -5,6 +5,9 @@ use rotero_models::Paper;
 use std::sync::Arc;
 use tower::ServiceExt;
 
+/// Any value works; the middleware only compares it against the state's copy.
+const TEST_TOKEN: &str = "test-token";
+
 fn test_state() -> Arc<ConnectorState> {
     Arc::new(ConnectorState {
         on_paper_saved: None,
@@ -45,6 +48,7 @@ fn test_state() -> Arc<ConnectorState> {
         translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),
         #[cfg(feature = "translator-engine")]
         scrape_sessions: Default::default(),
+        token: TEST_TOKEN.to_string(),
     })
 }
 
@@ -54,6 +58,7 @@ async fn test_cite_styles_returns_styles() {
     let resp = app
         .oneshot(
             Request::builder()
+                .header(rotero_connector::TOKEN_HEADER, TEST_TOKEN)
                 .uri("/api/cite/styles")
                 .body(Body::empty())
                 .unwrap(),
@@ -79,6 +84,7 @@ async fn test_cite_search() {
     let resp = app
         .oneshot(
             Request::builder()
+                .header(rotero_connector::TOKEN_HEADER, TEST_TOKEN)
                 .uri("/api/cite/search?q=attention")
                 .body(Body::empty())
                 .unwrap(),
@@ -101,6 +107,7 @@ async fn test_cite_search_no_results() {
     let resp = app
         .oneshot(
             Request::builder()
+                .header(rotero_connector::TOKEN_HEADER, TEST_TOKEN)
                 .uri("/api/cite/search?q=nonexistent")
                 .body(Body::empty())
                 .unwrap(),
@@ -122,6 +129,7 @@ async fn test_cite_format_inline() {
         .oneshot(
             Request::builder()
                 .method("POST")
+                .header(rotero_connector::TOKEN_HEADER, TEST_TOKEN)
                 .uri("/api/cite/format")
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -155,6 +163,7 @@ async fn test_cite_format_unknown_style() {
         .oneshot(
             Request::builder()
                 .method("POST")
+                .header(rotero_connector::TOKEN_HEADER, TEST_TOKEN)
                 .uri("/api/cite/format")
                 .header("content-type", "application/json")
                 .body(Body::from(
@@ -184,6 +193,7 @@ async fn test_cite_bibliography() {
         .oneshot(
             Request::builder()
                 .method("POST")
+                .header(rotero_connector::TOKEN_HEADER, TEST_TOKEN)
                 .uri("/api/cite/bibliography")
                 .header("content-type", "application/json")
                 .body(Body::from(
