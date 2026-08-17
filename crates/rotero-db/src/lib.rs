@@ -237,6 +237,22 @@ impl Database {
         }
     }
 
+    /// Rebuild a handle from parts taken from an existing, initialized database.
+    ///
+    /// Unlike [`from_conn`](Self::from_conn) this cannot skip initialization: the
+    /// caller has to supply a [`CrrStore`] that already exists, and the only way
+    /// to obtain one is [`crr_arc`](Self::crr_arc) on a database that was opened
+    /// properly. That lets a wrapper around the same connection — the embedded
+    /// MCP server — call shared write paths instead of reimplementing them, which
+    /// is how its `delete_paper` drifted from the app's.
+    pub fn from_parts(conn: Connection, data_dir: PathBuf, crr: Arc<CrrStore>) -> Self {
+        Self {
+            conn,
+            data_dir,
+            crr,
+        }
+    }
+
     /// Returns a reference to the underlying turso connection.
     pub fn conn(&self) -> &Connection {
         &self.conn
