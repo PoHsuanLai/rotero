@@ -1,6 +1,6 @@
 mod connection;
 mod helpers;
-mod install;
+pub(crate) mod install;
 pub(crate) mod node;
 pub(crate) mod reaper;
 mod session;

@@ -47,11 +47,17 @@ pub(crate) fn find_or_install_node() -> Result<PathBuf, String> {
 }
 
 /// The major version of a node binary, or `None` if it will not report one.
+///
+/// Bounded, because this runs an arbitrary binary found on `PATH`. Version
+/// managers (fnm, volta, asdf, mise) install shims there that can prompt, fetch,
+/// or wait on a lock, and an EDR wrapper can do worse — `Command::output()`
+/// would block the agent thread on any of those with no error and no recovery.
 fn node_major_version(node: &Path) -> Option<u32> {
-    let out = std::process::Command::new(node)
-        .arg("--version")
-        .output()
-        .ok()?;
+    let out = crate::agent::install::run_with_timeout(
+        std::process::Command::new(node).arg("--version"),
+        std::time::Duration::from_secs(10),
+    )
+    .ok()?;
     if !out.status.success() {
         return None;
     }
@@ -169,11 +175,26 @@ fn download_node(node_dir: &Path) -> Result<(), String> {
         return Err("Node.js archive did not contain the expected binary".into());
     }
 
-    let _ = std::fs::remove_dir_all(node_dir);
-    std::fs::rename(&staging, node_dir).map_err(|e| {
+    // Move the old install aside rather than deleting it first. Deleting and
+    // then renaming leaves a window where a crash — or a rename that fails for
+    // any reason — leaves no Node at all, which is worse than the truncated
+    // binary the staging directory exists to prevent.
+    let previous = node_dir.with_extension("previous");
+    let _ = std::fs::remove_dir_all(&previous);
+    let had_previous = node_dir.exists() && std::fs::rename(node_dir, &previous).is_ok();
+
+    if let Err(e) = std::fs::rename(&staging, node_dir) {
         let _ = std::fs::remove_dir_all(&staging);
-        format!("Failed to install Node.js: {e}")
-    })?;
+        if had_previous {
+            // Put the working install back.
+            let _ = std::fs::rename(&previous, node_dir);
+        }
+        return Err(format!("Failed to install Node.js: {e}"));
+    }
+
+    if had_previous {
+        let _ = std::fs::remove_dir_all(&previous);
+    }
 
     tracing::info!("Node.js {NODE_VERSION} installed to {}", node_dir.display());
     Ok(())
@@ -181,8 +202,14 @@ fn download_node(node_dir: &Path) -> Result<(), String> {
 
 /// Check the archive against the SHA-256 nodejs.org publishes for the release.
 ///
-/// Without this any corrupted or substituted download is unpacked and executed
-/// as-is; the archive is a program the app then runs.
+/// Without this a corrupted download is unpacked and executed as-is; the archive
+/// is a program the app then runs.
+///
+/// Scope worth being precise about: `SHASUMS256.txt` comes over the same TLS
+/// connection from the same host as the archive, and its detached signature is
+/// not checked. So this catches corruption in transit and a poisoned CDN cache,
+/// but not someone who controls the endpoint and serves both files. That is the
+/// same trade nvm and actions/setup-node make.
 fn verify_node_checksum(
     client: &reqwest::blocking::Client,
     archive_name: &str,
