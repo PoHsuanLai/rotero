@@ -2,6 +2,24 @@
 
 const API_BASE = "http://127.0.0.1:21984";
 
+// The connector rejects /api/* without this token, so a page you happen to be
+// visiting cannot reach your library. Fetched once from /api/token, which the
+// connector refuses to serve to remote web origins.
+var apiToken = null;
+
+async function apiFetch(url, options) {
+  options = options || {};
+  if (apiToken === null) {
+    var res = await apiFetch(API_BASE + "/api/token");
+    if (!res.ok) throw new Error("Could not pair with Rotero");
+    apiToken = (await res.json()).token;
+  }
+  var headers = Object.assign({}, options.headers || {}, {
+    "X-Rotero-Token": apiToken,
+  });
+  return fetch(url, Object.assign({}, options, { headers: headers }));
+}
+
 // State
 let styles = [];
 let selectedPaperIds = new Set();
@@ -57,7 +75,7 @@ function capitalize(s) {
 
 async function checkConnection() {
   try {
-    var resp = await fetch(API_BASE + "/api/status");
+    var resp = await apiFetch(API_BASE + "/api/status");
     if (!resp.ok) throw new Error("not ok");
     document.getElementById("connectionBanner").classList.remove("show");
     return true;
@@ -71,7 +89,7 @@ async function checkConnection() {
 
 async function loadStyles() {
   try {
-    var resp = await fetch(API_BASE + "/api/cite/styles");
+    var resp = await apiFetch(API_BASE + "/api/cite/styles");
     var data = await resp.json();
     styles = data.styles;
   } catch (e) {
@@ -125,7 +143,7 @@ async function doSearch(query) {
   container.innerHTML = '<div class="loading">Searching...</div>';
 
   try {
-    var resp = await fetch(API_BASE + "/api/cite/search?q=" + encodeURIComponent(query));
+    var resp = await apiFetch(API_BASE + "/api/cite/search?q=" + encodeURIComponent(query));
     var data = await resp.json();
     searchResults = data.papers;
     renderSearchResults();
@@ -222,7 +240,7 @@ async function insertCitation() {
   status.className = "status";
 
   try {
-    var resp = await fetch(API_BASE + "/api/cite/format", {
+    var resp = await apiFetch(API_BASE + "/api/cite/format", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ paper_ids: ids, style: style }),
@@ -281,7 +299,7 @@ async function detectSelectedCitation() {
 
 async function updateCitation(ccId, newPaperIds, newStyle) {
   try {
-    var resp = await fetch(API_BASE + "/api/cite/format", {
+    var resp = await apiFetch(API_BASE + "/api/cite/format", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ paper_ids: newPaperIds, style: newStyle }),
@@ -329,7 +347,7 @@ async function scanCitedPapers() {
     }
 
     var style = document.getElementById("bibStyleSelect").value;
-    var resp = await fetch(API_BASE + "/api/cite/bibliography", {
+    var resp = await apiFetch(API_BASE + "/api/cite/bibliography", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ paper_ids: allIds, style: style }),
@@ -389,7 +407,7 @@ async function insertBibliography() {
     }
 
     var style = document.getElementById("bibStyleSelect").value;
-    var resp = await fetch(API_BASE + "/api/cite/bibliography", {
+    var resp = await apiFetch(API_BASE + "/api/cite/bibliography", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ paper_ids: allIds, style: style }),
@@ -478,7 +496,7 @@ async function refreshAll() {
         var cc = citationCcs[j];
         try {
           var meta = JSON.parse(cc.tag);
-          var resp = await fetch(API_BASE + "/api/cite/format", {
+          var resp = await apiFetch(API_BASE + "/api/cite/format", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ paper_ids: meta.paperIds, style: newStyle }),
@@ -507,7 +525,7 @@ async function refreshAll() {
           });
           var idList = Object.keys(allIds);
 
-          var bibResp = await fetch(API_BASE + "/api/cite/bibliography", {
+          var bibResp = await apiFetch(API_BASE + "/api/cite/bibliography", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ paper_ids: idList, style: newStyle }),

@@ -54,22 +54,155 @@ pub struct ConnectorState {
     /// `/api/scrape/continue` round-trips. Shared with the reaper task via `Arc`.
     #[cfg(feature = "translator-engine")]
     pub scrape_sessions: Arc<scrape_session::SessionStore>,
+    /// Shared secret every `/api/*` caller must present.
+    ///
+    /// See [`require_token`]. Read from (or created in) the data directory by
+    /// [`load_or_create_token`], so the extension can be paired once and the
+    /// Word add-in can be handed it when its task pane is served.
+    pub token: String,
 }
 
 /// Default port the connector listens on (`21984`).
 pub const CONNECTOR_PORT: u16 = 21984;
 
+/// Read the connector token from `data_dir`, creating it on first run.
+///
+/// Stored in its own file rather than the config, so pairing survives a settings
+/// reset and the value never lands in a diagnostics dump. Written `0600` where
+/// the platform supports it: any local process that can read it can drive the
+/// user's library.
+pub fn load_or_create_token(data_dir: &std::path::Path) -> String {
+    let path = data_dir.join("connector-token");
+
+    if let Ok(existing) = std::fs::read_to_string(&path) {
+        let trimmed = existing.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+
+    // 128 bits of uuid, hyphens stripped — enough that guessing is not a path,
+    // and it avoids taking a dependency purely for randomness.
+    let token = uuid::Uuid::new_v4().simple().to_string();
+
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if std::fs::write(&path, &token).is_ok() {
+        restrict_permissions(&path);
+    } else {
+        tracing::warn!(
+            "Could not persist the connector token at {}; the extension will need re-pairing",
+            path.display()
+        );
+    }
+
+    token
+}
+
+/// Make a file readable only by its owner, where the platform has the concept.
+fn restrict_permissions(path: &std::path::Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+}
+
+/// Header carrying the shared token on every API request.
+pub const TOKEN_HEADER: &str = "x-rotero-token";
+
+/// Reject any `/api/*` request that does not present the shared token.
+///
+/// Binding to 127.0.0.1 is not the boundary it looks like: the user's browser is
+/// a local process, so with `allow_origin(Any)` and no auth, any page they
+/// visited could `fetch()` this server — writing to their library through
+/// `/api/save` and reading it back through `/api/collections`, `/api/tags`, and
+/// `/api/cite/search`.
+///
+/// A token fixes that even where the origin cannot be pinned down: extension
+/// origins are `chrome-extension://<id>` and differ per install, but a web page
+/// cannot read the token, so it cannot forge a request regardless of origin.
+///
+/// `/word/*` is exempt — it serves the add-in's own HTML, CSS, and icons, which
+/// carry no library data and are what bootstraps the token in the first place.
+async fn require_token(
+    axum::extract::State(state): axum::extract::State<Arc<ConnectorState>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let path = request.uri().path();
+    if !path.starts_with("/api/") {
+        return next.run(request).await;
+    }
+
+    // The pairing endpoint hands the token to the extension and the Word add-in.
+    // Restricted to non-web origins: a page loaded over http(s) is exactly the
+    // caller this is defending against, while an extension sends
+    // `chrome-extension://…` (or, for the add-in served from here, no Origin at
+    // all) and neither can be forged by a website.
+    if path == "/api/token" {
+        let origin = request
+            .headers()
+            .get(axum::http::header::ORIGIN)
+            .and_then(|v| v.to_str().ok());
+        let from_web =
+            origin.is_some_and(|o| o.starts_with("http://") || o.starts_with("https://"));
+        // Localhost is where the Word task pane is served from, so allow it.
+        let from_localhost =
+            origin.is_some_and(|o| o.contains("127.0.0.1") || o.contains("localhost"));
+
+        if from_web && !from_localhost {
+            return (
+                axum::http::StatusCode::FORBIDDEN,
+                "Pairing is not available to web pages",
+            )
+                .into_response();
+        }
+        return next.run(request).await;
+    }
+
+    let presented = request
+        .headers()
+        .get(TOKEN_HEADER)
+        .and_then(|v| v.to_str().ok());
+
+    // Compared over equal-length byte slices; the token is not a password, but
+    // there is no reason to leak its prefix through timing either.
+    let ok = presented.is_some_and(|p| {
+        let (a, b) = (p.as_bytes(), state.token.as_bytes());
+        a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    });
+
+    if ok {
+        next.run(request).await
+    } else {
+        (
+            axum::http::StatusCode::UNAUTHORIZED,
+            "Missing or invalid X-Rotero-Token",
+        )
+            .into_response()
+    }
+}
+
 /// Builds the axum [`Router`] with CORS and all API routes.
 pub fn router(state: Arc<ConnectorState>) -> Router {
-    // allow_origin(Any) is required because browser extension origins are
-    // opaque (chrome-extension://<id>) and vary per install. The server is
-    // bound to 127.0.0.1 so only local processes can connect.
+    // `allow_origin(Any)` stays because extension origins are opaque
+    // (`chrome-extension://<id>`) and vary per install, so there is no stable
+    // list to allow. What actually authorizes a request is the shared token
+    // checked in `require_token`; CORS alone never protected anything here,
+    // since a page can send a simple request cross-origin regardless.
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods([Method::GET, Method::POST])
         .allow_headers(Any);
 
     let router = Router::new()
+        .route("/api/token", get(pairing_token))
         .route("/api/status", get(handlers::status))
         .route("/api/collections", get(handlers::collections))
         .route("/api/tags", get(handlers::tags))
@@ -90,7 +223,23 @@ pub fn router(state: Arc<ConnectorState>) -> Router {
     #[cfg(feature = "translator-engine")]
     let router = router.route("/api/scrape/continue", post(handlers::scrape_continue));
 
-    router.layer(cors).with_state(state)
+    router
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            require_token,
+        ))
+        .layer(cors)
+        .with_state(state)
+}
+
+/// Hand the shared token to a paired client.
+///
+/// Gated by origin in [`require_token`] rather than by the token itself — this
+/// is what a client calls when it does not have one yet.
+async fn pairing_token(
+    axum::extract::State(state): axum::extract::State<Arc<ConnectorState>>,
+) -> impl IntoResponse {
+    axum::Json(serde_json::json!({ "token": state.token }))
 }
 
 async fn word_taskpane_html() -> impl IntoResponse {

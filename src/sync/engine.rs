@@ -104,7 +104,7 @@ pub struct FileSyncConfig {
     pub auto_export_bib_path: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct AgentConfig {
     #[serde(default = "default_agent_provider")]
     pub agent_provider: String,
@@ -118,6 +118,23 @@ impl Default for AgentConfig {
             agent_provider: default_agent_provider(),
             agent_api_keys: std::collections::HashMap::new(),
         }
+    }
+}
+
+/// Redacts the keys.
+///
+/// Written by hand rather than derived so that no future `{:?}` on a config —
+/// a log line, an error message, a diagnostics dump — can print them. Nothing
+/// does today; this is to keep it that way.
+impl std::fmt::Debug for AgentConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AgentConfig")
+            .field("agent_provider", &self.agent_provider)
+            .field(
+                "agent_api_keys",
+                &format!("<{} redacted>", self.agent_api_keys.len()),
+            )
+            .finish()
     }
 }
 
@@ -294,6 +311,10 @@ impl SyncConfig {
         }
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(&path, json).map_err(|e| format!("Failed to save config: {e}"))?;
+        // This file holds `agent_api_keys` in plaintext, and `fs::write` leaves
+        // it world-readable — any other account or non-sandboxed process on the
+        // machine could read them.
+        restrict_permissions(&path);
         Ok(())
     }
 
@@ -364,6 +385,22 @@ pub fn check_external_modification(
 
 pub fn file_modified_time(path: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(path).ok().and_then(|m| m.modified().ok())
+}
+
+/// Make a file readable only by its owner, where the platform has the concept.
+///
+/// `config.json` holds `agent_api_keys` in plaintext and `fs::write` creates it
+/// world-readable.
+fn restrict_permissions(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
 }
 
 #[cfg(test)]

@@ -8,6 +8,9 @@ use rotero_connector::{ConnectorState, router};
 use std::sync::Arc;
 use tower::ServiceExt;
 
+/// Any value works; the middleware only compares it against the state's copy.
+const TEST_TOKEN: &str = "test-token";
+
 fn test_state() -> Arc<ConnectorState> {
     Arc::new(ConnectorState {
         on_paper_saved: None,
@@ -18,6 +21,7 @@ fn test_state() -> Arc<ConnectorState> {
         translator_registry: rotero_translate::TranslatorRegistry::with_builtins(),
         #[cfg(feature = "translator-engine")]
         scrape_sessions: Default::default(),
+        token: TEST_TOKEN.to_string(),
     })
 }
 
@@ -39,6 +43,7 @@ async fn post_scrape(body: serde_json::Value) -> (StatusCode, serde_json::Value)
         .oneshot(
             Request::builder()
                 .method("POST")
+                .header(rotero_connector::TOKEN_HEADER, TEST_TOKEN)
                 .uri("/api/scrape")
                 .header("content-type", "application/json")
                 .body(Body::from(body.to_string()))

@@ -1,5 +1,20 @@
 const API = 'http://127.0.0.1:21984';
 
+// The connector rejects /api/* without this token, so a web page you happen to
+// be visiting cannot reach your library. It is fetched once per popup from
+// /api/token, which the connector refuses to serve to http(s) origins.
+let apiToken = null;
+
+async function apiFetch(url, options = {}) {
+  if (apiToken === null) {
+    const res = await fetch(`${API}/api/token`);
+    if (!res.ok) throw new Error('Could not pair with Rotero');
+    apiToken = (await res.json()).token;
+  }
+  const headers = { ...(options.headers || {}), 'X-Rotero-Token': apiToken };
+  return fetch(url, { ...options, headers });
+}
+
 const dot = document.getElementById('dot');
 const disconnected = document.getElementById('disconnected');
 const main = document.getElementById('main');
@@ -26,7 +41,7 @@ const ICON_LIBRARY = '<svg class="coll-icon" width="16" height="16" viewBox="0 0
 // Check connection and load collections + tags
 async function init() {
   try {
-    const resp = await fetch(`${API}/api/status`, { signal: AbortSignal.timeout(2000) });
+    const resp = await apiFetch(`${API}/api/status`, { signal: AbortSignal.timeout(2000) });
     const data = await resp.json();
     if (data.status === 'ok') {
       dot.className = 'dot ok';
@@ -45,7 +60,7 @@ async function init() {
 async function loadCollections() {
   let collections = [];
   try {
-    const resp = await fetch(`${API}/api/collections`);
+    const resp = await apiFetch(`${API}/api/collections`);
     const data = await resp.json();
     collections = data.collections || [];
   } catch {
@@ -132,7 +147,7 @@ function escapeHtml(s) {
 // Fetch tags from Rotero
 async function loadTags() {
   try {
-    const resp = await fetch(`${API}/api/tags`);
+    const resp = await apiFetch(`${API}/api/tags`);
     const data = await resp.json();
     if (!data.tags || data.tags.length === 0) return;
 
@@ -271,7 +286,7 @@ const MAX_SCRAPE_HOPS = 20;
 // behind session cookies), the connector pauses and asks us to perform the fetch
 // in the page context — where the tab's cookies apply — and continue.
 async function runScrape(tabId, meta) {
-  let resp = await fetch(`${API}/api/scrape`, {
+  let resp = await apiFetch(`${API}/api/scrape`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url: meta.url, html: meta.html, raw_html: meta.rawHtml }),
@@ -283,7 +298,7 @@ async function runScrape(tabId, meta) {
   while (!data.done && data.fetch && data.run_id != null) {
     if (++hops > MAX_SCRAPE_HOPS || tabId == null) break;
     const outcome = await performPageFetch(tabId, data.fetch);
-    resp = await fetch(`${API}/api/scrape/continue`, {
+    resp = await apiFetch(`${API}/api/scrape/continue`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ run_id: data.run_id, url: meta.url, response: outcome }),
@@ -552,7 +567,7 @@ addBtn.addEventListener('click', async () => {
   const selectedName = selectedCollectionName;
 
   try {
-    const resp = await fetch(`${API}/api/save`, {
+    const resp = await apiFetch(`${API}/api/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
