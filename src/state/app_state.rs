@@ -483,11 +483,30 @@ impl SortField {
     }
 }
 
+/// A message shown briefly in the corner of the window.
+///
+/// The app had no way at all to tell the user something went wrong outside of
+/// startup, which is why roughly twenty failing writes were discarded with
+/// `let _ =` — reporting them would have meant a button that silently did
+/// nothing instead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Toast {
+    /// Monotonic id, so the list can be keyed and dismissed precisely.
+    pub id: u64,
+    pub message: String,
+    /// Errors persist until dismissed; confirmations time out.
+    pub is_error: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct LibraryState {
     pub papers: Vec<Paper>,
     pub collections: Vec<Collection>,
     pub tags: Vec<Tag>,
+    /// Transient messages awaiting display. See [`Toast`].
+    pub toasts: Vec<Toast>,
+    /// Source of [`Toast::id`].
+    pub next_toast_id: u64,
     pub selected_paper_ids: HashSet<String>,
     pub anchor_paper_id: Option<String>,
     /// A web search result being previewed in the detail panel. Mutually
@@ -544,6 +563,36 @@ pub enum LibraryView {
 }
 
 impl LibraryState {
+    /// Report a failed operation to the user.
+    ///
+    /// Writes that could fail used to be discarded with `let _ =`, because the
+    /// alternative was a button that did nothing with no explanation. This is
+    /// the missing half of that trade.
+    pub fn report_error(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        tracing::error!("{message}");
+        self.push_toast(message, true);
+    }
+
+    fn push_toast(&mut self, message: String, is_error: bool) {
+        // Repeating the same failure (a settings pane that saves on every
+        // keystroke, say) should not stack up identical messages.
+        if self.toasts.iter().any(|t| t.message == message) {
+            return;
+        }
+        self.next_toast_id += 1;
+        self.toasts.push(Toast {
+            id: self.next_toast_id,
+            message,
+            is_error,
+        });
+    }
+
+    /// Remove a toast the user dismissed, or one that timed out.
+    pub fn dismiss_toast(&mut self, id: u64) {
+        self.toasts.retain(|t| t.id != id);
+    }
+
     /// Returns the single selected paper when exactly one is selected.
     pub fn selected_paper(&self) -> Option<&Paper> {
         if self.selected_paper_ids.len() != 1 {
@@ -863,6 +912,32 @@ mod tests {
             .filter_map(|p| p.id)
             .collect();
         assert_eq!(ids, vec!["b".to_string(), "a".to_string()]);
+    }
+
+    /// Repeated identical failures must not stack up: a settings pane saves on
+    /// every keystroke, so one broken write would otherwise queue dozens.
+    #[test]
+    fn the_same_error_is_not_reported_twice() {
+        let mut state = LibraryState::default();
+        state.report_error("Settings could not be saved: disk full");
+        state.report_error("Settings could not be saved: disk full");
+
+        assert_eq!(state.toasts.len(), 1);
+        assert!(state.toasts[0].is_error);
+    }
+
+    /// Ids are unique, so dismissing one leaves the rest alone.
+    #[test]
+    fn dismissing_removes_only_the_named_toast() {
+        let mut state = LibraryState::default();
+        state.report_error("first");
+        state.report_error("second");
+        let first_id = state.toasts[0].id;
+
+        state.dismiss_toast(first_id);
+
+        assert_eq!(state.toasts.len(), 1);
+        assert_eq!(state.toasts[0].message, "second");
     }
 
     /// A web hit that is not in the library has no id to resolve against and

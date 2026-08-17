@@ -177,3 +177,60 @@
   padding: 0 var(--space-1);
   flex-shrink: 0;
 }
+
+/* --- Toasts -----------------------------------------------------------------
+   Transient failures that happen while the app runs, as opposed to the
+   preflight banner's startup problems. Bottom-right so they never cover the
+   toolbar or the paper list's first rows. */
+.toast-stack {
+  position: fixed;
+  bottom: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  z-index: 100;
+  max-width: min(420px, calc(100vw - var(--space-8)));
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 6px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  pointer-events: auto;
+}
+
+.toast-error {
+  background: var(--destructive-bg, rgba(220, 38, 38, 0.08));
+  border-color: var(--destructive);
+  color: var(--destructive);
+}
+
+.toast-message {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.toast-dismiss {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: var(--text-base);
+  line-height: 1;
+  opacity: 0.7;
+  padding: 0;
+}
+
+.toast-dismiss:hover {
+  opacity: 1;
+}

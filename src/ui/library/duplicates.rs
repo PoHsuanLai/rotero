@@ -35,8 +35,11 @@ pub fn DuplicatesView(groups: Vec<Vec<Paper>>) -> Element {
                                                 let keep_id = best.id.clone().unwrap_or_default();
                                                 for p in group {
                                                     if let Some(ref id) = p.id
-                                                        && *id != keep_id {
-                                                            let _ = db.merge_papers(&keep_id, id).await;
+                                                        && *id != keep_id
+                                                        && let Err(e) = db.merge_papers(&keep_id, id).await {
+                                                            lib_state.with_mut(|s| {
+                                                                s.report_error(format!("Could not merge duplicates: {e}"))
+                                                            });
                                                         }
                                                 }
                                             }
@@ -124,7 +127,11 @@ pub fn DuplicatesView(groups: Vec<Vec<Paper>>) -> Element {
                                                         let pid = pid2.clone();
                                                         spawn(async move {
                                                             for del_id in &other_ids {
-                                                                let _ = db.merge_papers(&pid, del_id).await;
+                                                                if let Err(e) = db.merge_papers(&pid, del_id).await {
+                                                                    lib_state.with_mut(|s| {
+                                                                        s.report_error(format!("Could not merge duplicates: {e}"))
+                                                                    });
+                                                                }
                                                             }
                                                             crate::state::commands::refresh_papers_and_duplicates(&db, &mut lib_state).await;
                                                         });

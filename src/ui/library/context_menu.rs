@@ -266,7 +266,10 @@ pub fn PaperContextMenu(
                         };
                         drop(state);
                         for pid in &pids {
-                            let _ = db.set_favorite(pid, new_val).await;
+                            if let Err(e) = db.set_favorite(pid, new_val).await {
+                                let mut lib_state = lib_state;
+                                lib_state.with_mut(|s| s.report_error(format!("Could not update the favourite flag: {e}")));
+                            }
                         }
                         lib_state.with_mut(|s| {
                             for pid in &pids {
@@ -295,7 +298,10 @@ pub fn PaperContextMenu(
                         };
                         drop(state);
                         for pid in &pids {
-                            let _ = db.set_read(pid, new_val).await;
+                            if let Err(e) = db.set_read(pid, new_val).await {
+                                let mut lib_state = lib_state;
+                                lib_state.with_mut(|s| s.report_error(format!("Could not update the read flag: {e}")));
+                            }
                         }
                         lib_state.with_mut(|s| {
                             for pid in &pids {
@@ -363,7 +369,10 @@ pub fn PaperContextMenu(
                                 let cid = cid.clone();
                                 spawn(async move {
                                     for pid in &pids {
-                                        let _ = db.remove_paper_from_collection(pid, &cid).await;
+                                        if let Err(e) = db.remove_paper_from_collection(pid, &cid).await {
+                                            let mut lib_state = lib_state;
+                                            lib_state.with_mut(|s| s.report_error(format!("Could not remove the paper from that collection: {e}")));
+                                        }
                                     }
                                     if let Ok(ids) = db.list_paper_ids_in_subtree(&cid).await {
                                         lib_state.with_mut(|s| s.filter.collection_paper_ids = Some(ids));
@@ -460,7 +469,10 @@ fn SubmenuPicker(
                                             let cid = cid.clone();
                                             spawn(async move {
                                                 for pid in &pids {
-                                                    let _ = db.add_paper_to_collection(pid, &cid).await;
+                                                    if let Err(e) = db.add_paper_to_collection(pid, &cid).await {
+                                                        let mut lib_state = lib_state;
+                                                        lib_state.with_mut(|s| s.report_error(format!("Could not add the paper to that collection: {e}")));
+                                                    }
                                                 }
                                                 refresh.with_mut(|r| r.0 = r.0.wrapping_add(1));
                                                 on_close.call(());
@@ -495,7 +507,10 @@ fn SubmenuPicker(
                                             spawn(async move {
                                                 if let Ok(tid) = db.get_or_create_tag(&name, None).await {
                                                     for pid in &pids {
-                                                        let _ = db.add_tag_to_paper(pid, &tid).await;
+                                                        if let Err(e) = db.add_tag_to_paper(pid, &tid).await {
+                                                            let mut lib_state = lib_state;
+                                                            lib_state.with_mut(|s| s.report_error(format!("Could not attach that tag: {e}")));
+                                                        }
                                                     }
                                                     refresh.with_mut(|r| r.0 = r.0.wrapping_add(1));
                                                 }
@@ -527,7 +542,10 @@ fn SubmenuPicker(
                                             let tid = tid.clone();
                                             spawn(async move {
                                                 for pid in &pids {
-                                                    let _ = db.add_tag_to_paper(pid, &tid).await;
+                                                    if let Err(e) = db.add_tag_to_paper(pid, &tid).await {
+                                                        let mut lib_state = lib_state;
+                                                        lib_state.with_mut(|s| s.report_error(format!("Could not attach that tag: {e}")));
+                                                    }
                                                 }
                                                 refresh.with_mut(|r| r.0 = r.0.wrapping_add(1));
                                                 on_close.call(());
