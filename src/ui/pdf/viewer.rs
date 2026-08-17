@@ -32,6 +32,7 @@ pub fn PdfViewer() -> Element {
     let tab_id = tab.id;
     let needs_render = tab.is_loading && tab.render.rendered_pages.is_empty();
     let is_initial_loading = needs_render;
+    let load_error = tab.load_error.clone();
 
     use_effect(move || {
         let needs = tabs
@@ -224,7 +225,12 @@ pub fn PdfViewer() -> Element {
                 if show_outline {
                     OutlinePanel {}
                 }
-                if is_initial_loading {
+                if let Some(error) = load_error {
+                    div { class: "pdf-loading-overlay",
+                        div { class: "pdf-error-title", "Could not open this PDF" }
+                        div { class: "pdf-error-detail", "{error}" }
+                    }
+                } else if is_initial_loading {
                     div { class: "pdf-loading-overlay",
                         div { class: "pdf-loading-spinner" }
                         div { class: "pdf-loading-text", "Loading PDF..." }

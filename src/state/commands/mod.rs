@@ -75,6 +75,63 @@ pub enum RenderRequest {
     ClearCache,
 }
 
+/// Publishes why PDFium could not be loaded, or `None` while it is fine.
+///
+/// Set from the render thread before it starts draining, so the startup
+/// preflight can report the real reason instead of the user meeting a dead PDF
+/// pane with the explanation buried in a log file.
+pub static PDF_ENGINE_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Resolves once the render thread has finished trying to bind PDFium.
+///
+/// Lets the preflight read [`PDF_ENGINE_ERROR`] at a defined point rather than
+/// racing the bind — the thread starts after the window launches, so a bare read
+/// at startup would usually run first and find nothing.
+pub static PDF_ENGINE_READY: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+/// Reply to every request with the same error, forever.
+///
+/// Returning from the thread instead would drop the receiver, and every later
+/// `send` would fail with "sending on a closed channel" — which is what the ~20
+/// call sites in `src/ui/pdf/` used to surface. Staying alive means each one
+/// gets the actual reason, and none of them need to change.
+fn drain_with_error(rx: mpsc::Receiver<RenderRequest>, message: String) {
+    while let Ok(req) = rx.recv() {
+        // Each reply channel carries a different success type, so the error has
+        // to be built per arm rather than shared.
+        match req {
+            RenderRequest::OpenPdf { reply, .. } => {
+                let _ = reply.send(Err(message.clone()));
+            }
+            RenderRequest::RenderMorePages { reply, .. } => {
+                let _ = reply.send(Err(message.clone()));
+            }
+            RenderRequest::ExtractText { reply, .. } => {
+                let _ = reply.send(Err(message.clone()));
+            }
+            RenderRequest::RenderThumbnails { reply, .. } => {
+                let _ = reply.send(Err(message.clone()));
+            }
+            RenderRequest::ExtractOutline { reply, .. } => {
+                let _ = reply.send(Err(message.clone()));
+            }
+            RenderRequest::GetPageDimensions { reply, .. } => {
+                let _ = reply.send(Err(message.clone()));
+            }
+            RenderRequest::ExtractMetadataText { reply, .. } => {
+                let _ = reply.send(Err(message.clone()));
+            }
+            RenderRequest::ExtractAnnotations { reply, .. } => {
+                let _ = reply.send(Err(message.clone()));
+            }
+            RenderRequest::ExtractLinks { reply, .. } => {
+                let _ = reply.send(Err(message.clone()));
+            }
+            RenderRequest::ClearCache => {}
+        }
+    }
+}
+
 pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
     let (tx, rx) = mpsc::channel::<RenderRequest>();
 
@@ -87,9 +144,16 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
             Ok(e) => e,
             Err(e) => {
                 tracing::error!("Failed to bind PDFium: {e}");
+                // The resolver's message names every path it tried, which is the
+                // information needed to fix a broken install.
+                let message = format!("PDF engine unavailable: {e}");
+                let _ = PDF_ENGINE_ERROR.set(message.clone());
+                let _ = PDF_ENGINE_READY.set(());
+                drain_with_error(rx, message);
                 return;
             }
         };
+        let _ = PDF_ENGINE_READY.set(());
 
         while let Ok(req) = rx.recv() {
             match req {

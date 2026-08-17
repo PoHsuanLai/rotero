@@ -87,3 +87,30 @@ pub async fn check_database(db: &rotero_db::Database) {
     tracing::error!("Database health check failed: {detail}");
     record(|p| p.db = Some(detail));
 }
+
+/// Report a PDF engine that failed to bind.
+///
+/// `pdf_engine` was the one field here with no writer at all, so the banner
+/// added to surface startup failures could not surface the one that leaves the
+/// reader unusable — the user got a working-looking app and a dead PDF pane.
+///
+/// Waits for the render thread to publish its outcome rather than reading
+/// immediately: the thread is spawned as the window mounts, so an eager read
+/// would nearly always run first and see nothing.
+#[cfg(feature = "desktop")]
+pub async fn check_pdf_engine() {
+    use crate::state::commands::{PDF_ENGINE_ERROR, PDF_ENGINE_READY};
+
+    // Binding is a `dlopen`, so this settles in milliseconds. The cap only
+    // stops a wedged loader from leaving the check pending forever.
+    for _ in 0..100 {
+        if PDF_ENGINE_READY.get().is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    if let Some(e) = PDF_ENGINE_ERROR.get() {
+        record(|p| p.pdf_engine = Some(e.clone()));
+    }
+}

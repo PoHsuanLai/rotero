@@ -132,6 +132,13 @@ pub struct PdfTab {
     pub title: String,
     pub page_count: u32,
     pub is_loading: bool,
+    /// Why the document could not be opened, if it could not.
+    ///
+    /// Without this a failed open left `is_loading` set with nothing to show:
+    /// the viewer only retries while `is_loading && rendered_pages.is_empty()`,
+    /// and the tab-bar path needs `page_count > 0`, so neither fired and the
+    /// spinner ran until the tab was closed.
+    pub load_error: Option<String>,
     pub is_suspended: bool,
 
     pub render: PageRenderData,
@@ -160,6 +167,7 @@ impl PdfTab {
             title,
             page_count: 0,
             is_loading: true,
+            load_error: None,
             is_suspended: false,
             render: PageRenderData::default(),
             view: ViewState {
