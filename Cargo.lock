@@ -6223,7 +6223,7 @@ checksum = "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430"
 [[package]]
 name = "recrr"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/recrr?rev=52090958a077a0f1bce4227673b8b42949c7315e#52090958a077a0f1bce4227673b8b42949c7315e"
+source = "git+https://github.com/PoHsuanLai/recrr?rev=44f080a43ad5eee491df4b5f1cfd50b4f1edf5ac#44f080a43ad5eee491df4b5f1cfd50b4f1edf5ac"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6238,7 +6238,7 @@ dependencies = [
 [[package]]
 name = "recrr-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/recrr?rev=52090958a077a0f1bce4227673b8b42949c7315e#52090958a077a0f1bce4227673b8b42949c7315e"
+source = "git+https://github.com/PoHsuanLai/recrr?rev=44f080a43ad5eee491df4b5f1cfd50b4f1edf5ac#44f080a43ad5eee491df4b5f1cfd50b4f1edf5ac"
 dependencies = [
  "proc-macro2",
  "quote",
