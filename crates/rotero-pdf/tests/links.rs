@@ -15,6 +15,13 @@ fn fixture(name: &str) -> String {
 fn engine_or_skip() -> Option<PdfEngine> {
     match PdfEngine::new(None) {
         Ok(engine) => Some(engine),
+        // In CI this is a failure, not a skip. The workflow installs PDFium and
+        // sets `PDFIUM_DYNAMIC_LIB_PATH` precisely so these run; without this
+        // guard a broken download or a dropped env var would quietly go back to
+        // the old state, where every test here passed by doing nothing.
+        Err(e) if std::env::var("CI").is_ok_and(|v| v == "true") => {
+            panic!("PDFium must be available in CI, but binding failed: {e}");
+        }
         Err(e) => {
             eprintln!("skipping: PDFium unavailable ({e})");
             None

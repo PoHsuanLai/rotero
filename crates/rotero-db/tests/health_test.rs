@@ -169,3 +169,54 @@ async fn absent_crr_metadata_reports_only_the_root_cause() {
         vec![HealthIssue::CrrUninitialized]
     );
 }
+
+/// A clock table that exists but is empty is the shape a broken build leaves
+/// behind: the rows are all there, none of them can sync, and every structural
+/// check for the table's *existence* passes.
+///
+/// This was reported healthy, which made the check blind to the exact failure it
+/// was written for.
+#[tokio::test]
+async fn rows_with_an_empty_clock_table_are_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = open_test_db(dir.path()).await;
+
+    db.insert_paper(&rotero_models::Paper {
+        title: "Present but untracked".into(),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        verify_database_health(&db).await.is_empty(),
+        "a normally-inserted paper must be healthy"
+    );
+
+    // Wipe the tracking, leaving the row and the table itself in place.
+    db.conn()
+        .execute("DELETE FROM papers__crr_clock", ())
+        .await
+        .unwrap();
+
+    let issues = verify_database_health(&db).await;
+    assert!(
+        issues.contains(&HealthIssue::UntrackedRows {
+            table: "papers".to_string(),
+            rows: 1,
+        }),
+        "an emptied clock table must be reported, got {issues:?}"
+    );
+}
+
+/// An empty table with an empty clock is simply a fresh library.
+#[tokio::test]
+async fn empty_tables_are_not_mistaken_for_damage() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = open_test_db(dir.path()).await;
+
+    assert!(
+        verify_database_health(&db).await.is_empty(),
+        "a fresh library has empty clocks everywhere and must still be healthy"
+    );
+}

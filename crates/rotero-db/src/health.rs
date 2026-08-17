@@ -56,6 +56,20 @@ pub enum HealthIssue {
         /// The version this build expects.
         expected: i64,
     },
+    /// A tracked table holds rows but its clock table is empty, so none of them
+    /// can ever be sent to another device.
+    ///
+    /// Distinct from [`MissingCrrClock`](Self::MissingCrrClock): the table is
+    /// there, it is simply not tracking anything. That is what a library written
+    /// by a build with broken tracking looks like once the clock tables have
+    /// been created — indistinguishable from healthy if only existence is
+    /// checked, which is exactly how the original bug hid.
+    UntrackedRows {
+        /// The tracked table with rows but no clock entries.
+        table: String,
+        /// How many rows are untracked.
+        rows: i64,
+    },
 }
 
 impl std::fmt::Display for HealthIssue {
@@ -76,6 +90,10 @@ impl std::fmt::Display for HealthIssue {
             Self::SchemaVersion { found, expected } => write!(
                 f,
                 "library schema version {found} does not match this version's {expected}"
+            ),
+            Self::UntrackedRows { table, rows } => write!(
+                f,
+                "{rows} row(s) in `{table}` are not being tracked and will not sync"
             ),
         }
     }
@@ -120,17 +138,37 @@ pub async fn verify_database_health(db: &Database) -> Vec<HealthIssue> {
     }
 
     for table in &schema.tables {
-        if !table_exists(db, &table.name).await.unwrap_or(false) {
+        let table_present = table_exists(db, &table.name).await.unwrap_or(false);
+        if !table_present {
             issues.push(HealthIssue::MissingTable {
                 table: table.name.clone(),
             });
         }
-        if !table_exists(db, &clock_table(&table.name))
+
+        let clock_present = table_exists(db, &clock_table(&table.name))
             .await
-            .unwrap_or(false)
-        {
+            .unwrap_or(false);
+        if !clock_present {
             issues.push(HealthIssue::MissingCrrClock {
                 table: table.name.clone(),
+            });
+            continue;
+        }
+
+        // A clock table that exists but is empty while its table holds rows is
+        // the shape a broken build leaves behind, and checking only for the
+        // table's existence reports it as healthy. That is the exact failure
+        // this module was written to catch, so it has to look at the contents.
+        if table_present
+            && let Ok(rows) = count_rows(db, &table.name).await
+            && rows > 0
+            && count_rows(db, &clock_table(&table.name))
+                .await
+                .is_ok_and(|c| c == 0)
+        {
+            issues.push(HealthIssue::UntrackedRows {
+                table: table.name.clone(),
+                rows,
             });
         }
     }
@@ -159,4 +197,16 @@ pub async fn verify_database_health(db: &Database) -> Vec<HealthIssue> {
     }
 
     issues
+}
+
+/// How many rows a table holds.
+async fn count_rows(db: &Database, table: &str) -> Result<i64, turso::Error> {
+    let mut rows = db
+        .conn()
+        .query(&format!("SELECT COUNT(*) FROM {table}"), ())
+        .await?;
+    match rows.next().await? {
+        Some(row) => Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0)),
+        None => Ok(0),
+    }
 }

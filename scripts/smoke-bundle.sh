@@ -55,9 +55,17 @@ dump_log() {
     true
 }
 
-# Search the app log, tolerating its absence (it is created on first launch).
+# Search the app log. A missing log is a failure, not a pass: the checks below
+# assert that certain errors are *absent*, so treating "no file" as "no error"
+# scored a crash before logging started as a success.
+require_log() {
+    if [ ! -f "$LOG" ]; then
+        fail "no log at $LOG — the app did not get far enough to write one"
+    fi
+}
+
 log_has() {
-    [ -f "$LOG" ] && grep -qi "$1" "$LOG"
+    grep -qi "$1" "$LOG"
 }
 
 # Resolve the executable inside a macOS .app, or accept a bare binary.
@@ -140,14 +148,44 @@ else
     fail "process exited after startup"
 fi
 
-# --- 2. save a paper over the connector --------------------------------------
-SAVE_BODY='{"title":"Smoke Test Paper","authors":["Ada Lovelace"],"year":1843}'
+# --- 2. save a paper, with a tag, over the connector -------------------------
+# The API requires the shared token; /api/token hands it to a non-web caller.
+TOKEN="$(curl -sf "http://127.0.0.1:$PORT/api/token" |
+    sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+if [ -z "$TOKEN" ]; then
+    fail "could not obtain a connector token"
+    dump_log
+    exit 1
+fi
+pass "paired with the connector"
+
+# A tag is what the shipped bug lost: add_tag_to_paper committed its junction
+# row and then failed change tracking, so the tag was gone on the next launch.
+# Creating it through the API means this exercises the same path a user does.
+TAG_ID="$(curl -sf "http://127.0.0.1:$PORT/api/tags" -H "X-Rotero-Token: $TOKEN" |
+    sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+
+SAVE_BODY='{"title":"Smoke Test Paper","authors":["Ada Lovelace"],"year":1843'
+if [ -n "$TAG_ID" ]; then
+    SAVE_BODY="$SAVE_BODY,\"tag_ids\":[\"$TAG_ID\"]"
+fi
+SAVE_BODY="$SAVE_BODY}"
+
 if curl -sf -X POST "http://127.0.0.1:$PORT/api/save" \
     -H 'Content-Type: application/json' \
+    -H "X-Rotero-Token: $TOKEN" \
     -d "$SAVE_BODY" >/dev/null; then
     pass "POST /api/save accepted"
 else
     fail "POST /api/save failed"
+fi
+
+# An unauthenticated request must not work: that is the whole point of the
+# token, and a regression here reopens the library to any page the user visits.
+if curl -sf "http://127.0.0.1:$PORT/api/tags" >/dev/null 2>&1; then
+    fail "an untokened request was served — the API is open to any local caller"
+else
+    pass "untokened requests are rejected"
 fi
 
 # The connector returns before the insert completes, so give it a moment.
@@ -180,6 +218,25 @@ else
     fail "saved paper did not persist (papers=${PAPER_COUNT:-0})"
 fi
 
+# --- 4b. the tag survived too — the assertion this script exists for ---------
+# add_tag_to_paper wrote its junction row and then failed change tracking, so
+# the row was committed while the caller saw an error and discarded it. Locally
+# the tag looked attached until the next launch. Only a read from disk after the
+# process is gone can tell the difference.
+if [ -n "$TAG_ID" ]; then
+    TAGGED="$(cargo run -q --manifest-path "$REPO_ROOT/Cargo.toml" \
+        -p rotero-db --example count_tagged_papers -- "$DATA_DIR" 2>/dev/null || echo 0)"
+    if [ "${TAGGED:-0}" -ge 1 ]; then
+        pass "tag survived the restart (tagged papers=$TAGGED)"
+    else
+        fail "the tag did not persist — junction rows are not being written"
+    fi
+else
+    # A fresh library has no tags to attach, so there is nothing to assert
+    # rather than something that silently passed.
+    echo "  - skipped: the library had no tag to attach"
+fi
+
 # --- 5. the app reopens the library it created --------------------------------
 # A library that opens once but not twice is a migration or CRR-state bug, and
 # it is the shape a user hits on second launch rather than first.
@@ -193,8 +250,11 @@ fi
 stop
 
 # --- 6. PDF engine bound ------------------------------------------------------
-# Reported by the startup preflight. Absence of a failure line is the signal:
-# a bind error is recorded and logged.
+# The next two checks assert an error is *absent*, so the log has to exist for
+# either to mean anything.
+require_log
+
+# Absence of a failure line is the signal: a bind error is recorded and logged.
 if log_has "Failed to bind PDFium"; then
     fail "PDFium failed to bind (PDF viewing, annotations, and thumbnails are dead)"
     grep -i "pdfium" "$LOG" | head -3 >&2
