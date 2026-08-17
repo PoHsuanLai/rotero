@@ -129,8 +129,16 @@ fn pixel_rect_to_pdf_rect(
     [x1, y1, x2, y2]
 }
 
+/// Parse `#rrggbb` into normalized components, falling back to white.
+///
+/// Guarded on length *and* ASCII: this had neither, so an annotation colour that
+/// was short, empty, or non-ASCII — all of which can arrive over sync — panicked
+/// while writing the PDF rather than degrading to a default.
 fn hex_to_rgb(hex: &str) -> [f32; 3] {
     let hex = hex.trim_start_matches('#');
+    if hex.len() < 6 || !hex.as_bytes()[..6].is_ascii() {
+        return [1.0, 1.0, 1.0];
+    }
     let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(255) as f32 / 255.0;
     let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(255) as f32 / 255.0;
     let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(255) as f32 / 255.0;

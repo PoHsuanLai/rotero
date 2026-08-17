@@ -19,6 +19,8 @@ pub mod queries;
 pub mod saved_search;
 /// User-defined labels for papers.
 pub mod tag;
+/// Character-safe string trimming for text that reaches the UI.
+pub mod text;
 
 pub use annotation::{Annotation, AnnotationType};
 pub use collection::{Collection, children_of, collection_tree, has_children};
@@ -31,3 +33,4 @@ pub use paper::{
 };
 pub use saved_search::SavedSearch;
 pub use tag::Tag;
+pub use text::{mask_secret, take_chars, truncate_chars};

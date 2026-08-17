@@ -442,14 +442,16 @@ fn sanitize_filename(s: &str, max_len: usize) -> String {
 
     let trimmed = cleaned.trim();
 
-    if trimmed.len() <= max_len {
-        trimmed.to_string()
-    } else {
-        // Truncate at word boundary
-        let truncated = &trimmed[..max_len];
-        match truncated.rfind(' ') {
-            Some(pos) if pos > max_len / 2 => truncated[..pos].to_string(),
-            _ => truncated.to_string(),
-        }
+    // By character: filenames are built from paper titles, so a byte cut at
+    // `max_len` panicked on any title with a multi-byte character near it.
+    let truncated = rotero_models::take_chars(trimmed, max_len);
+    if truncated.len() == trimmed.len() {
+        return truncated;
+    }
+
+    // Prefer a word boundary, keeping at least half the budget.
+    match truncated.rfind(' ') {
+        Some(pos) if pos > truncated.len() / 2 => truncated[..pos].to_string(),
+        _ => truncated,
     }
 }

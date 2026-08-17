@@ -64,7 +64,10 @@ pub(crate) fn scroll_to_page_at_js(page_index: u32, y_frac: f64) -> String {
 
 pub(crate) fn hex_to_rgba(hex: &str, alpha: f32) -> String {
     let hex = hex.trim_start_matches('#');
-    if hex.len() >= 6 {
+    // The ASCII check is what makes the slices safe: a colour string is stored
+    // data and may be anything, and six *bytes* of a multi-byte character would
+    // have panicked here inside a render path.
+    if hex.len() >= 6 && hex.as_bytes()[..6].is_ascii() {
         let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0);
         let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0);
         let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0);

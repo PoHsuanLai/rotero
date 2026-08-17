@@ -105,15 +105,19 @@ fn split_records(input: &str) -> Vec<Record> {
 fn parse_tag_line(line: &str) -> Option<(&str, &str)> {
     // A tag is exactly two alphanumeric characters, followed by a separator that
     // is some spaces, a hyphen, then optional space(s).
-    if line.len() < 2 {
-        return None;
-    }
-    let tag = &line[..2];
+    // Split by character index, not byte: a line opening with any multi-byte
+    // character (a CJK title, a smart quote, an em-dash) used to panic here and
+    // take down the whole import.
+    let split_at = match line.char_indices().nth(2) {
+        Some((i, _)) => i,
+        None => return None,
+    };
+    let tag = &line[..split_at];
     if !tag.bytes().all(|b| b.is_ascii_alphanumeric()) {
         return None;
     }
 
-    let rest = &line[2..];
+    let rest = &line[split_at..];
     let after_spaces = rest.trim_start_matches(' ');
     let consumed_space = rest.len() != after_spaces.len();
     let after_hyphen = after_spaces.strip_prefix('-')?;
