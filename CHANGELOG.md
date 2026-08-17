@@ -1,5 +1,56 @@
 # Changelog
 
+## v0.2.3
+
+If you run Rotero on more than one machine, this is the important one. Several bugs meant a device could stop syncing entirely — silently, while reporting success — and that tags, notes, and merged papers could be lost between devices. All of them are fixed, and libraries damaged by earlier versions repair themselves on first launch.
+
+The common thread is that the shipped app took a different code path than the tests did. Everything below was found by auditing that gap.
+
+There is also a user guide now.
+
+### Added
+- **A documentation site with a written user guide**, covering the library, the PDF reader, the browser extension, the Word add-in, sync, and the AI assistant — with screenshots captured from a real build, and a coverage check that reports which parts of the app the guide does not yet describe
+
+### Fixed
+
+**Sync and data loss**
+- **A device could stop syncing forever, and say it was fine.** All devices shared one `sync_state.json`, but the export cursor in it is private to each device. Whichever device synced first parked the cursor at its own position; every slower device then found "nothing newer" and sent nothing — permanently, since the cursor only moves forward. Each device now keeps its own state file, and an affected one re-sends its full history on first launch.
+- **Tags removed and re-added on a broken build never came back.** The repair pass added in v0.2.2 skipped exactly those, then recorded itself as complete so it never tried again. Locally the tag looked fine; other devices were told it had been deleted. The repair now runs once more on every library and handles the case correctly.
+- **Merging duplicates lost the surviving paper's tags and collections everywhere else.** The memberships moved on the machine that did the merge and were never sent; other devices kept memberships pointing at the deleted paper, and further syncing could not fix it.
+- **Deleting a paper left its annotations, notes, and memberships behind.** The database declared these should be removed automatically, but that behaviour was never switched on, so every deleted paper leaked rows on every device.
+- **Notes and tags the AI assistant created never left the machine.** Four of its write paths saved locally without recording the change for sync.
+
+**Crashes**
+- The window could go blank with no error when a PDF annotation had malformed geometry, or when a note preview, an API key, an imported `.ris`/`.nbib` file, or a paper title contained a non-English character near a truncation point.
+
+**PDF viewing**
+- A missing PDF engine reported "channel closed" on every action, and left the reader spinning forever with no way to retry. It now says what actually happened, the rest of the app keeps working, and the startup banner reports it.
+
+**The library list**
+- Favouriting, deleting, or editing a paper **while a search was active** appeared to work and then reverted, because results were drawn from a stale snapshot. The right-click menu could show the opposite state at the same moment.
+- arXiv papers found through a web search never showed as imported, so clicking Import again added a second copy. "Import All" re-imported everything if clicked twice.
+- The graph only refreshed when you changed the edge type, ignoring papers added or removed in the meantime.
+- A row could stay stuck on "Importing…" for the rest of the session.
+
+**Settings**
+- **Settings that could not be written silently reverted on the next launch**, including the AI API key — the field clears itself to confirm it saved, so the key looked stored while never reaching disk. Failures are now reported.
+
+**Security and privacy**
+- **Any website you visited could read and write your library.** The browser connector accepted requests from any origin with no authentication; being bound to localhost is not a defence, since the browser is itself a local process. It now requires a token that the extension and Word add-in obtain automatically — you should not notice the change.
+- A synced PDF path could read or write files outside the library folder.
+- `~/rotero-debug.log` recorded the full URL of every page scraped — a plaintext browsing history, world-readable, including session tokens carried in publisher URLs. Only the site name is logged now, the file is private to your account, and `RUST_LOG` is honoured.
+- `config.json`, which stores AI API keys in plaintext, was readable by any other account on the machine.
+
+**Node.js (AI assistant)**
+- A version-manager shim on `PATH` could hang the assistant permanently with no error.
+- Installing bundled Node.js could report a spurious timeout on a perfectly good connection, and a crash mid-install could leave no working Node.js at all.
+
+### Changed
+- The health check now detects a library whose rows exist but are not being tracked for sync — the exact state earlier versions left behind, previously reported as healthy
+- The bundle smoke test verifies a tag survives a restart, and that the connector refuses unauthenticated requests, against the real packaged app
+- Lint failures now fail CI; previously they were printed and ignored
+- 267 tests, up from 232. Every sync fix is verified across two simulated devices, because a single-device check passes whether or not the data would actually sync
+
 ## v0.2.2
 
 Ships the Windows and Linux installers that v0.2.1 built but failed to publish. Everything else in v0.2.1 is unchanged — if you already run it, there is nothing new here beyond the installers.
