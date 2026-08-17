@@ -632,10 +632,40 @@ impl LibraryState {
             .collect()
     }
 
+    /// Search results with each row refreshed from the live library.
+    ///
+    /// `search.results` is a snapshot taken when the query ran, and no mutation
+    /// path updates it — every handler writes to `self.papers`. Rendering the
+    /// snapshot directly meant that while a query was active, favouriting a
+    /// paper updated the database and then appeared to revert, and a deleted
+    /// paper stayed on screen. Worse, the context menu reads `self.papers`, so
+    /// the row and its menu disagreed at the same moment.
+    ///
+    /// The snapshot still decides which papers appear and in what order — that
+    /// is the search ranking — but the values shown come from the live list, so
+    /// every existing mutation shows through with nothing to keep in sync. Rows
+    /// deleted since the query drop out.
+    pub fn resolved_search_results(&self, results: &[Paper]) -> Vec<Paper> {
+        results
+            .iter()
+            .filter_map(|hit| {
+                let Some(id) = hit.id.as_ref() else {
+                    // A web result that is not in the library has no id and
+                    // nothing to refresh from; show it as returned.
+                    return Some(hit.clone());
+                };
+                self.papers
+                    .iter()
+                    .find(|p| p.id.as_ref() == Some(id))
+                    .cloned()
+            })
+            .collect()
+    }
+
     /// Returns the ordered list of paper IDs for the current filtered view.
     pub fn filtered_paper_ids(&self) -> Vec<String> {
         let mut filtered: Vec<_> = if let Some(ref results) = self.search.results {
-            results.clone()
+            self.resolved_search_results(results)
         } else {
             match &self.view {
                 LibraryView::AllPapers => self.papers.clone(),
@@ -763,3 +793,88 @@ pub struct DragPaper(pub Option<Vec<String>>);
 /// stale). Membership isn't cached on `Paper` or in `LibraryState`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MembershipRefresh(pub u64);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn paper(id: &str, title: &str, favorite: bool) -> Paper {
+        Paper {
+            id: Some(id.to_string()),
+            title: title.to_string(),
+            status: rotero_models::LibraryStatus {
+                is_favorite: favorite,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    /// Search results are a snapshot taken when the query ran, and no mutation
+    /// path updates it. Reading through to `papers` is what stops a favourite
+    /// toggled during a search from appearing to revert.
+    #[test]
+    fn search_results_show_current_values_not_the_snapshot() {
+        let state = LibraryState {
+            papers: vec![paper("p1", "Renamed", true)],
+            ..Default::default()
+        };
+
+        // The snapshot still holds the values from when the search ran.
+        let snapshot = vec![paper("p1", "Original", false)];
+
+        let resolved = state.resolved_search_results(&snapshot);
+        assert_eq!(resolved.len(), 1);
+        assert!(
+            resolved[0].status.is_favorite,
+            "the live favourite state must win over the snapshot"
+        );
+        assert_eq!(resolved[0].title, "Renamed");
+    }
+
+    /// A paper deleted while a query is active must leave the results.
+    #[test]
+    fn a_deleted_paper_drops_out_of_search_results() {
+        let state = LibraryState {
+            papers: vec![paper("p2", "Kept", false)],
+            ..Default::default()
+        };
+
+        let snapshot = vec![paper("p1", "Deleted", false), paper("p2", "Kept", false)];
+
+        let resolved = state.resolved_search_results(&snapshot);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].id.as_deref(), Some("p2"));
+    }
+
+    /// Ranking order comes from the search, not from the library list.
+    #[test]
+    fn the_search_ordering_is_preserved() {
+        let state = LibraryState {
+            papers: vec![paper("a", "A", false), paper("b", "B", false)],
+            ..Default::default()
+        };
+
+        let snapshot = vec![paper("b", "B", false), paper("a", "A", false)];
+
+        let ids: Vec<_> = state
+            .resolved_search_results(&snapshot)
+            .into_iter()
+            .filter_map(|p| p.id)
+            .collect();
+        assert_eq!(ids, vec!["b".to_string(), "a".to_string()]);
+    }
+
+    /// A web hit that is not in the library has no id to resolve against and
+    /// must still render.
+    #[test]
+    fn a_result_with_no_id_is_kept_as_returned() {
+        let state = LibraryState::default();
+        let mut hit = paper("unused", "From the web", false);
+        hit.id = None;
+
+        let resolved = state.resolved_search_results(&[hit]);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].title, "From the web");
+    }
+}

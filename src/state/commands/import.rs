@@ -11,6 +11,32 @@ pub struct ImportRequest {
     pub paper: Paper,
 }
 
+/// Clears a paper's import status when it goes out of scope.
+///
+/// The status was previously removed only on the two success paths, so any early
+/// return — or a coroutine paused before it finished, which happens when the app
+/// root re-renders into a different branch — left the row showing a disabled
+/// "Importing…" button for the rest of the session. A `Failed` status is kept:
+/// that one is meant to persist so the row can offer a retry.
+struct StatusGuard {
+    lib_state: Signal<LibraryState>,
+    key: String,
+}
+
+impl Drop for StatusGuard {
+    fn drop(&mut self) {
+        self.lib_state.with_mut(|s| {
+            let keep = matches!(
+                s.import_status.get(&self.key),
+                Some(ImportStatus::Failed(_))
+            );
+            if !keep {
+                s.import_status.remove(&self.key);
+            }
+        });
+    }
+}
+
 /// Insert a paper into the library and, in the background, download its
 /// open-access PDF.
 ///
@@ -24,6 +50,10 @@ pub struct ImportRequest {
 /// the PDF filename are complete.
 async fn run_import(db: &Database, mut lib_state: Signal<LibraryState>, paper: Paper) {
     let key = import_key(&paper);
+    let _guard = StatusGuard {
+        lib_state,
+        key: key.clone(),
+    };
     set_status(&mut lib_state, &key, ImportStatus::Importing);
 
     let paper = enrich_before_import(paper).await;
@@ -145,15 +175,34 @@ pub struct ImportChannel {
 impl ImportChannel {
     /// Queue a paper for import + OA download. Returns immediately; the work
     /// runs in the app-root scope and survives the caller unmounting.
+    ///
+    /// Queuing the same paper twice is ignored. "Import All" is gated only on
+    /// whether a paper is already in the library, so clicking it again while the
+    /// first batch was still running queued everything a second time and
+    /// inserted duplicate rows — the two runs then raced on the same status
+    /// entry, which could also leave one behind.
     pub fn import(&self, paper: Paper) {
-        // Marked queued before sending so the button changes on the click
-        // itself, rather than whenever a slot happens to free up.
         let key = import_key(&paper);
         let mut lib_state = self.lib_state;
-        lib_state.with_mut(|s| {
-            s.import_status.insert(key, ImportStatus::Queued);
+
+        let queued = lib_state.with_mut(|s| {
+            // A failed import is retryable; anything else is still in flight.
+            let in_flight = matches!(
+                s.import_status.get(&key),
+                Some(ImportStatus::Queued | ImportStatus::Importing | ImportStatus::Downloading)
+            );
+            if in_flight {
+                return false;
+            }
+            // Marked queued before sending so the button changes on the click
+            // itself, rather than whenever a slot happens to free up.
+            s.import_status.insert(key.clone(), ImportStatus::Queued);
+            true
         });
-        self.inner.send(ImportRequest { paper });
+
+        if queued {
+            self.inner.send(ImportRequest { paper });
+        }
     }
 }
 

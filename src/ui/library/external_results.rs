@@ -35,10 +35,11 @@ pub(crate) fn ExternalResults() -> Element {
 
     let (existing_dois, still_searching, previewed_key, import_states) = {
         let state = lib_state.read();
+        // Canonical form on both sides of the comparison; see `is_imported`.
         let dois: std::collections::HashSet<String> = state
             .papers
             .iter()
-            .filter_map(|p| p.doi.clone())
+            .filter_map(|p| p.canonical_doi())
             .filter(|d| !d.is_empty())
             .collect();
         let previewed = state.previewed_web.as_ref().map(result_key);
@@ -220,10 +221,15 @@ fn is_imported(
     paper: &rotero_models::Paper,
     existing_dois: &std::collections::HashSet<String>,
 ) -> bool {
+    // Compared in canonical form, because that is what `insert_paper` stores.
+    // A raw comparison never matched an arXiv paper found through OpenAlex,
+    // whose DOI arrives as `10.48550/arXiv.X` but is stored as `arXiv:X`: the
+    // button stayed on "Import" after a successful import, and clicking it
+    // again added another copy.
     paper
-        .doi
-        .as_ref()
-        .is_some_and(|d| !d.is_empty() && existing_dois.contains(d))
+        .canonical_doi()
+        .filter(|d| !d.is_empty())
+        .is_some_and(|d| existing_dois.contains(&d))
 }
 
 /// Stable identity for a merged result row, so Dioxus diffing survives the list

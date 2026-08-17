@@ -79,12 +79,17 @@ pub fn GraphView() -> Element {
         let mode = edge_mode();
         let db = db2.clone();
 
-        spawn(async move {
+        // Read outside the spawn so the effect actually subscribes to it.
+        // Reading inside meant the only tracked dependency was `edge_mode`, so
+        // the graph never noticed a paper being imported or deleted — it only
+        // caught up when the edge mode was toggled. The search effect below
+        // reads it out here and works correctly.
+        let (papers, tags) = {
             let state = lib_state.read();
-            let papers = state.papers.clone();
-            let tags = state.tags.clone();
-            drop(state);
+            (state.papers.clone(), state.tags.clone())
+        };
 
+        spawn(async move {
             let tag_pairs = db.list_all_paper_tags().await.unwrap_or_default();
             let coll_pairs = db.list_all_paper_collections().await.unwrap_or_default();
             let citation_pairs = db.list_all_citations().await.unwrap_or_default();

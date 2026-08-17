@@ -118,7 +118,15 @@ pub fn LibraryPanel() -> Element {
     let web_searching = state.search.web_searching();
 
     let mut filtered: Vec<_> = if query_active {
-        state.search.results.clone().unwrap_or_default()
+        // Refreshed from `state.papers`, so a favourite or delete made while a
+        // query is active shows immediately instead of rendering the stale
+        // snapshot the search returned.
+        state
+            .search
+            .results
+            .as_ref()
+            .map(|r| state.resolved_search_results(r))
+            .unwrap_or_default()
     } else {
         match &state.view {
             LibraryView::AllPapers => state.papers.clone(),
