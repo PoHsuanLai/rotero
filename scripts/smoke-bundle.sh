@@ -112,10 +112,15 @@ stop() {
 
 # The connector binding is the readiness signal: it starts after the database is
 # open, so polling it avoids racing startup with a fixed sleep.
+#
+# Polls `/api/token` rather than `/api/status`: the API now requires a token, so
+# an unauthenticated status probe answers 401 whether or not the app is ready.
+# The pairing endpoint answers as soon as the server is listening, which is the
+# signal wanted here.
 wait_for_connector() {
     local deadline=$((SECONDS + 45))
     while [ $SECONDS -lt $deadline ]; do
-        if curl -sf "http://127.0.0.1:$PORT/api/status" >/dev/null 2>&1; then
+        if curl -sf "http://127.0.0.1:$PORT/api/token" >/dev/null 2>&1; then
             return 0
         fi
         if [ -n "$APP_PID" ] && ! kill -0 "$APP_PID" 2>/dev/null; then
@@ -131,6 +136,18 @@ wait_for_connector() {
 echo "smoke: $BIN"
 echo "       library $DATA_DIR"
 mkdir -p "$DATA_DIR" "$FAKE_HOME"
+
+# --- 0. seed a tag to attach later -------------------------------------------
+# The central assertion below is that a tag survives a restart, and a tag can
+# only be attached by id — the connector API has no way to create one. Seeding
+# here rather than skipping means the assertion always runs; a skipped check
+# that reports nothing is how this class of bug stayed hidden.
+if ! cargo run -q --manifest-path "$REPO_ROOT/Cargo.toml" \
+    -p rotero-db --example create_tag -- "$DATA_DIR" "smoke-tag" >/dev/null 2>&1; then
+    fail "could not seed a tag into the throwaway library"
+    exit 1
+fi
+pass "seeded a tag into the library"
 
 # --- 1. launches and stays up -------------------------------------------------
 launch
@@ -161,15 +178,21 @@ pass "paired with the connector"
 
 # A tag is what the shipped bug lost: add_tag_to_paper committed its junction
 # row and then failed change tracking, so the tag was gone on the next launch.
-# Creating it through the API means this exercises the same path a user does.
+#
+# The tag has to exist before it can be attached — `/api/save` takes `tag_ids`
+# and nothing in the API creates one — and a throwaway library starts empty. It
+# is read back from the running app rather than trusted from the seeding step,
+# so a tag the app cannot see fails here instead of later.
 TAG_ID="$(curl -sf "http://127.0.0.1:$PORT/api/tags" -H "X-Rotero-Token: $TOKEN" |
     sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
-
-SAVE_BODY='{"title":"Smoke Test Paper","authors":["Ada Lovelace"],"year":1843'
-if [ -n "$TAG_ID" ]; then
-    SAVE_BODY="$SAVE_BODY,\"tag_ids\":[\"$TAG_ID\"]"
+if [ -z "$TAG_ID" ]; then
+    fail "the seeded tag was not visible over the API"
+    dump_log
+    exit 1
 fi
-SAVE_BODY="$SAVE_BODY}"
+pass "seeded tag is visible to the app"
+
+SAVE_BODY="{\"title\":\"Smoke Test Paper\",\"authors\":[\"Ada Lovelace\"],\"year\":1843,\"tag_ids\":[\"$TAG_ID\"]}"
 
 if curl -sf -X POST "http://127.0.0.1:$PORT/api/save" \
     -H 'Content-Type: application/json' \
@@ -223,18 +246,12 @@ fi
 # the row was committed while the caller saw an error and discarded it. Locally
 # the tag looked attached until the next launch. Only a read from disk after the
 # process is gone can tell the difference.
-if [ -n "$TAG_ID" ]; then
-    TAGGED="$(cargo run -q --manifest-path "$REPO_ROOT/Cargo.toml" \
-        -p rotero-db --example count_tagged_papers -- "$DATA_DIR" 2>/dev/null || echo 0)"
-    if [ "${TAGGED:-0}" -ge 1 ]; then
-        pass "tag survived the restart (tagged papers=$TAGGED)"
-    else
-        fail "the tag did not persist — junction rows are not being written"
-    fi
+TAGGED="$(cargo run -q --manifest-path "$REPO_ROOT/Cargo.toml" \
+    -p rotero-db --example count_tagged_papers -- "$DATA_DIR" 2>/dev/null || echo 0)"
+if [ "${TAGGED:-0}" -ge 1 ]; then
+    pass "tag survived the restart (tagged papers=$TAGGED)"
 else
-    # A fresh library has no tags to attach, so there is nothing to assert
-    # rather than something that silently passed.
-    echo "  - skipped: the library had no tag to attach"
+    fail "the tag did not persist — junction rows are not being written"
 fi
 
 # --- 5. the app reopens the library it created --------------------------------
