@@ -58,20 +58,10 @@ async fn providers_read_their_base_url_from_the_environment() {
     assert_eq!(papers.len(), 1);
     assert_eq!(papers[0].title, "Stubbed Paper");
 
-    // --- an empty override falls back to the real endpoint ---------------
-    // Same rule as ROTERO_DATA_DIR: `FOO=` means unset, not "use the empty
-    // string as a URL".
-    set_base_url("ROTERO_OPENALEX_API", "");
-    let url_is_default = rotero_search::openalex::search_papers("", 0)
-        .await
-        .err()
-        .map(|e| !e.contains("relative URL"))
-        .unwrap_or(true);
-    clear_base_url("ROTERO_OPENALEX_API");
-    assert!(
-        url_is_default,
-        "an empty override must fall back to the real base URL, not build a relative one"
-    );
+    // The empty-override fallback is asserted directly on `base_url` in the
+    // crate's own unit tests. Inferring it from a provider call's error string
+    // could not work: reqwest reports "builder error", so the substring this
+    // used to look for never appeared and the assertion always passed.
 
     // --- a server error surfaces rather than being read as no results ----
     let failing = MockServer::start().await;

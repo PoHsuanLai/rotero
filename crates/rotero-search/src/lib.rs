@@ -161,3 +161,42 @@ pub async fn search_all(query: &str, per_provider_limit: usize) -> Vec<Paper> {
     let flattened: Vec<Paper> = per_provider.into_iter().flatten().collect();
     merge::dedupe_by_doi(flattened)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::base_url;
+
+    /// `FOO=` means unset, matching `ROTERO_DATA_DIR`.
+    ///
+    /// Asserted directly on `base_url` rather than through a provider call. The
+    /// integration test that used to cover this inferred the outcome from an
+    /// error string, and reqwest reports `"builder error"` rather than anything
+    /// naming a relative URL — so the assertion could never fail, and deleting
+    /// the `.filter(|s| !s.is_empty())` guard it protected did not break it.
+    #[test]
+    fn an_empty_override_falls_back_to_the_default() {
+        // Scoped to a variable no other test touches; these are process-wide.
+        let var = "ROTERO_TEST_EMPTY_OVERRIDE";
+
+        unsafe { std::env::set_var(var, "") };
+        assert_eq!(
+            base_url(var, "https://api.example.com/works"),
+            "https://api.example.com/works",
+            "an empty override must fall back, not yield an empty base URL"
+        );
+
+        unsafe { std::env::set_var(var, "http://127.0.0.1:1/works") };
+        assert_eq!(
+            base_url(var, "https://api.example.com/works"),
+            "http://127.0.0.1:1/works",
+            "a non-empty override must be honoured"
+        );
+
+        unsafe { std::env::remove_var(var) };
+        assert_eq!(
+            base_url(var, "https://api.example.com/works"),
+            "https://api.example.com/works",
+            "an unset override must fall back"
+        );
+    }
+}
