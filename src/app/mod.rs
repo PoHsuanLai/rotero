@@ -129,6 +129,7 @@ pub fn App() -> Element {
 
     // Report a PDF engine that could not bind. Has to happen here rather than in
     // `main`, because the render thread starts with the window.
+    #[cfg(feature = "desktop")]
     use_future(|| async {
         crate::init::preflight::check_pdf_engine().await;
     });
