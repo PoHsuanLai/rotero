@@ -1,9 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use chrono::Utc;
 use rotero_db::FromRow;
-use rotero_db::crr::{Collections, Notes, PaperCollections, PaperTags, Papers, Tags};
 use rotero_models::queries;
 use rotero_models::{Annotation, Collection, Note, Paper, Tag};
 use turso::{Connection, Value};
@@ -192,32 +190,20 @@ impl Database {
 
     /// Set or clear the favorite flag on a paper.
     pub async fn set_favorite(&self, id: &str, favorite: bool) -> Result<(), turso::Error> {
-        self.conn
-            .execute(
-                queries::PAPER_SET_FAVORITE,
-                [Value::Integer(favorite as i64), Value::Text(id.to_string())],
-            )
-            .await?;
-        self.crr
-            .track_update("papers", id, &[Papers::IS_FAVORITE])
+        self.as_rotero_db()
+            .set_favorite(id, favorite)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
         Ok(())
     }
 
     /// Set or clear the read flag on a paper.
     pub async fn set_read(&self, id: &str, read: bool) -> Result<(), turso::Error> {
-        self.conn
-            .execute(
-                queries::PAPER_SET_READ,
-                [Value::Integer(read as i64), Value::Text(id.to_string())],
-            )
-            .await?;
-        self.crr
-            .track_update("papers", id, &[Papers::IS_READ])
+        self.as_rotero_db()
+            .set_read(id, read)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
         Ok(())
     }
@@ -264,50 +250,24 @@ impl Database {
         title: &str,
         body: &str,
     ) -> Result<String, turso::Error> {
-        let now = Utc::now().to_rfc3339();
-        let uuid = uuid::Uuid::now_v7().to_string();
-        self.conn
-            .execute(
-                queries::NOTE_INSERT,
-                turso::params::Params::Positional(vec![
-                    Value::Text(uuid.clone()),
-                    Value::Text(paper_id.to_string()),
-                    Value::Text(title.to_string()),
-                    Value::Text(body.to_string()),
-                    Value::Text(now.clone()),
-                    Value::Text(now),
-                ]),
-            )
-            .await?;
-        self.crr
-            .track_insert("notes", &uuid, Notes::ALL)
+        let id = self
+            .as_rotero_db()
+            .insert_note(&Note {
+                body: body.to_string(),
+                ..Note::new(paper_id.to_string(), title.to_string())
+            })
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
-        Ok(uuid)
+        Ok(id)
     }
 
     /// Update the title and body of an existing note.
     pub async fn update_note(&self, id: &str, title: &str, body: &str) -> Result<(), turso::Error> {
-        self.conn
-            .execute(
-                queries::NOTE_UPDATE,
-                turso::params::Params::Positional(vec![
-                    Value::Text(title.to_string()),
-                    Value::Text(body.to_string()),
-                    Value::Text(Utc::now().to_rfc3339()),
-                    Value::Text(id.to_string()),
-                ]),
-            )
-            .await?;
-        self.crr
-            .track_update(
-                "notes",
-                id,
-                &[Notes::TITLE, Notes::BODY, Notes::MODIFIED_AT],
-            )
+        self.as_rotero_db()
+            .update_note(id, title, body)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
         Ok(())
     }
@@ -415,59 +375,21 @@ impl Database {
         name: &str,
         color: Option<&str>,
     ) -> Result<String, turso::Error> {
-        let mut rows = self
-            .conn
-            .query(queries::TAG_FIND_BY_NAME, [Value::Text(name.to_string())])
-            .await?;
-        if let Some(row) = rows.next().await? {
-            let id = get_opt_text(&row, 0).unwrap_or_default();
-            return Ok(id);
-        }
-        let uuid = uuid::Uuid::now_v7().to_string();
-        let actual_color = color.map(|c| c.to_string()).unwrap_or_else(|| {
-            const PALETTE: &[&str] = &[
-                "#6b7085", "#7c6b85", "#6b8580", "#857a6b", "#6b7a85", "#856b7a", "#6b856e",
-                "#85706b", "#6e6b85", "#7a856b", "#856b6b", "#6b8585",
-            ];
-            let hash = name
-                .bytes()
-                .fold(0usize, |acc, b| acc.wrapping_add(b as usize));
-            PALETTE[hash % PALETTE.len()].to_string()
-        });
-        self.conn
-            .execute(
-                queries::TAG_INSERT,
-                turso::params::Params::Positional(vec![
-                    Value::Text(uuid.clone()),
-                    Value::Text(name.to_string()),
-                    Value::Text(actual_color),
-                ]),
-            )
-            .await?;
-        self.crr
-            .track_insert("tags", &uuid, Tags::ALL)
+        let id = self
+            .as_rotero_db()
+            .get_or_create_tag(name, color)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
-        Ok(uuid)
+        Ok(id)
     }
 
     /// Associate a tag with a paper.
     pub async fn add_tag_to_paper(&self, paper_id: &str, tag_id: &str) -> Result<(), turso::Error> {
-        self.conn
-            .execute(
-                queries::TAG_ADD_TO_PAPER,
-                [
-                    Value::Text(paper_id.to_string()),
-                    Value::Text(tag_id.to_string()),
-                ],
-            )
-            .await?;
-        let pk = format!("{paper_id}:{tag_id}");
-        self.crr
-            .track_insert("paper_tags", &pk, PaperTags::ALL)
+        self.as_rotero_db()
+            .add_tag_to_paper(paper_id, tag_id)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
         Ok(())
     }
@@ -551,109 +473,21 @@ impl Database {
 
     /// Insert a new paper and return its generated UUID.
     pub async fn insert_paper(&self, paper: &Paper) -> Result<String, turso::Error> {
-        let uuid = uuid::Uuid::now_v7().to_string();
-        let authors_json =
-            serde_json::to_string(&paper.creators).unwrap_or_else(|_| "[]".to_string());
-        let extra_meta = rotero_db::papers::encode_extra_meta(paper);
-
-        self.conn
-            .execute(
-                queries::PAPER_INSERT,
-                turso::params::Params::Positional(vec![
-                    Value::Text(uuid.clone()),
-                    Value::Text(paper.title.clone()),
-                    Value::Text(authors_json),
-                    paper
-                        .year
-                        .map(|y| Value::Integer(y as i64))
-                        .unwrap_or(Value::Null),
-                    opt_text(paper.canonical_doi().as_ref()),
-                    opt_text(paper.abstract_text.as_ref()),
-                    opt_text(paper.publication.journal.as_ref()),
-                    opt_text(paper.publication.volume.as_ref()),
-                    opt_text(paper.publication.issue.as_ref()),
-                    opt_text(paper.publication.pages.as_ref()),
-                    opt_text(paper.publication.publisher.as_ref()),
-                    opt_text(paper.links.url.as_ref()),
-                    opt_text(paper.links.pdf_path.as_ref()),
-                    Value::Text(paper.status.date_added.to_rfc3339()),
-                    Value::Text(paper.status.date_modified.to_rfc3339()),
-                    Value::Integer(paper.status.is_favorite as i64),
-                    Value::Integer(paper.status.is_read as i64),
-                    extra_meta.map(Value::Text).unwrap_or(Value::Null),
-                    paper
-                        .citation
-                        .citation_count
-                        .map(Value::Integer)
-                        .unwrap_or(Value::Null),
-                    opt_text(paper.citation.citation_key.as_ref()),
-                    opt_text(paper.links.pdf_url.as_ref()),
-                    Value::Text(paper.item_type.clone()),
-                ]),
-            )
-            .await?;
-
-        self.crr
-            .track_insert("papers", &uuid, Papers::ALL)
+        let id = self
+            .as_rotero_db()
+            .insert_paper(paper)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
-
+            .map_err(to_turso)?;
         self.notify();
-        Ok(uuid)
+        Ok(id)
     }
 
     /// Update a paper's metadata fields. Only non-None fields are applied.
     pub async fn update_paper_metadata(&self, id: &str, paper: &Paper) -> Result<(), turso::Error> {
-        let authors_json =
-            serde_json::to_string(&paper.creators).unwrap_or_else(|_| "[]".to_string());
-        self.conn
-            .execute(
-                queries::PAPER_UPDATE_METADATA,
-                turso::params::Params::Positional(vec![
-                    Value::Text(paper.title.clone()),
-                    Value::Text(authors_json),
-                    paper
-                        .year
-                        .map(|y| Value::Integer(y as i64))
-                        .unwrap_or(Value::Null),
-                    opt_text(paper.canonical_doi().as_ref()),
-                    opt_text(paper.abstract_text.as_ref()),
-                    opt_text(paper.publication.journal.as_ref()),
-                    opt_text(paper.publication.volume.as_ref()),
-                    opt_text(paper.publication.issue.as_ref()),
-                    opt_text(paper.publication.pages.as_ref()),
-                    opt_text(paper.publication.publisher.as_ref()),
-                    opt_text(paper.links.url.as_ref()),
-                    Value::Text(Utc::now().to_rfc3339()),
-                    Value::Text(paper.item_type.clone()),
-                    Value::Text(id.to_string()),
-                ]),
-            )
-            .await?;
-
-        self.crr
-            .track_update(
-                "papers",
-                id,
-                &[
-                    Papers::TITLE,
-                    Papers::AUTHORS,
-                    Papers::YEAR,
-                    Papers::DOI,
-                    Papers::ABSTRACT_TEXT,
-                    Papers::JOURNAL,
-                    Papers::VOLUME,
-                    Papers::ISSUE,
-                    Papers::PAGES,
-                    Papers::PUBLISHER,
-                    Papers::URL,
-                    Papers::DATE_MODIFIED,
-                    Papers::ITEM_TYPE,
-                ],
-            )
+        self.as_rotero_db()
+            .update_paper_metadata(id, paper)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
-
+            .map_err(to_turso)?;
         self.notify();
         Ok(())
     }
@@ -675,6 +509,10 @@ impl Database {
 
     /// View this handle as a `rotero_db::Database` sharing the same connection
     /// and CRR store, so write paths can be reused instead of reimplemented.
+    ///
+    /// Every mutating method delegates through here. The agent and the app then
+    /// run the same code, so a write path cannot be correct in one and wrong in
+    /// the other — which is what happened when each kept its own copy.
     fn as_rotero_db(&self) -> rotero_db::Database {
         rotero_db::Database::from_parts(self.conn.clone(), self.data_dir.clone(), self.crr.clone())
     }
@@ -685,20 +523,10 @@ impl Database {
         paper_id: &str,
         tag_id: &str,
     ) -> Result<(), turso::Error> {
-        self.conn
-            .execute(
-                "DELETE FROM paper_tags WHERE paper_id = ?1 AND tag_id = ?2",
-                [
-                    Value::Text(paper_id.to_string()),
-                    Value::Text(tag_id.to_string()),
-                ],
-            )
-            .await?;
-        let pk = format!("{paper_id}:{tag_id}");
-        self.crr
-            .track_delete("paper_tags", &pk)
+        self.as_rotero_db()
+            .remove_tag_from_paper(paper_id, tag_id)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
         Ok(())
     }
@@ -709,26 +537,16 @@ impl Database {
         name: &str,
         parent_id: Option<&str>,
     ) -> Result<String, turso::Error> {
-        let uuid = uuid::Uuid::now_v7().to_string();
-        self.conn
-            .execute(
-                queries::COLLECTION_INSERT,
-                turso::params::Params::Positional(vec![
-                    Value::Text(uuid.clone()),
-                    Value::Text(name.to_string()),
-                    parent_id
-                        .map(|s| Value::Text(s.to_string()))
-                        .unwrap_or(Value::Null),
-                    Value::Integer(0),
-                ]),
-            )
-            .await?;
-        self.crr
-            .track_insert("collections", &uuid, Collections::ALL)
+        let id = self
+            .as_rotero_db()
+            .insert_collection(&Collection {
+                parent_id: parent_id.map(str::to_string),
+                ..Collection::new(name.to_string())
+            })
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
-        Ok(uuid)
+        Ok(id)
     }
 
     /// Add a paper to a collection (idempotent).
@@ -737,20 +555,10 @@ impl Database {
         paper_id: &str,
         collection_id: &str,
     ) -> Result<(), turso::Error> {
-        self.conn
-            .execute(
-                queries::COLLECTION_ADD_PAPER,
-                [
-                    Value::Text(paper_id.to_string()),
-                    Value::Text(collection_id.to_string()),
-                ],
-            )
-            .await?;
-        let pk = format!("{paper_id}:{collection_id}");
-        self.crr
-            .track_insert("paper_collections", &pk, PaperCollections::ALL)
+        self.as_rotero_db()
+            .add_paper_to_collection(paper_id, collection_id)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
         Ok(())
     }
@@ -761,125 +569,70 @@ impl Database {
         paper_id: &str,
         collection_id: &str,
     ) -> Result<(), turso::Error> {
-        self.conn
-            .execute(
-                queries::COLLECTION_REMOVE_PAPER,
-                [
-                    Value::Text(paper_id.to_string()),
-                    Value::Text(collection_id.to_string()),
-                ],
-            )
-            .await?;
-        let pk = format!("{paper_id}:{collection_id}");
-        self.crr
-            .track_delete("paper_collections", &pk)
+        self.as_rotero_db()
+            .remove_paper_from_collection(paper_id, collection_id)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
         Ok(())
     }
 
     /// Delete a collection (cascades to paper memberships).
     pub async fn delete_collection(&self, id: &str) -> Result<(), turso::Error> {
-        self.conn
-            .execute(queries::COLLECTION_DELETE, [Value::Text(id.to_string())])
-            .await?;
-        self.crr
-            .track_delete("collections", id)
+        self.as_rotero_db()
+            .delete_collection(id)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
         Ok(())
     }
 
     /// Rename a collection.
     pub async fn rename_collection(&self, id: &str, name: &str) -> Result<(), turso::Error> {
-        self.conn
-            .execute(
-                queries::COLLECTION_RENAME,
-                turso::params::Params::Positional(vec![
-                    Value::Text(name.to_string()),
-                    Value::Text(id.to_string()),
-                ]),
-            )
-            .await?;
-        self.crr
-            .track_update("collections", id, &[Collections::NAME])
+        self.as_rotero_db()
+            .rename_collection(id, name)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
         Ok(())
     }
 
     /// Rename a tag.
     pub async fn rename_tag(&self, id: &str, name: &str) -> Result<(), turso::Error> {
-        self.conn
-            .execute(
-                queries::TAG_RENAME,
-                turso::params::Params::Positional(vec![
-                    Value::Text(name.to_string()),
-                    Value::Text(id.to_string()),
-                ]),
-            )
-            .await?;
-        self.crr
-            .track_update("tags", id, &[Tags::NAME])
+        self.as_rotero_db()
+            .rename_tag(id, name)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
         Ok(())
     }
 
     /// Delete a tag (cascades to paper-tag associations).
     pub async fn delete_tag(&self, id: &str) -> Result<(), turso::Error> {
-        self.conn
-            .execute(queries::TAG_DELETE, [Value::Text(id.to_string())])
-            .await?;
-        self.crr
-            .track_delete("tags", id)
+        self.as_rotero_db()
+            .delete_tag(id)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
         Ok(())
     }
 
     /// Update the pdf_path for a paper after downloading a PDF.
-    pub async fn update_pdf_path(
-        &self,
-        paper_id: &str,
-        rel_path: &str,
-    ) -> Result<(), turso::Error> {
-        self.conn
-            .execute(
-                "UPDATE papers SET pdf_path = ?1, date_modified = ?2 WHERE id = ?3",
-                turso::params::Params::Positional(vec![
-                    Value::Text(rel_path.to_string()),
-                    Value::Text(Utc::now().to_rfc3339()),
-                    Value::Text(paper_id.to_string()),
-                ]),
-            )
-            .await?;
-        self.crr
-            .track_update(
-                "papers",
-                paper_id,
-                &[Papers::PDF_PATH, Papers::DATE_MODIFIED],
-            )
+    pub async fn update_pdf_path(&self, id: &str, pdf_path: &str) -> Result<(), turso::Error> {
+        self.as_rotero_db()
+            .update_pdf_path(id, pdf_path)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
         Ok(())
     }
 
     /// Delete a note by ID.
     pub async fn delete_note(&self, id: &str) -> Result<(), turso::Error> {
-        self.conn
-            .execute(queries::NOTE_DELETE, [Value::Text(id.to_string())])
-            .await?;
-        self.crr
-            .track_delete("notes", id)
+        self.as_rotero_db()
+            .delete_note(id)
             .await
-            .map_err(|e| turso::Error::Error(e.to_string()))?;
+            .map_err(to_turso)?;
         self.notify();
         Ok(())
     }
@@ -889,6 +642,7 @@ fn get_opt_text(row: &turso::Row, idx: usize) -> Option<String> {
     row.get_value(idx).ok().and_then(|v| v.as_text().cloned())
 }
 
-fn opt_text(s: Option<&String>) -> Value {
-    s.map(|v| Value::Text(v.clone())).unwrap_or(Value::Null)
+/// Map a `rotero_db` error into the `turso::Error` the MCP surface returns.
+fn to_turso(e: rotero_db::DbError) -> turso::Error {
+    turso::Error::Error(e.to_string())
 }
