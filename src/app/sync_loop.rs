@@ -141,7 +141,7 @@ pub fn SyncLoop() -> Element {
 /// Decode a lowercase-hex device id into the bytes the sync engines name files
 /// with.
 fn hex_bytes(hex: &str) -> Option<Vec<u8>> {
-    if hex.len() % 2 != 0 || hex.is_empty() {
+    if !hex.len().is_multiple_of(2) || hex.is_empty() {
         return None;
     }
     (0..hex.len())

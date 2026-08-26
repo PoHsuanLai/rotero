@@ -7,7 +7,7 @@ use rotero_db::Database;
 
 use objc2::rc::Retained;
 use objc2::runtime::{Bool, ProtocolObject};
-use objc2::{AllocAnyThread, ClassType, msg_send, msg_send_id};
+use objc2::{AllocAnyThread, ClassType, msg_send};
 use objc2_cloud_kit::*;
 use objc2_foundation::*;
 
@@ -157,7 +157,7 @@ impl CloudKitSyncEngine {
             record.setObject_forKey(Some(site_val), &NSString::from_str("siteId"));
 
             let generated: Retained<NSNumber> =
-                msg_send_id![NSNumber::class(), numberWithLongLong: header.generated_at];
+                msg_send![NSNumber::class(), numberWithLongLong: header.generated_at];
             let generated_val: &ProtocolObject<dyn CKRecordValue> =
                 ProtocolObject::from_ref(&*generated);
             record.setObject_forKey(Some(generated_val), &NSString::from_str("generatedAt"));
@@ -219,10 +219,8 @@ impl CloudKitSyncEngine {
             }
         }
 
-        if let Some(ref token) = new_token {
-            if let Some(bytes) = serialize_server_token(token) {
-                write_blob_state(db, "cloudkit_server_token", &bytes).await;
-            }
+        if let Some(bytes) = new_token.as_ref().and_then(|t| serialize_server_token(t)) {
+            write_blob_state(db, "cloudkit_server_token", &bytes).await;
         }
 
         Ok(total_applied)
@@ -390,7 +388,7 @@ fn serialize_server_token(token: &CKServerChangeToken) -> Option<Vec<u8>> {
     // SAFETY: NSKeyedArchiver serialization of NSCoding-conforming CKServerChangeToken.
     // archivedDataWithRootObject returns autoreleased NSData or nil (handled by Option).
     unsafe {
-        let data: Option<Retained<NSData>> = msg_send_id![
+        let data: Option<Retained<NSData>> = msg_send![
             NSKeyedArchiver::class(),
             archivedDataWithRootObject: token,
             requiringSecureCoding: true,
@@ -406,7 +404,7 @@ fn deserialize_server_token(bytes: &[u8]) -> Option<Retained<CKServerChangeToken
     // unarchivedObjectOfClass returns nil (Option::None) on failure.
     unsafe {
         let data = NSData::with_bytes(bytes);
-        let token: Option<Retained<CKServerChangeToken>> = msg_send_id![
+        let token: Option<Retained<CKServerChangeToken>> = msg_send![
             NSKeyedUnarchiver::class(),
             unarchivedObjectOfClass: CKServerChangeToken::class(),
             fromData: &*data,
