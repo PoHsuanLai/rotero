@@ -447,6 +447,219 @@ mod tests {
         );
     }
 
+    /// Two libraries, one shared folder, through this engine.
+    ///
+    /// The scenarios the rollout plan lists for manual end-to-end checking, run
+    /// against the real transport rather than the in-test harness — so the
+    /// checksum sidecars, the skip-on-bad-file handling, and the on-disk layout
+    /// are exercised too, not just the merge underneath them.
+    mod two_device {
+        use super::*;
+        use rotero_db::Database;
+
+        struct Pair {
+            a: Database,
+            b: Database,
+            ea: FileSyncEngine,
+            eb: FileSyncEngine,
+            shared: tempfile::TempDir,
+            _da: tempfile::TempDir,
+            _db: tempfile::TempDir,
+        }
+
+        impl Pair {
+            async fn new() -> Self {
+                let shared = tempfile::tempdir().unwrap();
+                let da = tempfile::tempdir().unwrap();
+                let db_dir = tempfile::tempdir().unwrap();
+                let a = Database::open(da.path().to_path_buf()).await.unwrap();
+                let b = Database::open(db_dir.path().to_path_buf()).await.unwrap();
+                Self {
+                    a,
+                    b,
+                    ea: engine(shared.path(), 0xa1),
+                    eb: engine(shared.path(), 0xb2),
+                    shared,
+                    _da: da,
+                    _db: db_dir,
+                }
+            }
+
+            /// One full round trip, as two sync ticks would produce.
+            async fn sync(&self) {
+                for _ in 0..2 {
+                    self.ea.export_changes(&self.a).await.unwrap();
+                    self.eb.export_changes(&self.b).await.unwrap();
+                    self.ea.import_changes(&self.a).await.unwrap();
+                    self.eb.import_changes(&self.b).await.unwrap();
+                }
+            }
+        }
+
+        async fn add_paper(db: &Database, title: &str) -> String {
+            db.insert_paper(&rotero_models::Paper {
+                title: title.into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+        }
+
+        async fn titles(db: &Database) -> Vec<String> {
+            let mut t: Vec<String> = db
+                .list_papers()
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|p| p.title)
+                .collect();
+            t.sort();
+            t
+        }
+
+        #[tokio::test]
+        async fn a_new_paper_reaches_the_other_device() {
+            let p = Pair::new().await;
+            add_paper(&p.a, "Attention Is All You Need").await;
+            p.sync().await;
+            assert_eq!(titles(&p.b).await, vec!["Attention Is All You Need"]);
+        }
+
+        /// A tag from one device and a favorite from the other must both survive.
+        #[tokio::test]
+        async fn edits_from_both_devices_survive() {
+            let p = Pair::new().await;
+            let paper = add_paper(&p.a, "Shared").await;
+            p.sync().await;
+
+            let tag = p.a.get_or_create_tag("method", None).await.unwrap();
+            p.a.add_tag_to_paper(&paper, &tag).await.unwrap();
+            p.b.set_favorite(&paper, true).await.unwrap();
+            p.sync().await;
+
+            for (name, db) in [("A", &p.a), ("B", &p.b)] {
+                assert_eq!(
+                    db.list_tags_for_paper(&paper).await.unwrap().len(),
+                    1,
+                    "device {name} lost the tag"
+                );
+                let row = db
+                    .get_papers_by_ids(std::slice::from_ref(&paper))
+                    .await
+                    .unwrap()
+                    .pop()
+                    .unwrap();
+                assert!(row.status.is_favorite, "device {name} lost the favorite");
+            }
+        }
+
+        /// The pre-existing cascade bug, asserted through the real transport.
+        #[tokio::test]
+        async fn deleting_a_collection_clears_memberships_everywhere() {
+            let p = Pair::new().await;
+            let paper = add_paper(&p.a, "Shelved").await;
+            let shelf = p
+                .a
+                .insert_collection(&rotero_models::Collection::new("Shelf".into()))
+                .await
+                .unwrap();
+            p.a.add_paper_to_collection(&paper, &shelf).await.unwrap();
+            p.sync().await;
+            assert_eq!(
+                p.b.list_collections_for_paper(&paper).await.unwrap().len(),
+                1
+            );
+
+            p.a.delete_collection(&shelf).await.unwrap();
+            p.sync().await;
+
+            for (name, db) in [("A", &p.a), ("B", &p.b)] {
+                assert!(
+                    db.list_collections_for_paper(&paper)
+                        .await
+                        .unwrap()
+                        .is_empty(),
+                    "device {name} kept a membership pointing at a deleted collection"
+                );
+                assert_eq!(db.list_papers().await.unwrap().len(), 1, "device {name}");
+            }
+        }
+
+        #[tokio::test]
+        async fn deleting_a_paper_removes_its_children_everywhere() {
+            let p = Pair::new().await;
+            let paper = add_paper(&p.a, "Doomed").await;
+            p.a.insert_note(&rotero_models::Note::new(
+                paper.clone(),
+                "Thought".into(),
+            ))
+            .await
+            .unwrap();
+            p.sync().await;
+            assert_eq!(p.b.list_notes_for_paper(&paper).await.unwrap().len(), 1);
+
+            p.a.delete_paper(&paper).await.unwrap();
+            p.sync().await;
+
+            assert!(titles(&p.b).await.is_empty(), "the paper must be gone on B");
+            assert!(
+                p.b.list_notes_for_paper(&paper).await.unwrap().is_empty(),
+                "its note must be gone on B too"
+            );
+        }
+
+        #[tokio::test]
+        async fn offline_edits_on_both_devices_converge() {
+            let p = Pair::new().await;
+            add_paper(&p.a, "Before").await;
+            p.sync().await;
+
+            add_paper(&p.a, "From A").await;
+            add_paper(&p.b, "From B").await;
+            p.sync().await;
+
+            let expected = vec![
+                "Before".to_string(),
+                "From A".to_string(),
+                "From B".to_string(),
+            ];
+            assert_eq!(titles(&p.a).await, expected, "device A");
+            assert_eq!(titles(&p.b).await, expected, "device B");
+        }
+
+        /// A half-uploaded peer file must be skipped, and recover on republish.
+        #[tokio::test]
+        async fn a_truncated_peer_file_does_not_stop_sync() {
+            let p = Pair::new().await;
+            add_paper(&p.a, "Before truncation").await;
+            p.sync().await;
+            assert_eq!(titles(&p.b).await.len(), 1);
+
+            let a_snap = p
+                .shared
+                .path()
+                .join("devices")
+                .join(format!("{}.snapshot", hex(0xa1)));
+            let bytes = std::fs::read(&a_snap).unwrap();
+            std::fs::write(&a_snap, &bytes[..bytes.len() / 2]).unwrap();
+
+            p.eb.import_changes(&p.b).await.unwrap();
+            assert_eq!(
+                titles(&p.b).await.len(),
+                1,
+                "B must keep what it already had"
+            );
+
+            add_paper(&p.a, "After truncation").await;
+            p.sync().await;
+            assert_eq!(
+                titles(&p.b).await.len(),
+                2,
+                "a corrupt file must self-heal on the next export"
+            );
+        }
+    }
+
     /// `pdf_path` arrives from a peer, and `Path::join` with an absolute path
     /// replaces the base instead of extending it.
     #[test]
