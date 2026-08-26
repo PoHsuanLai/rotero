@@ -137,7 +137,9 @@ pub(crate) fn handle_notification(
                         .and_then(|c| c.get("text"))
                         .and_then(|t| t.as_str())
                     {
-                        let cleaned = strip_protocol_tags_trimmed(text);
+                        // A user chunk is a whole message, so the padding
+                        // left behind by tag removal can go.
+                        let cleaned = strip_protocol_tags(text).trim().to_string();
                         if !cleaned.is_empty() {
                             let _ = evt_tx.send(ChatEvent::UserMessage(cleaned));
                         }
@@ -303,6 +305,14 @@ pub(crate) fn first_allow_option_id(v: &serde_json::Value) -> String {
         .to_string()
 }
 
+/// Remove protocol tags and their contents, leaving all other whitespace
+/// untouched.
+///
+/// Whitespace-neutral by contract: agent replies arrive as a stream of chunks
+/// that are concatenated before rendering, and markdown is line-oriented, so
+/// trimming here would eat the newlines separating blocks at a chunk boundary
+/// — silently demoting headings and dissolving tables. Callers holding a whole
+/// message may trim the result themselves.
 pub(crate) fn strip_protocol_tags(text: &str) -> String {
     let tag_patterns = [
         "command-name",
@@ -341,14 +351,6 @@ pub(crate) fn strip_protocol_tags(text: &str) -> String {
     }
 
     result
-}
-
-/// Strip protocol tags from a complete message, trimming the outer padding the
-/// tags leave behind. Streaming chunks must use [`strip_protocol_tags`]
-/// instead: trimming a chunk would eat the newlines that separate markdown
-/// blocks, silently demoting headings and dissolving tables.
-pub(crate) fn strip_protocol_tags_trimmed(text: &str) -> String {
-    strip_protocol_tags(text).trim().to_string()
 }
 
 pub(crate) fn extract_models_event(models: &serde_json::Value) -> ChatEvent {
@@ -634,7 +636,7 @@ mod streaming_markdown {
             "\n\n## H",
             "a chunk's leading newline ends the previous block"
         );
-        // Only a whole message may be trimmed.
-        assert_eq!(strip_protocol_tags_trimmed("\n\n## H\n"), "## H");
+        // Only a caller holding a whole message may trim.
+        assert_eq!(strip_protocol_tags("\n\n## H\n").trim(), "## H");
     }
 }
