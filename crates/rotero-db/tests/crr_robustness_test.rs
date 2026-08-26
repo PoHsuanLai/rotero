@@ -25,7 +25,7 @@ async fn setup_two_devices_same_paper(
 
     // Replicate to B via sync
     let changes = db_a.crr().changes_since(0).await.unwrap();
-    db_b.crr().apply_changes(&changes).await.unwrap();
+    db_b.apply_changes(&changes).await.unwrap();
 
     // Verify B has it
     let papers_b = db_b.list_papers().await.unwrap();
@@ -53,7 +53,7 @@ async fn test_delete_on_a_edit_on_b_delete_wins() {
 
     // Sync A's changes to B
     let changes_a = db_a.crr().changes_since(0).await.unwrap();
-    let result = db_b.crr().apply_changes(&changes_a).await.unwrap();
+    let result = db_b.apply_changes(&changes_a).await.unwrap();
     assert!(result.applied > 0);
 
     // Paper should be deleted on B (delete CL=2 beats alive CL=1)
@@ -77,7 +77,7 @@ async fn test_edit_on_a_delete_on_b_delete_wins() {
 
     // Sync B's changes to A
     let changes_b = db_b.crr().changes_since(0).await.unwrap();
-    db_a.crr().apply_changes(&changes_b).await.unwrap();
+    db_a.apply_changes(&changes_b).await.unwrap();
 
     let papers_a = db_a.list_papers().await.unwrap();
     assert_eq!(papers_a.len(), 0, "Delete should win over edit");
@@ -103,8 +103,8 @@ async fn test_apply_same_changeset_twice_is_idempotent() {
     let changes = db_a.crr().changes_since(0).await.unwrap();
 
     // Apply to B twice
-    let result1 = db_b.crr().apply_changes(&changes).await.unwrap();
-    let result2 = db_b.crr().apply_changes(&changes).await.unwrap();
+    let result1 = db_b.apply_changes(&changes).await.unwrap();
+    let result2 = db_b.apply_changes(&changes).await.unwrap();
 
     // Second application should skip everything
     assert!(result1.applied > 0);
@@ -155,8 +155,8 @@ async fn test_sequential_changesets_from_same_device() {
     let batch2 = db_a.crr().changes_since(v1).await.unwrap();
 
     // Apply in correct order
-    db_b.crr().apply_changes(&batch1).await.unwrap();
-    db_b.crr().apply_changes(&batch2).await.unwrap();
+    db_b.apply_changes(&batch1).await.unwrap();
+    db_b.apply_changes(&batch2).await.unwrap();
 
     let papers_b = db_b.list_papers().await.unwrap();
     assert_eq!(papers_b.len(), 1);
@@ -182,8 +182,8 @@ async fn test_different_columns_merge_independently() {
     // Sync both ways
     let changes_a = db_a.crr().changes_since(0).await.unwrap();
     let changes_b = db_b.crr().changes_since(0).await.unwrap();
-    db_b.crr().apply_changes(&changes_a).await.unwrap();
-    db_a.crr().apply_changes(&changes_b).await.unwrap();
+    db_b.apply_changes(&changes_a).await.unwrap();
+    db_a.apply_changes(&changes_b).await.unwrap();
 
     // Both should have favorite=true AND read=true
     let papers_a = db_a.list_papers().await.unwrap();
@@ -223,8 +223,8 @@ async fn test_bidirectional_sync_converges() {
     // Round 1: sync A→B, B→A
     let changes_a = db_a.crr().changes_since(0).await.unwrap();
     let changes_b = db_b.crr().changes_since(0).await.unwrap();
-    db_b.crr().apply_changes(&changes_a).await.unwrap();
-    db_a.crr().apply_changes(&changes_b).await.unwrap();
+    db_b.apply_changes(&changes_a).await.unwrap();
+    db_a.apply_changes(&changes_b).await.unwrap();
 
     // Both should converge to the same state
     let pa = db_a.list_papers().await.unwrap();
@@ -264,7 +264,7 @@ async fn test_junction_table_sync() {
 
     // Sync to B
     let changes = db_a.crr().changes_since(0).await.unwrap();
-    db_b.crr().apply_changes(&changes).await.unwrap();
+    db_b.apply_changes(&changes).await.unwrap();
 
     // Verify B has the paper in the collection
     let ids_b = db_b.list_paper_ids_in_collection(&coll_id).await.unwrap();
@@ -290,7 +290,7 @@ async fn test_tag_junction_sync() {
 
     // Sync to B
     let changes = db_a.crr().changes_since(0).await.unwrap();
-    db_b.crr().apply_changes(&changes).await.unwrap();
+    db_b.apply_changes(&changes).await.unwrap();
 
     // Verify B has the tag and paper-tag association
     let tags_b = db_b.list_tags().await.unwrap();
@@ -331,7 +331,7 @@ async fn test_annotation_sync() {
 
     // Sync to B
     let changes = db_a.crr().changes_since(0).await.unwrap();
-    db_b.crr().apply_changes(&changes).await.unwrap();
+    db_b.apply_changes(&changes).await.unwrap();
 
     // Verify B has the annotation
     let anns_b = db_b.list_annotations_for_paper(&paper_id).await.unwrap();
@@ -359,7 +359,7 @@ async fn test_notes_sync() {
 
     // Sync to B
     let changes = db_a.crr().changes_since(0).await.unwrap();
-    db_b.crr().apply_changes(&changes).await.unwrap();
+    db_b.apply_changes(&changes).await.unwrap();
 
     let notes_b = db_b.list_notes_for_paper(&paper_id).await.unwrap();
     assert_eq!(notes_b.len(), 1);
@@ -390,7 +390,7 @@ async fn test_bulk_sync_100_papers() {
         "Should have many changes for 100 papers"
     );
 
-    let result = db_b.crr().apply_changes(&changes).await.unwrap();
+    let result = db_b.apply_changes(&changes).await.unwrap();
     assert!(result.applied > 0);
 
     let papers_b = db_b.list_papers().await.unwrap();
@@ -414,8 +414,8 @@ async fn test_three_device_convergence() {
 
     // Sync A→B and A→C
     let changes_a = db_a.crr().changes_since(0).await.unwrap();
-    db_b.crr().apply_changes(&changes_a).await.unwrap();
-    db_c.crr().apply_changes(&changes_a).await.unwrap();
+    db_b.apply_changes(&changes_a).await.unwrap();
+    db_c.apply_changes(&changes_a).await.unwrap();
 
     // Each device makes a different change
     db_a.set_favorite(&id, true).await.unwrap();
@@ -429,12 +429,12 @@ async fn test_three_device_convergence() {
     let cc = db_c.crr().changes_since(0).await.unwrap();
 
     // Apply all to all (full mesh sync)
-    db_a.crr().apply_changes(&cb).await.unwrap();
-    db_a.crr().apply_changes(&cc).await.unwrap();
-    db_b.crr().apply_changes(&ca).await.unwrap();
-    db_b.crr().apply_changes(&cc).await.unwrap();
-    db_c.crr().apply_changes(&ca).await.unwrap();
-    db_c.crr().apply_changes(&cb).await.unwrap();
+    db_a.apply_changes(&cb).await.unwrap();
+    db_a.apply_changes(&cc).await.unwrap();
+    db_b.apply_changes(&ca).await.unwrap();
+    db_b.apply_changes(&cc).await.unwrap();
+    db_c.apply_changes(&ca).await.unwrap();
+    db_c.apply_changes(&cb).await.unwrap();
 
     // All three should converge
     let pa = db_a.list_papers().await.unwrap();
@@ -468,7 +468,7 @@ async fn test_saved_search_sync() {
     db_a.insert_saved_search(&search).await.unwrap();
 
     let changes = db_a.crr().changes_since(0).await.unwrap();
-    db_b.crr().apply_changes(&changes).await.unwrap();
+    db_b.apply_changes(&changes).await.unwrap();
 
     let searches_b = db_b.list_saved_searches().await.unwrap();
     assert_eq!(searches_b.len(), 1);
@@ -490,7 +490,7 @@ async fn test_resurrect_after_delete() {
 
     // Sync A→B: B now has CL=2, paper deleted
     let changes_a = db_a.crr().changes_since(0).await.unwrap();
-    db_b.crr().apply_changes(&changes_a).await.unwrap();
+    db_b.apply_changes(&changes_a).await.unwrap();
     let papers_b = db_b.list_papers().await.unwrap();
     assert_eq!(papers_b.len(), 0, "Paper should be deleted after sync");
 
@@ -522,7 +522,7 @@ async fn test_resurrect_after_delete() {
     ];
 
     // Apply resurrection changeset to A
-    let result = db_a.crr().apply_changes(&resurrect_changes).await.unwrap();
+    let result = db_a.apply_changes(&resurrect_changes).await.unwrap();
     assert!(result.applied > 0, "Resurrection should be applied");
 
     // Paper should exist again on A with the new title
@@ -578,7 +578,7 @@ async fn test_column_before_sentinel_out_of_order() {
         },
     ];
 
-    let result = db.crr().apply_changes(&changes).await.unwrap();
+    let result = db.apply_changes(&changes).await.unwrap();
     assert!(result.applied > 0);
 
     // Paper should exist with correct values despite out-of-order delivery
@@ -619,7 +619,7 @@ async fn test_delete_resurrect_delete_cycle() {
         seq: 0,
         cl: 3,
     }];
-    db.crr().apply_changes(&resurrect).await.unwrap();
+    db.apply_changes(&resurrect).await.unwrap();
     assert_eq!(
         db.list_papers().await.unwrap().len(),
         1,
@@ -638,7 +638,7 @@ async fn test_delete_resurrect_delete_cycle() {
         seq: 0,
         cl: 4,
     }];
-    db.crr().apply_changes(&delete_again).await.unwrap();
+    db.apply_changes(&delete_again).await.unwrap();
     assert_eq!(
         db.list_papers().await.unwrap().len(),
         0,

@@ -16,6 +16,7 @@ pub struct Database {
     data_dir: std::path::PathBuf,
     on_change: Option<OnChangeFn>,
     crr: Arc<rotero_db::crr::CrrStore>,
+    device_id: Arc<str>,
 }
 
 impl Database {
@@ -41,6 +42,7 @@ impl Database {
             data_dir: db.data_dir().to_path_buf(),
             on_change: None,
             crr: db.crr_arc(),
+            device_id: db.device_id_arc(),
         }
     }
 
@@ -514,7 +516,12 @@ impl Database {
     /// run the same code, so a write path cannot be correct in one and wrong in
     /// the other — which is what happened when each kept its own copy.
     fn as_rotero_db(&self) -> rotero_db::Database {
-        rotero_db::Database::from_parts(self.conn.clone(), self.data_dir.clone(), self.crr.clone())
+        rotero_db::Database::from_parts(
+            self.conn.clone(),
+            self.data_dir.clone(),
+            self.crr.clone(),
+            self.device_id.clone(),
+        )
     }
 
     /// Remove a tag from a paper.

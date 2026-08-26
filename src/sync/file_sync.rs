@@ -223,7 +223,6 @@ impl FileSyncEngine {
                 .map_err(|e| format!("Failed to parse {}: {e}", path.display()))?;
 
             let result = db
-                .crr()
                 .apply_changes(&changeset.changes)
                 .await
                 .map_err(|e| format!("Failed to apply changes: {e}"))?;

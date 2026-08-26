@@ -9,6 +9,33 @@
 use rotero_db::Database;
 use rotero_db::sync_schema::SYNCED_TABLES;
 
+/// Strip the sync clocks from every row, as a genuinely pre-v14 library has.
+///
+/// Inserting through the normal write paths now stamps rows on the way in, so a
+/// populated library is already fully stamped and the migration would have
+/// nothing to do. Clearing the columns first is what makes these tests exercise
+/// the backfill rather than a no-op.
+async fn strip_clocks(dir: &std::path::Path) {
+    let db_path = dir.join("rotero.db");
+    let raw = turso::Builder::new_local(db_path.to_str().unwrap())
+        .experimental_index_method(true)
+        .build()
+        .await
+        .unwrap();
+    let conn = raw.connect().unwrap();
+    for table in SYNCED_TABLES {
+        conn.execute(
+            &format!(
+                "UPDATE {} SET updated_at = 0, updated_by = ''",
+                table.name
+            ),
+            (),
+        )
+        .await
+        .unwrap();
+    }
+}
+
 /// Rewind a library to a pre-LWW schema version so the next open migrates it.
 async fn force_schema_version(dir: &std::path::Path, version: i64) {
     let db_path = dir.join("rotero.db");
@@ -66,6 +93,7 @@ async fn migration_stamps_every_existing_row() {
     populate(&db).await;
     drop(db);
 
+    strip_clocks(dir.path()).await;
     force_schema_version(dir.path(), 13).await;
     let db = Database::open(dir.path().to_path_buf()).await.unwrap();
 
@@ -98,6 +126,7 @@ async fn seeded_timestamps_are_backdated() {
     populate(&db).await;
     drop(db);
 
+    strip_clocks(dir.path()).await;
     force_schema_version(dir.path(), 13).await;
     let db = Database::open(dir.path().to_path_buf()).await.unwrap();
 
@@ -131,6 +160,7 @@ async fn rows_with_timestamps_seed_from_them() {
         .unwrap();
     drop(db);
 
+    strip_clocks(dir.path()).await;
     force_schema_version(dir.path(), 13).await;
     let db = Database::open(dir.path().to_path_buf()).await.unwrap();
 
@@ -158,6 +188,7 @@ async fn migration_preserves_device_identity() {
     populate(&db).await;
     drop(db);
 
+    strip_clocks(dir.path()).await;
     force_schema_version(dir.path(), 13).await;
     let db = Database::open(dir.path().to_path_buf()).await.unwrap();
     let after = db.crr().site_id().await.unwrap();
@@ -177,11 +208,13 @@ async fn migration_is_idempotent() {
     populate(&db).await;
     drop(db);
 
+    strip_clocks(dir.path()).await;
     force_schema_version(dir.path(), 13).await;
     let db = Database::open(dir.path().to_path_buf()).await.unwrap();
     let first = scalar(&db, "SELECT SUM(updated_at) FROM papers").await;
     drop(db);
 
+    strip_clocks(dir.path()).await;
     force_schema_version(dir.path(), 13).await;
     let db = Database::open(dir.path().to_path_buf()).await.unwrap();
     let second = scalar(&db, "SELECT SUM(updated_at) FROM papers").await;

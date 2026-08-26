@@ -151,6 +151,7 @@ impl Database {
         self.crr()
             .track_insert("papers", &uuid, Papers::ALL)
             .await?;
+        self.touch("papers", crate::clock::Pk::Single(&uuid)).await?;
 
         Ok(uuid)
     }
@@ -276,6 +277,7 @@ impl Database {
         self.crr()
             .track_update("papers", id, &[Papers::IS_FAVORITE])
             .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
@@ -290,10 +292,18 @@ impl Database {
         self.crr()
             .track_update("papers", id, &[Papers::IS_READ])
             .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
     /// Store extracted full-text content for a paper (used for FTS indexing).
+    /// Store extracted PDF text for a paper.
+    ///
+    /// Deliberately does not stamp the row's sync clock. `fulltext` is
+    /// local-only — re-extractable from the PDF and excluded from every snapshot
+    /// — so bumping the clock here would let a background extraction on one
+    /// device outrank, and silently discard, a real metadata edit made on
+    /// another.
     pub async fn update_paper_fulltext(&self, id: &str, text: &str) -> Result<(), crate::DbError> {
         let conn = self.conn();
         conn.execute(
@@ -361,6 +371,7 @@ impl Database {
                 ],
             )
             .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
@@ -402,6 +413,7 @@ impl Database {
         self.crr()
             .track_update("papers", id, &[Papers::PDF_PATH, Papers::DATE_MODIFIED])
             .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
@@ -417,6 +429,7 @@ impl Database {
         self.crr()
             .track_update("papers", id, &[Papers::DATE_MODIFIED])
             .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
@@ -441,50 +454,65 @@ impl Database {
         let cited = self.citation_pks(id, false).await?;
 
         let conn = self.conn();
-        conn.execute(queries::PAPER_DELETE, [Value::Text(id.to_string())])
-            .await?;
 
-        for (table, column) in [("annotations", "paper_id"), ("notes", "paper_id")] {
+        // Tombstoned, not removed. A hard delete leaves nothing to publish, so
+        // a peer still holding the child row would treat its copy as news and
+        // resurrect it — the paper would come back one annotation at a time.
+        let now = chrono::Utc::now().timestamp_millis();
+        let device = self.device_id().to_string();
+
+        for table in ["annotations", "notes", "paper_collections", "paper_tags"] {
             conn.execute(
-                &format!("DELETE FROM {table} WHERE {column} = ?1"),
-                [Value::Text(id.to_string())],
-            )
-            .await?;
-        }
-        for table in ["paper_collections", "paper_tags"] {
-            conn.execute(
-                &format!("DELETE FROM {table} WHERE paper_id = ?1"),
-                [Value::Text(id.to_string())],
+                &format!(
+                    "UPDATE {table} SET deleted = 1, updated_at = ?2, updated_by = ?3 \
+                     WHERE paper_id = ?1"
+                ),
+                turso::params::Params::Positional(vec![
+                    Value::Text(id.to_string()),
+                    Value::Integer(now),
+                    Value::Text(device.clone()),
+                ]),
             )
             .await?;
         }
         conn.execute(
-            "DELETE FROM paper_citations WHERE citing_paper_id = ?1 OR cited_paper_id = ?1",
-            [Value::Text(id.to_string())],
+            "UPDATE paper_citations SET deleted = 1, updated_at = ?2, updated_by = ?3 \
+             WHERE citing_paper_id = ?1 OR cited_paper_id = ?1",
+            turso::params::Params::Positional(vec![
+                Value::Text(id.to_string()),
+                Value::Integer(now),
+                Value::Text(device),
+            ]),
         )
         .await?;
 
         self.crr().track_delete("papers", id).await?;
+        self.tombstone("papers", crate::clock::Pk::Single(id)).await?;
         for annotation_id in &annotations {
             self.crr()
                 .track_delete("annotations", annotation_id)
                 .await?;
+            self.tombstone("annotations", crate::clock::Pk::Single(annotation_id)).await?;
         }
         for note_id in &notes {
             self.crr().track_delete("notes", note_id).await?;
+            self.tombstone("notes", crate::clock::Pk::Single(note_id)).await?;
         }
         for collection_id in &collections {
             self.crr()
                 .track_delete("paper_collections", &format!("{id}:{collection_id}"))
                 .await?;
+            self.tombstone("paper_collections", crate::clock::Pk::Composite(id, collection_id)).await?;
         }
         for tag_id in &tags {
             self.crr()
                 .track_delete("paper_tags", &format!("{id}:{tag_id}"))
                 .await?;
+            self.tombstone("paper_tags", crate::clock::Pk::Composite(id, tag_id)).await?;
         }
         for pk in citing.iter().chain(cited.iter()) {
             self.crr().track_delete("paper_citations", pk).await?;
+            self.tombstone("paper_citations", crate::clock::Pk::Single(pk)).await?;
         }
 
         Ok(())
@@ -616,12 +644,14 @@ impl Database {
             self.crr()
                 .track_insert("paper_collections", &pk, PaperCollections::ALL)
                 .await?;
+            self.touch("paper_collections", crate::clock::Pk::Composite(keep_id, collection_id)).await?;
         }
         for tag_id in tags.iter().filter(|id| !existing_tags.contains(id)) {
             let pk = format!("{keep_id}:{tag_id}");
             self.crr()
                 .track_insert("paper_tags", &pk, PaperTags::ALL)
                 .await?;
+            self.touch("paper_tags", crate::clock::Pk::Composite(keep_id, tag_id)).await?;
         }
 
         // `delete_paper` tracks the duplicate's own junction rows as deleted, so
@@ -699,6 +729,7 @@ impl Database {
         self.crr()
             .track_update("papers", id, &[Papers::CITATION_COUNT])
             .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
@@ -716,6 +747,7 @@ impl Database {
         self.crr()
             .track_update("papers", id, &[Papers::CITATION_KEY])
             .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 

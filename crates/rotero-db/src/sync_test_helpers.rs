@@ -73,6 +73,15 @@ impl TestSyncEngine {
             let data = std::fs::read(&path).unwrap();
             let changes: Vec<ChangeRow> = serde_json::from_slice(&data).unwrap();
             let result = db.crr().apply_changes(&changes).await.unwrap();
+            // recrr writes row values without knowing about `deleted`, so a row
+            // it resurrects would stay hidden behind the `_live` views.
+            let touched: Vec<(String, String)> = changes
+                .iter()
+                .map(|c| (c.table_name.clone(), c.pk.clone()))
+                .collect();
+            db.reconcile_tombstones_after_crr_apply(&touched)
+                .await
+                .unwrap();
             total += result.applied;
         }
 

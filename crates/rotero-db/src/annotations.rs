@@ -43,6 +43,7 @@ impl Database {
         self.crr()
             .track_insert("annotations", &uuid, Annotations::ALL)
             .await?;
+        self.touch("annotations", crate::clock::Pk::Single(&uuid)).await?;
 
         Ok(uuid)
     }
@@ -89,6 +90,7 @@ impl Database {
                 &[Annotations::CONTENT, Annotations::MODIFIED_AT],
             )
             .await?;
+        self.touch("annotations", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
@@ -116,15 +118,14 @@ impl Database {
                 &[Annotations::COLOR, Annotations::MODIFIED_AT],
             )
             .await?;
+        self.touch("annotations", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
     /// Delete an annotation by ID.
     pub async fn delete_annotation(&self, id: &str) -> Result<(), crate::DbError> {
-        let conn = self.conn();
-        conn.execute(queries::ANNOTATION_DELETE, [Value::Text(id.to_string())])
-            .await?;
         self.crr().track_delete("annotations", id).await?;
+        self.tombstone("annotations", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 }

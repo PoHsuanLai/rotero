@@ -24,6 +24,9 @@ pub mod saved_searches;
 /// Table definitions, FTS index, and schema migrations.
 pub mod schema;
 /// Test utilities for simulating multi-device sync round-trips.
+/// Stamping local writes so they can win a merge.
+pub mod clock;
+
 /// Which tables and columns sync between devices.
 pub mod sync_schema;
 
@@ -125,6 +128,12 @@ pub struct Database {
     data_dir: PathBuf,
     /// CRR change-tracking store, shared across clones of this handle.
     crr: Arc<CrrStore>,
+    /// This device's sync identity, read once at open.
+    ///
+    /// Held rather than queried per write: it is the tiebreak half of every
+    /// clock stamp, so it is read on a hot path and never changes for the life
+    /// of the library.
+    device_id: Arc<str>,
 }
 
 impl PartialEq for Database {
@@ -200,10 +209,13 @@ impl Database {
             }
         }
 
+        let device_id = read_device_id(&conn).await?;
+
         let db = Self {
             conn,
             data_dir,
             crr,
+            device_id,
         };
 
         // Adopt rows written by a build that never initialized CRR. Gated on a
@@ -253,6 +265,12 @@ impl Database {
             conn,
             data_dir,
             crr,
+            // Left empty deliberately. This constructor backs `attach_readonly`,
+            // which reports a database as-is without initializing it, so it must
+            // not create an identity a health check is about to look for. The
+            // health check reports the empty id rather than being handed one
+            // this path invented.
+            device_id: Arc::from(""),
         }
     }
 
@@ -264,17 +282,36 @@ impl Database {
     /// properly. That lets a wrapper around the same connection — the embedded
     /// MCP server — call shared write paths instead of reimplementing them, which
     /// is how its `delete_paper` drifted from the app's.
-    pub fn from_parts(conn: Connection, data_dir: PathBuf, crr: Arc<CrrStore>) -> Self {
+    pub fn from_parts(
+        conn: Connection,
+        data_dir: PathBuf,
+        crr: Arc<CrrStore>,
+        device_id: Arc<str>,
+    ) -> Self {
         Self {
             conn,
             data_dir,
             crr,
+            device_id,
         }
+    }
+
+    /// This device's identity, for handing to [`from_parts`](Self::from_parts).
+    pub fn device_id_arc(&self) -> Arc<str> {
+        Arc::clone(&self.device_id)
     }
 
     /// Returns a reference to the underlying turso connection.
     pub fn conn(&self) -> &Connection {
         &self.conn
+    }
+
+    /// This device's sync identity, as lowercase hex.
+    ///
+    /// Written into `updated_by` on every local change, and used as the
+    /// deterministic tiebreak when two devices stamp the same millisecond.
+    pub fn device_id(&self) -> &str {
+        &self.device_id
     }
 
     /// Returns the CRR change-tracking store for sync operations.
@@ -473,4 +510,34 @@ fn sanitize_filename(s: &str, max_len: usize) -> String {
         Some(pos) if pos > truncated.len() / 2 => truncated[..pos].to_string(),
         _ => truncated,
     }
+}
+
+/// Read this device's sync identity, creating one if the library has none.
+///
+/// The table is created by Rotero's own migration rather than by recrr, so the
+/// identity survives that dependency being removed — which matters, because a
+/// device that changed id would look to every peer like a brand-new one and
+/// re-send its whole library.
+async fn read_device_id(conn: &Connection) -> Result<Arc<str>, String> {
+    let _ = conn
+        .execute(
+            "INSERT OR IGNORE INTO crr_site_id (site_id) VALUES (randomblob(16))",
+            (),
+        )
+        .await;
+
+    let mut rows = conn
+        .query("SELECT lower(hex(site_id)) FROM crr_site_id LIMIT 1", ())
+        .await
+        .map_err(|e| format!("Failed to read device id: {e}"))?;
+
+    let id = rows
+        .next()
+        .await
+        .map_err(|e| format!("Failed to read device id: {e}"))?
+        .and_then(|r| r.get_value(0).ok())
+        .and_then(|v| v.as_text().cloned())
+        .ok_or_else(|| "Failed to read device id: no row".to_string())?;
+
+    Ok(Arc::from(id.as_str()))
 }

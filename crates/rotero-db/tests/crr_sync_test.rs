@@ -196,7 +196,7 @@ async fn test_conflict_resolution_lww() {
     // Export A's changes
     let changes_a = db_a.crr().changes_since(0).await.unwrap();
     // Apply A's changes to B
-    let _result = db_b.crr().apply_changes(&changes_a).await.unwrap();
+    let _result = db_b.apply_changes(&changes_a).await.unwrap();
 
     // One of them should win deterministically (value comparison tie-break)
     let papers_b = db_b.list_papers().await.unwrap();

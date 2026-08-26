@@ -214,7 +214,7 @@ impl CloudKitSyncEngine {
                     }
                 };
 
-                match db.crr().apply_changes(&changes).await {
+                match db.apply_changes(&changes).await {
                     Ok(result) => total_applied += result.applied,
                     Err(e) => tracing::warn!("Failed to apply CloudKit changes: {e}"),
                 }

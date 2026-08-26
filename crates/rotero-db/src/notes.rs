@@ -25,6 +25,7 @@ impl Database {
         .await?;
 
         self.crr().track_insert("notes", &uuid, Notes::ALL).await?;
+        self.touch("notes", crate::clock::Pk::Single(&uuid)).await?;
 
         Ok(uuid)
     }
@@ -66,15 +67,14 @@ impl Database {
                 &[Notes::TITLE, Notes::BODY, Notes::MODIFIED_AT],
             )
             .await?;
+        self.touch("notes", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
     /// Delete a note by ID.
     pub async fn delete_note(&self, id: &str) -> Result<(), crate::DbError> {
-        let conn = self.conn();
-        conn.execute(queries::NOTE_DELETE, [Value::Text(id.to_string())])
-            .await?;
         self.crr().track_delete("notes", id).await?;
+        self.tombstone("notes", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 }

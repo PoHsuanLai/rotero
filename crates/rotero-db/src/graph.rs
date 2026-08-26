@@ -69,6 +69,7 @@ impl Database {
         self.crr()
             .track_insert("paper_citations", &pk, PaperCitations::ALL)
             .await?;
+        self.touch("paper_citations", crate::clock::Pk::Composite(citing_paper_id, cited_paper_id)).await?;
         Ok(())
     }
 
