@@ -84,6 +84,27 @@ async fn junction_count(db: &Database, table: &str, column: &str, value: &str) -
         .unwrap_or(-1)
 }
 
+/// When a paper-tag membership was last stamped.
+async fn membership_stamp(db: &Database, paper_id: &str, tag_id: &str) -> i64 {
+    let mut rows = db
+        .conn()
+        .query(
+            "SELECT updated_at FROM paper_tags WHERE paper_id = ?1 AND tag_id = ?2",
+            [
+                turso::Value::Text(paper_id.to_string()),
+                turso::Value::Text(tag_id.to_string()),
+            ],
+        )
+        .await
+        .unwrap();
+    rows.next()
+        .await
+        .unwrap()
+        .and_then(|r| r.get_value(0).ok())
+        .and_then(|v| v.as_integer().copied())
+        .unwrap_or(-1)
+}
+
 async fn insert_paper(db: &Database, title: &str) -> String {
     db.insert_paper(&rotero_models::Paper {
         title: title.into(),
@@ -144,13 +165,14 @@ async fn merging_does_not_disturb_a_membership_both_papers_shared() {
     p.a.add_tag_to_paper(&keep, &tag).await.unwrap();
     p.a.add_tag_to_paper(&dupe, &tag).await.unwrap();
 
-    let before = common::col_ver(&p.a, "paper_tags", &format!("{keep}:{tag}"), "__sentinel").await;
+    let before = membership_stamp(&p.a, &keep, &tag).await;
     p.a.merge_papers(&keep, &dupe).await.unwrap();
-    let after = common::col_ver(&p.a, "paper_tags", &format!("{keep}:{tag}"), "__sentinel").await;
+    let after = membership_stamp(&p.a, &keep, &tag).await;
 
     assert_eq!(
         after, before,
-        "an existing membership must not be re-tracked by the merge"
+        "an existing membership must not be restamped by the merge; bumping its \
+         clock would make it outrank a peer's newer edit to the same row"
     );
     assert_eq!(p.a.list_tags_for_paper(&keep).await.unwrap().len(), 1);
 }

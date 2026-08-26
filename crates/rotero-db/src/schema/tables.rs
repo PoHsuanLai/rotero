@@ -72,6 +72,14 @@ CREATE TABLE IF NOT EXISTS paper_tags (
     PRIMARY KEY (paper_id, tag_id)
 );
 
+-- This device's sync identity, created here so a fresh database has one before
+-- anything tries to stamp a row with it. It used to be created only by the
+-- migrations that needed it, which left a database starting at the current
+-- version without the table at all.
+CREATE TABLE IF NOT EXISTS crr_site_id (
+    site_id BLOB PRIMARY KEY
+);
+
 CREATE TABLE IF NOT EXISTS paper_citations (
     citing_paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
     cited_paper_id  TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,

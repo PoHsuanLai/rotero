@@ -34,7 +34,7 @@ pub enum SchemaError {
 /// Create the application tables and run pending migrations.
 ///
 /// CRR metadata tables are created separately by [`crate::Database::open`] via
-/// the `recrr` store's `init()`.
+/// the sync store's initialization.
 pub async fn initialize_db(conn: &Connection) -> Result<(), SchemaError> {
     conn.execute_batch(CREATE_TABLES).await?;
     create_live_views(conn).await;
@@ -668,7 +668,7 @@ async fn migrate_to_lww(conn: &Connection) -> Result<(), turso::Error> {
     // first on every row, so its copy of every collection name and tag would
     // silently win the whole library. Backdating a fixed amount keeps migration
     // seeds below any genuine post-migration edit; ties among themselves fall to
-    // `updated_by`, which is deterministic. This mirrors what the recrr backfill
+    // `updated_by`, which is deterministic. This mirrors what the old backfill
     // does on purpose — adopted rows seed at `col_ver = 1` so a real edit wins.
     const BACKDATE_MS: i64 = 86_400_000;
 

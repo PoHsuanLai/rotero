@@ -3,7 +3,6 @@ use rotero_models::{Annotation, AnnotationType};
 use turso::Value;
 
 use crate::Database;
-use crate::crr::Annotations;
 use crate::queries;
 
 impl Database {
@@ -40,9 +39,6 @@ impl Database {
         )
         .await?;
 
-        self.crr()
-            .track_insert("annotations", &uuid, Annotations::ALL)
-            .await?;
         self.touch("annotations", crate::clock::Pk::Single(&uuid)).await?;
 
         Ok(uuid)
@@ -83,13 +79,6 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_update(
-                "annotations",
-                id,
-                &[Annotations::CONTENT, Annotations::MODIFIED_AT],
-            )
-            .await?;
         self.touch("annotations", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
@@ -111,20 +100,12 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_update(
-                "annotations",
-                id,
-                &[Annotations::COLOR, Annotations::MODIFIED_AT],
-            )
-            .await?;
         self.touch("annotations", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
     /// Delete an annotation by ID.
     pub async fn delete_annotation(&self, id: &str) -> Result<(), crate::DbError> {
-        self.crr().track_delete("annotations", id).await?;
         self.tombstone("annotations", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }

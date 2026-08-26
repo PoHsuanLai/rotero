@@ -3,7 +3,6 @@ use rotero_models::SavedSearch;
 use turso::Value;
 
 use crate::Database;
-use crate::crr::SavedSearches;
 use crate::queries;
 
 impl Database {
@@ -25,9 +24,6 @@ impl Database {
         )
         .await?;
 
-        self.crr()
-            .track_insert("saved_searches", &uuid, SavedSearches::ALL)
-            .await?;
         self.touch("saved_searches", crate::clock::Pk::Single(&uuid)).await?;
 
         Ok(uuid)
@@ -42,7 +38,6 @@ impl Database {
 
     /// Delete a saved search by ID.
     pub async fn delete_saved_search(&self, id: &str) -> Result<(), crate::DbError> {
-        self.crr().track_delete("saved_searches", id).await?;
         self.tombstone("saved_searches", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
@@ -55,9 +50,6 @@ impl Database {
             [Value::Text(name.to_string()), Value::Text(id.to_string())],
         )
         .await?;
-        self.crr()
-            .track_update("saved_searches", id, &[SavedSearches::NAME])
-            .await?;
         self.touch("saved_searches", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }

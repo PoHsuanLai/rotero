@@ -3,7 +3,6 @@ use rotero_models::{CitationInfo, Creator, LibraryStatus, Paper, PaperLinks, Pub
 use turso::Value;
 
 use crate::Database;
-use crate::crr::{PaperCollections, PaperTags, Papers};
 use crate::queries;
 
 /// The `extra_meta` JSON key under which the venue fields that have no dedicated
@@ -148,9 +147,6 @@ impl Database {
         )
         .await?;
 
-        self.crr()
-            .track_insert("papers", &uuid, Papers::ALL)
-            .await?;
         self.touch("papers", crate::clock::Pk::Single(&uuid)).await?;
 
         Ok(uuid)
@@ -274,9 +270,6 @@ impl Database {
             [Value::Integer(favorite as i64), Value::Text(id.to_string())],
         )
         .await?;
-        self.crr()
-            .track_update("papers", id, &[Papers::IS_FAVORITE])
-            .await?;
         self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
@@ -289,9 +282,6 @@ impl Database {
             [Value::Integer(read as i64), Value::Text(id.to_string())],
         )
         .await?;
-        self.crr()
-            .track_update("papers", id, &[Papers::IS_READ])
-            .await?;
         self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
@@ -350,27 +340,6 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_update(
-                "papers",
-                id,
-                &[
-                    Papers::TITLE,
-                    Papers::AUTHORS,
-                    Papers::YEAR,
-                    Papers::DOI,
-                    Papers::ABSTRACT_TEXT,
-                    Papers::JOURNAL,
-                    Papers::VOLUME,
-                    Papers::ISSUE,
-                    Papers::PAGES,
-                    Papers::PUBLISHER,
-                    Papers::URL,
-                    Papers::DATE_MODIFIED,
-                    Papers::ITEM_TYPE,
-                ],
-            )
-            .await?;
         self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
@@ -410,9 +379,6 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_update("papers", id, &[Papers::PDF_PATH, Papers::DATE_MODIFIED])
-            .await?;
         self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
@@ -426,9 +392,6 @@ impl Database {
             [Value::Text(now), Value::Text(id.to_string())],
         )
         .await?;
-        self.crr()
-            .track_update("papers", id, &[Papers::DATE_MODIFIED])
-            .await?;
         self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
@@ -486,32 +449,20 @@ impl Database {
         )
         .await?;
 
-        self.crr().track_delete("papers", id).await?;
         self.tombstone("papers", crate::clock::Pk::Single(id)).await?;
         for annotation_id in &annotations {
-            self.crr()
-                .track_delete("annotations", annotation_id)
-                .await?;
             self.tombstone("annotations", crate::clock::Pk::Single(annotation_id)).await?;
         }
         for note_id in &notes {
-            self.crr().track_delete("notes", note_id).await?;
             self.tombstone("notes", crate::clock::Pk::Single(note_id)).await?;
         }
         for collection_id in &collections {
-            self.crr()
-                .track_delete("paper_collections", &format!("{id}:{collection_id}"))
-                .await?;
             self.tombstone("paper_collections", crate::clock::Pk::Composite(id, collection_id)).await?;
         }
         for tag_id in &tags {
-            self.crr()
-                .track_delete("paper_tags", &format!("{id}:{tag_id}"))
-                .await?;
             self.tombstone("paper_tags", crate::clock::Pk::Composite(id, tag_id)).await?;
         }
         for pk in citing.iter().chain(cited.iter()) {
-            self.crr().track_delete("paper_citations", pk).await?;
             self.tombstone("paper_citations", crate::clock::Pk::Single(pk)).await?;
         }
 
@@ -640,17 +591,9 @@ impl Database {
             .iter()
             .filter(|id| !existing_collections.contains(id))
         {
-            let pk = format!("{keep_id}:{collection_id}");
-            self.crr()
-                .track_insert("paper_collections", &pk, PaperCollections::ALL)
-                .await?;
             self.touch("paper_collections", crate::clock::Pk::Composite(keep_id, collection_id)).await?;
         }
         for tag_id in tags.iter().filter(|id| !existing_tags.contains(id)) {
-            let pk = format!("{keep_id}:{tag_id}");
-            self.crr()
-                .track_insert("paper_tags", &pk, PaperTags::ALL)
-                .await?;
             self.touch("paper_tags", crate::clock::Pk::Composite(keep_id, tag_id)).await?;
         }
 
@@ -726,9 +669,6 @@ impl Database {
             [Value::Integer(count), Value::Text(id.to_string())],
         )
         .await?;
-        self.crr()
-            .track_update("papers", id, &[Papers::CITATION_COUNT])
-            .await?;
         self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
@@ -744,9 +684,6 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_update("papers", id, &[Papers::CITATION_KEY])
-            .await?;
         self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }

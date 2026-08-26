@@ -12,15 +12,6 @@ use turso::Value;
 
 use crate::Database;
 
-/// What a peer changeset did when applied.
-#[derive(Clone, Copy, Debug)]
-pub struct ApplyOutcome {
-    /// How many changes were new to this device.
-    pub applied: usize,
-    /// How many were already known and had no effect.
-    pub skipped: usize,
-}
-
 /// A row's primary key, single or composite.
 #[derive(Clone, Copy, Debug)]
 pub enum Pk<'a> {
@@ -129,71 +120,5 @@ impl Database {
     /// Wall-clock milliseconds, the basis of every comparison.
     fn now_millis(&self) -> i64 {
         chrono::Utc::now().timestamp_millis()
-    }
-}
-
-impl Database {
-    /// Clear tombstones on rows that recrr has re-created.
-    ///
-    /// Transitional. While both systems run, recrr applies changes by writing
-    /// row values directly and knows nothing about `deleted`, so a row it
-    /// resurrects stays tombstoned and remains invisible behind the `_live`
-    /// views. Reads would keep hiding a row the sync engine believes is alive.
-    ///
-    /// recrr's own liveness lives in its clock tables (an odd `cl` means alive),
-    /// so rather than reach into those, this clears the tombstone on any row
-    /// recrr reports as present. It goes away with recrr in step 12 — the
-    /// snapshot merge carries `deleted` as an ordinary column and needs no
-    /// reconciliation.
-    /// Apply a peer changeset, keeping `deleted` consistent with it.
-    ///
-    /// The transports and tests go through here rather than calling
-    /// `crr().apply_changes` directly, so a resurrected row is visible again
-    /// instead of staying hidden behind the `_live` views. Transitional, and
-    /// removed with recrr.
-    pub async fn apply_changes(
-        &self,
-        changes: &[crate::crr::ChangeRow],
-    ) -> Result<ApplyOutcome, crate::DbError> {
-        let outcome = self.crr().apply_changes(changes).await?;
-
-        let touched: Vec<(String, String)> = changes
-            .iter()
-            .map(|c| (c.table_name.clone(), c.pk.clone()))
-            .collect();
-        self.reconcile_tombstones_after_crr_apply(&touched).await?;
-
-        Ok(ApplyOutcome {
-            applied: outcome.applied,
-            skipped: outcome.skipped,
-        })
-    }
-
-    pub async fn reconcile_tombstones_after_crr_apply(
-        &self,
-        rows: &[(String, String)],
-    ) -> Result<(), crate::DbError> {
-        for (table, pk) in rows {
-            let Some(spec) = crate::sync_schema::synced_table(table) else {
-                continue;
-            };
-            let predicate = match spec.pk {
-                crate::sync_schema::PkSpec::Single(col) => format!("{col} = ?1"),
-                crate::sync_schema::PkSpec::Composite(a, b) => {
-                    // recrr addresses composite keys as "a:b".
-                    let Some((_, _)) = pk.split_once(':') else {
-                        continue;
-                    };
-                    format!("{a} || ':' || {b} = ?1")
-                }
-            };
-            self.conn()
-                .execute(
-                    &format!("UPDATE {table} SET deleted = 0 WHERE {predicate}"),
-                    [Value::Text(pk.clone())],
-                )
-                .await?;
-        }
-        Ok(())
     }
 }

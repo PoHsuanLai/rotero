@@ -184,14 +184,14 @@ async fn rows_with_timestamps_seed_from_them() {
 async fn migration_preserves_device_identity() {
     let dir = tempfile::tempdir().unwrap();
     let db = Database::open(dir.path().to_path_buf()).await.unwrap();
-    let before = db.crr().site_id().await.unwrap();
+    let before = db.device_id().to_string();
     populate(&db).await;
     drop(db);
 
     strip_clocks(dir.path()).await;
     force_schema_version(dir.path(), 13).await;
     let db = Database::open(dir.path().to_path_buf()).await.unwrap();
-    let after = db.crr().site_id().await.unwrap();
+    let after = db.device_id().to_string();
 
     assert_eq!(
         before, after,

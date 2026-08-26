@@ -2,7 +2,6 @@ use rotero_models::Tag;
 use turso::Value;
 
 use crate::Database;
-use crate::crr::{PaperTags, Tags};
 use crate::queries;
 
 impl Database {
@@ -41,7 +40,6 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr().track_insert("tags", &uuid, Tags::ALL).await?;
         self.touch("tags", crate::clock::Pk::Single(&uuid)).await?;
         Ok(uuid)
     }
@@ -64,10 +62,6 @@ impl Database {
         // the membership deleted while appearing to succeed.
         self.upsert_junction("paper_tags", ("paper_id", paper_id), ("tag_id", tag_id))
             .await?;
-        let pk = format!("{paper_id}:{tag_id}");
-        self.crr()
-            .track_insert("paper_tags", &pk, PaperTags::ALL)
-            .await?;
         Ok(())
     }
 
@@ -86,8 +80,6 @@ impl Database {
             ],
         )
         .await?;
-        let pk = format!("{paper_id}:{tag_id}");
-        self.crr().track_delete("paper_tags", &pk).await?;
         self.tombstone("paper_tags", crate::clock::Pk::Composite(paper_id, tag_id)).await?;
         Ok(())
     }
@@ -115,7 +107,6 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr().track_update("tags", id, &[Tags::NAME]).await?;
         self.touch("tags", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
@@ -131,7 +122,6 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr().track_update("tags", id, &[Tags::COLOR]).await?;
         self.touch("tags", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
@@ -165,12 +155,8 @@ impl Database {
             .junction_ids("SELECT paper_id FROM paper_tags WHERE tag_id = ?1", id)
             .await?;
 
-        self.crr().track_delete("tags", id).await?;
         self.tombstone("tags", crate::clock::Pk::Single(id)).await?;
         for paper_id in &tagged {
-            self.crr()
-                .track_delete("paper_tags", &format!("{paper_id}:{id}"))
-                .await?;
             self.tombstone("paper_tags", crate::clock::Pk::Composite(paper_id, id)).await?;
         }
         Ok(())

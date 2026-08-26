@@ -6221,31 +6221,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430"
 
 [[package]]
-name = "recrr"
-version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/recrr?rev=44f080a43ad5eee491df4b5f1cfd50b4f1edf5ac#44f080a43ad5eee491df4b5f1cfd50b4f1edf5ac"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "recrr-derive",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "turso",
-]
-
-[[package]]
-name = "recrr-derive"
-version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/recrr?rev=44f080a43ad5eee491df4b5f1cfd50b4f1edf5ac#44f080a43ad5eee491df4b5f1cfd50b4f1edf5ac"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6570,7 +6545,6 @@ version = "0.2.3"
 dependencies = [
  "chrono",
  "flate2",
- "recrr",
  "rotero-models",
  "serde",
  "serde_json",

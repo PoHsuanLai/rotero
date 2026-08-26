@@ -1,7 +1,6 @@
 use turso::Value;
 
 use crate::Database;
-use crate::crr::PaperCitations;
 use crate::queries;
 
 impl Database {
@@ -65,10 +64,6 @@ impl Database {
             ],
         )
         .await?;
-        let pk = format!("{citing_paper_id}:{cited_paper_id}");
-        self.crr()
-            .track_insert("paper_citations", &pk, PaperCitations::ALL)
-            .await?;
         self.touch("paper_citations", crate::clock::Pk::Composite(citing_paper_id, cited_paper_id)).await?;
         Ok(())
     }

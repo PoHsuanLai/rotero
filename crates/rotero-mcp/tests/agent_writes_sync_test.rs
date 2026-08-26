@@ -1,7 +1,7 @@
 //! Writes made through the MCP server must reach the user's other devices.
 //!
 //! The agent writes through its own `Database` wrapper, which shares the app's
-//! connection and CRR store but has its own copy of each write method. Several
+//! connection but used to keep its own copy of each write method. Several
 //! of those executed their statement and called `notify()` without tracking the
 //! change, so a note the agent took saved locally, appeared in the UI, and never
 //! left the machine.
@@ -11,7 +11,7 @@
 
 use rotero_db::sync_test_helpers::TestSyncEngine;
 
-/// Open an app database and an MCP handle sharing its connection and CRR store.
+/// Open an app database and an MCP handle sharing its connection.
 async fn app_and_agent(dir: &std::path::Path) -> (rotero_db::Database, rotero_mcp::Database) {
     let app = rotero_db::Database::open(dir.to_path_buf()).await.unwrap();
     let agent = rotero_mcp::Database::from_db(&app);

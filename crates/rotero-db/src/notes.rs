@@ -3,7 +3,6 @@ use rotero_models::Note;
 use turso::Value;
 
 use crate::Database;
-use crate::crr::Notes;
 use crate::queries;
 
 impl Database {
@@ -24,7 +23,6 @@ impl Database {
         )
         .await?;
 
-        self.crr().track_insert("notes", &uuid, Notes::ALL).await?;
         self.touch("notes", crate::clock::Pk::Single(&uuid)).await?;
 
         Ok(uuid)
@@ -60,20 +58,12 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_update(
-                "notes",
-                id,
-                &[Notes::TITLE, Notes::BODY, Notes::MODIFIED_AT],
-            )
-            .await?;
         self.touch("notes", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
     /// Delete a note by ID.
     pub async fn delete_note(&self, id: &str) -> Result<(), crate::DbError> {
-        self.crr().track_delete("notes", id).await?;
         self.tombstone("notes", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }

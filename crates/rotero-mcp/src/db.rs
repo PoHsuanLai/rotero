@@ -15,7 +15,6 @@ pub struct Database {
     conn: Connection,
     data_dir: std::path::PathBuf,
     on_change: Option<OnChangeFn>,
-    crr: Arc<rotero_db::crr::CrrStore>,
     device_id: Arc<str>,
 }
 
@@ -23,7 +22,7 @@ impl Database {
     /// Open the SQLite database at the given path.
     ///
     /// Delegates to [`rotero_db::Database::open`] so the standalone server runs
-    /// the same schema and CRR initialization as the app. Opening the connection
+    /// the same schema and migrations as the app. Opening the connection
     /// directly here skipped both, so writes against a fresh path committed and
     /// then failed change tracking.
     pub async fn open(db_path: &Path) -> Result<Self, String> {
@@ -34,14 +33,13 @@ impl Database {
 
     /// Wrap the app's already-initialized database for embedded use.
     ///
-    /// Shares the caller's CRR store rather than building a parallel one, so
+    /// Shares the caller's connection rather than building a parallel one, so
     /// there is exactly one initialized store per process.
     pub fn from_db(db: &rotero_db::Database) -> Self {
         Self {
             conn: db.conn().clone(),
             data_dir: db.data_dir().to_path_buf(),
             on_change: None,
-            crr: db.crr_arc(),
             device_id: db.device_id_arc(),
         }
     }
@@ -510,7 +508,7 @@ impl Database {
     }
 
     /// View this handle as a `rotero_db::Database` sharing the same connection
-    /// and CRR store, so write paths can be reused instead of reimplemented.
+    /// and device identity, so write paths can be reused instead of reimplemented.
     ///
     /// Every mutating method delegates through here. The agent and the app then
     /// run the same code, so a write path cannot be correct in one and wrong in
@@ -519,7 +517,6 @@ impl Database {
         rotero_db::Database::from_parts(
             self.conn.clone(),
             self.data_dir.clone(),
-            self.crr.clone(),
             self.device_id.clone(),
         )
     }

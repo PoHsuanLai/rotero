@@ -2,7 +2,6 @@ use rotero_models::Collection;
 use turso::Value;
 
 use crate::Database;
-use crate::crr::{Collections, PaperCollections};
 use crate::queries;
 
 impl Database {
@@ -24,9 +23,6 @@ impl Database {
         )
         .await?;
 
-        self.crr()
-            .track_insert("collections", &uuid, Collections::ALL)
-            .await?;
         self.touch("collections", crate::clock::Pk::Single(&uuid)).await?;
 
         Ok(uuid)
@@ -50,9 +46,6 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_update("collections", id, &[Collections::NAME])
-            .await?;
         self.touch("collections", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
@@ -74,9 +67,6 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_update("collections", id, &[Collections::PARENT_ID])
-            .await?;
         self.touch("collections", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
@@ -99,12 +89,8 @@ impl Database {
             )
             .await?;
 
-        self.crr().track_delete("collections", id).await?;
         self.tombstone("collections", crate::clock::Pk::Single(id)).await?;
         for paper_id in &members {
-            self.crr()
-                .track_delete("paper_collections", &format!("{paper_id}:{id}"))
-                .await?;
             self.tombstone("paper_collections", crate::clock::Pk::Composite(paper_id, id)).await?;
         }
         Ok(())
@@ -209,10 +195,6 @@ impl Database {
             ("collection_id", collection_id),
         )
         .await?;
-        let pk = format!("{paper_id}:{collection_id}");
-        self.crr()
-            .track_insert("paper_collections", &pk, PaperCollections::ALL)
-            .await?;
         Ok(())
     }
 
@@ -231,8 +213,6 @@ impl Database {
             ],
         )
         .await?;
-        let pk = format!("{paper_id}:{collection_id}");
-        self.crr().track_delete("paper_collections", &pk).await?;
         self.tombstone("paper_collections", crate::clock::Pk::Composite(paper_id, collection_id)).await?;
         Ok(())
     }
