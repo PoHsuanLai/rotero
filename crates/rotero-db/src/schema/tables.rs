@@ -29,37 +29,55 @@ CREATE TABLE IF NOT EXISTS papers (
     citation_count INTEGER,
     citation_key  TEXT,
     pdf_url       TEXT,
-    item_type     TEXT NOT NULL DEFAULT 'journalArticle'
+    item_type     TEXT NOT NULL DEFAULT 'journalArticle',
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    updated_by TEXT NOT NULL DEFAULT '',
+    deleted    INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS collections (
     id        TEXT PRIMARY KEY,
     name      TEXT NOT NULL,
     parent_id TEXT REFERENCES collections(id) ON DELETE CASCADE,
-    position  INTEGER NOT NULL DEFAULT 0
+    position  INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    updated_by TEXT NOT NULL DEFAULT '',
+    deleted    INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS paper_collections (
     paper_id      TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
     collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    updated_by TEXT NOT NULL DEFAULT '',
+    deleted    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (paper_id, collection_id)
 );
 
 CREATE TABLE IF NOT EXISTS tags (
     id    TEXT PRIMARY KEY,
     name  TEXT NOT NULL UNIQUE,
-    color TEXT
+    color TEXT,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    updated_by TEXT NOT NULL DEFAULT '',
+    deleted    INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS paper_tags (
     paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
     tag_id   TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    updated_by TEXT NOT NULL DEFAULT '',
+    deleted    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (paper_id, tag_id)
 );
 
 CREATE TABLE IF NOT EXISTS paper_citations (
     citing_paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
     cited_paper_id  TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    updated_by TEXT NOT NULL DEFAULT '',
+    deleted    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (citing_paper_id, cited_paper_id)
 );
 
@@ -80,7 +98,10 @@ CREATE TABLE IF NOT EXISTS annotations (
     content     TEXT,
     geometry    TEXT NOT NULL,
     created_at  TEXT NOT NULL,
-    modified_at TEXT NOT NULL
+    modified_at TEXT NOT NULL,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    updated_by TEXT NOT NULL DEFAULT '',
+    deleted    INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS notes (
@@ -89,14 +110,20 @@ CREATE TABLE IF NOT EXISTS notes (
     title       TEXT NOT NULL DEFAULT '',
     body        TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL,
-    modified_at TEXT NOT NULL
+    modified_at TEXT NOT NULL,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    updated_by TEXT NOT NULL DEFAULT '',
+    deleted    INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS saved_searches (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
     query      TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    updated_by TEXT NOT NULL DEFAULT '',
+    deleted    INTEGER NOT NULL DEFAULT 0
 );
 ";
 

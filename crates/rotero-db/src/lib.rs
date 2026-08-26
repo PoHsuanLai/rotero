@@ -24,6 +24,9 @@ pub mod saved_searches;
 /// Table definitions, FTS index, and schema migrations.
 pub mod schema;
 /// Test utilities for simulating multi-device sync round-trips.
+/// Which tables and columns sync between devices.
+pub mod sync_schema;
+
 pub mod sync_test_helpers;
 /// Tag CRUD and paper-tag membership.
 pub mod tags;
