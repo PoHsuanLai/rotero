@@ -16,13 +16,13 @@ use rotero_models::{Annotation, AnnotationType};
 /// Returns an empty string when there are not two complete points to draw.
 fn ink_path_data(points: &[serde_json::Value], x: f64, y: f64) -> String {
     let coords: Vec<f64> = points.iter().filter_map(|v| v.as_f64()).collect();
-    let mut pairs = coords.chunks_exact(2);
-    let Some(first) = pairs.next() else {
+    let (pairs, _odd_trailing_coord) = coords.as_chunks::<2>();
+    let Some((first, rest)) = pairs.split_first() else {
         return String::new();
     };
 
     let mut d = format!("M{},{}", first[0] - x, first[1] - y);
-    for pair in pairs {
+    for pair in rest {
         d.push_str(&format!(" L{},{}", pair[0] - x, pair[1] - y));
     }
     d
