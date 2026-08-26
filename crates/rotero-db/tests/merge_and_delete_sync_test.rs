@@ -55,6 +55,31 @@ async fn insert_collection(db: &Database, name: &str) -> String {
         .unwrap()
 }
 
+/// Count rows in a junction table matching one column, reading the table
+/// directly.
+///
+/// The `list_*_for_paper` queries inner-join the parent table, so once a tag or
+/// collection row is gone its orphaned junction rows are invisible through them
+/// — on a healthy device and a broken one alike. Counting the junction table
+/// itself is what distinguishes "the membership was removed" from "the
+/// membership is still there but unreachable".
+async fn junction_count(db: &Database, table: &str, column: &str, value: &str) -> i64 {
+    let mut rows = db
+        .conn()
+        .query(
+            &format!("SELECT COUNT(*) FROM {table} WHERE {column} = ?1"),
+            [turso::Value::Text(value.to_string())],
+        )
+        .await
+        .unwrap();
+    rows.next()
+        .await
+        .unwrap()
+        .and_then(|r| r.get_value(0).ok())
+        .and_then(|v| v.as_integer().copied())
+        .unwrap_or(-1)
+}
+
 async fn insert_paper(db: &Database, title: &str) -> String {
     db.insert_paper(&rotero_models::Paper {
         title: title.into(),
@@ -160,4 +185,88 @@ async fn deleting_a_paper_removes_its_children_on_both_devices() {
         "the second device must drop the memberships too, not keep orphans"
     );
     assert!(p.b.list_papers().await.unwrap().is_empty());
+}
+
+/// Deleting a collection must remove its memberships on every device.
+///
+/// The doc comment claimed a cascade the code never performed: foreign keys are
+/// off, so `DELETE FROM collections` left every `paper_collections` row behind,
+/// untracked. Locally the collection vanished and the orphans were invisible,
+/// which is why this went unnoticed — the second device is what exposes it,
+/// still holding a membership pointing at a collection that no longer exists.
+#[tokio::test]
+async fn deleting_a_collection_removes_its_memberships_on_both_devices() {
+    let p = Pair::new().await;
+
+    let paper = insert_paper(&p.a, "Shelved").await;
+    let collection = insert_collection(&p.a, "Doomed shelf").await;
+    p.a.add_paper_to_collection(&paper, &collection)
+        .await
+        .unwrap();
+
+    p.sync_a_to_b().await;
+    assert_eq!(
+        junction_count(&p.b, "paper_collections", "collection_id", &collection).await,
+        1,
+        "the membership must reach the second device first"
+    );
+
+    p.a.delete_collection(&collection).await.unwrap();
+
+    assert_eq!(
+        junction_count(&p.a, "paper_collections", "collection_id", &collection).await,
+        0,
+        "the membership row must be gone locally, not merely unreachable"
+    );
+
+    p.sync_a_to_b().await;
+    assert_eq!(
+        junction_count(&p.b, "paper_collections", "collection_id", &collection).await,
+        0,
+        "the second device must drop the membership row too, not keep an orphan"
+    );
+    assert!(
+        p.b.list_papers().await.unwrap().len() == 1,
+        "the paper itself must survive its collection being deleted"
+    );
+}
+
+/// Deleting a tag must remove its associations on every device.
+///
+/// Same defect as [`deleting_a_collection_removes_its_memberships_on_both_devices`]:
+/// `DELETE FROM tags` left every `paper_tags` row behind and untracked, so peers
+/// kept associations pointing at a tag that no longer exists.
+#[tokio::test]
+async fn deleting_a_tag_removes_its_associations_on_both_devices() {
+    let p = Pair::new().await;
+
+    let paper = insert_paper(&p.a, "Tagged").await;
+    let tag = p.a.get_or_create_tag("doomed", None).await.unwrap();
+    p.a.add_tag_to_paper(&paper, &tag).await.unwrap();
+
+    p.sync_a_to_b().await;
+    assert_eq!(
+        junction_count(&p.b, "paper_tags", "tag_id", &tag).await,
+        1,
+        "the association must reach the second device first"
+    );
+
+    p.a.delete_tag(&tag).await.unwrap();
+
+    assert_eq!(
+        junction_count(&p.a, "paper_tags", "tag_id", &tag).await,
+        0,
+        "the association row must be gone locally, not merely unreachable"
+    );
+
+    p.sync_a_to_b().await;
+    assert_eq!(
+        junction_count(&p.b, "paper_tags", "tag_id", &tag).await,
+        0,
+        "the second device must drop the association row too, not keep an orphan"
+    );
+    assert!(
+        p.b.list_papers().await.unwrap().len() == 1,
+        "the paper itself must survive its tag being deleted"
+    );
 }

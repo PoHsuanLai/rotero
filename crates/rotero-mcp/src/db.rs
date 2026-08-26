@@ -198,6 +198,10 @@ impl Database {
                 [Value::Integer(favorite as i64), Value::Text(id.to_string())],
             )
             .await?;
+        self.crr
+            .track_update("papers", id, &[Papers::IS_FAVORITE])
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }
@@ -210,6 +214,10 @@ impl Database {
                 [Value::Integer(read as i64), Value::Text(id.to_string())],
             )
             .await?;
+        self.crr
+            .track_update("papers", id, &[Papers::IS_READ])
+            .await
+            .map_err(|e| turso::Error::Error(e.to_string()))?;
         self.notify();
         Ok(())
     }

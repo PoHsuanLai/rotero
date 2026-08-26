@@ -172,13 +172,27 @@ impl Database {
             .map_err(|e| format!("Failed to initialize CRR: {e}"))?;
 
         if schema_drifted {
-            // An existing, already-synced store gained the `item_type` column
-            // (added by the v11 SQL migration above). Backfill its clock entries
-            // so existing rows emit the new column to peers. Idempotent and
-            // scoped to live rows; a no-op once every row is backfilled.
-            crr.migrate_add_column("papers", "item_type")
-                .await
-                .map_err(|e| format!("Failed to backfill item_type CRR clocks: {e}"))?;
+            // An existing, already-synced store was compiled against a schema
+            // that has since gained columns (`item_type` via the v11 SQL
+            // migration, and anything added after it). Backfill clock entries so
+            // existing rows emit those columns to peers.
+            //
+            // Every tracked column is offered rather than a hardcoded one: the
+            // drift flag is a whole-schema fingerprint comparison, so naming a
+            // single column here meant a second added column tripped the same
+            // flag and was silently skipped. `migrate_add_column` is idempotent
+            // and scoped to live rows, so offering a column that is already
+            // backfilled costs one indexed query and changes nothing.
+            for table in &crr.schema().tables {
+                for column in &table.columns {
+                    crr.migrate_add_column(&table.name, column).await.map_err(|e| {
+                        format!(
+                            "Failed to backfill CRR clocks for {}.{column}: {e}",
+                            table.name
+                        )
+                    })?;
+                }
+            }
         }
 
         let db = Self {

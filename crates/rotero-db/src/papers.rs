@@ -651,7 +651,11 @@ impl Database {
         .await
     }
 
-    async fn junction_ids(&self, sql: &str, paper_id: &str) -> Result<Vec<String>, crate::DbError> {
+    pub(crate) async fn junction_ids(
+        &self,
+        sql: &str,
+        paper_id: &str,
+    ) -> Result<Vec<String>, crate::DbError> {
         let mut rows = self
             .conn()
             .query(sql, [Value::Text(paper_id.to_string())])

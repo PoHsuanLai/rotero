@@ -78,12 +78,39 @@ impl Database {
         Ok(())
     }
 
-    /// Delete a collection by ID, cascading to paper memberships.
+    /// Delete a collection by ID along with its paper memberships.
+    ///
+    /// The memberships are removed explicitly rather than by foreign key, for the
+    /// same reason [`Database::delete_paper`] does it: the schema declares
+    /// `ON DELETE CASCADE`, but `PRAGMA foreign_keys` is off, so nothing ever
+    /// fired and every deleted collection left its `paper_collections` rows
+    /// behind. A cascade would not be enough on its own either — it happens
+    /// inside SQLite, so the junction rows would vanish locally with no
+    /// `track_delete` and peers would keep memberships pointing at a collection
+    /// that no longer exists.
     pub async fn delete_collection(&self, id: &str) -> Result<(), crate::DbError> {
+        let members = self
+            .junction_ids(
+                "SELECT paper_id FROM paper_collections WHERE collection_id = ?1",
+                id,
+            )
+            .await?;
+
         let conn = self.conn();
         conn.execute(queries::COLLECTION_DELETE, [Value::Text(id.to_string())])
             .await?;
+        conn.execute(
+            "DELETE FROM paper_collections WHERE collection_id = ?1",
+            [Value::Text(id.to_string())],
+        )
+        .await?;
+
         self.crr().track_delete("collections", id).await?;
+        for paper_id in &members {
+            self.crr()
+                .track_delete("paper_collections", &format!("{paper_id}:{id}"))
+                .await?;
+        }
         Ok(())
     }
 

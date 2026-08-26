@@ -142,3 +142,50 @@ async fn an_agent_delete_removes_children_on_both_devices() {
     );
     assert!(app_b.list_papers().await.unwrap().is_empty());
 }
+
+/// Favorite and read flags the agent toggles must reach a peer.
+///
+/// Both methods executed their `UPDATE` and called `notify()` with no
+/// `track_update` at all, so an agent marking a paper read saved it locally and
+/// never sent it — and the stale value on any peer would win the next merge,
+/// silently reverting it. Every other mutating method in that file tracked;
+/// these two were missed.
+#[tokio::test]
+async fn agent_favorite_and_read_flags_reach_a_second_device() {
+    let shared = tempfile::tempdir().unwrap();
+    let dir_a = tempfile::tempdir().unwrap();
+    let dir_b = tempfile::tempdir().unwrap();
+
+    let (app_a, agent_a) = app_and_agent(dir_a.path()).await;
+    let app_b = rotero_db::Database::open(dir_b.path().to_path_buf())
+        .await
+        .unwrap();
+
+    let paper = insert_paper(&app_a, "Flagged").await;
+
+    let engine_a = TestSyncEngine::new(shared.path().to_path_buf(), vec![1; 16]);
+    let engine_b = TestSyncEngine::new(shared.path().to_path_buf(), vec![2; 16]);
+    engine_a.export_changes(&app_a).await;
+    engine_b.import_changes(&app_b).await;
+
+    agent_a.set_favorite(&paper, true).await.unwrap();
+    agent_a.set_read(&paper, true).await.unwrap();
+
+    engine_a.export_changes(&app_a).await;
+    engine_b.import_changes(&app_b).await;
+
+    let synced = app_b
+        .get_papers_by_ids(std::slice::from_ref(&paper))
+        .await
+        .unwrap()
+        .pop()
+        .expect("paper on peer");
+    assert!(
+        synced.status.is_favorite,
+        "a favorite set by the agent must reach the second device"
+    );
+    assert!(
+        synced.status.is_read,
+        "a read flag set by the agent must reach the second device"
+    );
+}
