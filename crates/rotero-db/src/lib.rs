@@ -27,6 +27,9 @@ pub mod schema;
 /// Stamping local writes so they can win a merge.
 pub mod clock;
 
+/// Serializing a device's synced tables, and merging a peer's.
+pub mod snapshot;
+
 /// Which tables and columns sync between devices.
 pub mod sync_schema;
 

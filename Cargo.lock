@@ -6569,10 +6569,12 @@ name = "rotero-db"
 version = "0.2.3"
 dependencies = [
  "chrono",
+ "flate2",
  "recrr",
  "rotero-models",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
