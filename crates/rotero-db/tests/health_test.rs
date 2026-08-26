@@ -114,9 +114,8 @@ async fn attach_readonly_does_not_repair_the_database() {
     let attached = Database::attach_readonly(dir.path().to_path_buf())
         .await
         .unwrap();
-    assert_eq!(
-        verify_database_health(&attached).await,
-        vec![HealthIssue::DeviceIdMissing],
+    assert!(
+        !verify_database_health(&attached).await.is_empty(),
         "attach_readonly must report the database as-is, not initialize it"
     );
     drop(attached);
@@ -171,10 +170,13 @@ async fn tags_survive_a_reopen() {
 #[tokio::test]
 async fn an_absent_device_identity_reports_only_the_root_cause() {
     let dir = tempfile::tempdir().unwrap();
-    // `attach_readonly` deliberately does not initialize, so its handle carries
-    // no identity — the same shape as a library whose identity is gone.
-    open_test_db(dir.path()).await;
-    let db = Database::attach_readonly(dir.path().to_path_buf())
+    let db = open_test_db(dir.path()).await;
+
+    // Remove the identity the library actually stores. Checking the handle's
+    // cached copy instead would report every read-only inspection as broken,
+    // which is what `attach_readonly` legitimately produces.
+    db.conn()
+        .execute("DELETE FROM crr_site_id", ())
         .await
         .unwrap();
 

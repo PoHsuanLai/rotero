@@ -156,7 +156,12 @@ pub async fn verify_database_health(db: &Database) -> Vec<HealthIssue> {
     // Without an identity nothing else is meaningful: every row this device
     // writes is unattributable and loses every tie, so reporting the follow-on
     // issues for nine tables would bury the cause.
-    if db.device_id().is_empty() {
+    //
+    // Read from the database rather than the handle. `attach_readonly` builds a
+    // handle with no identity on purpose — it must not initialize what it
+    // inspects — so trusting the cached field would report every healthy library
+    // as broken when checked from outside the app.
+    if !stored_device_id_exists(db).await {
         issues.push(HealthIssue::DeviceIdMissing);
         return issues;
     }
@@ -245,4 +250,16 @@ async fn count_where(db: &Database, table: &str, predicate: &str) -> Result<i64,
         Some(row) => Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0)),
         None => Ok(0),
     }
+}
+
+/// Whether the library on disk records a device identity.
+async fn stored_device_id_exists(db: &Database) -> bool {
+    let Ok(mut rows) = db
+        .conn()
+        .query("SELECT site_id FROM crr_site_id LIMIT 1", ())
+        .await
+    else {
+        return false;
+    };
+    matches!(rows.next().await, Ok(Some(_)))
 }
