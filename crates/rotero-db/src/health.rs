@@ -2,52 +2,55 @@
 //!
 //! This is the single definition of "correctly initialized". [`Database::open`]
 //! is not the only thing that has ever constructed a `Database`, and when a
-//! second construction path skipped [`CrrStore::init`], every write committed its
-//! row and *then* failed on change tracking — silently losing tags and notes and
-//! leaving the library unable to sync. The tests all passed, because they built
-//! their fixtures through the path that was correct.
+//! second construction path skipped the sync store's setup, every write
+//! committed its row and *then* failed on change tracking — silently losing tags
+//! and notes and leaving the library unable to sync. The tests all passed,
+//! because they built their fixtures through the path that was correct.
 //!
 //! [`verify_database_health`] exists so that cannot recur silently. It is called
 //! by the startup preflight, by the bundle smoke test, and by the unit test that
 //! pins the invariant, so a construction path that skips a step cannot satisfy
 //! one caller and fail another.
 //!
-//! The table list is derived from [`crr::rotero_schema`], never hardcoded: a new
-//! `#[derive(Crdt)]` table extends the invariant automatically.
+//! The shape of the failure changed with the sync engine but not its character.
+//! Where a row used to be lost because its clock table was missing, a row is now
+//! lost because its clock *columns* are unset: `updated_at = 0` loses every
+//! comparison a merge makes, forever. It is present locally, looks correct in
+//! the UI, and can never reach another device — the same silent loss, so it is
+//! checked the same way.
+//!
+//! The table list is derived from [`sync_schema::SYNCED_TABLES`], never
+//! hardcoded: a new synced table extends the invariant automatically.
 
-use crate::{Database, crr};
-
-/// The shadow clock table recrr maintains for a tracked table.
-///
-/// Mirrors recrr's own `clock_table` helper, which is crate-private there.
-fn clock_table(table: &str) -> String {
-    format!("{table}__crr_clock")
-}
+use crate::Database;
+use crate::sync_schema::SYNCED_TABLES;
 
 /// A structural problem with an initialized database.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HealthIssue {
-    /// CRR metadata tables are absent entirely: `crr.init()` was never called.
-    /// Every mutating call will commit its row and then fail change tracking.
-    CrrUninitialized,
-    /// A tracked table has no `{table}__crr_clock` shadow table. Writes to it
-    /// commit and then error, and its rows never sync.
-    MissingCrrClock {
-        /// The tracked table whose clock table is missing.
+    /// The library has no device identity, so nothing it writes can be
+    /// attributed and every merge tie breaks against it.
+    DeviceIdMissing,
+    /// A synced table is missing the columns a merge compares. Writes to it
+    /// cannot be stamped, and its rows never sync.
+    MissingSyncColumns {
+        /// The synced table.
         table: String,
+        /// The columns it lacks.
+        columns: Vec<String>,
     },
-    /// A table named by the compiled schema does not exist in the database.
+    /// A table named by the compiled manifest does not exist in the database.
     MissingTable {
         /// The absent table.
         table: String,
     },
-    /// The persisted CRR fingerprint disagrees with the compiled schema, so
-    /// peers are tracking a different set of tables or columns than this build.
-    SchemaFingerprintDrift {
-        /// The fingerprint recorded in the database.
-        stored: u64,
-        /// The fingerprint of the schema this build was compiled with.
-        expected: u64,
+    /// The database has a column the manifest does not name, or vice versa, so
+    /// peers are syncing a different set of columns than this build.
+    SyncSchemaDrift {
+        /// The table the mismatch is in.
+        table: String,
+        /// The column that is present on one side only.
+        column: String,
     },
     /// `schema_version` is absent, zero, or ahead of what this build supports.
     SchemaVersion {
@@ -56,18 +59,26 @@ pub enum HealthIssue {
         /// The version this build expects.
         expected: i64,
     },
-    /// A tracked table holds rows but its clock table is empty, so none of them
-    /// can ever be sent to another device.
+    /// Rows carry no sync clock, so they lose every merge and never propagate.
     ///
-    /// Distinct from [`MissingCrrClock`](Self::MissingCrrClock): the table is
-    /// there, it is simply not tracking anything. That is what a library written
-    /// by a build with broken tracking looks like once the clock tables have
-    /// been created — indistinguishable from healthy if only existence is
-    /// checked, which is exactly how the original bug hid.
-    UntrackedRows {
-        /// The tracked table with rows but no clock entries.
+    /// The direct heir to the original bug. The columns exist and the table
+    /// looks healthy; the rows inside it simply cannot win a comparison, which
+    /// is indistinguishable from working until a second device disagrees.
+    UnstampedRows {
+        /// The table holding them.
         table: String,
-        /// How many rows are untracked.
+        /// How many rows are unstamped.
+        rows: i64,
+    },
+    /// A tombstone with no clock: a deletion that can never reach a peer.
+    ///
+    /// Worse than an unstamped live row, because the row is already invisible
+    /// locally — the delete looks done on this device and silently never
+    /// happens on any other.
+    TombstoneWithoutClock {
+        /// The table holding them.
+        table: String,
+        /// How many tombstones cannot propagate.
         rows: i64,
     },
 }
@@ -75,25 +86,31 @@ pub enum HealthIssue {
 impl std::fmt::Display for HealthIssue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::CrrUninitialized => write!(
+            Self::DeviceIdMissing => write!(
                 f,
-                "sync metadata was never initialized; edits will not be saved or synced"
+                "this library has no device identity; its changes cannot be synced"
             ),
-            Self::MissingCrrClock { table } => {
-                write!(f, "sync tracking is missing for the `{table}` table")
-            }
-            Self::MissingTable { table } => write!(f, "the `{table}` table is missing"),
-            Self::SchemaFingerprintDrift { stored, expected } => write!(
+            Self::MissingSyncColumns { table, columns } => write!(
                 f,
-                "sync schema mismatch (library {stored:x}, this version {expected:x})"
+                "the `{table}` table is missing sync columns ({})",
+                columns.join(", ")
+            ),
+            Self::MissingTable { table } => write!(f, "the `{table}` table is missing"),
+            Self::SyncSchemaDrift { table, column } => write!(
+                f,
+                "sync schema mismatch: `{table}`.`{column}` is not synced by this version"
             ),
             Self::SchemaVersion { found, expected } => write!(
                 f,
                 "library schema version {found} does not match this version's {expected}"
             ),
-            Self::UntrackedRows { table, rows } => write!(
+            Self::UnstampedRows { table, rows } => write!(
                 f,
-                "{rows} row(s) in `{table}` are not being tracked and will not sync"
+                "{rows} row(s) in `{table}` have no sync clock and will not sync"
+            ),
+            Self::TombstoneWithoutClock { table, rows } => write!(
+                f,
+                "{rows} deletion(s) in `{table}` cannot reach other devices"
             ),
         }
     }
@@ -111,6 +128,21 @@ async fn table_exists(db: &Database, name: &str) -> Result<bool, turso::Error> {
     Ok(rows.next().await?.is_some())
 }
 
+/// The columns a table actually has.
+async fn actual_columns(db: &Database, table: &str) -> Result<Vec<String>, turso::Error> {
+    let mut rows = db
+        .conn()
+        .query(&format!("PRAGMA table_info({table})"), ())
+        .await?;
+    let mut names = Vec::new();
+    while let Some(row) = rows.next().await? {
+        if let Some(name) = row.get_value(1).ok().and_then(|v| v.as_text().cloned()) {
+            names.push(name);
+        }
+    }
+    Ok(names)
+}
+
 /// Check every structural invariant a usable Rotero database must satisfy.
 ///
 /// Returns an empty vector for a healthy database. A driver error is reported as
@@ -120,66 +152,70 @@ async fn table_exists(db: &Database, name: &str) -> Result<bool, turso::Error> {
 /// showing when only one line fits.
 pub async fn verify_database_health(db: &Database) -> Vec<HealthIssue> {
     let mut issues = Vec::new();
-    let schema = crr::rotero_schema();
 
-    // Without the metadata tables nothing else is meaningful: every tracked
-    // table's clock is missing too, and reporting nine follow-on issues would
-    // bury the cause.
-    match table_exists(db, "crr_site_id").await {
-        Ok(true) => {}
-        Ok(false) => {
-            issues.push(HealthIssue::CrrUninitialized);
-            return issues;
-        }
-        Err(_) => {
-            issues.push(HealthIssue::CrrUninitialized);
-            return issues;
-        }
+    // Without an identity nothing else is meaningful: every row this device
+    // writes is unattributable and loses every tie, so reporting the follow-on
+    // issues for nine tables would bury the cause.
+    if db.device_id().is_empty() {
+        issues.push(HealthIssue::DeviceIdMissing);
+        return issues;
     }
 
-    for table in &schema.tables {
-        let table_present = table_exists(db, &table.name).await.unwrap_or(false);
-        if !table_present {
+    for table in SYNCED_TABLES {
+        if !table_exists(db, table.name).await.unwrap_or(false) {
             issues.push(HealthIssue::MissingTable {
-                table: table.name.clone(),
-            });
-        }
-
-        let clock_present = table_exists(db, &clock_table(&table.name))
-            .await
-            .unwrap_or(false);
-        if !clock_present {
-            issues.push(HealthIssue::MissingCrrClock {
-                table: table.name.clone(),
+                table: table.name.to_string(),
             });
             continue;
         }
 
-        // A clock table that exists but is empty while its table holds rows is
-        // the shape a broken build leaves behind, and checking only for the
-        // table's existence reports it as healthy. That is the exact failure
-        // this module was written to catch, so it has to look at the contents.
-        if table_present
-            && let Ok(rows) = count_rows(db, &table.name).await
+        let Ok(actual) = actual_columns(db, table.name).await else {
+            continue;
+        };
+
+        let missing: Vec<String> = crate::sync_schema::SYNC_COLUMNS
+            .iter()
+            .filter(|c| !actual.iter().any(|a| a == *c))
+            .map(|c| (*c).to_string())
+            .collect();
+        if !missing.is_empty() {
+            // Nothing below can hold without the columns to hold it.
+            issues.push(HealthIssue::MissingSyncColumns {
+                table: table.name.to_string(),
+                columns: missing,
+            });
+            continue;
+        }
+
+        for column in table.all_columns() {
+            if !actual.iter().any(|a| a == column) {
+                issues.push(HealthIssue::SyncSchemaDrift {
+                    table: table.name.to_string(),
+                    column: column.to_string(),
+                });
+            }
+        }
+
+        // Rows whose clock was never written. The columns are there and the
+        // table reads as healthy; these rows simply cannot win a merge, which is
+        // exactly the shape of the bug this module was written to catch.
+        if let Ok(rows) = count_where(db, table.name, "updated_at = 0 OR updated_by = ''").await
             && rows > 0
-            && count_rows(db, &clock_table(&table.name))
-                .await
-                .is_ok_and(|c| c == 0)
         {
-            issues.push(HealthIssue::UntrackedRows {
-                table: table.name.clone(),
+            issues.push(HealthIssue::UnstampedRows {
+                table: table.name.to_string(),
                 rows,
             });
         }
-    }
 
-    // A stored fingerprint only exists once `init` has run; its absence is
-    // already covered by the `crr_site_id` check above.
-    let expected = schema.fingerprint();
-    if let Some(stored) = db.crr().schema_fingerprint().await
-        && stored != expected
-    {
-        issues.push(HealthIssue::SchemaFingerprintDrift { stored, expected });
+        if let Ok(rows) = count_where(db, table.name, "deleted = 1 AND updated_at = 0").await
+            && rows > 0
+        {
+            issues.push(HealthIssue::TombstoneWithoutClock {
+                table: table.name.to_string(),
+                rows,
+            });
+        }
     }
 
     let expected = crate::schema::migrations::SCHEMA_VERSION;
@@ -199,11 +235,11 @@ pub async fn verify_database_health(db: &Database) -> Vec<HealthIssue> {
     issues
 }
 
-/// How many rows a table holds.
-async fn count_rows(db: &Database, table: &str) -> Result<i64, turso::Error> {
+/// How many rows in `table` match `predicate`.
+async fn count_where(db: &Database, table: &str, predicate: &str) -> Result<i64, turso::Error> {
     let mut rows = db
         .conn()
-        .query(&format!("SELECT COUNT(*) FROM {table}"), ())
+        .query(&format!("SELECT COUNT(*) FROM {table} WHERE {predicate}"), ())
         .await?;
     match rows.next().await? {
         Some(row) => Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0)),

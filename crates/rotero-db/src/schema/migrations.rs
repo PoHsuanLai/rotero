@@ -274,11 +274,26 @@ async fn run_migrations(conn: &Connection) -> Result<(), SchemaError> {
             .await;
     }
 
-    // The Zotero `item_type` column is added by the idempotent ensure block
-    // above (it must run even for DBs whose version counter already reached 11
-    // without the column landing). The matching CRR clock backfill — so existing
-    // rows sync the new column — runs in `Database::open` via recrr's
-    // `migrate_add_column`, which needs the `Crr` store, not just this connection.
+    // Re-ensure the added columns.
+    //
+    // The idempotent block near the top runs before `migrate_to_text_ids`, which
+    // rebuilds `papers` from an explicit column list that does not include these
+    // — so a library migrating from before v8 had the column added and then
+    // dropped again by the rebuild, and arrived at the current version without
+    // it. Running the same statements again afterwards costs nothing on a
+    // database that already has them.
+    let _ = conn
+        .execute("ALTER TABLE papers ADD COLUMN citation_count INTEGER", ())
+        .await;
+    let _ = conn
+        .execute("ALTER TABLE papers ADD COLUMN pdf_url TEXT", ())
+        .await;
+    let _ = conn
+        .execute(
+            "ALTER TABLE papers ADD COLUMN item_type TEXT NOT NULL DEFAULT 'journalArticle'",
+            (),
+        )
+        .await;
 
     if current_version < 14 {
         migrate_to_lww(conn).await?;
