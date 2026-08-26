@@ -1,28 +1,16 @@
-//! File-based changeset sync via shared folders (iCloud Drive, Dropbox, etc.)
+//! Per-device snapshot sync via shared folders (iCloud Drive, Dropbox, etc.)
 //!
-//! Sync folder layout: `{sync_folder}/changesets/` (.crr files),
-//! `papers/` (mirrored PDFs), `sync_state.json` (per-peer tracking).
+//! Sync folder layout: `{sync_folder}/devices/` (one snapshot per device, plus a
+//! `.meta` sidecar carrying its checksum) and `papers/` (mirrored PDFs).
+//!
+//! Each device is the only writer of its own file, so there are no write
+//! conflicts to resolve and no per-peer cursor to keep. A device reads every
+//! other device's snapshot and merges it; which copy of a row wins is decided
+//! by its clock, identically on every device.
 
 use std::path::{Path, PathBuf};
 
 use rotero_db::Database;
-use rotero_db::crr::ChangeRow;
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Changeset {
-    pub source_site_id: Vec<u8>,
-    pub from_db_ver: i64,
-    pub to_db_ver: i64,
-    pub changes: Vec<ChangeRow>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct SyncState {
-    pub last_exported_ver: i64,
-    /// Map of site_id (hex) -> last imported db_version from that peer.
-    pub peers: std::collections::HashMap<String, i64>,
-}
 
 pub struct FileSyncEngine {
     sync_folder: PathBuf,
@@ -37,205 +25,124 @@ impl FileSyncEngine {
         }
     }
 
-    fn changesets_dir(&self) -> PathBuf {
-        self.sync_folder.join("changesets")
-    }
-
-    /// Where this device records its own sync progress.
-    ///
-    /// Qualified by site id because every field in [`SyncState`] is private to
-    /// one device: `last_exported_ver` counts local writes, and `peers` records
-    /// what *this* device has imported. A shared file let the fastest device
-    /// park the cursor at its own version, after which every slower device read
-    /// that number, found nothing newer than it, and exported nothing — while
-    /// reporting success. The cursor only ever moves up, so an affected device
-    /// never recovered on its own.
-    fn state_path(&self) -> PathBuf {
-        self.sync_folder
-            .join(format!("sync_state_{}.json", self.site_id_hex()))
-    }
-
-    /// The pre-fix shared path, still read once so an existing install keeps its
-    /// progress instead of re-exporting its whole library.
-    fn legacy_state_path(&self) -> PathBuf {
-        self.sync_folder.join("sync_state.json")
-    }
-
+    /// This device's identity as lowercase hex, used to name its snapshot.
     fn site_id_hex(&self) -> String {
         self.site_id.iter().map(|b| format!("{b:02x}")).collect()
     }
 
-    pub fn load_state(&self) -> SyncState {
-        let path = self.state_path();
-        if path.exists() {
-            return Self::read_state(&path);
-        }
-
-        // First run since the per-device split. The shared file's `peers` map is
-        // still useful — it records changesets someone already imported, and
-        // re-importing them is wasteful but harmless. `last_exported_ver` is not:
-        // it may belong to a different device entirely, and adopting it is what
-        // starved this one. Dropping it to 0 re-exports this device's history,
-        // which is exactly the repair an affected install needs.
-        let legacy = self.legacy_state_path();
-        if legacy.exists() {
-            let shared = Self::read_state(&legacy);
-            tracing::info!(
-                "Sync: adopting per-device state; re-exporting from 0 (shared cursor was {})",
-                shared.last_exported_ver
-            );
-            return SyncState {
-                last_exported_ver: 0,
-                peers: shared.peers,
-            };
-        }
-
-        SyncState::default()
+    fn devices_dir(&self) -> PathBuf {
+        self.sync_folder.join("devices")
     }
 
-    fn read_state(path: &Path) -> SyncState {
-        match std::fs::read_to_string(path) {
-            Ok(content) => match serde_json::from_str(&content) {
-                Ok(state) => state,
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to parse sync state at {}: {e}. Using defaults.",
-                        path.display()
-                    );
-                    SyncState::default()
-                }
-            },
-            Err(_) => SyncState::default(),
-        }
+    /// This device's snapshot, and the sidecar holding its checksum.
+    fn snapshot_paths(&self) -> (PathBuf, PathBuf) {
+        let dir = self.devices_dir();
+        let hex = self.site_id_hex();
+        (
+            dir.join(format!("{hex}.snapshot")),
+            dir.join(format!("{hex}.meta")),
+        )
     }
 
-    pub fn save_state(&self, state: &SyncState) -> Result<(), String> {
-        let path = self.state_path();
-        // The sync folder may not exist yet — a cloud provider often has not
-        // materialized it on a machine's first run — and without this the write
-        // failed every 30 seconds with nothing to show for it.
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create sync state dir: {e}"))?;
-        }
-        let json = serde_json::to_string_pretty(state).map_err(|e| e.to_string())?;
-        // Write-then-rename: these files live in a folder a cloud daemon is
-        // actively syncing, and a partial `write` there is a file that parses as
-        // garbage on the next read.
-        write_atomic(&path, json.as_bytes()).map_err(|e| format!("Failed to save sync state: {e}"))
-    }
-
-    /// Returns the number of changes exported, or 0 if nothing to export.
+    /// Write this device's snapshot into the shared folder.
+    ///
+    /// Returns the number of rows written, or 0 if nothing changed since the
+    /// last export. The whole table set is rewritten each time rather than a
+    /// delta: it is self-healing (a corrupt file is replaced on the next tick),
+    /// idempotent, and there is no cursor to get wrong — the bug that let one
+    /// device park a shared cursor at its own version and silently stop every
+    /// other device from exporting.
     pub async fn export_changes(&self, db: &Database) -> Result<usize, String> {
-        let mut state = self.load_state();
-        let changes = db
-            .crr()
-            .changes_since(state.last_exported_ver)
+        let bytes = db
+            .write_snapshot()
             .await
-            .map_err(|e| format!("Failed to read changes: {e}"))?;
+            .map_err(|e| format!("Failed to build snapshot: {e}"))?;
 
-        if changes.is_empty() {
+        let (snapshot_path, meta_path) = self.snapshot_paths();
+        let checksum = rotero_db::snapshot::checksum(&bytes);
+
+        // Skip the write when nothing changed. A full snapshot is cheap to
+        // build but not free to upload, and a cloud folder does not need a
+        // multi-megabyte rewrite every 30 seconds while the user reads.
+        if std::fs::read_to_string(&meta_path).is_ok_and(|prev| prev.trim() == checksum) {
             return Ok(0);
         }
 
-        let current_ver = db
-            .crr()
-            .current_db_version()
-            .await
-            .map_err(|e| format!("Failed to read db_version: {e}"))?;
+        std::fs::create_dir_all(self.devices_dir())
+            .map_err(|e| format!("Failed to create devices dir: {e}"))?;
 
-        let changeset = Changeset {
-            source_site_id: self.site_id.clone(),
-            from_db_ver: state.last_exported_ver,
-            to_db_ver: current_ver,
-            changes: changes.clone(),
-        };
+        // Snapshot first, then the checksum. A peer that sees no sidecar, or one
+        // that disagrees, skips this device for the tick — so a partly-uploaded
+        // snapshot is a skip rather than a bad merge.
+        write_atomic(&snapshot_path, &bytes)
+            .map_err(|e| format!("Failed to write snapshot: {e}"))?;
+        write_atomic(&meta_path, checksum.as_bytes())
+            .map_err(|e| format!("Failed to write snapshot checksum: {e}"))?;
 
-        let dir = self.changesets_dir();
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| format!("Failed to create changesets dir: {e}"))?;
-
-        let filename = format!(
-            "{}_{:08}_{:08}.crr",
-            self.site_id_hex(),
-            state.last_exported_ver,
-            current_ver,
-        );
-        let path = dir.join(&filename);
-        let data =
-            serde_json::to_vec(&changeset).map_err(|e| format!("Failed to serialize: {e}"))?;
-        // A peer scans for `*.crr` and parses whatever it finds, so a half-written
-        // file is a parse error that aborts that peer's whole import pass.
-        write_atomic(&path, &data).map_err(|e| format!("Failed to write changeset: {e}"))?;
-
-        let count = changes.len();
-        state.last_exported_ver = current_ver;
-        self.save_state(&state)?;
-
-        Ok(count)
+        let (header, _) = rotero_db::snapshot::parse_snapshot(&bytes)
+            .map_err(|e| format!("Failed to re-read own snapshot: {e}"))?;
+        Ok(header.rows)
     }
 
-    /// Returns the total number of changes applied.
+    /// Merge every other device's snapshot.
+    ///
+    /// Returns the total number of rows applied. A peer whose file is missing,
+    /// unreadable, mismatched against its checksum, or written by a newer build
+    /// is skipped for this tick and logged — never fatal. Cloud providers hand
+    /// out partly-downloaded and placeholder files routinely, and one bad file
+    /// must not stop every other device's changes from arriving. The previous
+    /// engine used `?` here, so a single unparseable file aborted the whole
+    /// import pass.
     pub async fn import_changes(&self, db: &Database) -> Result<usize, String> {
-        let dir = self.changesets_dir();
+        let dir = self.devices_dir();
         if !dir.exists() {
             return Ok(0);
         }
 
-        let my_hex = self.site_id_hex();
-        let mut state = self.load_state();
-        let mut total_applied = 0;
-
+        let mine = format!("{}.snapshot", self.site_id_hex());
         let entries =
-            std::fs::read_dir(&dir).map_err(|e| format!("Failed to read changesets dir: {e}"))?;
+            std::fs::read_dir(&dir).map_err(|e| format!("Failed to read devices dir: {e}"))?;
 
         let mut files: Vec<PathBuf> = entries
             .filter_map(|e| e.ok())
             .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|ext| ext == "crr"))
+            .filter(|p| p.extension().is_some_and(|ext| ext == "snapshot"))
+            .filter(|p| p.file_name().is_none_or(|n| n != mine.as_str()))
             .collect();
         files.sort();
 
+        let mut total_applied = 0;
         for path in files {
-            let filename = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-
-            if filename.starts_with(&my_hex) {
-                continue;
+            match self.merge_peer(db, &path).await {
+                Ok(applied) => total_applied += applied,
+                Err(e) => tracing::warn!("Skipping {}: {e}", path.display()),
             }
-
-            // Parse site_id from filename: {site_hex}_{from}_{to}
-            let parts: Vec<&str> = filename.splitn(3, '_').collect();
-            if parts.len() < 3 {
-                continue;
-            }
-            let peer_hex = parts[0];
-            let to_ver: i64 = parts[2].parse().unwrap_or(0);
-
-            let last_imported = state.peers.get(peer_hex).copied().unwrap_or(0);
-            if to_ver <= last_imported {
-                continue;
-            }
-
-            let data = tokio::fs::read(&path)
-                .await
-                .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
-            let changeset: Changeset = serde_json::from_slice(&data)
-                .map_err(|e| format!("Failed to parse {}: {e}", path.display()))?;
-
-            let result = db
-                .apply_changes(&changeset.changes)
-                .await
-                .map_err(|e| format!("Failed to apply changes: {e}"))?;
-
-            total_applied += result.applied;
-
-            state
-                .peers
-                .insert(peer_hex.to_string(), changeset.to_db_ver);
         }
 
-        self.save_state(&state)?;
         Ok(total_applied)
+    }
+
+    /// Merge one peer's snapshot, verifying it first.
+    async fn merge_peer(&self, db: &Database, path: &Path) -> Result<usize, String> {
+        let bytes = tokio::fs::read(path)
+            .await
+            .map_err(|e| format!("unreadable: {e}"))?;
+
+        // The sidecar is a few dozen bytes, so it lands atomically enough even
+        // over a network sync; the snapshot beside it may still be arriving.
+        let meta_path = path.with_extension("meta");
+        let expected = std::fs::read_to_string(&meta_path)
+            .map_err(|e| format!("no checksum sidecar: {e}"))?;
+        let actual = rotero_db::snapshot::checksum(&bytes);
+        if expected.trim() != actual {
+            return Err("checksum mismatch — file is still uploading or corrupt".into());
+        }
+
+        let stats = db
+            .merge_snapshot(&bytes)
+            .await
+            .map_err(|e| format!("merge failed: {e}"))?;
+        Ok(stats.applied)
     }
 
     pub fn export_pdf(&self, library_papers_dir: &Path, rel_path: &str) -> Result<(), String> {
@@ -346,64 +253,103 @@ mod tests {
         FileSyncEngine::new(folder.to_path_buf(), vec![site; 16])
     }
 
-    /// Two devices must not share one export cursor.
+    /// Each device writes its own file, so there is nothing to share.
     ///
-    /// The shared file let the busier device park the cursor at its own
-    /// `db_ver`; the other then read that number, found nothing newer, and
-    /// exported nothing while reporting success — permanently, since the cursor
-    /// only moves up.
+    /// The changeset engine kept a per-device export cursor, and a shared state
+    /// file let the busier device park it at its own version — after which the
+    /// other found nothing newer, exported nothing, and reported success,
+    /// permanently. Snapshots remove the cursor entirely; this pins down that
+    /// two devices in one folder address separate files.
     #[test]
-    fn each_device_keeps_its_own_export_cursor() {
+    fn each_device_owns_a_separate_snapshot_file() {
         let dir = tempfile::tempdir().unwrap();
+        let (a_snap, a_meta) = engine(dir.path(), 1).snapshot_paths();
+        let (b_snap, b_meta) = engine(dir.path(), 2).snapshot_paths();
 
-        let a = engine(dir.path(), 1);
-        a.save_state(&SyncState {
-            last_exported_ver: 40,
-            peers: Default::default(),
-        })
-        .unwrap();
-
-        let b = engine(dir.path(), 2);
+        assert_ne!(a_snap, b_snap, "two devices must not write the same snapshot");
+        assert_ne!(a_meta, b_meta, "nor the same checksum sidecar");
         assert_eq!(
-            b.load_state().last_exported_ver,
-            0,
-            "a second device must not inherit the first device's cursor"
+            a_snap.parent(),
+            b_snap.parent(),
+            "but they must still share one devices directory"
         );
-
-        // And writing B's state must not disturb A's.
-        b.save_state(&SyncState {
-            last_exported_ver: 7,
-            peers: Default::default(),
-        })
-        .unwrap();
-        assert_eq!(a.load_state().last_exported_ver, 40);
     }
 
-    /// An existing install keeps what its peers already delivered, but re-exports
-    /// its own history — the shared cursor may have belonged to another device,
-    /// and trusting it is what starved this one.
-    #[test]
-    fn a_shared_state_file_is_adopted_without_its_cursor() {
+    /// A snapshot with no checksum sidecar, or the wrong one, must be skipped.
+    ///
+    /// Cloud providers routinely expose a file that is still uploading. Merging
+    /// one would apply a truncated library; the sidecar is what makes that a
+    /// skip instead.
+    #[tokio::test]
+    async fn a_peer_snapshot_without_a_matching_checksum_is_skipped() {
         let dir = tempfile::tempdir().unwrap();
-        let mut peers = std::collections::HashMap::new();
-        peers.insert("aa".to_string(), 12);
-        let legacy = serde_json::to_string(&SyncState {
-            last_exported_ver: 99,
-            peers,
-        })
-        .unwrap();
-        std::fs::write(dir.path().join("sync_state.json"), legacy).unwrap();
+        let lib = tempfile::tempdir().unwrap();
+        let db = rotero_db::Database::open(lib.path().to_path_buf())
+            .await
+            .unwrap();
 
-        let state = engine(dir.path(), 1).load_state();
+        let devices = dir.path().join("devices");
+        std::fs::create_dir_all(&devices).unwrap();
+        let peer = devices.join("aabbcc.snapshot");
+        std::fs::write(&peer, b"not a snapshot at all").unwrap();
+
+        let me = engine(dir.path(), 1);
+
+        // No sidecar: skipped, and the pass still succeeds.
         assert_eq!(
-            state.last_exported_ver, 0,
-            "the shared cursor must not be adopted"
+            me.import_changes(&db).await.unwrap(),
+            0,
+            "a snapshot with no checksum must be skipped, not merged"
         );
+
+        // Wrong sidecar: same.
+        std::fs::write(devices.join("aabbcc.meta"), "0000").unwrap();
         assert_eq!(
-            state.peers.get("aa"),
-            Some(&12),
-            "already-imported peer progress is still valid and worth keeping"
+            me.import_changes(&db).await.unwrap(),
+            0,
+            "a checksum mismatch must be skipped, not merged"
         );
+    }
+
+    /// One unreadable peer must not stop the others from arriving.
+    ///
+    /// The changeset engine used `?` on the read and the parse, so a single bad
+    /// file aborted the whole import pass and every other device's changes with
+    /// it.
+    #[tokio::test]
+    async fn one_bad_peer_does_not_abort_the_pass() {
+        let shared = tempfile::tempdir().unwrap();
+        let good_lib = tempfile::tempdir().unwrap();
+        let my_lib = tempfile::tempdir().unwrap();
+
+        let good_db = rotero_db::Database::open(good_lib.path().to_path_buf())
+            .await
+            .unwrap();
+        good_db
+            .insert_paper(&rotero_models::Paper {
+                title: "Should still arrive".into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // A healthy peer writes a real snapshot...
+        engine(shared.path(), 9).export_changes(&good_db).await.unwrap();
+
+        // ...and a broken one sits alphabetically before it.
+        let devices = shared.path().join("devices");
+        std::fs::write(devices.join("00000000.snapshot"), b"garbage").unwrap();
+
+        let my_db = rotero_db::Database::open(my_lib.path().to_path_buf())
+            .await
+            .unwrap();
+        let applied = engine(shared.path(), 1).import_changes(&my_db).await.unwrap();
+
+        assert!(
+            applied > 0,
+            "the healthy peer's rows must arrive despite the broken file"
+        );
+        assert_eq!(my_db.list_papers().await.unwrap().len(), 1);
     }
 
     /// `pdf_path` arrives from a peer, and `Path::join` with an absolute path
