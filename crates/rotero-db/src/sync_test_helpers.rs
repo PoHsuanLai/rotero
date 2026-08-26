@@ -1,11 +1,18 @@
 //! Test helpers for simulating multi-device sync.
+//!
+//! Mirrors the real transport's shape — one snapshot file per device in a shared
+//! directory — without its cloud-provider handling, so tests exercise the same
+//! merge the app runs.
 
 use std::path::PathBuf;
 
 use crate::Database;
-use crate::crr::ChangeRow;
 
-/// Simulates a sync endpoint by exchanging JSON change files in a shared directory.
+/// Simulates a sync endpoint by exchanging per-device snapshots in a directory.
+///
+/// Keeps `export_changes`/`import_changes` names from the changeset era so the
+/// test harnesses built around them did not have to be rewritten alongside the
+/// engine.
 pub struct TestSyncEngine {
     dir: PathBuf,
     site_id: Vec<u8>,
@@ -21,70 +28,42 @@ impl TestSyncEngine {
         self.site_id.iter().map(|b| format!("{b:02x}")).collect()
     }
 
-    /// Export changes to a JSON file. Returns count exported.
-    pub async fn export_changes(&self, db: &Database) -> usize {
-        let state_path = self.dir.join(format!("{}_state.json", self.site_hex()));
-        let last_ver: i64 = std::fs::read_to_string(&state_path)
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
-
-        let changes = db.crr().changes_since(last_ver).await.unwrap();
-        if changes.is_empty() {
-            return 0;
-        }
-
-        let current_ver = db.crr().current_db_version().await.unwrap();
-        let filename = format!(
-            "{}_{:08}_{:08}.json",
-            self.site_hex(),
-            last_ver,
-            current_ver
-        );
-        let path = self.dir.join(&filename);
-        let data = serde_json::to_vec(&changes).unwrap();
-        std::fs::write(&path, data).unwrap();
-        std::fs::write(&state_path, current_ver.to_string()).unwrap();
-
-        changes.len()
+    fn devices_dir(&self) -> PathBuf {
+        self.dir.join("devices")
     }
 
-    /// Import changes from other devices' JSON files. Returns count applied.
+    /// Write this device's snapshot. Returns the number of rows written.
+    pub async fn export_changes(&self, db: &Database) -> usize {
+        let dir = self.devices_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let bytes = db.write_snapshot().await.unwrap();
+        let (header, _) = crate::snapshot::parse_snapshot(&bytes).unwrap();
+
+        std::fs::write(dir.join(format!("{}.snapshot", self.site_hex())), &bytes).unwrap();
+        header.rows
+    }
+
+    /// Merge every other device's snapshot. Returns the number of rows applied.
     pub async fn import_changes(&self, db: &Database) -> usize {
-        let my_hex = self.site_hex();
+        let dir = self.devices_dir();
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return 0;
+        };
+
+        let mine = format!("{}.snapshot", self.site_hex());
         let mut total = 0;
-
-        let entries: Vec<_> = std::fs::read_dir(&self.dir)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| {
-                p.extension().is_some_and(|ext| ext == "json")
-                    && !p.file_name().unwrap().to_string_lossy().contains("_state")
-                    && !p
-                        .file_name()
-                        .unwrap()
-                        .to_string_lossy()
-                        .starts_with(&my_hex)
-            })
-            .collect();
-
-        for path in entries {
-            let data = std::fs::read(&path).unwrap();
-            let changes: Vec<ChangeRow> = serde_json::from_slice(&data).unwrap();
-            let result = db.crr().apply_changes(&changes).await.unwrap();
-            // recrr writes row values without knowing about `deleted`, so a row
-            // it resurrects would stay hidden behind the `_live` views.
-            let touched: Vec<(String, String)> = changes
-                .iter()
-                .map(|c| (c.table_name.clone(), c.pk.clone()))
-                .collect();
-            db.reconcile_tombstones_after_crr_apply(&touched)
-                .await
-                .unwrap();
-            total += result.applied;
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.file_name().is_some_and(|n| n == mine.as_str()) {
+                continue;
+            }
+            if path.extension().is_none_or(|e| e != "snapshot") {
+                continue;
+            }
+            let bytes = std::fs::read(&path).unwrap();
+            total += db.merge_snapshot(&bytes).await.unwrap().applied;
         }
-
         total
     }
 }
