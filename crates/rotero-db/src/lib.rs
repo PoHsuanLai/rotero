@@ -24,6 +24,9 @@ pub mod schema;
 /// Stamping local writes so they can win a merge.
 pub mod clock;
 
+/// Removing tombstones once every device has certainly seen them.
+pub mod reaper;
+
 /// Serializing a device's synced tables, and merging a peer's.
 pub mod snapshot;
 

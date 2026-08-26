@@ -122,6 +122,41 @@ impl FileSyncEngine {
         Ok(total_applied)
     }
 
+    /// The oldest `generated_at` across every readable peer snapshot.
+    ///
+    /// This is what proves the other devices have seen everything older than it,
+    /// and it is the bound the tombstone reaper needs. `None` when no peer
+    /// snapshot could be read — either there are no peers yet, or none of their
+    /// files are currently intact — in which case nothing may be reaped.
+    ///
+    /// Deliberately the minimum rather than the maximum: one device that has not
+    /// published in months holds every tombstone back, which is the safe
+    /// direction. Reaping past it would delete a row that device still needs to
+    /// hear about.
+    pub async fn peer_horizon(&self) -> Option<i64> {
+        let dir = self.devices_dir();
+        let mine = format!("{}.snapshot", self.site_id_hex());
+        let entries = std::fs::read_dir(&dir).ok()?;
+
+        let mut oldest: Option<i64> = None;
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.extension().is_none_or(|e| e != "snapshot")
+                || path.file_name().is_some_and(|n| n == mine.as_str())
+            {
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let Ok((header, _)) = rotero_db::snapshot::parse_snapshot(&bytes) else {
+                continue;
+            };
+            oldest = Some(oldest.map_or(header.generated_at, |o: i64| o.min(header.generated_at)));
+        }
+        oldest
+    }
+
     /// Merge one peer's snapshot, verifying it first.
     async fn merge_peer(&self, db: &Database, path: &Path) -> Result<usize, String> {
         let bytes = tokio::fs::read(path)
@@ -253,6 +288,10 @@ mod tests {
         FileSyncEngine::new(folder.to_path_buf(), vec![site; 16])
     }
 
+    fn hex(site: u8) -> String {
+        vec![site; 16].iter().map(|b| format!("{b:02x}")).collect()
+    }
+
     /// Each device writes its own file, so there is nothing to share.
     ///
     /// The changeset engine kept a per-device export cursor, and a shared state
@@ -350,6 +389,62 @@ mod tests {
             "the healthy peer's rows must arrive despite the broken file"
         );
         assert_eq!(my_db.list_papers().await.unwrap().len(), 1);
+    }
+
+    /// The horizon is the oldest peer, not the newest.
+    ///
+    /// It bounds what the tombstone reaper may destroy, so taking the maximum
+    /// would let one recently-synced device authorize deleting rows another
+    /// device has never seen.
+    #[tokio::test]
+    async fn the_peer_horizon_is_the_oldest_peer() {
+        let shared = tempfile::tempdir().unwrap();
+        let devices = shared.path().join("devices");
+        std::fs::create_dir_all(&devices).unwrap();
+
+        // Two peers with different generation times, written by exporting real
+        // libraries so the snapshots are well-formed.
+        let mut stamps = Vec::new();
+        for (i, site) in [7u8, 8u8].into_iter().enumerate() {
+            let lib = tempfile::tempdir().unwrap();
+            let db = rotero_db::Database::open(lib.path().to_path_buf())
+                .await
+                .unwrap();
+            db.insert_paper(&rotero_models::Paper {
+                title: format!("Peer {i}"),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+            engine(shared.path(), site).export_changes(&db).await.unwrap();
+
+            let bytes =
+                std::fs::read(devices.join(format!("{}.snapshot", hex(site)))).unwrap();
+            let (header, _) = rotero_db::snapshot::parse_snapshot(&bytes).unwrap();
+            stamps.push(header.generated_at);
+
+            // Make the two generation times distinguishable.
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+
+        let horizon = engine(shared.path(), 1).peer_horizon().await;
+        assert_eq!(
+            horizon,
+            Some(*stamps.iter().min().unwrap()),
+            "the horizon must be the oldest peer, so a lagging device holds \
+             tombstones back"
+        );
+    }
+
+    /// With no peers there is no horizon, and so nothing may be reaped.
+    #[tokio::test]
+    async fn no_peers_means_no_horizon() {
+        let shared = tempfile::tempdir().unwrap();
+        assert_eq!(
+            engine(shared.path(), 1).peer_horizon().await,
+            None,
+            "an empty folder must not authorize reaping"
+        );
     }
 
     /// `pdf_path` arrives from a peer, and `Path::join` with an absolute path

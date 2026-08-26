@@ -57,6 +57,25 @@ pub fn SyncLoop() -> Element {
                             }
                         };
                         crate::init::preflight::record(|p| p.sync_folder = failure);
+
+                        // Drop tombstones every peer has certainly seen. Rate-
+                        // limited internally to roughly weekly, and a no-op
+                        // unless every peer's snapshot is well past them, so
+                        // running it on the sync tick costs a flag read.
+                        match db
+                            .reap_tombstones(
+                                engine.peer_horizon().await,
+                                chrono::Utc::now().timestamp_millis(),
+                            )
+                            .await
+                        {
+                            Ok(stats) if stats.removed > 0 => {
+                                tracing::info!("Reaped {} settled tombstone(s)", stats.removed);
+                            }
+                            Ok(_) => {}
+                            Err(e) => tracing::warn!("Tombstone reap failed: {e}"),
+                        }
+
                         let papers_dir = db.papers_dir();
                         let papers = lib_state.read().papers.clone();
                         for paper in &papers {
