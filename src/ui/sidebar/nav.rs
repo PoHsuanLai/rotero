@@ -147,7 +147,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                     view: LibraryView::Unread,
                 }
                 SidebarItem {
-                    label: format!("Duplicates"),
+                    label: "Duplicates".to_string(),
                     count: None,
                     icon: "copy",
                     active: view == LibraryView::Duplicates,
