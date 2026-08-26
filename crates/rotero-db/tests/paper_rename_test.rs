@@ -35,7 +35,10 @@ async fn rename_replaces_only_the_title() {
         .unwrap();
 
     let papers = db.list_papers().await.unwrap();
-    let p = papers.iter().find(|p| p.id.as_deref() == Some(&id)).unwrap();
+    let p = papers
+        .iter()
+        .find(|p| p.id.as_deref() == Some(&id))
+        .unwrap();
     assert_eq!(p.title, "Attention Is All You Need (v2)");
     // The whole point of a title-only write: a rename must not blank the fields
     // enrichment filled in, which a full-row rewrite from a stale Paper would.
