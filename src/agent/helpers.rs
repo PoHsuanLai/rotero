@@ -137,7 +137,7 @@ pub(crate) fn handle_notification(
                         .and_then(|c| c.get("text"))
                         .and_then(|t| t.as_str())
                     {
-                        let cleaned = strip_protocol_tags(text);
+                        let cleaned = strip_protocol_tags_trimmed(text);
                         if !cleaned.is_empty() {
                             let _ = evt_tx.send(ChatEvent::UserMessage(cleaned));
                         }
@@ -149,6 +149,8 @@ pub(crate) fn handle_notification(
                         .and_then(|c| c.get("text"))
                         .and_then(|t| t.as_str())
                     {
+                        // Chunks are concatenated downstream, so whitespace
+                        // at the boundary is load-bearing markdown structure.
                         let cleaned = strip_protocol_tags(text);
                         if !cleaned.is_empty() {
                             let _ = evt_tx.send(ChatEvent::TextDelta(cleaned));
@@ -338,7 +340,15 @@ pub(crate) fn strip_protocol_tags(text: &str) -> String {
         }
     }
 
-    result.trim().to_string()
+    result
+}
+
+/// Strip protocol tags from a complete message, trimming the outer padding the
+/// tags leave behind. Streaming chunks must use [`strip_protocol_tags`]
+/// instead: trimming a chunk would eat the newlines that separate markdown
+/// blocks, silently demoting headings and dissolving tables.
+pub(crate) fn strip_protocol_tags_trimmed(text: &str) -> String {
+    strip_protocol_tags(text).trim().to_string()
 }
 
 pub(crate) fn extract_models_event(models: &serde_json::Value) -> ChatEvent {
@@ -459,5 +469,172 @@ mod tests {
         assert!(!is_batch_file(Path::new("npm")));
         // A name merely containing "cmd" is not a batch file.
         assert!(!is_batch_file(Path::new("/usr/bin/cmdline")));
+    }
+}
+
+/// Streaming-fidelity tests over the markdown shapes agent replies use
+/// (`tests/fixtures/chat_markdown/`).
+///
+/// The chat panel renders assistant text by concatenating `TextDelta` chunks
+/// and handing the result to `md_to_html`. Markdown is line-oriented, so the
+/// concatenated text must reproduce the agent's original bytes exactly:
+/// a lost newline silently demotes a heading or dissolves a table.
+#[cfg(test)]
+mod streaming_markdown {
+    use super::*;
+
+    fn fixtures() -> Vec<(String, String)> {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/chat_markdown");
+        let mut out: Vec<(String, String)> = std::fs::read_dir(dir)
+            .expect("fixture directory")
+            .filter_map(|e| {
+                let path = e.ok()?.path();
+                if path.extension()? != "md" {
+                    return None;
+                }
+                let name = path.file_name()?.to_string_lossy().into_owned();
+                Some((name, std::fs::read_to_string(&path).ok()?))
+            })
+            .collect();
+        out.sort();
+        assert!(!out.is_empty(), "no fixtures found");
+        out
+    }
+
+    /// Reassemble a reply the way the panel does: every chunk passes through
+    /// `strip_protocol_tags`, then the results are concatenated.
+    fn stream(text: &str, chunk: usize) -> String {
+        let chars: Vec<char> = text.chars().collect();
+        let mut out = String::new();
+        for piece in chars.chunks(chunk) {
+            out.push_str(&strip_protocol_tags(&piece.iter().collect::<String>()));
+        }
+        out
+    }
+
+    /// Reassemble a reply split at exactly one boundary. The ACP stream can
+    /// break anywhere, so every position is a case worth covering.
+    fn stream_split_at(text: &str, at: usize) -> String {
+        let chars: Vec<char> = text.chars().collect();
+        let (head, tail) = chars.split_at(at);
+        let mut out = strip_protocol_tags(&head.iter().collect::<String>());
+        out.push_str(&strip_protocol_tags(&tail.iter().collect::<String>()));
+        out
+    }
+
+    /// Chunk sizes spanning single characters up to the whole reply.
+    fn chunk_sizes(text: &str) -> Vec<usize> {
+        let len = text.chars().count().max(1);
+        [1, 2, 7, 40, 200, 1024]
+            .into_iter()
+            .filter(|&n| n < len)
+            .chain(std::iter::once(len))
+            .collect()
+    }
+
+    /// Chunk boundaries are a transport artifact: where the ACP stream happens
+    /// to split a reply must not change the text the renderer receives.
+    #[test]
+    fn chunk_boundaries_preserve_reply_text() {
+        for (name, text) in fixtures() {
+            for chunk in chunk_sizes(&text) {
+                assert_eq!(
+                    stream(&text, chunk),
+                    text,
+                    "{name}: reassembly at chunk size {chunk} does not match the original reply"
+                );
+            }
+            // Every possible single split point, not just the sampled sizes.
+            for at in 0..=text.chars().count() {
+                assert_eq!(
+                    stream_split_at(&text, at),
+                    text,
+                    "{name}: reassembly with a chunk boundary at {at} does not match the original reply"
+                );
+            }
+        }
+    }
+
+    /// A heading only parses when its `#` starts a line. Losing the newline
+    /// before it turns the heading into body text.
+    #[test]
+    fn streamed_headings_still_render_as_headings() {
+        let mut covered = 0;
+        for (name, text) in fixtures() {
+            let expected = crate::ui::markdown::md_to_html(&text);
+            if !expected.contains("<h1>")
+                && !expected.contains("<h2>")
+                && !expected.contains("<h3>")
+            {
+                continue;
+            }
+            covered += 1;
+            for chunk in chunk_sizes(&text) {
+                let got = crate::ui::markdown::md_to_html(&stream(&text, chunk));
+                assert_eq!(
+                    got, expected,
+                    "{name}: headings lost when streamed in {chunk}-char chunks"
+                );
+            }
+        }
+        assert!(covered > 0, "no fixture exercises headings");
+    }
+
+    /// Tables need every row on its own line, so they are the most fragile
+    /// construct in the stream.
+    #[test]
+    fn streamed_tables_still_render_as_tables() {
+        let mut covered = 0;
+        for (name, text) in fixtures() {
+            let expected = crate::ui::markdown::md_to_html(&text);
+            if !expected.contains("<table>") {
+                continue;
+            }
+            covered += 1;
+            for chunk in chunk_sizes(&text) {
+                let got = crate::ui::markdown::md_to_html(&stream(&text, chunk));
+                assert!(
+                    got.contains("<table>"),
+                    "{name}: table lost when streamed in {chunk}-char chunks"
+                );
+                assert_eq!(
+                    got, expected,
+                    "{name}: table content changed when streamed in {chunk}-char chunks"
+                );
+            }
+        }
+        assert!(covered > 0, "no fixture exercises tables");
+    }
+
+    /// Tag stripping is the only transformation the text is meant to undergo;
+    /// it must not also rewrite the surrounding markdown.
+    #[test]
+    fn stripping_tags_leaves_surrounding_markdown_intact() {
+        let text = "## Heading\n\n<system-reminder>ignore me</system-reminder>\n\n| a | b |\n|---|---|\n| 1 | 2 |\n";
+        let stripped = strip_protocol_tags(text);
+        assert!(stripped.contains("## Heading"));
+        assert!(!stripped.contains("ignore me"));
+        let html = crate::ui::markdown::md_to_html(&stripped);
+        assert!(html.contains("<h2>"), "heading survives tag stripping");
+        assert!(html.contains("<table>"), "table survives tag stripping");
+    }
+
+    /// Interior whitespace carries meaning in markdown; only the reply's outer
+    /// padding is safe to drop.
+    #[test]
+    fn stripping_tags_preserves_interior_newlines() {
+        assert_eq!(strip_protocol_tags("a\n\nb"), "a\n\nb");
+        assert_eq!(
+            strip_protocol_tags("| a |\n"),
+            "| a |\n",
+            "a chunk's trailing newline starts the next table row"
+        );
+        assert_eq!(
+            strip_protocol_tags("\n\n## H"),
+            "\n\n## H",
+            "a chunk's leading newline ends the previous block"
+        );
+        // Only a whole message may be trimmed.
+        assert_eq!(strip_protocol_tags_trimmed("\n\n## H\n"), "## H");
     }
 }
