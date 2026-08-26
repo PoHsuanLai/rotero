@@ -399,7 +399,7 @@ impl Database {
         let mut rows = self
             .conn
             .query(
-                "SELECT fulltext FROM papers WHERE id = ?1",
+                "SELECT fulltext FROM papers_live WHERE id = ?1",
                 [Value::Text(paper_id.to_string())],
             )
             .await?;
@@ -413,7 +413,7 @@ impl Database {
     pub async fn list_all_paper_tags(&self) -> Result<Vec<(String, String)>, turso::Error> {
         let mut rows = self
             .conn
-            .query("SELECT paper_id, tag_id FROM paper_tags", ())
+            .query("SELECT paper_id, tag_id FROM paper_tags_live", ())
             .await?;
         let mut pairs = Vec::new();
         while let Some(row) = rows.next().await? {
@@ -428,7 +428,7 @@ impl Database {
     pub async fn list_all_paper_collections(&self) -> Result<Vec<(String, String)>, turso::Error> {
         let mut rows = self
             .conn
-            .query("SELECT paper_id, collection_id FROM paper_collections", ())
+            .query("SELECT paper_id, collection_id FROM paper_collections_live", ())
             .await?;
         let mut pairs = Vec::new();
         while let Some(row) = rows.next().await? {
@@ -444,7 +444,7 @@ impl Database {
         let mut rows = self
             .conn
             .query(
-                "SELECT citing_paper_id, cited_paper_id FROM paper_citations",
+                "SELECT citing_paper_id, cited_paper_id FROM paper_citations_live",
                 (),
             )
             .await?;

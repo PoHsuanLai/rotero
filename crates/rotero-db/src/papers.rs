@@ -168,7 +168,7 @@ impl Database {
     ) -> Result<Vec<Paper>, crate::DbError> {
         let conn = self.conn();
         let sql = format!(
-            "SELECT {} FROM papers ORDER BY date_added DESC LIMIT ?1 OFFSET ?2",
+            "SELECT {} FROM papers_live ORDER BY date_added DESC LIMIT ?1 OFFSET ?2",
             queries::PAPER_SELECT_COLS
         );
         let mut rows = conn
@@ -254,7 +254,7 @@ impl Database {
         }
         let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{i}")).collect();
         let sql = format!(
-            "SELECT {} FROM papers WHERE id IN ({})",
+            "SELECT {} FROM papers_live WHERE id IN ({})",
             queries::PAPER_SELECT_COLS,
             placeholders.join(", ")
         );

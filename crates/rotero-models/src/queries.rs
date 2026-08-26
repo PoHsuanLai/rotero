@@ -8,16 +8,16 @@ pub const PAPER_INSERT: &str = "\
     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)";
 
 /// Count total papers in the library.
-pub const PAPER_COUNT: &str = "SELECT COUNT(*) FROM papers";
+pub const PAPER_COUNT: &str = "SELECT COUNT(*) FROM papers_live";
 
 /// Direct identifier lookup, used as a fast path when the query parses as a DOI
 /// or other [`PaperId`](crate::PaperId).
 // DOIs are case-insensitive by specification, so match without regard to case.
 pub const PAPER_SEARCH_BY_DOI: &str =
-    "SELECT {COLS} FROM papers WHERE doi = ?1 COLLATE NOCASE LIMIT 50";
+    "SELECT {COLS} FROM papers_live WHERE doi = ?1 COLLATE NOCASE LIMIT 50";
 
 pub const PAPER_SEARCH_BY_URL: &str =
-    "SELECT {COLS} FROM papers WHERE url = ?1 OR pdf_url = ?1 LIMIT 50";
+    "SELECT {COLS} FROM papers_live WHERE url = ?1 OR pdf_url = ?1 LIMIT 50";
 
 /// Full-text search ranked by BM25 relevance.
 ///
@@ -32,14 +32,14 @@ pub const PAPER_SEARCH_BY_URL: &str =
 /// query would match nearly the whole library on a common word like "a".
 pub const PAPER_SEARCH_FTS: &str = "\
     SELECT {COLS}, fts_score(title, authors, abstract_text, journal, fulltext, ?1) AS score \
-    FROM papers \
+    FROM papers_live \
     WHERE fts_match(title, authors, abstract_text, journal, fulltext, ?1) \
     ORDER BY score DESC \
     LIMIT 50";
 
 /// Fallback LIKE-based search when FTS is unavailable (e.g. index missing).
 pub const PAPER_SEARCH_LIKE: &str = "\
-    SELECT {COLS} FROM papers \
+    SELECT {COLS} FROM papers_live \
     WHERE title LIKE ?1 OR authors LIKE ?1 OR abstract_text LIKE ?1 OR journal LIKE ?1 OR doi LIKE ?1 OR fulltext LIKE ?1 \
     LIMIT 500";
 
@@ -69,8 +69,8 @@ pub const PAPER_DELETE: &str = "DELETE FROM papers WHERE id = ?1";
 
 /// Find all papers that share a DOI with at least one other paper.
 pub const PAPER_FIND_DOI_DUPLICATES: &str = "\
-    SELECT {COLS} FROM papers WHERE doi IS NOT NULL AND doi != '' \
-    AND doi IN (SELECT doi FROM papers WHERE doi IS NOT NULL AND doi != '' GROUP BY doi HAVING COUNT(*) > 1) \
+    SELECT {COLS} FROM papers_live WHERE doi IS NOT NULL AND doi != '' \
+    AND doi IN (SELECT doi FROM papers_live WHERE doi IS NOT NULL AND doi != '' GROUP BY doi HAVING COUNT(*) > 1) \
     ORDER BY doi, date_added DESC";
 
 /// Copy collection memberships from one paper to another (for merging duplicates).
@@ -85,7 +85,7 @@ pub const PAPER_MERGE_TAGS: &str = "\
 
 /// List papers that have a DOI but no citation count yet.
 pub const PAPER_LIST_NEEDING_CITATIONS: &str = "\
-    SELECT id, doi FROM papers WHERE doi IS NOT NULL AND citation_count IS NULL";
+    SELECT id, doi FROM papers_live WHERE doi IS NOT NULL AND citation_count IS NULL";
 
 /// Set the citation count for a paper.
 pub const PAPER_UPDATE_CITATION_COUNT: &str = "UPDATE papers SET citation_count = ?1 WHERE id = ?2";
@@ -94,15 +94,15 @@ pub const PAPER_UPDATE_CITATION_KEY: &str = "UPDATE papers SET citation_key = ?1
 
 /// List papers that still need an auto-generated citation key.
 pub const PAPER_LIST_NEEDING_CITATION_KEYS: &str = "\
-    SELECT id, title, authors, year FROM papers \
+    SELECT id, title, authors, year FROM papers_live \
     WHERE citation_key IS NULL AND title != '' AND title != 'Untitled'";
 
 /// List all existing citation keys (for uniqueness checks).
 pub const PAPER_LIST_CITATION_KEYS: &str =
-    "SELECT citation_key FROM papers WHERE citation_key IS NOT NULL";
+    "SELECT citation_key FROM papers_live WHERE citation_key IS NOT NULL";
 
 /// List papers that have a remote PDF URL.
-pub const PAPER_SELECT_PDF_URL: &str = "SELECT id, pdf_url FROM papers WHERE pdf_url IS NOT NULL";
+pub const PAPER_SELECT_PDF_URL: &str = "SELECT id, pdf_url FROM papers_live WHERE pdf_url IS NOT NULL";
 
 /// Insert a new collection.
 pub const COLLECTION_INSERT: &str =
@@ -110,7 +110,7 @@ pub const COLLECTION_INSERT: &str =
 
 /// List all collections ordered by hierarchy and position.
 pub const COLLECTION_LIST: &str = "\
-    SELECT id, name, parent_id, position FROM collections ORDER BY parent_id NULLS FIRST, position";
+    SELECT id, name, parent_id, position FROM collections_live ORDER BY parent_id NULLS FIRST, position";
 
 /// Rename a collection.
 pub const COLLECTION_RENAME: &str = "UPDATE collections SET name = ?1 WHERE id = ?2";
@@ -121,11 +121,11 @@ pub const COLLECTION_DELETE: &str = "DELETE FROM collections WHERE id = ?1";
 
 /// List paper IDs belonging directly to a single collection.
 pub const COLLECTION_PAPER_IDS: &str =
-    "SELECT paper_id FROM paper_collections WHERE collection_id = ?1";
+    "SELECT paper_id FROM paper_collections_live WHERE collection_id = ?1";
 /// List the collections a single paper belongs to, ordered by name.
 pub const COLLECTION_LIST_FOR_PAPER: &str = "\
-    SELECT c.id, c.name, c.parent_id, c.position FROM collections c \
-    JOIN paper_collections pc ON pc.collection_id = c.id \
+    SELECT c.id, c.name, c.parent_id, c.position FROM collections_live c \
+    JOIN paper_collections_live pc ON pc.collection_id = c.id \
     WHERE pc.paper_id = ?1 ORDER BY c.name";
 /// Add a paper to a collection (idempotent).
 pub const COLLECTION_ADD_PAPER: &str =
@@ -135,11 +135,11 @@ pub const COLLECTION_REMOVE_PAPER: &str =
     "DELETE FROM paper_collections WHERE paper_id = ?1 AND collection_id = ?2";
 
 /// Look up a tag ID by its name.
-pub const TAG_FIND_BY_NAME: &str = "SELECT id FROM tags WHERE name = ?1";
+pub const TAG_FIND_BY_NAME: &str = "SELECT id FROM tags_live WHERE name = ?1";
 /// Insert a new tag.
 pub const TAG_INSERT: &str = "INSERT INTO tags (id, name, color) VALUES (?1, ?2, ?3)";
 /// List all tags sorted alphabetically.
-pub const TAG_LIST: &str = "SELECT id, name, color FROM tags ORDER BY name";
+pub const TAG_LIST: &str = "SELECT id, name, color FROM tags_live ORDER BY name";
 /// Associate a tag with a paper (idempotent).
 pub const TAG_ADD_TO_PAPER: &str =
     "INSERT OR IGNORE INTO paper_tags (paper_id, tag_id) VALUES (?1, ?2)";
@@ -148,13 +148,13 @@ pub const TAG_RENAME: &str = "UPDATE tags SET name = ?1 WHERE id = ?2";
 /// Update a tag's color.
 pub const TAG_UPDATE_COLOR: &str = "UPDATE tags SET color = ?1 WHERE id = ?2";
 /// List tags that have no color assigned.
-pub const TAG_LIST_NULL_COLOR: &str = "SELECT id, name FROM tags WHERE color IS NULL";
+pub const TAG_LIST_NULL_COLOR: &str = "SELECT id, name FROM tags_live WHERE color IS NULL";
 /// List paper IDs associated with a tag.
-pub const TAG_PAPER_IDS: &str = "SELECT paper_id FROM paper_tags WHERE tag_id = ?1";
+pub const TAG_PAPER_IDS: &str = "SELECT paper_id FROM paper_tags_live WHERE tag_id = ?1";
 /// List the tags applied to a single paper, ordered by name.
 pub const TAG_LIST_FOR_PAPER: &str = "\
-    SELECT t.id, t.name, t.color FROM tags t \
-    JOIN paper_tags pt ON pt.tag_id = t.id \
+    SELECT t.id, t.name, t.color FROM tags_live t \
+    JOIN paper_tags_live pt ON pt.tag_id = t.id \
     WHERE pt.paper_id = ?1 ORDER BY t.name";
 /// Remove a tag association from a paper.
 pub const TAG_REMOVE_FROM_PAPER: &str =
@@ -170,7 +170,7 @@ pub const ANNOTATION_INSERT: &str = "\
 /// List all annotations for a paper, ordered by page then creation time.
 pub const ANNOTATION_LIST_FOR_PAPER: &str = "\
     SELECT id, paper_id, page, ann_type, color, content, geometry, created_at, modified_at \
-    FROM annotations WHERE paper_id = ?1 ORDER BY page, created_at";
+    FROM annotations_live WHERE paper_id = ?1 ORDER BY page, created_at";
 
 /// Update an annotation's text content.
 pub const ANNOTATION_UPDATE_CONTENT: &str =
@@ -189,7 +189,7 @@ pub const NOTE_INSERT: &str = "\
 /// List all notes for a paper, newest first.
 pub const NOTE_LIST_FOR_PAPER: &str = "\
     SELECT id, paper_id, title, body, created_at, modified_at \
-    FROM notes WHERE paper_id = ?1 ORDER BY created_at DESC";
+    FROM notes_live WHERE paper_id = ?1 ORDER BY created_at DESC";
 
 /// Update a note's title and body.
 pub const NOTE_UPDATE: &str =
@@ -203,7 +203,7 @@ pub const SAVED_SEARCH_INSERT: &str =
 
 /// List all saved searches, newest first.
 pub const SAVED_SEARCH_LIST: &str = "\
-    SELECT id, name, query, created_at FROM saved_searches ORDER BY created_at DESC";
+    SELECT id, name, query, created_at FROM saved_searches_live ORDER BY created_at DESC";
 
 /// Delete a saved search by ID.
 pub const SAVED_SEARCH_DELETE: &str = "DELETE FROM saved_searches WHERE id = ?1";
@@ -211,28 +211,28 @@ pub const SAVED_SEARCH_DELETE: &str = "DELETE FROM saved_searches WHERE id = ?1"
 pub const SAVED_SEARCH_RENAME: &str = "UPDATE saved_searches SET name = ?1 WHERE id = ?2";
 
 /// Fetch all paper-tag associations (for graph/export).
-pub const GRAPH_ALL_PAPER_TAGS: &str = "SELECT paper_id, tag_id FROM paper_tags";
+pub const GRAPH_ALL_PAPER_TAGS: &str = "SELECT paper_id, tag_id FROM paper_tags_live";
 /// Fetch all paper-collection associations (for graph/export).
 pub const GRAPH_ALL_PAPER_COLLECTIONS: &str =
-    "SELECT paper_id, collection_id FROM paper_collections";
+    "SELECT paper_id, collection_id FROM paper_collections_live";
 /// Fetch all directed citation edges (citing → cited) for the graph.
-pub const GRAPH_ALL_CITATIONS: &str = "SELECT citing_paper_id, cited_paper_id FROM paper_citations";
+pub const GRAPH_ALL_CITATIONS: &str = "SELECT citing_paper_id, cited_paper_id FROM paper_citations_live";
 /// Upsert one citation edge; ignore if it already exists.
 pub const CITATION_INSERT: &str =
     "INSERT OR IGNORE INTO paper_citations (citing_paper_id, cited_paper_id) VALUES (?1, ?2)";
 
 /// Fetch a single paper by ID.
-pub const PAPER_GET_BY_ID: &str = "SELECT {COLS} FROM papers WHERE id = ?1";
+pub const PAPER_GET_BY_ID: &str = "SELECT {COLS} FROM papers_live WHERE id = ?1";
 
 /// Fetch papers with pagination, newest first.
 pub const PAPER_LIST_PAGINATED: &str = "\
-    SELECT {COLS} FROM papers ORDER BY date_added DESC LIMIT ?1 OFFSET ?2";
+    SELECT {COLS} FROM papers_live ORDER BY date_added DESC LIMIT ?1 OFFSET ?2";
 
 /// Count unread papers.
-pub const PAPER_COUNT_UNREAD: &str = "SELECT COUNT(*) FROM papers WHERE is_read = 0";
+pub const PAPER_COUNT_UNREAD: &str = "SELECT COUNT(*) FROM papers_live WHERE is_read = 0";
 /// Count favorite papers.
-pub const PAPER_COUNT_FAVORITES: &str = "SELECT COUNT(*) FROM papers WHERE is_favorite = 1";
+pub const PAPER_COUNT_FAVORITES: &str = "SELECT COUNT(*) FROM papers_live WHERE is_favorite = 1";
 /// Count total collections.
-pub const COLLECTION_COUNT: &str = "SELECT COUNT(*) FROM collections";
+pub const COLLECTION_COUNT: &str = "SELECT COUNT(*) FROM collections_live";
 /// Count total tags.
-pub const TAG_COUNT: &str = "SELECT COUNT(*) FROM tags";
+pub const TAG_COUNT: &str = "SELECT COUNT(*) FROM tags_live";

@@ -167,7 +167,7 @@ impl Database {
             .collect::<Vec<_>>()
             .join(", ");
         let sql = format!(
-            "SELECT DISTINCT paper_id FROM paper_collections WHERE collection_id IN ({placeholders})"
+            "SELECT DISTINCT paper_id FROM paper_collections_live WHERE collection_id IN ({placeholders})"
         );
         let params: Vec<Value> = subtree.into_iter().map(Value::Text).collect();
 

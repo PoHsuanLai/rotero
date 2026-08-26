@@ -128,6 +128,40 @@ CREATE TABLE IF NOT EXISTS saved_searches (
 ";
 
 /// SQL statement that creates the turso FTS index over paper text fields with weighted columns.
+/// Views exposing only live (non-tombstoned) rows of each synced table.
+///
+/// Reads go through `<table>_live` so a query that forgets `deleted = 0` names a
+/// relation that does not exist — a compile-time-ish failure — rather than
+/// silently returning deleted papers. Writes still target the base tables.
+///
+/// `papers_live` deliberately has no FTS index: `idx_papers_fts` is built on
+/// `papers` and cannot be filtered, so full-text search matches tombstoned rows
+/// and must drop them after the match.
+/// Views exposing only live (non-tombstoned) rows of each synced table.
+///
+/// Reads go through `<table>_live` so a query that forgets `deleted = 0` names a
+/// relation that does not exist, rather than silently returning deleted papers.
+/// Writes still target the base tables.
+///
+/// `papers_live` deliberately has no FTS index: `idx_papers_fts` is built on
+/// `papers` and cannot be filtered, so full-text search matches tombstoned rows
+/// and must drop them after the match.
+///
+/// One statement per view rather than a batch: turso raises "View ... already
+/// exists" even with `IF NOT EXISTS`, so each is attempted separately and an
+/// already-created view is ignored.
+pub const CREATE_LIVE_VIEWS: &[&str] = &[
+    "CREATE VIEW papers_live AS SELECT * FROM papers WHERE deleted = 0",
+    "CREATE VIEW collections_live AS SELECT * FROM collections WHERE deleted = 0",
+    "CREATE VIEW tags_live AS SELECT * FROM tags WHERE deleted = 0",
+    "CREATE VIEW annotations_live AS SELECT * FROM annotations WHERE deleted = 0",
+    "CREATE VIEW notes_live AS SELECT * FROM notes WHERE deleted = 0",
+    "CREATE VIEW saved_searches_live AS SELECT * FROM saved_searches WHERE deleted = 0",
+    "CREATE VIEW paper_collections_live AS SELECT * FROM paper_collections WHERE deleted = 0",
+    "CREATE VIEW paper_tags_live AS SELECT * FROM paper_tags WHERE deleted = 0",
+    "CREATE VIEW paper_citations_live AS SELECT * FROM paper_citations WHERE deleted = 0",
+];
+
 pub const CREATE_FTS_INDEX: &str = "CREATE INDEX IF NOT EXISTS idx_papers_fts ON papers \
      USING fts (title, authors, abstract_text, journal, fulltext) \
      WITH (weights = 'title=3.0,authors=2.0,abstract_text=1.5,journal=1.0,fulltext=1.0')";
