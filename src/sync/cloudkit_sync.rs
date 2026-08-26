@@ -4,10 +4,9 @@
 //! Each changeset batch is stored as a CKRecord of type "Changeset".
 
 use rotero_db::Database;
-use rotero_db::crr::ChangeRow;
 
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, Bool, ProtocolObject};
+use objc2::runtime::{Bool, ProtocolObject};
 use objc2::{AllocAnyThread, ClassType, msg_send, msg_send_id};
 use objc2_cloud_kit::*;
 use objc2_foundation::*;
@@ -101,31 +100,39 @@ impl CloudKitSyncEngine {
         Ok(())
     }
 
-    /// Returns count of changes pushed.
+    /// Push this device's snapshot as a single record.
+    ///
+    /// One record per device, overwritten in place, rather than one per version
+    /// range. That mirrors the file transport — each device is the only writer
+    /// of its own record — and removes the export cursor along with it.
+    ///
+    /// UNTESTED against real CloudKit. The `cloudkit` feature is off by default
+    /// and there is no device in CI to exercise it, so this is a structural
+    /// conversion kept compiling alongside the engine it belongs to. In
+    /// particular the payload is still a CKRecord field: fields cap around 1MB,
+    /// and a real library's snapshot will exceed that, so this needs CKAsset
+    /// before it can be turned on. See the note in `save_records`.
     pub async fn export_changes(&mut self, db: &Database) -> Result<usize, String> {
-        let last_ver = read_i64_state(db, "cloudkit_last_exported_ver").await;
-
-        let changes = db
-            .crr()
-            .changes_since(last_ver)
+        let bytes = db
+            .write_snapshot()
             .await
-            .map_err(|e| format!("Failed to read changes: {e}"))?;
+            .map_err(|e| format!("Failed to build snapshot: {e}"))?;
 
-        if changes.is_empty() {
+        let checksum = rotero_db::snapshot::checksum(&bytes);
+        if read_text_state(db, "cloudkit_last_pushed_checksum").await.as_deref()
+            == Some(checksum.as_str())
+        {
             return Ok(0);
         }
 
         self.ensure_zone().await?;
 
-        let current_ver = db
-            .crr()
-            .current_db_version()
-            .await
-            .map_err(|e| format!("Failed to read db_version: {e}"))?;
+        let (header, _) = rotero_db::snapshot::parse_snapshot(&bytes)
+            .map_err(|e| format!("Failed to re-read own snapshot: {e}"))?;
 
-        let payload = serde_json::to_vec(&changes).map_err(|e| format!("Serialize failed: {e}"))?;
-
-        let record_name = format!("{}_{:08}_{:08}", self.site_id_hex(), last_ver, current_ver,);
+        // The record name is the device id alone, so each push replaces this
+        // device's previous state rather than accumulating history.
+        let record_name = self.site_id_hex();
 
         // SAFETY: ObjC CloudKit record creation and save operation — standard CKRecord
         // construction with NSData/NSString values. CKModifyRecordsOperation is thread-safe.
@@ -139,7 +146,7 @@ impl CloudKitSyncEngine {
             let record =
                 CKRecord::initWithRecordType_recordID(CKRecord::alloc(), &record_type, &record_id);
 
-            let payload_data = NSData::with_bytes(&payload);
+            let payload_data = NSData::with_bytes(&bytes);
             let payload_val: &ProtocolObject<dyn CKRecordValue> =
                 ProtocolObject::from_ref(&*payload_data);
             record.setObject_forKey(Some(payload_val), &NSString::from_str("payload"));
@@ -149,29 +156,24 @@ impl CloudKitSyncEngine {
                 ProtocolObject::from_ref(&*site_data);
             record.setObject_forKey(Some(site_val), &NSString::from_str("siteId"));
 
-            let from_num: Retained<NSNumber> =
-                msg_send_id![NSNumber::class(), numberWithLongLong: last_ver];
-            let from_val: &ProtocolObject<dyn CKRecordValue> = ProtocolObject::from_ref(&*from_num);
-            record.setObject_forKey(Some(from_val), &NSString::from_str("fromVersion"));
-
-            let to_num: Retained<NSNumber> =
-                msg_send_id![NSNumber::class(), numberWithLongLong: current_ver];
-            let to_val: &ProtocolObject<dyn CKRecordValue> = ProtocolObject::from_ref(&*to_num);
-            record.setObject_forKey(Some(to_val), &NSString::from_str("toVersion"));
+            let generated: Retained<NSNumber> =
+                msg_send_id![NSNumber::class(), numberWithLongLong: header.generated_at];
+            let generated_val: &ProtocolObject<dyn CKRecordValue> =
+                ProtocolObject::from_ref(&*generated);
+            record.setObject_forKey(Some(generated_val), &NSString::from_str("generatedAt"));
 
             self.save_records(&[record]).await?;
         }
 
-        let count = changes.len();
-        write_i64_state(db, "cloudkit_last_exported_ver", current_ver).await;
-        Ok(count)
+        write_text_state(db, "cloudkit_last_pushed_checksum", &checksum).await;
+        Ok(header.rows)
     }
 
     /// Returns count of changes applied.
     pub async fn import_changes(&mut self, db: &Database) -> Result<usize, String> {
         self.ensure_zone().await?;
 
-        let token_bytes = db.crr().get_sync_state("cloudkit_server_token").await;
+        let token_bytes = read_blob_state(db, "cloudkit_server_token").await;
         let token = token_bytes.as_deref().and_then(deserialize_server_token);
 
         let (records, new_token) = self.fetch_zone_changes(token.as_deref()).await?;
@@ -206,33 +208,33 @@ impl CloudKitSyncEngine {
                 }
                 let payload_bytes = (*payload_data).to_vec();
 
-                let changes: Vec<ChangeRow> = match serde_json::from_slice(&payload_bytes) {
-                    Ok(c) => c,
+                // A peer record that cannot be merged is skipped, not fatal:
+                // one bad record must not stop the rest of the fetch.
+                match db.merge_snapshot(&payload_bytes).await {
+                    Ok(stats) => total_applied += stats.applied,
                     Err(e) => {
-                        tracing::warn!("Failed to deserialize CloudKit changeset: {e}");
-                        continue;
+                        tracing::warn!("Skipping CloudKit snapshot from {site_hex}: {e}")
                     }
-                };
-
-                match db.apply_changes(&changes).await {
-                    Ok(result) => total_applied += result.applied,
-                    Err(e) => tracing::warn!("Failed to apply CloudKit changes: {e}"),
                 }
             }
         }
 
         if let Some(ref token) = new_token {
             if let Some(bytes) = serialize_server_token(token) {
-                let _ = db
-                    .crr()
-                    .set_sync_state("cloudkit_server_token", &bytes)
-                    .await;
+                write_blob_state(db, "cloudkit_server_token", &bytes).await;
             }
         }
 
         Ok(total_applied)
     }
 
+    /// Save records to the zone.
+    ///
+    /// Size limit worth knowing before this is enabled: a CKRecord field caps
+    /// around 1MB, and a real library's snapshot exceeds that, so the payload
+    /// has to move to a CKAsset — write the bytes to a temporary file, wrap it,
+    /// and set that as the field value. Untested here because the feature is off
+    /// by default and CI has no device to exercise it.
     async fn save_records(&self, records: &[Retained<CKRecord>]) -> Result<(), String> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let tx = Cell::new(Some(tx));
@@ -356,25 +358,31 @@ impl CloudKitSyncEngine {
     }
 }
 
-async fn read_i64_state(db: &Database, key: &str) -> i64 {
-    db.crr()
-        .get_sync_state(key)
-        .await
-        .and_then(|bytes| {
-            if bytes.len() >= 8 {
-                bytes
-                    .get(..8)
-                    .and_then(|b| b.try_into().ok())
-                    .map(i64::from_le_bytes)
-            } else {
-                None
-            }
-        })
-        .unwrap_or(0)
+/// CloudKit's own bookkeeping, kept in `app_flags`.
+///
+/// It used to live in the change-tracking store's key-value table, which goes
+/// away with that dependency. `app_flags` is text-valued, so the server change
+/// token — an opaque archived blob — is base64-encoded rather than stored raw.
+async fn read_text_state(db: &Database, key: &str) -> Option<String> {
+    db.get_app_flag(key).await.ok().flatten()
 }
 
-async fn write_i64_state(db: &Database, key: &str, value: i64) {
-    let _ = db.crr().set_sync_state(key, &value.to_le_bytes()).await;
+async fn write_text_state(db: &Database, key: &str, value: &str) {
+    let _ = db.set_app_flag(key, value).await;
+}
+
+async fn read_blob_state(db: &Database, key: &str) -> Option<Vec<u8>> {
+    use base64::Engine;
+    let encoded = read_text_state(db, key).await?;
+    base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .ok()
+}
+
+async fn write_blob_state(db: &Database, key: &str, value: &[u8]) {
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(value);
+    write_text_state(db, key, &encoded).await;
 }
 
 /// Serialize a CKServerChangeToken to bytes via NSKeyedArchiver.
