@@ -514,6 +514,11 @@ pub struct LibraryState {
     /// the selection, and selecting a library paper clears this.
     pub previewed_web: Option<Paper>,
     pub confirm_delete: Option<Vec<String>>,
+    /// The paper whose title the detail panel should open in its inline title
+    /// editor. Set by the library context menu's Rename action, which lives in
+    /// a different component tree than the editor it drives; the editor clears
+    /// it once it has taken focus.
+    pub rename_paper_id: Option<String>,
     pub view: LibraryView,
     pub search: LibrarySearchState,
     pub filter: LibraryFilterState,
@@ -622,6 +627,12 @@ impl LibraryState {
         self.selected_paper_ids.clear();
         self.selected_paper_ids.insert(id.clone());
         self.anchor_paper_id = Some(id);
+    }
+
+    /// Select `id` and ask the detail panel to open its title editor for it.
+    pub fn start_rename(&mut self, id: String) {
+        self.select_one(id.clone());
+        self.rename_paper_id = Some(id);
     }
 
     pub fn toggle_select(&mut self, id: &str) {

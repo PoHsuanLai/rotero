@@ -4,6 +4,7 @@ mod fields;
 mod multi_select;
 mod notes;
 mod shell;
+mod title_field;
 mod web_preview;
 
 pub use detail::PaperDetail;

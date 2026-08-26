@@ -5,6 +5,7 @@ use crate::state::commands::ImportChannel;
 
 use super::DetailShell;
 use super::detail_fields::DetailFields;
+use super::title_field::TitleField;
 
 /// Read-only overview of a web search result that hasn't been imported yet.
 ///
@@ -61,6 +62,8 @@ pub fn WebPreview() -> Element {
             }
 
             div { class: "detail-web-badge", "From the web" }
+
+            TitleField { title: paper.title.clone(), item_type: paper.item_type.clone() }
 
             DetailFields { paper: paper.clone() }
 
