@@ -364,6 +364,29 @@ impl Database {
         Ok(())
     }
 
+    /// Set a paper's title, leaving its other bibliographic fields untouched.
+    ///
+    /// Distinct from [`Database::update_paper_metadata`], which rewrites the
+    /// whole bibliographic row: a user renaming one paper should not overwrite
+    /// fields enrichment may have filled in since, nor mark them all dirty for
+    /// sync. The FTS index covers `title` directly, so it follows this write.
+    pub async fn update_paper_title(&self, id: &str, title: &str) -> Result<(), crate::DbError> {
+        let conn = self.conn();
+        conn.execute(
+            queries::PAPER_UPDATE_TITLE,
+            turso::params::Params::Positional(vec![
+                Value::Text(title.to_string()),
+                Value::Text(Utc::now().to_rfc3339()),
+                Value::Text(id.to_string()),
+            ]),
+        )
+        .await?;
+        self.crr()
+            .track_update("papers", id, &[Papers::TITLE, Papers::DATE_MODIFIED])
+            .await?;
+        Ok(())
+    }
+
     /// Update the relative PDF file path for a paper.
     pub async fn update_pdf_path(&self, id: &str, pdf_path: &str) -> Result<(), crate::DbError> {
         let conn = self.conn();

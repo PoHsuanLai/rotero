@@ -8,6 +8,7 @@ use super::DetailShell;
 use super::detail_fields::DetailFields;
 use super::fields::{CollectionsField, TagsField};
 use super::notes::NotesSection;
+use super::title_field::EditableTitleField;
 
 #[component]
 pub fn PaperDetail() -> Element {
@@ -29,6 +30,13 @@ pub fn PaperDetail() -> Element {
     let pid_del = paper_id.clone();
     let pid_open = paper_id.clone();
 
+    // A Rename raised from the library context menu, for this paper.
+    let rename_requested = lib_state
+        .read()
+        .rename_paper_id
+        .as_deref()
+        .is_some_and(|id| id == paper_id);
+
     let mut editing_key = use_signal(|| false);
     let mut edit_key_value = use_signal(|| paper.citation.citation_key.clone().unwrap_or_default());
     let mut copied_hint = use_signal(|| false);
@@ -47,6 +55,13 @@ pub fn PaperDetail() -> Element {
                     },
                     "\u{00d7}"
                 }
+            }
+
+            EditableTitleField {
+                paper_id: paper_id.clone(),
+                title: paper.title.clone(),
+                item_type: paper.item_type.clone(),
+                external_trigger: rename_requested,
             }
 
             DetailFields { paper: paper.clone() }

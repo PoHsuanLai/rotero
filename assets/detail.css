@@ -102,6 +102,32 @@
   letter-spacing: var(--tracking-tight);
 }
 
+/* Click-to-rename affordance on the library detail title. The web preview's
+   title reuses .detail-value--title alone and stays inert. */
+.detail-value--editable {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  margin-left: -4px;
+  padding: 0 4px;
+  transition: background var(--transition-fast);
+}
+
+.detail-value--editable:hover {
+  background: var(--bg-hover);
+}
+
+/* The title editor matches the rendered title's type so committing an edit
+   doesn't visibly reflow the field. A textarea wraps long titles; Enter still
+   commits, so it behaves as a one-line field. */
+.detail-title-input {
+  width: 100%;
+  font-size: var(--text-xl);
+  font-weight: 700;
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  resize: vertical;
+}
+
 .detail-value--journal {
   color: var(--text-secondary);
 }

@@ -59,6 +59,9 @@ pub const PAPER_UPDATE_METADATA: &str = "\
 /// Set or replace the local PDF file path for a paper.
 pub const PAPER_UPDATE_PDF_PATH: &str =
     "UPDATE papers SET pdf_path = ?1, date_modified = ?2 WHERE id = ?3";
+/// Set the title for a paper, leaving every other bibliographic field alone.
+pub const PAPER_UPDATE_TITLE: &str =
+    "UPDATE papers SET title = ?1, date_modified = ?2 WHERE id = ?3";
 /// Bump the date_modified timestamp on a paper.
 pub const PAPER_TOUCH: &str = "UPDATE papers SET date_modified = ?1 WHERE id = ?2";
 /// Delete a paper by ID.

@@ -246,6 +246,22 @@ pub fn PaperContextMenu(
                         &db,
                         lib_state,
                     )}
+
+                    // Rename — selects the paper and hands off to the detail
+                    // panel's inline title editor, so there is one edit surface.
+                    {
+                        let pid = pids[0].clone();
+                        rsx! {
+                            ContextMenuItem {
+                                label: "Rename".to_string(),
+                                icon: Some("bi-pencil".to_string()),
+                                on_click: move |_| {
+                                    let pid = pid.clone();
+                                    lib_state.with_mut(|s| s.start_rename(pid));
+                                },
+                            }
+                        }
+                    }
                 }
             }
 
