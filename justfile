@@ -92,6 +92,16 @@ bundle: setup-pdfium
 test: setup-pdfium setup-nextest
     PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" cargo nextest run --workspace
 
+# Run the sync property tests with far more, and longer, generated scenarios.
+#
+# The same tests `just test` runs, with a bigger budget rather than a separate
+# `#[ignore]`d copy: an ignored test compiles but never runs, so it rots without
+# anyone noticing. Worth running before touching the merge or the clock.
+proptest-deep: setup-pdfium setup-nextest
+    ROTERO_PROPTEST=heavy \
+    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" \
+        cargo nextest run -p rotero-db -E 'binary(sync_props)' --no-fail-fast
+
 # Install cargo-nextest if it is not already present.
 #
 # nextest runs each test in its own process with real parallelism, which takes

@@ -130,12 +130,6 @@ pub const COLLECTION_LIST_FOR_PAPER: &str = "\
     SELECT c.id, c.name, c.parent_id, c.position FROM collections_live c \
     JOIN paper_collections_live pc ON pc.collection_id = c.id \
     WHERE pc.paper_id = ?1 ORDER BY c.name";
-/// Add a paper to a collection (idempotent).
-pub const COLLECTION_ADD_PAPER: &str =
-    "INSERT OR IGNORE INTO paper_collections (paper_id, collection_id) VALUES (?1, ?2)";
-/// Remove a paper from a collection.
-pub const COLLECTION_REMOVE_PAPER: &str =
-    "DELETE FROM paper_collections WHERE paper_id = ?1 AND collection_id = ?2";
 
 /// Look up a tag ID by its name.
 pub const TAG_FIND_BY_NAME: &str = "SELECT id FROM tags_live WHERE name = ?1";
@@ -143,9 +137,6 @@ pub const TAG_FIND_BY_NAME: &str = "SELECT id FROM tags_live WHERE name = ?1";
 pub const TAG_INSERT: &str = "INSERT INTO tags (id, name, color) VALUES (?1, ?2, ?3)";
 /// List all tags sorted alphabetically.
 pub const TAG_LIST: &str = "SELECT id, name, color FROM tags_live ORDER BY name";
-/// Associate a tag with a paper (idempotent).
-pub const TAG_ADD_TO_PAPER: &str =
-    "INSERT OR IGNORE INTO paper_tags (paper_id, tag_id) VALUES (?1, ?2)";
 /// Rename a tag.
 pub const TAG_RENAME: &str = "UPDATE tags SET name = ?1 WHERE id = ?2";
 /// Update a tag's color.
@@ -159,9 +150,6 @@ pub const TAG_LIST_FOR_PAPER: &str = "\
     SELECT t.id, t.name, t.color FROM tags_live t \
     JOIN paper_tags_live pt ON pt.tag_id = t.id \
     WHERE pt.paper_id = ?1 ORDER BY t.name";
-/// Remove a tag association from a paper.
-pub const TAG_REMOVE_FROM_PAPER: &str =
-    "DELETE FROM paper_tags WHERE paper_id = ?1 AND tag_id = ?2";
 /// Delete a tag by ID.
 pub const TAG_DELETE: &str = "DELETE FROM tags WHERE id = ?1";
 
@@ -273,7 +261,12 @@ pub const PAPER_COLLECTION_IDS: &str =
 pub const PAPER_TAG_IDS: &str = "SELECT tag_id FROM paper_tags WHERE paper_id = ?1";
 
 /// Another tag holding a name, for reconciling a same-name collision on merge.
-pub const TAG_FIND_NAME_CLASH: &str = "SELECT id FROM tags WHERE name = ?1 AND id <> ?2 LIMIT 1";
+///
+/// Every clashing row, not just one: three devices that each created the tag
+/// can leave two local rows holding the name by the time the third arrives, and
+/// freeing only the first still leaves the incoming row colliding with the
+/// second.
+pub const TAG_FIND_NAME_CLASH: &str = "SELECT id FROM tags WHERE name = ?1 AND id <> ?2";
 /// Move a retired tag's memberships onto the surviving tag.
 pub const TAG_REPOINT_MEMBERSHIPS: &str = "\
     INSERT INTO paper_tags (paper_id, tag_id, updated_at, updated_by, deleted) \
@@ -284,10 +277,14 @@ pub const TAG_TOMBSTONE_MEMBERSHIPS: &str = "\
     UPDATE paper_tags SET deleted = 1, updated_at = ?1, updated_by = ?2 WHERE tag_id = ?3";
 /// Retire a duplicate tag, freeing its name.
 ///
-/// The name is cleared, not just tombstoned: `tags.name` is UNIQUE across dead
-/// rows too, so leaving it would reject the survivor on every later merge.
-pub const TAG_RETIRE_DUPLICATE: &str = "\
-    UPDATE tags SET name = ?4, deleted = 1, updated_at = ?1, updated_by = ?2 WHERE id = ?3";
+/// The name has to be changed rather than left on a tombstone: `tags.name` is
+/// UNIQUE across dead rows too, so leaving it would reject the survivor on
+/// every later merge.
+///
+/// The sync clock is deliberately untouched. This is a local repair for a
+/// local constraint, not a fact other devices have to agree about — see
+/// `reconcile_tag_name` for what publishing it would do.
+pub const TAG_RETIRE_DUPLICATE: &str = "UPDATE tags SET name = ?1 WHERE id = ?2";
 
 /// Whether a table exists.
 pub const TABLE_EXISTS: &str = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1";

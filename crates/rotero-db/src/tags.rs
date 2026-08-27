@@ -71,15 +71,11 @@ impl Database {
         paper_id: &str,
         tag_id: &str,
     ) -> Result<(), crate::DbError> {
-        let conn = self.conn();
-        conn.execute(
-            queries::TAG_REMOVE_FROM_PAPER,
-            [
-                Value::Text(paper_id.to_string()),
-                Value::Text(tag_id.to_string()),
-            ],
-        )
-        .await?;
+        // Tombstoned, not deleted. Removing the row leaves the tombstone below
+        // nothing to stamp, so the removal never reaches another device — and
+        // worse, a peer still holding the membership treats its own live copy
+        // as news and puts it back on the next merge, undoing the removal on
+        // the device that made it.
         self.tombstone("paper_tags", crate::clock::Pk::Composite(paper_id, tag_id))
             .await?;
         Ok(())

@@ -141,7 +141,8 @@ pub struct RowState {
 /// Every synced row on one device, keyed by table and primary key.
 pub type Canonical = BTreeMap<(&'static str, Vec<String>), RowState>;
 
-/// A membership or row the scenario asked to be deleted.
+/// A membership or row the scenario asked to be deleted and has not since
+/// revived.
 ///
 /// Recorded from the op log at the moment the op runs, never read back from the
 /// database. That distinction is the whole point: when a delete fails to write
@@ -149,6 +150,11 @@ pub type Canonical = BTreeMap<(&'static str, Vec<String>), RowState>;
 /// database-derived expectation records nothing and the property has nothing to
 /// check. The op log remembers the intent regardless of whether the engine
 /// honoured it.
+///
+/// An edit or a re-add after a delete drops the entry again, because `touch`
+/// and `upsert_junction` both clear `deleted`. A row that comes back after
+/// being explicitly written to is a revival, not a resurrection, and the
+/// difference is whether anyone asked for it.
 pub type Intent = (&'static str, Vec<String>);
 
 /// What running a scenario produced.
@@ -246,18 +252,18 @@ pub async fn run(scenario: &Scenario, shared: &std::path::Path, max_papers: usiz
             }
             Event::Export { device } => {
                 let d = device as usize;
-                if d < devices.len() {
-                    if let Err(e) = devices[d].export().await {
-                        errors.push(format!("step {step}: export on device-{d}: {e}"));
-                    }
+                if d < devices.len()
+                    && let Err(e) = devices[d].export().await
+                {
+                    errors.push(format!("step {step}: export on device-{d}: {e}"));
                 }
             }
             Event::Import { device } => {
                 let d = device as usize;
-                if d < devices.len() {
-                    if let Err(e) = devices[d].import().await {
-                        errors.push(format!("step {step}: import on device-{d}: {e}"));
-                    }
+                if d < devices.len()
+                    && let Err(e) = devices[d].import().await
+                {
+                    errors.push(format!("step {step}: import on device-{d}: {e}"));
                 }
             }
         }
@@ -373,11 +379,13 @@ async fn apply(
                 db.update_paper_title(&p, &title_of(title))
                     .await
                     .map_err(err)?;
+                intents.remove(&("papers", vec![p]));
             }
         }
         Op::SetFavorite { paper, on } => {
             if let Some(p) = resolve(&ctx.registry.papers, paper) {
                 db.set_favorite(&p, on).await.map_err(err)?;
+                intents.remove(&("papers", vec![p]));
             }
         }
         Op::RenameTag { tag, name } => {
@@ -385,7 +393,13 @@ async fn apply(
                 // A rename onto a name another tag already holds violates the
                 // UNIQUE constraint. That is a real hazard, but it is the
                 // caller's to avoid, so it is not counted as an engine failure.
-                let _ = db.rename_tag(&t, &name_of(name)).await;
+                if db.rename_tag(&t, &name_of(name)).await.is_ok() {
+                    // Editing a row clears its tombstone: `touch` sets
+                    // `deleted = 0`. An edit after a delete is therefore a
+                    // deliberate revival, and the row is no longer expected to
+                    // stay dead.
+                    intents.remove(&("tags", vec![t]));
+                }
             }
         }
 
@@ -523,6 +537,39 @@ fn value_string(row: &turso::Row, idx: usize) -> String {
     }
 }
 
+/// Whether two states of one row differ only in a tag's local retired name.
+///
+/// When two devices independently create a tag with the same name, every device
+/// keeps the same survivor — `min(id)` — but renames the losers in its own
+/// table only, because `tags.name` is UNIQUE and the rename is a local repair
+/// rather than a fact to agree about. The devices therefore legitimately show
+/// different names for a retired tag while agreeing on everything else,
+/// including which tag won.
+///
+/// Narrow on purpose: it requires identical clocks and identical remaining
+/// columns, and at least one side to actually carry a retired name. Any other
+/// disagreement about a tag's name is still a failure.
+fn differs_only_by_retirement(x: &RowState, y: &RowState) -> bool {
+    if x.deleted != y.deleted || x.updated_at != y.updated_at || x.updated_by != y.updated_by {
+        return false;
+    }
+    let (Some(xv), Some(yv)) = (x.values.as_ref(), y.values.as_ref()) else {
+        return false;
+    };
+    let retired = |v: &BTreeMap<String, String>| {
+        v.get("name").is_some_and(|n| n.starts_with("__retired:"))
+    };
+    if !retired(xv) && !retired(yv) {
+        return false;
+    }
+    let strip = |v: &BTreeMap<String, String>| {
+        let mut c = v.clone();
+        c.remove("name");
+        c
+    };
+    strip(xv) == strip(yv)
+}
+
 /// The first place two devices' states differ, rendered for a failure message.
 ///
 /// A bare equality assertion on a map of a few hundred rows prints both in full
@@ -533,6 +580,7 @@ pub fn first_difference(a: &Canonical, b: &Canonical) -> Option<String> {
     for k in keys {
         match (a.get(k), b.get(k)) {
             (x, y) if x == y => continue,
+            (Some(x), Some(y)) if k.0 == "tags" && differs_only_by_retirement(x, y) => continue,
             (Some(x), Some(y)) => {
                 return Some(format!(
                     "{}{:?} differs:\n    left  = {x:?}\n    right = {y:?}",
