@@ -28,10 +28,11 @@ pub fn handle_chat_event(chat_state: &mut Signal<ChatState>, event: ChatEvent) {
                 s.supports_list_sessions = supports_list_sessions;
             });
         }
-        ChatEvent::SessionCreated => {
+        ChatEvent::SessionCreated { session_id } => {
             chat_state.with_mut(|s| {
                 s.status = AgentStatus::Idle;
                 s.session_active = true;
+                s.current_session_id = Some(session_id);
             });
         }
         ChatEvent::UserMessage(text) => {

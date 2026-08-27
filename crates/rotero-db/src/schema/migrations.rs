@@ -5,7 +5,7 @@ use turso::Connection;
 use super::tables::{CREATE_FTS_INDEX, CREATE_LIVE_VIEWS, CREATE_TABLES};
 
 /// Current schema version; incremented with each migration.
-pub const SCHEMA_VERSION: i64 = 14;
+pub const SCHEMA_VERSION: i64 = 15;
 
 /// Why a database could not be prepared for use.
 #[derive(Debug, thiserror::Error)]
@@ -297,6 +297,51 @@ async fn run_migrations(conn: &Connection) -> Result<(), SchemaError> {
 
     if current_version < 14 {
         migrate_to_lww(conn).await?;
+    }
+
+    if current_version < 15 {
+        // Chat-session index, keyed by the subject a conversation is about.
+        // Created here for existing DBs; CREATE_TABLES handles fresh ones.
+        // Local-only, so no sync columns and no _live view — see tables.rs.
+        let _ = conn
+            .execute(
+                "CREATE TABLE IF NOT EXISTS chat_sessions (
+                    session_id   TEXT PRIMARY KEY,
+                    provider_id  TEXT NOT NULL DEFAULT '',
+                    subject_kind TEXT NOT NULL,
+                    subject_id   TEXT,
+                    summary      TEXT,
+                    created_at   TEXT NOT NULL,
+                    last_used_at TEXT NOT NULL,
+                    is_dead      INTEGER NOT NULL DEFAULT 0
+                )",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "CREATE TABLE IF NOT EXISTS chat_session_papers (
+                    session_id TEXT NOT NULL REFERENCES chat_sessions(session_id) ON DELETE CASCADE,
+                    paper_id   TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+                    PRIMARY KEY (session_id, paper_id)
+                )",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "CREATE INDEX IF NOT EXISTS idx_chat_sessions_subject \
+                 ON chat_sessions (subject_kind, subject_id)",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "CREATE INDEX IF NOT EXISTS idx_chat_session_papers_paper \
+                 ON chat_session_papers (paper_id)",
+                (),
+            )
+            .await;
     }
 
     if current_version < SCHEMA_VERSION {

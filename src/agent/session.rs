@@ -96,7 +96,9 @@ pub(crate) fn connect_and_run(
                 .unwrap_or("")
                 .to_string();
             tracing::info!("ACP: session created: {session_id}");
-            let _ = evt_tx.send(ChatEvent::SessionCreated);
+            let _ = evt_tx.send(ChatEvent::SessionCreated {
+                session_id: session_id.clone(),
+            });
 
             if let Some(models) = r.get("models") {
                 let _ = evt_tx.send(extract_models_event(models));
@@ -317,10 +319,18 @@ pub(crate) fn connect_and_run(
                 });
                 match conn.send_request("session/load", params, Some(evt_tx)) {
                     Ok(result) => {
-                        if let Some(sid) = result.get("sessionId").and_then(|v| v.as_str()) {
-                            session_id = sid.to_string();
-                        }
-                        let _ = evt_tx.send(ChatEvent::SessionCreated);
+                        // Fall back to the id we asked for: an agent that omits
+                        // `sessionId` from the reply would otherwise leave the
+                        // previous session's id in place, and the loaded chat
+                        // would be recorded against the wrong subject.
+                        session_id = result
+                            .get("sessionId")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(load_id.as_str())
+                            .to_string();
+                        let _ = evt_tx.send(ChatEvent::SessionCreated {
+                            session_id: session_id.clone(),
+                        });
                     }
                     Err(e) => {
                         let _ = evt_tx.send(ChatEvent::Error(format!("Load session failed: {e}")));
@@ -398,7 +408,14 @@ pub(crate) fn connect_and_run(
                                         {
                                             session_id = sid.to_string();
                                         }
-                                        let _ = evt_tx.send(ChatEvent::SessionCreated);
+                                        // No requested id to fall back on here, so
+                                        // stay silent rather than announce a session
+                                        // keyed on an empty string.
+                                        if !session_id.is_empty() {
+                                            let _ = evt_tx.send(ChatEvent::SessionCreated {
+                                                session_id: session_id.clone(),
+                                            });
+                                        }
                                     }
                                     Err(e) if is_auth_error(&e) => {
                                         let _ = evt_tx.send(ChatEvent::AuthRequired {

@@ -6,6 +6,8 @@
 /// PDF annotation CRUD operations.
 pub mod annotations;
 /// Test utilities for simulating multi-device sync round-trips.
+/// The agent conversation belonging to each subject. Local-only, not synced.
+pub mod chat_sessions;
 /// Stamping local writes so they can win a merge.
 pub mod clock;
 /// One-time repair for libraries written without CRR change tracking.

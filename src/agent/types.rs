@@ -167,6 +167,8 @@ pub struct ChatState {
     pub supports_list_sessions: bool,
     pub available_models: Vec<AgentModel>,
     pub current_model: String,
+    /// The agent session backing the visible transcript, once one exists.
+    pub current_session_id: Option<String>,
 }
 
 pub enum ChatRequest {
@@ -207,7 +209,9 @@ pub enum ChatEvent {
         provider_id: String,
         supports_list_sessions: bool,
     },
-    SessionCreated,
+    SessionCreated {
+        session_id: String,
+    },
     UserMessage(String),
     TextDelta(String),
     ToolCallStarted {
