@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1c864f942f67d9a4faaf74f453b7b5e561d045426648aa3b9fa0dd1e5a8ad6e8 # shrinks to scenario = Scenario { devices: 2, events: [Export { device: 0 }, Local { device: 0, op: InsertPaper { title: 0 } }, Local { device: 0, op: InsertPaper { title: 0 } }, Local { device: 0, op: InsertPaper { title: 0 } }] }

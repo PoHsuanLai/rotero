@@ -18,3 +18,7 @@ uuid = { version = "1", features = ["v7"] }
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"
+# Property testing for the sync engine. `default-features = false` drops the
+# `rand` extras and x86 intrinsics the default set pulls in; `timeout` bounds a
+# pathological generated scenario so it fails loudly rather than hanging CI.
+proptest = { version = "1", default-features = false, features = ["std", "timeout", "bit-set"] }

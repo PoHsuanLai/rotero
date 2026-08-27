@@ -45,3 +45,6 @@ pub async fn open_uninitialized_db(dir: &std::path::Path) {
         .await
         .expect("creating the app tables must succeed");
 }
+
+pub mod sync_harness;
+pub mod sync_model;
