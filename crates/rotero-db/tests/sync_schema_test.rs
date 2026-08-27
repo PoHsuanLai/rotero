@@ -105,10 +105,10 @@ async fn composite_keys_match_the_schema() {
         while let Some(row) = rows.next().await.unwrap() {
             let name = row.get_value(1).ok().and_then(|v| v.as_text().cloned());
             let pk_pos = row.get_value(5).ok().and_then(|v| v.as_integer().copied());
-            if let (Some(name), Some(pos)) = (name, pk_pos) {
-                if pos > 0 {
-                    pk_cols.push((pos, name));
-                }
+            if let (Some(name), Some(pos)) = (name, pk_pos)
+                && pos > 0
+            {
+                pk_cols.push((pos, name));
             }
         }
         // Compared as sets: turso's `table_info` reports composite key columns

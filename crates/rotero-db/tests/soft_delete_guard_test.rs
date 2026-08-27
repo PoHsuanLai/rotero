@@ -83,8 +83,7 @@ fn every_select_on_a_synced_table_uses_its_live_view() {
         // Collapse the literal, its escapes, and its line continuations into one
         // line of SQL.
         let flat: String = sql
-            .replace('\\', " ")
-            .replace('"', " ")
+            .replace(['\\', '"'], " ")
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ");

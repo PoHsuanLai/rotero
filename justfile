@@ -89,8 +89,37 @@ bundle: setup-pdfium
 
 # Run the test suite (PDFium is downloaded first so the PDF tests don't skip).
 # Needs no network: provider tests run against a local stub.
-test: setup-pdfium
-    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" cargo test --workspace
+test: setup-pdfium setup-nextest
+    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" cargo nextest run --workspace
+
+# Install cargo-nextest if it is not already present.
+#
+# nextest runs each test in its own process with real parallelism, which takes
+# the suite from ~90s to ~13s. Installed from a prebuilt binary rather than
+# compiled from source — building it takes longer than the time it saves.
+#
+# It does not run doctests, which is its one gap versus `cargo test`. The
+# workspace has none; if that changes, add a `cargo test --doc` step alongside.
+#
+# cargo-binstall itself is installed the same way if missing, so a fresh
+# checkout needs nothing beyond a Rust toolchain.
+setup-nextest:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if command -v cargo-nextest >/dev/null 2>&1; then
+        exit 0
+    fi
+
+    if ! command -v cargo-binstall >/dev/null 2>&1; then
+        echo "Installing cargo-binstall..."
+        curl -L --proto '=https' --tlsv1.2 -sSf \
+            https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh \
+            | bash
+    fi
+
+    echo "Installing cargo-nextest..."
+    cargo binstall --no-confirm cargo-nextest
 
 # Launch a built app and assert it works: database health, connector, a saved
 # paper that persists, and PDFium resolution. Pass a .app bundle or a binary.
@@ -101,9 +130,13 @@ smoke BUNDLE="target/dx/rotero/release/macos/Rotero.app":
 check:
     cargo check --workspace
 
-# Run clippy on all crates
+# Run clippy on all crates, exactly as CI does
+#
+# `--all-targets` and `-D warnings` both matter: without them this passes on
+# code CI rejects, because tests are a separate target and a warning is only
+# fatal in CI. Keep this identical to the Clippy step in .github/workflows.
 lint:
-    cargo clippy --workspace -- -W clippy::all
+    cargo clippy --workspace --all-targets -- -D warnings
 
 # Clean build artifacts
 clean:

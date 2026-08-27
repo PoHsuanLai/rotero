@@ -296,7 +296,7 @@ mod tests {
     }
 
     fn hex(site: u8) -> String {
-        vec![site; 16].iter().map(|b| format!("{b:02x}")).collect()
+        [site; 16].iter().map(|b| format!("{b:02x}")).collect()
     }
 
     /// Each device writes its own file, so there is nothing to share.

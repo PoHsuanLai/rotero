@@ -65,7 +65,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev libxdo-dev
-      - run: cargo test --workspace
+      - uses: taiki-e/install-action@nextest
+      - run: cargo nextest run --workspace
 
   docs:
     name: Docs
@@ -164,13 +165,14 @@ jobs:
           # A failed run still leaves a usable dependency cache; without this
           # the next run recompiles the whole tree again.
           cache-on-failure: true
-      # `clippy --all-targets` and `cargo test` cannot share artifacts —
-      # clippy stops at metadata while test needs real codegen, so running
-      # both builds the workspace twice. `clippy --tests` covers the same
-      # code, and the test run below reuses what it produced.
-      - run: cargo test --workspace --no-run
+      - uses: taiki-e/install-action@nextest
+      # `clippy --all-targets` and the test build cannot share artifacts —
+      # clippy stops at metadata while tests need real codegen, so running
+      # both builds the workspace twice. Building the tests first means the
+      # run below reuses what it produced.
+      - run: cargo nextest run --workspace --no-run
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - run: cargo nextest run --workspace
 
   # macOS is the primary platform and used to be the only one that never ran the
   # tests — the bug that broke every shipped build landed here.
@@ -211,15 +213,16 @@ jobs:
             cp "$TMP/lib/libpdfium.dylib" lib/libpdfium.dylib
             rm -rf "$TMP"
           fi
-      # `clippy --all-targets` and `cargo test` cannot share artifacts — clippy
-      # stops at metadata while test needs real codegen. Same ordering as the
-      # Windows job so the workspace is not built twice.
-      - run: cargo test --workspace --no-run
+      - uses: taiki-e/install-action@nextest
+      # `clippy --all-targets` and the test build cannot share artifacts —
+      # clippy stops at metadata while tests need real codegen. Same ordering as
+      # the Windows job so the workspace is not built twice.
+      - run: cargo nextest run --workspace --no-run
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
         env:
           PDFIUM_DYNAMIC_LIB_PATH: ${{ github.workspace }}/lib
-        run: cargo test --workspace
+        run: cargo nextest run --workspace
 
   # Builds the real bundle and runs it. Every check above passed while the
   # shipped artifact was broken, because nothing here had ever launched one:
