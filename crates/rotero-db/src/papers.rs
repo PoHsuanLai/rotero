@@ -361,9 +361,7 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_update("papers", id, &[Papers::TITLE, Papers::DATE_MODIFIED])
-            .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 

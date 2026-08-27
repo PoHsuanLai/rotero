@@ -1,13 +1,13 @@
 //! Covers `update_paper_title`, the write behind the UI's rename action.
 //!
 //! Renaming deliberately does not go through `update_paper_metadata`, which
-//! rewrites every bibliographic column. These tests pin the two properties that
-//! distinction exists for: unrelated fields keep their values, and only the
-//! title's sync clock advances.
+//! rewrites every bibliographic column. These tests pin the property that
+//! distinction exists for: unrelated fields keep their values, rather than being
+//! blanked by a full-row rewrite from a stale `Paper`.
 
 mod common;
 
-use common::{col_ver, open_test_db};
+use common::open_test_db;
 use rotero_models::{Paper, Publication};
 
 fn sample_paper() -> Paper {
@@ -49,26 +49,52 @@ async fn rename_replaces_only_the_title() {
     assert!(p.abstract_text.is_some());
 }
 
+/// Renaming has to advance the row's sync clock, or the new title never leaves
+/// this device.
+///
+/// This test previously asserted the stronger property that renaming advanced
+/// the *title's* clock without touching the DOI's, so a rename could not
+/// overwrite a peer's newer DOI. Sync is now last-writer-wins per row rather
+/// than per column, so that isolation no longer exists: whichever device writes
+/// later wins the whole row. The tradeoff is deliberate — per-column clocks are
+/// most of the machinery the sync rewrite removed — and it costs something only
+/// when two devices edit different fields of the same paper inside one sync
+/// window. What still matters, and is asserted here, is that the rename is
+/// stamped at all.
 #[tokio::test]
-async fn rename_bumps_only_the_title_clock() {
+async fn rename_advances_the_sync_clock() {
     let dir = tempfile::tempdir().unwrap();
     let db = open_test_db(dir.path()).await;
     let id = db.insert_paper(&sample_paper()).await.unwrap();
 
-    let doi_before = col_ver(&db, "papers", &id, "doi").await;
-    let title_before = col_ver(&db, "papers", &id, "title").await;
+    let stamp = |id: String| {
+        let db = db.clone();
+        async move {
+            let mut rows = db
+                .conn()
+                .query(
+                    "SELECT updated_at FROM papers WHERE id = ?1",
+                    [turso::Value::Text(id)],
+                )
+                .await
+                .unwrap();
+            rows.next()
+                .await
+                .unwrap()
+                .and_then(|r| r.get_value(0).ok())
+                .and_then(|v| v.as_integer().copied())
+                .unwrap_or(-1)
+        }
+    };
 
+    let before = stamp(id.clone()).await;
     db.update_paper_title(&id, "Renamed").await.unwrap();
+    let after = stamp(id.clone()).await;
 
     assert!(
-        col_ver(&db, "papers", &id, "title").await > title_before,
-        "renaming must advance the title's column version so the change syncs"
-    );
-    assert_eq!(
-        col_ver(&db, "papers", &id, "doi").await,
-        doi_before,
-        "renaming must not mark untouched columns dirty — that would let a \
-         rename overwrite a peer's newer DOI on merge"
+        after > before,
+        "renaming must advance the row's sync clock ({after} !> {before}), or \
+         the new title stays on this device"
     );
 }
 
