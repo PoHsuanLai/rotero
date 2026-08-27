@@ -151,12 +151,35 @@ impl Database {
         Ok(ids)
     }
 
-    /// Delete a tag by ID, cascading to paper-tag associations.
+    /// Delete a tag by ID along with its paper associations.
+    ///
+    /// The associations are removed explicitly rather than by foreign key, for
+    /// the same reason [`Database::delete_paper`] does it: the schema declares
+    /// `ON DELETE CASCADE`, but `PRAGMA foreign_keys` is off, so nothing ever
+    /// fired and every deleted tag left its `paper_tags` rows behind. A cascade
+    /// would not be enough on its own either — it happens inside SQLite, so the
+    /// junction rows would vanish locally with no `track_delete` and peers would
+    /// keep associations pointing at a tag that no longer exists.
     pub async fn delete_tag(&self, id: &str) -> Result<(), crate::DbError> {
+        let tagged = self
+            .junction_ids("SELECT paper_id FROM paper_tags WHERE tag_id = ?1", id)
+            .await?;
+
         let conn = self.conn();
         conn.execute(queries::TAG_DELETE, [Value::Text(id.to_string())])
             .await?;
+        conn.execute(
+            "DELETE FROM paper_tags WHERE tag_id = ?1",
+            [Value::Text(id.to_string())],
+        )
+        .await?;
+
         self.crr().track_delete("tags", id).await?;
+        for paper_id in &tagged {
+            self.crr()
+                .track_delete("paper_tags", &format!("{paper_id}:{id}"))
+                .await?;
+        }
         Ok(())
     }
 }
