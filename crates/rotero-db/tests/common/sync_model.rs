@@ -39,10 +39,15 @@ pub enum Op {
     GetOrCreateTag { name: u8 },
     InsertNote { paper: Sym, body: u8 },
     InsertAnnotation { paper: Sym, page: u8 },
+    InsertSavedSearch { name: u8 },
 
     RetitlePaper { paper: Sym, title: u8 },
     SetFavorite { paper: Sym, on: bool },
     RenameTag { tag: Sym, name: u8 },
+    EditNote { note: Sym, body: u8 },
+    RecolorAnnotation { ann: Sym, color: u8 },
+    AnnotateContent { ann: Sym, content: u8 },
+    RenameSavedSearch { search: Sym, name: u8 },
 
     AddTagToPaper { paper: Sym, tag: Sym },
     RemoveTagFromPaper { paper: Sym, tag: Sym },
@@ -53,6 +58,9 @@ pub enum Op {
     DeletePaper { paper: Sym },
     DeleteCollection { coll: Sym },
     DeleteTag { tag: Sym },
+    DeleteNote { note: Sym },
+    DeleteAnnotation { ann: Sym },
+    DeleteSavedSearch { search: Sym },
 }
 
 /// One step of a scenario.
@@ -98,6 +106,12 @@ const POOL: u8 = 6;
 /// registry stays empty and most ops resolve to nothing; junction and delete
 /// ops are weighted up because that is the thinnest part of the engine and
 /// where the confirmed bugs live.
+///
+/// Every synced table is reachable through some op, and every one that can be
+/// deleted has a delete. A table the generator can only ever insert into is a
+/// table whose tombstone path never runs, which is the shape three of the four
+/// confirmed bugs took — the schedule looked thorough while an entire code path
+/// went unexecuted.
 fn op_strategy() -> impl Strategy<Value = Op> {
     // A fresh strategy per use: proptest strategies are not `Copy`, and the
     // range is deliberately small so an index shrinks toward `Sym(0)`.
@@ -109,12 +123,17 @@ fn op_strategy() -> impl Strategy<Value = Op> {
         3 => (0u8..POOL).prop_map(|title| Op::InsertPaper { title }),
         2 => (0u8..4).prop_map(|name| Op::InsertCollection { name }),
         2 => (0u8..POOL).prop_map(|name| Op::GetOrCreateTag { name }),
-        1 => (sym(), 0u8..4).prop_map(|(paper, body)| Op::InsertNote { paper, body }),
-        1 => (sym(), 0u8..3).prop_map(|(paper, page)| Op::InsertAnnotation { paper, page }),
+        2 => (sym(), 0u8..4).prop_map(|(paper, body)| Op::InsertNote { paper, body }),
+        2 => (sym(), 0u8..3).prop_map(|(paper, page)| Op::InsertAnnotation { paper, page }),
+        1 => (0u8..4).prop_map(|name| Op::InsertSavedSearch { name }),
 
         3 => (sym(), 0u8..POOL).prop_map(|(paper, title)| Op::RetitlePaper { paper, title }),
         1 => (sym(), any::<bool>()).prop_map(|(paper, on)| Op::SetFavorite { paper, on }),
         2 => (sym(), 0u8..POOL).prop_map(|(tag, name)| Op::RenameTag { tag, name }),
+        2 => (sym(), 0u8..4).prop_map(|(note, body)| Op::EditNote { note, body }),
+        2 => (sym(), 0u8..4).prop_map(|(ann, color)| Op::RecolorAnnotation { ann, color }),
+        2 => (sym(), 0u8..4).prop_map(|(ann, content)| Op::AnnotateContent { ann, content }),
+        1 => (sym(), 0u8..4).prop_map(|(search, name)| Op::RenameSavedSearch { search, name }),
 
         4 => (sym(), sym()).prop_map(|(paper, tag)| Op::AddTagToPaper { paper, tag }),
         4 => (sym(), sym()).prop_map(|(paper, tag)| Op::RemoveTagFromPaper { paper, tag }),
@@ -125,6 +144,9 @@ fn op_strategy() -> impl Strategy<Value = Op> {
         2 => sym().prop_map(|paper| Op::DeletePaper { paper }),
         1 => sym().prop_map(|coll| Op::DeleteCollection { coll }),
         2 => sym().prop_map(|tag| Op::DeleteTag { tag }),
+        2 => sym().prop_map(|note| Op::DeleteNote { note }),
+        2 => sym().prop_map(|ann| Op::DeleteAnnotation { ann }),
+        1 => sym().prop_map(|search| Op::DeleteSavedSearch { search }),
     ]
 }
 

@@ -53,6 +53,7 @@ struct Registry {
     tags: Vec<String>,
     notes: Vec<String>,
     annotations: Vec<String>,
+    saved_searches: Vec<String>,
 }
 
 fn resolve(pool: &[String], s: Sym) -> Option<String> {
@@ -220,6 +221,20 @@ async fn seed(devices: &mut [DeviceCtx]) -> Vec<String> {
                 paper: Sym(0),
                 coll: Sym(0),
             },
+            // A note and an annotation on the *first* paper, so that a generated
+            // `DeletePaper { paper: Sym(0) }` — the shape everything shrinks
+            // toward — has children to cascade to. Seeding them onto a paper
+            // nothing deletes would exercise the rows without ever exercising
+            // the cascade.
+            Op::InsertNote {
+                paper: Sym(0),
+                body: 0,
+            },
+            Op::InsertAnnotation {
+                paper: Sym(0),
+                page: 0,
+            },
+            Op::InsertSavedSearch { name: 0 },
         ] {
             // Seeding uses the same code path as a generated op, so a failure
             // here is the same kind of finding — but it is not attributable to
@@ -312,6 +327,48 @@ pub async fn quiesce(devices: &[DeviceCtx]) -> Vec<String> {
     errors
 }
 
+/// Every live row `delete_paper` is expected to tombstone along with the paper.
+///
+/// Read through the base tables, and only rows that are still live: a child
+/// already tombstoned by an earlier op is not this delete's responsibility, and
+/// a peer may legitimately revive it later with a newer clock.
+///
+/// Citation edges are deliberately absent. They are keyed by a pair of papers
+/// rather than by `paper_id`, and `delete_paper` reaches them through a separate
+/// statement; folding them in here would conflate two cascades whose failures
+/// look different.
+async fn child_rows(db: &Database, paper: &str) -> Vec<Intent> {
+    let mut out = Vec::new();
+    for (table, key) in [
+        ("notes", "id"),
+        ("annotations", "id"),
+        ("paper_tags", "tag_id"),
+        ("paper_collections", "collection_id"),
+    ] {
+        let sql = format!("SELECT {key} FROM {table} WHERE paper_id = ?1 AND deleted = 0");
+        let Ok(mut rows) = db
+            .conn()
+            .query(&sql, [turso::Value::Text(paper.to_string())])
+            .await
+        else {
+            continue;
+        };
+        while let Ok(Some(row)) = rows.next().await {
+            let Some(id) = row.get_value(0).ok().and_then(|v| v.as_text().cloned()) else {
+                continue;
+            };
+            // A junction is keyed by the pair, in the column order the manifest
+            // declares — `paper_id` first — so the key has to be rebuilt rather
+            // than taken from the single column selected above.
+            out.push(match table {
+                "paper_tags" | "paper_collections" => (table, vec![paper.to_string(), id]),
+                _ => (table, vec![id]),
+            });
+        }
+    }
+    out
+}
+
 /// Apply one op, recording any deletion it asks for.
 async fn apply(
     ctx: &mut DeviceCtx,
@@ -386,6 +443,16 @@ async fn apply(
                 ctx.registry.annotations.push(id);
             }
         }
+        Op::InsertSavedSearch { name } => {
+            let id = db
+                .insert_saved_search(&rotero_models::SavedSearch::new(
+                    name_of(name),
+                    title_of(name),
+                ))
+                .await
+                .map_err(err)?;
+            ctx.registry.saved_searches.push(id);
+        }
 
         Op::RetitlePaper { paper, title } => {
             if let Some(p) = resolve(&ctx.registry.papers, paper) {
@@ -413,6 +480,38 @@ async fn apply(
                     // stay dead.
                     intents.remove(&("tags", vec![t]));
                 }
+            }
+        }
+        Op::EditNote { note, body } => {
+            if let Some(n) = resolve(&ctx.registry.notes, note) {
+                db.update_note(&n, &name_of(body), &name_of(body))
+                    .await
+                    .map_err(err)?;
+                intents.remove(&("notes", vec![n]));
+            }
+        }
+        Op::RecolorAnnotation { ann, color } => {
+            if let Some(a) = resolve(&ctx.registry.annotations, ann) {
+                db.update_annotation_color(&a, &name_of(color))
+                    .await
+                    .map_err(err)?;
+                intents.remove(&("annotations", vec![a]));
+            }
+        }
+        Op::AnnotateContent { ann, content } => {
+            if let Some(a) = resolve(&ctx.registry.annotations, ann) {
+                db.update_annotation_content(&a, Some(&name_of(content)))
+                    .await
+                    .map_err(err)?;
+                intents.remove(&("annotations", vec![a]));
+            }
+        }
+        Op::RenameSavedSearch { search, name } => {
+            if let Some(s) = resolve(&ctx.registry.saved_searches, search) {
+                db.rename_saved_search(&s, &name_of(name))
+                    .await
+                    .map_err(err)?;
+                intents.remove(&("saved_searches", vec![s]));
             }
         }
 
@@ -463,8 +562,18 @@ async fn apply(
 
         Op::DeletePaper { paper } => {
             if let Some(p) = resolve(&ctx.registry.papers, paper) {
+                // Read the children *before* the delete, because afterwards
+                // there is nothing to enumerate. Recording them as intents is
+                // what makes the cascade checkable at all: `delete_paper`
+                // tombstones notes, annotations and memberships itself, and if
+                // any of those writes matched zero rows the paper would come
+                // back one child at a time on the next merge. Deriving the set
+                // from the database after the fact would record exactly the
+                // rows the cascade happened to reach, which proves nothing.
+                let children = child_rows(db, &p).await;
                 db.delete_paper(&p).await.map_err(err)?;
                 intents.insert(("papers", vec![p]));
+                intents.extend(children);
             }
         }
         Op::DeleteCollection { coll } => {
@@ -477,6 +586,24 @@ async fn apply(
             if let Some(t) = resolve(&ctx.registry.tags, tag) {
                 db.delete_tag(&t).await.map_err(err)?;
                 intents.insert(("tags", vec![t]));
+            }
+        }
+        Op::DeleteNote { note } => {
+            if let Some(n) = resolve(&ctx.registry.notes, note) {
+                db.delete_note(&n).await.map_err(err)?;
+                intents.insert(("notes", vec![n]));
+            }
+        }
+        Op::DeleteAnnotation { ann } => {
+            if let Some(a) = resolve(&ctx.registry.annotations, ann) {
+                db.delete_annotation(&a).await.map_err(err)?;
+                intents.insert(("annotations", vec![a]));
+            }
+        }
+        Op::DeleteSavedSearch { search } => {
+            if let Some(s) = resolve(&ctx.registry.saved_searches, search) {
+                db.delete_saved_search(&s).await.map_err(err)?;
+                intents.insert(("saved_searches", vec![s]));
             }
         }
     }
