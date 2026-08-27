@@ -18,7 +18,15 @@ edition = "2024"
 license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
+# One pin for the database driver: two crates drifting apart put two copies of
+# turso in the tree, and its types stop being interchangeable across the crate
+# boundary.
+turso = "0.7.2"
 serde = { version = "1", features = ["derive", "rc"] }
+# Snapshot compression and integrity, shared by the sync engine and the Node.js
+# download that predates it.
+flate2 = "1"
+sha2 = "0.10"
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
@@ -87,10 +95,10 @@ tempfile = { workspace = true, optional = true }
 # whole tree can be killed together.
 process-wrap = { version = "9", features = ["std"] }
 # Node.js archive extraction: .tar.gz on Unix, .zip on Windows.
-flate2 = "1"
+flate2.workspace = true
 tar = "0.4"
 # Verifies the Node.js download against nodejs.org's published SHASUMS256.
-sha2 = "0.10"
+sha2.workspace = true
 zip = { version = "8", default-features = false, features = ["deflate"] }
 self-replace = "1"
 

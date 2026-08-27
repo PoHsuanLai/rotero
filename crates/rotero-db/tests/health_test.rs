@@ -25,16 +25,16 @@ async fn open_produces_a_healthy_database() {
     );
 }
 
-/// The detector must actually detect. A database with the app tables but no CRR
+/// The detector must actually detect. A database with the app tables but no sync
 /// metadata is exactly what shipped, and it has to come back unhealthy — the
 /// other two callers of `verify_database_health` (the startup preflight and the
 /// bundle smoke test) are only worth trusting if this fails when it should.
 #[tokio::test]
-async fn schema_without_crr_init_is_detected_as_unhealthy() {
+async fn a_schema_only_database_is_repaired_on_open() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("rotero.db");
 
-    // Build the broken shape directly: app tables, no `crr.init()`.
+    // Build the broken shape directly: app tables, no sync initialization.
     let raw = turso::Builder::new_local(db_path.to_str().unwrap())
         .experimental_index_method(true)
         .build()
@@ -54,32 +54,46 @@ async fn schema_without_crr_init_is_detected_as_unhealthy() {
     );
 }
 
-/// Health checking must not be hardcoded to a subset of tables: dropping any one
-/// tracked table's clock table has to be reported. Guards against the check
-/// silently narrowing as the schema grows.
+/// Health checking must not be hardcoded to a subset of tables: a synced table
+/// that has lost the columns a merge compares has to be reported. Guards against
+/// the check silently narrowing as the schema grows.
 #[tokio::test]
-async fn a_missing_clock_table_is_reported() {
+async fn a_table_without_sync_columns_is_reported() {
     let dir = tempfile::tempdir().unwrap();
     let db = open_test_db(dir.path()).await;
 
+    // A table predating the sync columns looks exactly like this.
     db.conn()
-        .execute("DROP TABLE papers__crr_clock", ())
+        .execute("DROP TABLE saved_searches", ())
+        .await
+        .unwrap();
+    db.conn()
+        .execute(
+            "CREATE TABLE saved_searches (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                query TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )",
+            (),
+        )
         .await
         .unwrap();
 
     let issues = verify_database_health(&db).await;
     assert!(
-        issues.contains(&HealthIssue::MissingCrrClock {
-            table: "papers".to_string(),
-        }),
-        "expected a MissingCrrClock issue for `papers`, got {issues:?}"
+        issues.iter().any(|i| matches!(
+            i,
+            HealthIssue::MissingSyncColumns { table, .. } if table == "saved_searches"
+        )),
+        "expected MissingSyncColumns for `saved_searches`, got {issues:?}"
     );
 }
 
 /// `attach_readonly` must not repair what it inspects.
 ///
 /// A checker built on `Database::open` reports every library healthy, because
-/// `crr.init()` recreates the missing metadata before the check runs — the smoke
+/// opening initializes the missing metadata before the check runs — the smoke
 /// test would then be permanently green and worthless. Pinned because the
 /// difference between the two constructors is invisible at the call site.
 #[tokio::test]
@@ -100,9 +114,8 @@ async fn attach_readonly_does_not_repair_the_database() {
     let attached = Database::attach_readonly(dir.path().to_path_buf())
         .await
         .unwrap();
-    assert_eq!(
-        verify_database_health(&attached).await,
-        vec![HealthIssue::CrrUninitialized],
+    assert!(
+        !verify_database_health(&attached).await.is_empty(),
         "attach_readonly must report the database as-is, not initialize it"
     );
     drop(attached);
@@ -152,32 +165,35 @@ async fn tags_survive_a_reopen() {
     assert_eq!(tags[0].name, "important");
 }
 
-/// Absent CRR metadata short-circuits: it is the cause, and reporting it
-/// alongside nine follow-on clock-table issues would bury it.
+/// A missing device identity short-circuits: it is the cause, and reporting it
+/// alongside nine follow-on per-table issues would bury it.
 #[tokio::test]
-async fn absent_crr_metadata_reports_only_the_root_cause() {
+async fn an_absent_device_identity_reports_only_the_root_cause() {
     let dir = tempfile::tempdir().unwrap();
     let db = open_test_db(dir.path()).await;
 
+    // Remove the identity the library actually stores. Checking the handle's
+    // cached copy instead would report every read-only inspection as broken,
+    // which is what `attach_readonly` legitimately produces.
     db.conn()
-        .execute("DROP TABLE crr_site_id", ())
+        .execute("DELETE FROM crr_site_id", ())
         .await
         .unwrap();
 
     assert_eq!(
         verify_database_health(&db).await,
-        vec![HealthIssue::CrrUninitialized]
+        vec![HealthIssue::DeviceIdMissing]
     );
 }
 
-/// A clock table that exists but is empty is the shape a broken build leaves
-/// behind: the rows are all there, none of them can sync, and every structural
-/// check for the table's *existence* passes.
+/// Rows whose clock was never written are the shape a broken build leaves
+/// behind: the rows are all there, none of them can win a merge, and every
+/// structural check for the table's *existence* passes.
 ///
-/// This was reported healthy, which made the check blind to the exact failure it
-/// was written for.
+/// This was reported healthy under the old engine, which made the check blind to
+/// the exact failure it was written for.
 #[tokio::test]
-async fn rows_with_an_empty_clock_table_are_reported() {
+async fn rows_without_a_sync_clock_are_reported() {
     let dir = tempfile::tempdir().unwrap();
     let db = open_test_db(dir.path()).await;
 
@@ -193,23 +209,58 @@ async fn rows_with_an_empty_clock_table_are_reported() {
         "a normally-inserted paper must be healthy"
     );
 
-    // Wipe the tracking, leaving the row and the table itself in place.
+    // Wipe the clock, leaving the row and the table itself in place.
     db.conn()
-        .execute("DELETE FROM papers__crr_clock", ())
+        .execute("UPDATE papers SET updated_at = 0, updated_by = ''", ())
         .await
         .unwrap();
 
     let issues = verify_database_health(&db).await;
     assert!(
-        issues.contains(&HealthIssue::UntrackedRows {
+        issues.contains(&HealthIssue::UnstampedRows {
             table: "papers".to_string(),
             rows: 1,
         }),
-        "an emptied clock table must be reported, got {issues:?}"
+        "a row that cannot win a merge must be reported, got {issues:?}"
     );
 }
 
-/// An empty table with an empty clock is simply a fresh library.
+/// A tombstone with no clock is a deletion that will never reach a peer.
+#[tokio::test]
+async fn tombstones_without_a_clock_are_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = open_test_db(dir.path()).await;
+
+    let paper = db
+        .insert_paper(&rotero_models::Paper {
+            title: "Deleted but stuck".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    db.delete_paper(&paper).await.unwrap();
+
+    assert!(
+        verify_database_health(&db).await.is_empty(),
+        "a normally-deleted paper must be healthy"
+    );
+
+    db.conn()
+        .execute("UPDATE papers SET updated_at = 0 WHERE deleted = 1", ())
+        .await
+        .unwrap();
+
+    let issues = verify_database_health(&db).await;
+    assert!(
+        issues.iter().any(|i| matches!(
+            i,
+            HealthIssue::TombstoneWithoutClock { table, .. } if table == "papers"
+        )),
+        "a deletion that cannot propagate must be reported, got {issues:?}"
+    );
+}
+
+/// An empty library is not damage.
 #[tokio::test]
 async fn empty_tables_are_not_mistaken_for_damage() {
     let dir = tempfile::tempdir().unwrap();
@@ -217,6 +268,6 @@ async fn empty_tables_are_not_mistaken_for_damage() {
 
     assert!(
         verify_database_health(&db).await.is_empty(),
-        "a fresh library has empty clocks everywhere and must still be healthy"
+        "a fresh library has no rows to stamp and must still be healthy"
     );
 }

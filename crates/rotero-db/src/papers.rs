@@ -3,7 +3,6 @@ use rotero_models::{CitationInfo, Creator, LibraryStatus, Paper, PaperLinks, Pub
 use turso::Value;
 
 use crate::Database;
-use crate::crr::{PaperCollections, PaperTags, Papers};
 use crate::queries;
 
 /// The `extra_meta` JSON key under which the venue fields that have no dedicated
@@ -148,8 +147,7 @@ impl Database {
         )
         .await?;
 
-        self.crr()
-            .track_insert("papers", &uuid, Papers::ALL)
+        self.touch("papers", crate::clock::Pk::Single(&uuid))
             .await?;
 
         Ok(uuid)
@@ -167,10 +165,7 @@ impl Database {
         limit: u32,
     ) -> Result<Vec<Paper>, crate::DbError> {
         let conn = self.conn();
-        let sql = format!(
-            "SELECT {} FROM papers ORDER BY date_added DESC LIMIT ?1 OFFSET ?2",
-            queries::PAPER_SELECT_COLS
-        );
+        let sql = queries::paper_list_paginated();
         let mut rows = conn
             .query(
                 &sql,
@@ -253,11 +248,7 @@ impl Database {
             return Ok(Vec::new());
         }
         let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{i}")).collect();
-        let sql = format!(
-            "SELECT {} FROM papers WHERE id IN ({})",
-            queries::PAPER_SELECT_COLS,
-            placeholders.join(", ")
-        );
+        let sql = queries::paper_select_by_ids(&placeholders.join(", "));
         let params: Vec<Value> = ids.iter().map(|id| Value::Text(id.clone())).collect();
         let mut rows = conn
             .query(&sql, turso::params::Params::Positional(params))
@@ -273,9 +264,7 @@ impl Database {
             [Value::Integer(favorite as i64), Value::Text(id.to_string())],
         )
         .await?;
-        self.crr()
-            .track_update("papers", id, &[Papers::IS_FAVORITE])
-            .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
@@ -287,13 +276,18 @@ impl Database {
             [Value::Integer(read as i64), Value::Text(id.to_string())],
         )
         .await?;
-        self.crr()
-            .track_update("papers", id, &[Papers::IS_READ])
-            .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
     /// Store extracted full-text content for a paper (used for FTS indexing).
+    /// Store extracted PDF text for a paper.
+    ///
+    /// Deliberately does not stamp the row's sync clock. `fulltext` is
+    /// local-only — re-extractable from the PDF and excluded from every snapshot
+    /// — so bumping the clock here would let a background extraction on one
+    /// device outrank, and silently discard, a real metadata edit made on
+    /// another.
     pub async fn update_paper_fulltext(&self, id: &str, text: &str) -> Result<(), crate::DbError> {
         let conn = self.conn();
         conn.execute(
@@ -340,27 +334,7 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_update(
-                "papers",
-                id,
-                &[
-                    Papers::TITLE,
-                    Papers::AUTHORS,
-                    Papers::YEAR,
-                    Papers::DOI,
-                    Papers::ABSTRACT_TEXT,
-                    Papers::JOURNAL,
-                    Papers::VOLUME,
-                    Papers::ISSUE,
-                    Papers::PAGES,
-                    Papers::PUBLISHER,
-                    Papers::URL,
-                    Papers::DATE_MODIFIED,
-                    Papers::ITEM_TYPE,
-                ],
-            )
-            .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
@@ -381,9 +355,7 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_update("papers", id, &[Papers::TITLE, Papers::DATE_MODIFIED])
-            .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
@@ -399,9 +371,7 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_update("papers", id, &[Papers::PDF_PATH, Papers::DATE_MODIFIED])
-            .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
@@ -414,9 +384,7 @@ impl Database {
             [Value::Text(now), Value::Text(id.to_string())],
         )
         .await?;
-        self.crr()
-            .track_update("papers", id, &[Papers::DATE_MODIFIED])
-            .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
@@ -441,50 +409,58 @@ impl Database {
         let cited = self.citation_pks(id, false).await?;
 
         let conn = self.conn();
-        conn.execute(queries::PAPER_DELETE, [Value::Text(id.to_string())])
-            .await?;
 
-        for (table, column) in [("annotations", "paper_id"), ("notes", "paper_id")] {
+        // Tombstoned, not removed. A hard delete leaves nothing to publish, so
+        // a peer still holding the child row would treat its copy as news and
+        // resurrect it — the paper would come back one annotation at a time.
+        let now = chrono::Utc::now().timestamp_millis();
+        let device = self.device_id().to_string();
+
+        for table in ["annotations", "notes", "paper_collections", "paper_tags"] {
             conn.execute(
-                &format!("DELETE FROM {table} WHERE {column} = ?1"),
-                [Value::Text(id.to_string())],
-            )
-            .await?;
-        }
-        for table in ["paper_collections", "paper_tags"] {
-            conn.execute(
-                &format!("DELETE FROM {table} WHERE paper_id = ?1"),
-                [Value::Text(id.to_string())],
+                &crate::sync_sql::tombstone_children(table, "paper_id"),
+                turso::params::Params::Positional(vec![
+                    Value::Text(id.to_string()),
+                    Value::Integer(now),
+                    Value::Text(device.clone()),
+                ]),
             )
             .await?;
         }
         conn.execute(
-            "DELETE FROM paper_citations WHERE citing_paper_id = ?1 OR cited_paper_id = ?1",
-            [Value::Text(id.to_string())],
+            crate::sync_sql::tombstone_citations(),
+            turso::params::Params::Positional(vec![
+                Value::Text(id.to_string()),
+                Value::Integer(now),
+                Value::Text(device),
+            ]),
         )
         .await?;
 
-        self.crr().track_delete("papers", id).await?;
+        self.tombstone("papers", crate::clock::Pk::Single(id))
+            .await?;
         for annotation_id in &annotations {
-            self.crr()
-                .track_delete("annotations", annotation_id)
+            self.tombstone("annotations", crate::clock::Pk::Single(annotation_id))
                 .await?;
         }
         for note_id in &notes {
-            self.crr().track_delete("notes", note_id).await?;
-        }
-        for collection_id in &collections {
-            self.crr()
-                .track_delete("paper_collections", &format!("{id}:{collection_id}"))
+            self.tombstone("notes", crate::clock::Pk::Single(note_id))
                 .await?;
         }
+        for collection_id in &collections {
+            self.tombstone(
+                "paper_collections",
+                crate::clock::Pk::Composite(id, collection_id),
+            )
+            .await?;
+        }
         for tag_id in &tags {
-            self.crr()
-                .track_delete("paper_tags", &format!("{id}:{tag_id}"))
+            self.tombstone("paper_tags", crate::clock::Pk::Composite(id, tag_id))
                 .await?;
         }
         for pk in citing.iter().chain(cited.iter()) {
-            self.crr().track_delete("paper_citations", pk).await?;
+            self.tombstone("paper_citations", crate::clock::Pk::Single(pk))
+                .await?;
         }
 
         Ok(())
@@ -497,11 +473,8 @@ impl Database {
         column: &str,
         paper_id: &str,
     ) -> Result<Vec<String>, crate::DbError> {
-        self.junction_ids(
-            &format!("SELECT id FROM {table} WHERE {column} = ?1"),
-            paper_id,
-        )
-        .await
+        self.junction_ids(&queries::child_ids(table, column), paper_id)
+            .await
     }
 
     /// Composite keys of a paper's citation edges, in whichever direction.
@@ -511,11 +484,9 @@ impl Database {
         outgoing: bool,
     ) -> Result<Vec<String>, crate::DbError> {
         let sql = if outgoing {
-            "SELECT citing_paper_id || ':' || cited_paper_id FROM paper_citations \
-             WHERE citing_paper_id = ?1"
+            queries::PAPER_CITATION_PKS_OUT
         } else {
-            "SELECT citing_paper_id || ':' || cited_paper_id FROM paper_citations \
-             WHERE cited_paper_id = ?1"
+            queries::PAPER_CITATION_PKS_IN
         };
         self.junction_ids(sql, paper_id).await
     }
@@ -612,15 +583,14 @@ impl Database {
             .iter()
             .filter(|id| !existing_collections.contains(id))
         {
-            let pk = format!("{keep_id}:{collection_id}");
-            self.crr()
-                .track_insert("paper_collections", &pk, PaperCollections::ALL)
-                .await?;
+            self.touch(
+                "paper_collections",
+                crate::clock::Pk::Composite(keep_id, collection_id),
+            )
+            .await?;
         }
         for tag_id in tags.iter().filter(|id| !existing_tags.contains(id)) {
-            let pk = format!("{keep_id}:{tag_id}");
-            self.crr()
-                .track_insert("paper_tags", &pk, PaperTags::ALL)
+            self.touch("paper_tags", crate::clock::Pk::Composite(keep_id, tag_id))
                 .await?;
         }
 
@@ -635,20 +605,13 @@ impl Database {
         &self,
         paper_id: &str,
     ) -> Result<Vec<String>, crate::DbError> {
-        self.junction_ids(
-            "SELECT collection_id FROM paper_collections WHERE paper_id = ?1",
-            paper_id,
-        )
-        .await
+        self.junction_ids(queries::PAPER_COLLECTION_IDS, paper_id)
+            .await
     }
 
     /// Tag ids attached to a paper.
     async fn tag_ids_for_paper(&self, paper_id: &str) -> Result<Vec<String>, crate::DbError> {
-        self.junction_ids(
-            "SELECT tag_id FROM paper_tags WHERE paper_id = ?1",
-            paper_id,
-        )
-        .await
+        self.junction_ids(queries::PAPER_TAG_IDS, paper_id).await
     }
 
     pub(crate) async fn junction_ids(
@@ -696,9 +659,7 @@ impl Database {
             [Value::Integer(count), Value::Text(id.to_string())],
         )
         .await?;
-        self.crr()
-            .track_update("papers", id, &[Papers::CITATION_COUNT])
-            .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 
@@ -713,9 +674,7 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_update("papers", id, &[Papers::CITATION_KEY])
-            .await?;
+        self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
     }
 

@@ -5,12 +5,12 @@
 
 /// PDF annotation CRUD operations.
 pub mod annotations;
+/// Test utilities for simulating multi-device sync round-trips.
+/// Stamping local writes so they can win a merge.
+pub mod clock;
 /// One-time repair for libraries written without CRR change tracking.
-mod backfill;
 /// Collection (folder) CRUD and paper-collection membership.
 pub mod collections;
-/// Rotero's CRR (conflict-free replicated relations) schema configuration for sync.
-pub mod crr;
 /// Graph queries for paper-tag and paper-collection relationships.
 pub mod graph;
 /// Structural invariants an initialized database must satisfy.
@@ -23,7 +23,19 @@ pub mod papers;
 pub mod saved_searches;
 /// Table definitions, FTS index, and schema migrations.
 pub mod schema;
-/// Test utilities for simulating multi-device sync round-trips.
+
+/// Removing tombstones once every device has certainly seen them.
+pub mod reaper;
+
+/// Serializing a device's synced tables, and merging a peer's.
+pub mod snapshot;
+
+/// Which tables and columns sync between devices.
+pub mod sync_schema;
+
+/// SQL the sync engine generates per synced table.
+pub mod sync_sql;
+
 pub mod sync_test_helpers;
 /// Tag CRUD and paper-tag membership.
 pub mod tags;
@@ -35,16 +47,13 @@ pub use turso;
 
 /// Errors from the rotero database layer.
 ///
-/// Unifies the underlying turso driver errors and the `recrr` CRR-sync errors so
+/// Unifies the underlying turso driver errors and the sync errors so
 /// that both propagate through a single `?` in the db methods.
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
     /// An error from the turso SQLite driver.
     #[error(transparent)]
     Turso(#[from] turso::Error),
-    /// An error from the CRR change-tracking / sync engine.
-    #[error(transparent)]
-    Crr(#[from] recrr::Error),
 }
 
 /// Convenience alias for results in the db layer.
@@ -110,18 +119,19 @@ use std::path::{Path, PathBuf};
 
 use std::sync::Arc;
 
-use recrr::backends::TursoDb;
 use turso::Connection;
-
-use crate::crr::{CrrStore, rotero_schema};
 
 /// Handle to the Rotero SQLite database, wrapping a turso connection and the library data directory.
 #[derive(Clone)]
 pub struct Database {
     conn: Connection,
     data_dir: PathBuf,
-    /// CRR change-tracking store, shared across clones of this handle.
-    crr: Arc<CrrStore>,
+    /// This device's sync identity, read once at open.
+    ///
+    /// Held rather than queried per write: it is the tiebreak half of every
+    /// clock stamp, so it is read on a hot path and never changes for the life
+    /// of the library.
+    device_id: Arc<str>,
 }
 
 impl PartialEq for Database {
@@ -157,68 +167,21 @@ impl Database {
             .await
             .map_err(|e| format!("Failed to initialize schema: {e}"))?;
 
-        let crr = Arc::new(CrrStore::new(TursoDb::new(conn.clone()), rotero_schema()));
-
-        // Whether this store's CRR metadata predates the current schema. On a
-        // brand-new database there is no persisted fingerprint yet, so this is
-        // false and `init` seeds every column (including `item_type`) fresh.
-        let schema_drifted = matches!(
-            crr.schema_fingerprint().await,
-            Some(stored) if stored != crr.schema().fingerprint()
-        );
-
-        crr.init()
-            .await
-            .map_err(|e| format!("Failed to initialize CRR: {e}"))?;
-
-        if schema_drifted {
-            // An existing, already-synced store was compiled against a schema
-            // that has since gained columns (`item_type` via the v11 SQL
-            // migration, and anything added after it). Backfill clock entries so
-            // existing rows emit those columns to peers.
-            //
-            // Every tracked column is offered rather than a hardcoded one: the
-            // drift flag is a whole-schema fingerprint comparison, so naming a
-            // single column here meant a second added column tripped the same
-            // flag and was silently skipped. `migrate_add_column` is idempotent
-            // and scoped to live rows, so offering a column that is already
-            // backfilled costs one indexed query and changes nothing.
-            for table in &crr.schema().tables {
-                for column in &table.columns {
-                    crr.migrate_add_column(&table.name, column)
-                        .await
-                        .map_err(|e| {
-                            format!(
-                                "Failed to backfill CRR clocks for {}.{column}: {e}",
-                                table.name
-                            )
-                        })?;
-                }
-            }
-        }
+        let device_id = read_device_id(&conn).await?;
 
         let db = Self {
             conn,
             data_dir,
-            crr,
+            device_id,
         };
-
-        // Adopt rows written by a build that never initialized CRR. Gated on a
-        // persisted flag, so this is one indexed query per table on a single
-        // launch and nothing afterwards. Non-fatal: a library that opens is more
-        // useful than one that refuses to, and the health check reports the
-        // underlying problem either way.
-        if let Err(e) = db.backfill_untracked_rows().await {
-            tracing::error!("CRR backfill failed: {e}");
-        }
 
         Ok(db)
     }
 
     /// Open a library for inspection **without** initializing anything.
     ///
-    /// Unlike [`Database::open`], this runs neither `initialize_db` nor
-    /// `crr.init()`, so it reports the database exactly as it was left on disk.
+    /// Unlike [`Database::open`], this runs neither `initialize_db` nor the
+    /// migrations, so it reports the database exactly as it was left on disk.
     /// That is what a health check needs: opening normally would recreate any
     /// missing CRR metadata and mask the defect being looked for.
     ///
@@ -242,31 +205,40 @@ impl Database {
     /// Private on purpose. Every public constructor either initializes the
     /// database ([`Database::open`]) or documents that it deliberately does not
     /// ([`Database::attach_readonly`]); an exposed version of this is what let a
-    /// startup path build a `Database` whose CRR metadata was never created,
+    /// startup path build a `Database` whose sync metadata was never created,
     /// committing rows that then failed change tracking.
     fn from_conn(conn: Connection, data_dir: PathBuf) -> Self {
-        let crr = Arc::new(CrrStore::new(TursoDb::new(conn.clone()), rotero_schema()));
         Self {
             conn,
             data_dir,
-            crr,
+            // Left empty deliberately. This constructor backs `attach_readonly`,
+            // which reports a database as-is without initializing it, so it must
+            // not create an identity a health check is about to look for. The
+            // health check reports the empty id rather than being handed one
+            // this path invented.
+            device_id: Arc::from(""),
         }
     }
 
     /// Rebuild a handle from parts taken from an existing, initialized database.
     ///
     /// Unlike [`from_conn`](Self::from_conn) this cannot skip initialization: the
-    /// caller has to supply a [`CrrStore`] that already exists, and the only way
-    /// to obtain one is [`crr_arc`](Self::crr_arc) on a database that was opened
+    /// caller has to supply a device identity, and the only way to obtain one is
+    /// [`device_id_arc`](Self::device_id_arc) on a database that was opened
     /// properly. That lets a wrapper around the same connection — the embedded
     /// MCP server — call shared write paths instead of reimplementing them, which
     /// is how its `delete_paper` drifted from the app's.
-    pub fn from_parts(conn: Connection, data_dir: PathBuf, crr: Arc<CrrStore>) -> Self {
+    pub fn from_parts(conn: Connection, data_dir: PathBuf, device_id: Arc<str>) -> Self {
         Self {
             conn,
             data_dir,
-            crr,
+            device_id,
         }
+    }
+
+    /// This device's identity, for handing to [`from_parts`](Self::from_parts).
+    pub fn device_id_arc(&self) -> Arc<str> {
+        Arc::clone(&self.device_id)
     }
 
     /// Returns a reference to the underlying turso connection.
@@ -274,17 +246,12 @@ impl Database {
         &self.conn
     }
 
-    /// Returns the CRR change-tracking store for sync operations.
-    pub fn crr(&self) -> &CrrStore {
-        &self.crr
-    }
-
-    /// Shares this database's CRR store.
+    /// This device's sync identity, as lowercase hex.
     ///
-    /// For wrappers around the same connection (e.g. the embedded MCP server)
-    /// that would otherwise construct a second, separately-initialized store.
-    pub fn crr_arc(&self) -> Arc<CrrStore> {
-        Arc::clone(&self.crr)
+    /// Written into `updated_by` on every local change, and used as the
+    /// deterministic tiebreak when two devices stamp the same millisecond.
+    pub fn device_id(&self) -> &str {
+        &self.device_id
     }
 
     /// Returns the root library data directory (contains `rotero.db` and `papers/`).
@@ -470,4 +437,35 @@ fn sanitize_filename(s: &str, max_len: usize) -> String {
         Some(pos) if pos > truncated.len() / 2 => truncated[..pos].to_string(),
         _ => truncated,
     }
+}
+
+/// Read this device's sync identity, creating one if the library has none.
+///
+/// The table is created by Rotero's own migration rather than by recrr, so the
+/// identity survives that dependency being removed — which matters, because a
+/// device that changed id would look to every peer like a brand-new one and
+/// re-send its whole library.
+async fn read_device_id(conn: &Connection) -> Result<Arc<str>, String> {
+    // The table is part of the base schema, but seed it here too: a library
+    // migrated from before it existed reaches this with the table present and
+    // empty.
+    let _ = conn
+        .execute(crate::queries::DEVICE_ID_CREATE_TABLE, ())
+        .await;
+    let _ = conn.execute(crate::queries::DEVICE_ID_SEED, ()).await;
+
+    let mut rows = conn
+        .query(crate::queries::DEVICE_ID_SELECT, ())
+        .await
+        .map_err(|e| format!("Failed to read device id: {e}"))?;
+
+    let id = rows
+        .next()
+        .await
+        .map_err(|e| format!("Failed to read device id: {e}"))?
+        .and_then(|r| r.get_value(0).ok())
+        .and_then(|v| v.as_text().cloned())
+        .ok_or_else(|| "Failed to read device id: no row".to_string())?;
+
+    Ok(Arc::from(id.as_str()))
 }

@@ -2,7 +2,6 @@ use rotero_models::Collection;
 use turso::Value;
 
 use crate::Database;
-use crate::crr::{Collections, PaperCollections};
 use crate::queries;
 
 impl Database {
@@ -24,8 +23,7 @@ impl Database {
         )
         .await?;
 
-        self.crr()
-            .track_insert("collections", &uuid, Collections::ALL)
+        self.touch("collections", crate::clock::Pk::Single(&uuid))
             .await?;
 
         Ok(uuid)
@@ -49,8 +47,7 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_update("collections", id, &[Collections::NAME])
+        self.touch("collections", crate::clock::Pk::Single(id))
             .await?;
         Ok(())
     }
@@ -72,8 +69,7 @@ impl Database {
             ]),
         )
         .await?;
-        self.crr()
-            .track_update("collections", id, &[Collections::PARENT_ID])
+        self.touch("collections", crate::clock::Pk::Single(id))
             .await?;
         Ok(())
     }
@@ -90,26 +86,17 @@ impl Database {
     /// that no longer exists.
     pub async fn delete_collection(&self, id: &str) -> Result<(), crate::DbError> {
         let members = self
-            .junction_ids(
-                "SELECT paper_id FROM paper_collections WHERE collection_id = ?1",
-                id,
+            .junction_ids(queries::COLLECTION_MEMBER_PAPER_IDS, id)
+            .await?;
+
+        self.tombstone("collections", crate::clock::Pk::Single(id))
+            .await?;
+        for paper_id in &members {
+            self.tombstone(
+                "paper_collections",
+                crate::clock::Pk::Composite(paper_id, id),
             )
             .await?;
-
-        let conn = self.conn();
-        conn.execute(queries::COLLECTION_DELETE, [Value::Text(id.to_string())])
-            .await?;
-        conn.execute(
-            "DELETE FROM paper_collections WHERE collection_id = ?1",
-            [Value::Text(id.to_string())],
-        )
-        .await?;
-
-        self.crr().track_delete("collections", id).await?;
-        for paper_id in &members {
-            self.crr()
-                .track_delete("paper_collections", &format!("{paper_id}:{id}"))
-                .await?;
         }
         Ok(())
     }
@@ -162,13 +149,10 @@ impl Database {
             return Ok(Vec::new());
         }
 
-        // SELECT DISTINCT paper_id FROM paper_collections WHERE collection_id IN (?, ?, ...)
         let placeholders = std::iter::repeat_n("?", subtree.len())
             .collect::<Vec<_>>()
             .join(", ");
-        let sql = format!(
-            "SELECT DISTINCT paper_id FROM paper_collections WHERE collection_id IN ({placeholders})"
-        );
+        let sql = queries::collection_paper_ids_in(&placeholders);
         let params: Vec<Value> = subtree.into_iter().map(Value::Text).collect();
 
         let mut rows = conn
@@ -204,19 +188,15 @@ impl Database {
         paper_id: &str,
         collection_id: &str,
     ) -> Result<(), crate::DbError> {
-        let conn = self.conn();
-        conn.execute(
-            queries::COLLECTION_ADD_PAPER,
-            [
-                Value::Text(paper_id.to_string()),
-                Value::Text(collection_id.to_string()),
-            ],
+        // Upsert rather than `INSERT OR IGNORE`, so re-adding a paper to a
+        // collection it was removed from clears the tombstone instead of
+        // silently doing nothing.
+        self.upsert_junction(
+            "paper_collections",
+            ("paper_id", paper_id),
+            ("collection_id", collection_id),
         )
         .await?;
-        let pk = format!("{paper_id}:{collection_id}");
-        self.crr()
-            .track_insert("paper_collections", &pk, PaperCollections::ALL)
-            .await?;
         Ok(())
     }
 
@@ -235,8 +215,11 @@ impl Database {
             ],
         )
         .await?;
-        let pk = format!("{paper_id}:{collection_id}");
-        self.crr().track_delete("paper_collections", &pk).await?;
+        self.tombstone(
+            "paper_collections",
+            crate::clock::Pk::Composite(paper_id, collection_id),
+        )
+        .await?;
         Ok(())
     }
 }

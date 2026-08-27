@@ -1,7 +1,6 @@
 use turso::Value;
 
 use crate::Database;
-use crate::crr::PaperCitations;
 use crate::queries;
 
 impl Database {
@@ -65,10 +64,11 @@ impl Database {
             ],
         )
         .await?;
-        let pk = format!("{citing_paper_id}:{cited_paper_id}");
-        self.crr()
-            .track_insert("paper_citations", &pk, PaperCitations::ALL)
-            .await?;
+        self.touch(
+            "paper_citations",
+            crate::clock::Pk::Composite(citing_paper_id, cited_paper_id),
+        )
+        .await?;
         Ok(())
     }
 
@@ -76,10 +76,7 @@ impl Database {
     pub async fn get_app_flag(&self, key: &str) -> Result<Option<String>, crate::DbError> {
         let conn = self.conn();
         let mut rows = conn
-            .query(
-                "SELECT value FROM app_flags WHERE key = ?1",
-                [Value::Text(key.to_string())],
-            )
+            .query(queries::APP_FLAG_SELECT, [Value::Text(key.to_string())])
             .await?;
         if let Some(row) = rows.next().await? {
             Ok(row.get_value(0)?.as_text().cloned())
@@ -92,8 +89,7 @@ impl Database {
     pub async fn set_app_flag(&self, key: &str, value: &str) -> Result<(), crate::DbError> {
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO app_flags (key, value) VALUES (?1, ?2) \
-             ON CONFLICT(key) DO UPDATE SET value = ?2",
+            queries::APP_FLAG_UPSERT,
             [Value::Text(key.to_string()), Value::Text(value.to_string())],
         )
         .await?;

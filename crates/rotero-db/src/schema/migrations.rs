@@ -2,10 +2,10 @@
 
 use turso::Connection;
 
-use super::tables::{CREATE_FTS_INDEX, CREATE_TABLES};
+use super::tables::{CREATE_FTS_INDEX, CREATE_LIVE_VIEWS, CREATE_TABLES};
 
 /// Current schema version; incremented with each migration.
-pub const SCHEMA_VERSION: i64 = 13;
+pub const SCHEMA_VERSION: i64 = 14;
 
 /// Why a database could not be prepared for use.
 #[derive(Debug, thiserror::Error)]
@@ -34,9 +34,10 @@ pub enum SchemaError {
 /// Create the application tables and run pending migrations.
 ///
 /// CRR metadata tables are created separately by [`crate::Database::open`] via
-/// the `recrr` store's `init()`.
+/// the sync store's initialization.
 pub async fn initialize_db(conn: &Connection) -> Result<(), SchemaError> {
     conn.execute_batch(CREATE_TABLES).await?;
+    conn.execute_batch(CREATE_LIVE_VIEWS).await?;
 
     run_migrations(conn).await?;
 
@@ -273,11 +274,30 @@ async fn run_migrations(conn: &Connection) -> Result<(), SchemaError> {
             .await;
     }
 
-    // The Zotero `item_type` column is added by the idempotent ensure block
-    // above (it must run even for DBs whose version counter already reached 11
-    // without the column landing). The matching CRR clock backfill — so existing
-    // rows sync the new column — runs in `Database::open` via recrr's
-    // `migrate_add_column`, which needs the `Crr` store, not just this connection.
+    // Re-ensure the added columns.
+    //
+    // The idempotent block near the top runs before `migrate_to_text_ids`, which
+    // rebuilds `papers` from an explicit column list that does not include these
+    // — so a library migrating from before v8 had the column added and then
+    // dropped again by the rebuild, and arrived at the current version without
+    // it. Running the same statements again afterwards costs nothing on a
+    // database that already has them.
+    let _ = conn
+        .execute("ALTER TABLE papers ADD COLUMN citation_count INTEGER", ())
+        .await;
+    let _ = conn
+        .execute("ALTER TABLE papers ADD COLUMN pdf_url TEXT", ())
+        .await;
+    let _ = conn
+        .execute(
+            "ALTER TABLE papers ADD COLUMN item_type TEXT NOT NULL DEFAULT 'journalArticle'",
+            (),
+        )
+        .await;
+
+    if current_version < 14 {
+        migrate_to_lww(conn).await?;
+    }
 
     if current_version < SCHEMA_VERSION {
         conn.execute("UPDATE schema_version SET version = ?1", [SCHEMA_VERSION])
@@ -631,4 +651,164 @@ pub async fn get_schema_version(conn: &Connection) -> Result<i64, turso::Error> 
             .unwrap_or(0)),
         None => Ok(0),
     }
+}
+
+/// Add the last-writer-wins bookkeeping columns to every synced table.
+///
+/// `updated_at` (unix millis) and `updated_by` (device id) are compared as a
+/// tuple to resolve a merge; `deleted` is a tombstone flag so a delete has
+/// something to publish. No table carried a usable equivalent: `papers` had
+/// `date_modified` and `annotations`/`notes` had `modified_at`, but those are
+/// user-visible edit times that sync must not perturb, and `collections`,
+/// `tags`, and the three junction tables had no timestamp at all.
+async fn migrate_to_lww(conn: &Connection) -> Result<(), turso::Error> {
+    // Seed rows that have no timestamp to source from a day in the past.
+    //
+    // Seeding at `now` would mean the second device to migrate outranks the
+    // first on every row, so its copy of every collection name and tag would
+    // silently win the whole library. Backdating a fixed amount keeps migration
+    // seeds below any genuine post-migration edit; ties among themselves fall to
+    // `updated_by`, which is deterministic. This mirrors what the old backfill
+    // does on purpose — adopted rows seed at `col_ver = 1` so a real edit wins.
+    const BACKDATE_MS: i64 = 86_400_000;
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let seed_ms = now_ms - BACKDATE_MS;
+
+    let device_id = device_id_hex(conn).await?;
+
+    for table in crate::sync_schema::SYNCED_TABLES {
+        // Idempotent: re-running a partly-applied migration must not fail.
+        for (column, decl) in [
+            ("updated_at", "INTEGER NOT NULL DEFAULT 0"),
+            ("updated_by", "TEXT NOT NULL DEFAULT ''"),
+            ("deleted", "INTEGER NOT NULL DEFAULT 0"),
+        ] {
+            let _ = conn
+                .execute(
+                    &format!("ALTER TABLE {} ADD COLUMN {column} {decl}", table.name),
+                    (),
+                )
+                .await;
+        }
+
+        // Unlike the ALTERs, these must not be swallowed. A row left at
+        // `updated_at = 0` loses every comparison forever, so a half-applied
+        // backfill is silent, permanent data loss rather than a retryable error.
+        conn.execute(
+            &format!(
+                "UPDATE {} SET updated_by = ?1 WHERE updated_by = ''",
+                table.name
+            ),
+            [turso::Value::Text(device_id.clone())],
+        )
+        .await?;
+
+        conn.execute(
+            &format!(
+                "UPDATE {} SET updated_at = ?1 WHERE updated_at = 0",
+                table.name
+            ),
+            [turso::Value::Integer(seed_ms)],
+        )
+        .await?;
+
+        let _ = conn
+            .execute(
+                &format!(
+                    "CREATE INDEX IF NOT EXISTS idx_{}_updated ON {} (updated_at)",
+                    table.name, table.name
+                ),
+                (),
+            )
+            .await;
+    }
+
+    // Prefer each row's own edit time where the table records one, so a paper
+    // edited long ago does not outrank one edited yesterday.
+    for (table, column) in [
+        ("papers", "date_modified"),
+        ("annotations", "modified_at"),
+        ("notes", "modified_at"),
+        ("saved_searches", "created_at"),
+    ] {
+        seed_from_timestamp(conn, table, column, seed_ms).await?;
+    }
+
+    conn.execute_batch(CREATE_LIVE_VIEWS).await?;
+
+    Ok(())
+}
+
+/// This device's id as lowercase hex, creating one if the table is empty.
+async fn device_id_hex(conn: &Connection) -> Result<String, turso::Error> {
+    let _ = conn
+        .execute(
+            "CREATE TABLE IF NOT EXISTS crr_site_id (site_id BLOB PRIMARY KEY)",
+            (),
+        )
+        .await;
+    let _ = conn
+        .execute(
+            "INSERT OR IGNORE INTO crr_site_id (site_id) VALUES (randomblob(16))",
+            (),
+        )
+        .await;
+
+    let mut rows = conn
+        .query("SELECT lower(hex(site_id)) FROM crr_site_id LIMIT 1", ())
+        .await?;
+    Ok(rows
+        .next()
+        .await?
+        .and_then(|r| r.get_value(0).ok())
+        .and_then(|v| v.as_text().cloned())
+        .unwrap_or_default())
+}
+
+/// Replace seeded `updated_at` values with each row's own RFC3339 timestamp.
+///
+/// Parsed in Rust rather than SQL: these are RFC3339 strings with offsets, and
+/// relying on turso's `strftime`/`unixepoch` handling of those is not a bet
+/// worth making inside a migration that cannot be re-run cleanly. Rows whose
+/// timestamp does not parse keep the backdated seed, which is the safe side —
+/// they lose to real edits rather than winning over them.
+async fn seed_from_timestamp(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    seed_ms: i64,
+) -> Result<(), turso::Error> {
+    let mut rows = conn
+        .query(
+            &format!("SELECT id, {column} FROM {table} WHERE updated_at = ?1"),
+            [turso::Value::Integer(seed_ms)],
+        )
+        .await?;
+
+    let mut updates = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let (Some(id), Some(ts)) = (
+            row.get_value(0).ok().and_then(|v| v.as_text().cloned()),
+            row.get_value(1).ok().and_then(|v| v.as_text().cloned()),
+        ) else {
+            continue;
+        };
+        if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(&ts) {
+            updates.push((id, parsed.timestamp_millis()));
+        }
+    }
+
+    for (id, ms) in updates {
+        conn.execute(
+            &format!("UPDATE {table} SET updated_at = ?1 WHERE id = ?2"),
+            turso::params::Params::Positional(vec![
+                turso::Value::Integer(ms),
+                turso::Value::Text(id),
+            ]),
+        )
+        .await?;
+    }
+
+    Ok(())
 }

@@ -55,7 +55,7 @@ async fn insert_collection(db: &Database, name: &str) -> String {
         .unwrap()
 }
 
-/// Count rows in a junction table matching one column, reading the table
+/// Count *live* rows in a junction table matching one column, reading the table
 /// directly.
 ///
 /// The `list_*_for_paper` queries inner-join the parent table, so once a tag or
@@ -63,12 +63,37 @@ async fn insert_collection(db: &Database, name: &str) -> String {
 /// — on a healthy device and a broken one alike. Counting the junction table
 /// itself is what distinguishes "the membership was removed" from "the
 /// membership is still there but unreachable".
+///
+/// `deleted = 0` because removal is a tombstone, not a row deletion: the row has
+/// to survive to carry the deletion to the other device, but it must not count
+/// as a live membership on either.
 async fn junction_count(db: &Database, table: &str, column: &str, value: &str) -> i64 {
     let mut rows = db
         .conn()
         .query(
-            &format!("SELECT COUNT(*) FROM {table} WHERE {column} = ?1"),
+            &format!("SELECT COUNT(*) FROM {table} WHERE {column} = ?1 AND deleted = 0"),
             [turso::Value::Text(value.to_string())],
+        )
+        .await
+        .unwrap();
+    rows.next()
+        .await
+        .unwrap()
+        .and_then(|r| r.get_value(0).ok())
+        .and_then(|v| v.as_integer().copied())
+        .unwrap_or(-1)
+}
+
+/// When a paper-tag membership was last stamped.
+async fn membership_stamp(db: &Database, paper_id: &str, tag_id: &str) -> i64 {
+    let mut rows = db
+        .conn()
+        .query(
+            "SELECT updated_at FROM paper_tags WHERE paper_id = ?1 AND tag_id = ?2",
+            [
+                turso::Value::Text(paper_id.to_string()),
+                turso::Value::Text(tag_id.to_string()),
+            ],
         )
         .await
         .unwrap();
@@ -140,13 +165,14 @@ async fn merging_does_not_disturb_a_membership_both_papers_shared() {
     p.a.add_tag_to_paper(&keep, &tag).await.unwrap();
     p.a.add_tag_to_paper(&dupe, &tag).await.unwrap();
 
-    let before = common::col_ver(&p.a, "paper_tags", &format!("{keep}:{tag}"), "__sentinel").await;
+    let before = membership_stamp(&p.a, &keep, &tag).await;
     p.a.merge_papers(&keep, &dupe).await.unwrap();
-    let after = common::col_ver(&p.a, "paper_tags", &format!("{keep}:{tag}"), "__sentinel").await;
+    let after = membership_stamp(&p.a, &keep, &tag).await;
 
     assert_eq!(
         after, before,
-        "an existing membership must not be re-tracked by the merge"
+        "an existing membership must not be restamped by the merge; bumping its \
+         clock would make it outrank a peer's newer edit to the same row"
     );
     assert_eq!(p.a.list_tags_for_paper(&keep).await.unwrap().len(), 1);
 }
@@ -216,14 +242,14 @@ async fn deleting_a_collection_removes_its_memberships_on_both_devices() {
     assert_eq!(
         junction_count(&p.a, "paper_collections", "collection_id", &collection).await,
         0,
-        "the membership row must be gone locally, not merely unreachable"
+        "the membership must no longer be live locally, not merely unreachable"
     );
 
     p.sync_a_to_b().await;
     assert_eq!(
         junction_count(&p.b, "paper_collections", "collection_id", &collection).await,
         0,
-        "the second device must drop the membership row too, not keep an orphan"
+        "the second device must drop the membership too, not keep an orphan"
     );
     assert!(
         p.b.list_papers().await.unwrap().len() == 1,
@@ -256,14 +282,14 @@ async fn deleting_a_tag_removes_its_associations_on_both_devices() {
     assert_eq!(
         junction_count(&p.a, "paper_tags", "tag_id", &tag).await,
         0,
-        "the association row must be gone locally, not merely unreachable"
+        "the association must no longer be live locally, not merely unreachable"
     );
 
     p.sync_a_to_b().await;
     assert_eq!(
         junction_count(&p.b, "paper_tags", "tag_id", &tag).await,
         0,
-        "the second device must drop the association row too, not keep an orphan"
+        "the second device must drop the association too, not keep an orphan"
     );
     assert!(
         p.b.list_papers().await.unwrap().len() == 1,

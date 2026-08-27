@@ -23,9 +23,11 @@ pub fn SyncLoop() -> Element {
                     continue;
                 }
 
-                let site_id = match db.crr().site_id().await {
-                    Ok(id) => id,
-                    Err(_) => continue,
+                // Read from the handle rather than the change-tracking store:
+                // the identity is Rotero's own, held since the database opened,
+                // and it must outlive that dependency.
+                let Some(site_id) = hex_bytes(db.device_id()) else {
+                    continue;
                 };
 
                 let applied = match cfg.sync.sync_transport {
@@ -55,6 +57,25 @@ pub fn SyncLoop() -> Element {
                             }
                         };
                         crate::init::preflight::record(|p| p.sync_folder = failure);
+
+                        // Drop tombstones every peer has certainly seen. Rate-
+                        // limited internally to roughly weekly, and a no-op
+                        // unless every peer's snapshot is well past them, so
+                        // running it on the sync tick costs a flag read.
+                        match db
+                            .reap_tombstones(
+                                engine.peer_horizon().await,
+                                chrono::Utc::now().timestamp_millis(),
+                            )
+                            .await
+                        {
+                            Ok(stats) if stats.removed > 0 => {
+                                tracing::info!("Reaped {} settled tombstone(s)", stats.removed);
+                            }
+                            Ok(_) => {}
+                            Err(e) => tracing::warn!("Tombstone reap failed: {e}"),
+                        }
+
                         let papers_dir = db.papers_dir();
                         let papers = lib_state.read().papers.clone();
                         for paper in &papers {
@@ -134,4 +155,39 @@ pub fn SyncLoop() -> Element {
     });
 
     rsx! {}
+}
+
+/// Decode a lowercase-hex device id into the bytes the sync engines name files
+/// with.
+fn hex_bytes(hex: &str) -> Option<Vec<u8>> {
+    if !hex.len().is_multiple_of(2) || hex.is_empty() {
+        return None;
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hex_bytes;
+
+    /// The decoded id must match what the engines write into filenames.
+    ///
+    /// A device whose id changed shape would look like a brand-new peer and
+    /// re-send its whole library, so this round-trip is load-bearing.
+    #[test]
+    fn a_device_id_round_trips_through_hex() {
+        let bytes: Vec<u8> = (0u8..16).collect();
+        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex_bytes(&hex), Some(bytes));
+    }
+
+    #[test]
+    fn a_malformed_device_id_is_rejected() {
+        assert_eq!(hex_bytes(""), None, "empty");
+        assert_eq!(hex_bytes("abc"), None, "odd length");
+        assert_eq!(hex_bytes("zz"), None, "not hex");
+    }
 }
