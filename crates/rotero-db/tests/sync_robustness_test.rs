@@ -336,3 +336,117 @@ async fn sync_survives_losing_local_state() {
         "both papers must survive losing the folder's bookkeeping"
     );
 }
+
+/// Removing a tag from a paper reaches the other device, and stays removed.
+///
+/// Found by the generated schedules in `sync_props`. The removal used to delete
+/// the junction row and then tombstone it, but the delete left nothing for the
+/// tombstone to stamp: the removal never reached B, and B's surviving copy then
+/// put it back on A — undoing, on the device that made it, what the user had
+/// just done. Asserting on A alone passes either way, which is how it hid.
+#[tokio::test]
+async fn removing_a_tag_reaches_the_other_device() {
+    let d = Devices::new().await;
+
+    let paper = insert_paper(&d.a, "Tagged").await;
+    let tag = d.a.get_or_create_tag("ml", None).await.unwrap();
+    d.a.add_tag_to_paper(&paper, &tag).await.unwrap();
+    d.converge().await;
+    assert_eq!(
+        d.b.list_tags_for_paper(&paper).await.unwrap().len(),
+        1,
+        "B must first have the membership for its removal to mean anything"
+    );
+
+    d.a.remove_tag_from_paper(&paper, &tag).await.unwrap();
+    d.converge().await;
+
+    assert!(
+        d.b.list_tags_for_paper(&paper).await.unwrap().is_empty(),
+        "the removal must reach B"
+    );
+    assert!(
+        d.a.list_tags_for_paper(&paper).await.unwrap().is_empty(),
+        "and must not come back on A when B's copy is merged again"
+    );
+}
+
+/// The same, for a paper's collection membership.
+#[tokio::test]
+async fn removing_a_paper_from_a_collection_reaches_the_other_device() {
+    let d = Devices::new().await;
+
+    let paper = insert_paper(&d.a, "Filed").await;
+    let collection =
+        d.a.insert_collection(&rotero_models::Collection::new("Reading".into()))
+            .await
+            .unwrap();
+    d.a.add_paper_to_collection(&paper, &collection)
+        .await
+        .unwrap();
+    d.converge().await;
+    assert_eq!(
+        d.b.list_paper_ids_in_collection(&collection)
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "B must first have the membership"
+    );
+
+    d.a.remove_paper_from_collection(&paper, &collection)
+        .await
+        .unwrap();
+    d.converge().await;
+
+    assert!(
+        d.b.list_paper_ids_in_collection(&collection)
+            .await
+            .unwrap()
+            .is_empty(),
+        "the removal must reach B"
+    );
+    assert!(
+        d.a.list_paper_ids_in_collection(&collection)
+            .await
+            .unwrap()
+            .is_empty(),
+        "and must not come back on A"
+    );
+}
+
+/// Deleting a paper must retire its citation edges on both devices.
+///
+/// The edges are keyed by a pair of papers rather than by `paper_id`, so
+/// `delete_paper` reaches them through their own statement rather than the
+/// `paper_id` cascade the other children share. That statement is the only
+/// thing tombstoning them: an earlier per-row loop addressed the composite key
+/// with a single `"citing:cited"` value, so its predicate went unbound, matched
+/// nothing, and was removed as dead. Without a test, that removal would rest on
+/// having read the SQL correctly.
+#[tokio::test]
+async fn deleting_a_paper_retires_its_citation_edges() {
+    let d = Devices::new().await;
+
+    let citing = insert_paper(&d.a, "Citing").await;
+    let cited = insert_paper(&d.a, "Cited").await;
+    d.a.insert_citation(&citing, &cited).await.unwrap();
+    d.converge().await;
+    assert_eq!(
+        d.b.list_all_citations().await.unwrap().len(),
+        1,
+        "B must first have the edge"
+    );
+
+    d.a.delete_paper(&citing).await.unwrap();
+    d.converge().await;
+
+    assert!(
+        d.a.list_all_citations().await.unwrap().is_empty(),
+        "the edge must be gone on the device that deleted the paper"
+    );
+    assert!(
+        d.b.list_all_citations().await.unwrap().is_empty(),
+        "and the deletion must reach B rather than being resurrected by it"
+    );
+}

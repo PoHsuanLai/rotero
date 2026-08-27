@@ -206,15 +206,8 @@ impl Database {
         paper_id: &str,
         collection_id: &str,
     ) -> Result<(), crate::DbError> {
-        let conn = self.conn();
-        conn.execute(
-            queries::COLLECTION_REMOVE_PAPER,
-            [
-                Value::Text(paper_id.to_string()),
-                Value::Text(collection_id.to_string()),
-            ],
-        )
-        .await?;
+        // Tombstoned, not deleted — see `remove_tag_from_paper` for why a hard
+        // delete here silently reverts itself on the next sync.
         self.tombstone(
             "paper_collections",
             crate::clock::Pk::Composite(paper_id, collection_id),

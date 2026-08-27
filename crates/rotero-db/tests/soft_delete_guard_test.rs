@@ -44,12 +44,9 @@ const READS_ALL_ROWS: &[(&str, &str)] = &[
     ),
     ("PAPER_TAG_IDS", "cascade: collects rows to tombstone"),
     (
-        "PAPER_CITATION_PKS_OUT",
-        "cascade: collects rows to tombstone",
-    ),
-    (
-        "PAPER_CITATION_PKS_IN",
-        "cascade: collects rows to tombstone",
+        "TAG_FIND_BY_NAME_ANY",
+        "`tags.name` is UNIQUE across dead rows, so creating a tag by name has \
+         to see the tombstone that still holds it",
     ),
     // `tags.name` is UNIQUE across dead rows too, so a retired duplicate still
     // holds its name against the survivor. Looking only at live rows would miss

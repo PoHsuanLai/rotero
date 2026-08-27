@@ -41,12 +41,18 @@ pub fn pk_predicate(pk: PkSpec, first_param: usize) -> String {
 /// An upsert rather than `INSERT OR IGNORE`: re-adding a membership that was
 /// removed has to clear the tombstone, and an ignored insert would silently
 /// leave it deleted while appearing to succeed.
+///
+/// The update branch clamps `updated_at` the way [`stamp_row`] does. Only that
+/// branch: on insert there is no prior row to outrank, and `{table}.updated_at`
+/// would not resolve.
 pub fn upsert_junction(table: &str, col_a: &str, col_b: &str) -> String {
     format!(
         "INSERT INTO {table} ({col_a}, {col_b}, updated_at, updated_by, deleted) \
          VALUES (?1, ?2, ?3, ?4, 0) \
          ON CONFLICT({col_a}, {col_b}) DO UPDATE SET \
-            deleted = 0, updated_at = ?3, updated_by = ?4"
+            deleted = 0, \
+            updated_at = MAX(?3, {table}.updated_at + 1), \
+            updated_by = ?4"
     )
 }
 
@@ -55,16 +61,24 @@ pub fn upsert_junction(table: &str, col_a: &str, col_b: &str) -> String {
 /// Used by the delete cascade. Tombstoned rather than deleted: a hard delete
 /// leaves nothing to publish, so a peer still holding the child row would treat
 /// its copy as news and resurrect it.
+///
+/// `updated_at` is clamped as in [`stamp_row`]: a child a peer stamped ahead of
+/// this device's clock would otherwise outrank the tombstone meant to retire
+/// it, and the paper would come back one child at a time.
 pub fn tombstone_children(table: &str, column: &str) -> String {
     format!(
-        "UPDATE {table} SET deleted = 1, updated_at = ?2, updated_by = ?3 \
+        "UPDATE {table} SET deleted = 1, \
+            updated_at = MAX(?2, updated_at + 1), updated_by = ?3 \
          WHERE {column} = ?1"
     )
 }
 
 /// Tombstone a paper's citation edges in both directions.
+///
+/// Clamped like [`tombstone_children`], and for the same reason.
 pub fn tombstone_citations() -> &'static str {
-    "UPDATE paper_citations SET deleted = 1, updated_at = ?2, updated_by = ?3 \
+    "UPDATE paper_citations SET deleted = 1, \
+        updated_at = MAX(?2, updated_at + 1), updated_by = ?3 \
      WHERE citing_paper_id = ?1 OR cited_paper_id = ?1"
 }
 

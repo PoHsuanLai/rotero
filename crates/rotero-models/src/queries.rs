@@ -66,8 +66,6 @@ pub const PAPER_UPDATE_TITLE: &str =
     "UPDATE papers SET title = ?1, date_modified = ?2 WHERE id = ?3";
 /// Bump the date_modified timestamp on a paper.
 pub const PAPER_TOUCH: &str = "UPDATE papers SET date_modified = ?1 WHERE id = ?2";
-/// Delete a paper by ID.
-pub const PAPER_DELETE: &str = "DELETE FROM papers WHERE id = ?1";
 
 /// Find all papers that share a DOI with at least one other paper.
 pub const PAPER_FIND_DOI_DUPLICATES: &str = "\
@@ -103,10 +101,6 @@ pub const PAPER_LIST_NEEDING_CITATION_KEYS: &str = "\
 pub const PAPER_LIST_CITATION_KEYS: &str =
     "SELECT citation_key FROM papers_live WHERE citation_key IS NOT NULL";
 
-/// List papers that have a remote PDF URL.
-pub const PAPER_SELECT_PDF_URL: &str =
-    "SELECT id, pdf_url FROM papers_live WHERE pdf_url IS NOT NULL";
-
 /// Insert a new collection.
 pub const COLLECTION_INSERT: &str =
     "INSERT INTO collections (id, name, parent_id, position) VALUES (?1, ?2, ?3, ?4)";
@@ -119,8 +113,6 @@ pub const COLLECTION_LIST: &str = "\
 pub const COLLECTION_RENAME: &str = "UPDATE collections SET name = ?1 WHERE id = ?2";
 /// Move a collection under a new parent.
 pub const COLLECTION_REPARENT: &str = "UPDATE collections SET parent_id = ?1 WHERE id = ?2";
-/// Delete a collection by ID.
-pub const COLLECTION_DELETE: &str = "DELETE FROM collections WHERE id = ?1";
 
 /// List paper IDs belonging directly to a single collection.
 pub const COLLECTION_PAPER_IDS: &str =
@@ -130,22 +122,18 @@ pub const COLLECTION_LIST_FOR_PAPER: &str = "\
     SELECT c.id, c.name, c.parent_id, c.position FROM collections_live c \
     JOIN paper_collections_live pc ON pc.collection_id = c.id \
     WHERE pc.paper_id = ?1 ORDER BY c.name";
-/// Add a paper to a collection (idempotent).
-pub const COLLECTION_ADD_PAPER: &str =
-    "INSERT OR IGNORE INTO paper_collections (paper_id, collection_id) VALUES (?1, ?2)";
-/// Remove a paper from a collection.
-pub const COLLECTION_REMOVE_PAPER: &str =
-    "DELETE FROM paper_collections WHERE paper_id = ?1 AND collection_id = ?2";
 
-/// Look up a tag ID by its name.
-pub const TAG_FIND_BY_NAME: &str = "SELECT id FROM tags_live WHERE name = ?1";
+/// Look up a tag by name, including a deleted one.
+///
+/// Reads the base table rather than `tags_live` on purpose. `tags.name` is
+/// UNIQUE across dead rows too, so a tombstoned tag still owns its name: a
+/// live-only lookup finds nothing and the insert that follows fails on a
+/// constraint the caller cannot see.
+pub const TAG_FIND_BY_NAME_ANY: &str = "SELECT id, deleted FROM tags WHERE name = ?1";
 /// Insert a new tag.
 pub const TAG_INSERT: &str = "INSERT INTO tags (id, name, color) VALUES (?1, ?2, ?3)";
 /// List all tags sorted alphabetically.
 pub const TAG_LIST: &str = "SELECT id, name, color FROM tags_live ORDER BY name";
-/// Associate a tag with a paper (idempotent).
-pub const TAG_ADD_TO_PAPER: &str =
-    "INSERT OR IGNORE INTO paper_tags (paper_id, tag_id) VALUES (?1, ?2)";
 /// Rename a tag.
 pub const TAG_RENAME: &str = "UPDATE tags SET name = ?1 WHERE id = ?2";
 /// Update a tag's color.
@@ -159,11 +147,6 @@ pub const TAG_LIST_FOR_PAPER: &str = "\
     SELECT t.id, t.name, t.color FROM tags_live t \
     JOIN paper_tags_live pt ON pt.tag_id = t.id \
     WHERE pt.paper_id = ?1 ORDER BY t.name";
-/// Remove a tag association from a paper.
-pub const TAG_REMOVE_FROM_PAPER: &str =
-    "DELETE FROM paper_tags WHERE paper_id = ?1 AND tag_id = ?2";
-/// Delete a tag by ID.
-pub const TAG_DELETE: &str = "DELETE FROM tags WHERE id = ?1";
 
 /// Insert a new annotation.
 pub const ANNOTATION_INSERT: &str = "\
@@ -181,8 +164,6 @@ pub const ANNOTATION_UPDATE_CONTENT: &str =
 /// Update an annotation's color.
 pub const ANNOTATION_UPDATE_COLOR: &str =
     "UPDATE annotations SET color = ?1, modified_at = ?2 WHERE id = ?3";
-/// Delete an annotation by ID.
-pub const ANNOTATION_DELETE: &str = "DELETE FROM annotations WHERE id = ?1";
 
 /// Insert a new note.
 pub const NOTE_INSERT: &str = "\
@@ -197,8 +178,6 @@ pub const NOTE_LIST_FOR_PAPER: &str = "\
 /// Update a note's title and body.
 pub const NOTE_UPDATE: &str =
     "UPDATE notes SET title = ?1, body = ?2, modified_at = ?3 WHERE id = ?4";
-/// Delete a note by ID.
-pub const NOTE_DELETE: &str = "DELETE FROM notes WHERE id = ?1";
 
 /// Insert a new saved search.
 pub const SAVED_SEARCH_INSERT: &str =
@@ -208,8 +187,6 @@ pub const SAVED_SEARCH_INSERT: &str =
 pub const SAVED_SEARCH_LIST: &str = "\
     SELECT id, name, query, created_at FROM saved_searches_live ORDER BY created_at DESC";
 
-/// Delete a saved search by ID.
-pub const SAVED_SEARCH_DELETE: &str = "DELETE FROM saved_searches WHERE id = ?1";
 /// Rename a saved search.
 pub const SAVED_SEARCH_RENAME: &str = "UPDATE saved_searches SET name = ?1 WHERE id = ?2";
 
@@ -273,21 +250,45 @@ pub const PAPER_COLLECTION_IDS: &str =
 pub const PAPER_TAG_IDS: &str = "SELECT tag_id FROM paper_tags WHERE paper_id = ?1";
 
 /// Another tag holding a name, for reconciling a same-name collision on merge.
-pub const TAG_FIND_NAME_CLASH: &str = "SELECT id FROM tags WHERE name = ?1 AND id <> ?2 LIMIT 1";
+///
+/// Every clashing row, not just one: three devices that each created the tag
+/// can leave two local rows holding the name by the time the third arrives, and
+/// freeing only the first still leaves the incoming row colliding with the
+/// second.
+pub const TAG_FIND_NAME_CLASH: &str = "SELECT id FROM tags WHERE name = ?1 AND id <> ?2";
 /// Move a retired tag's memberships onto the surviving tag.
+///
+/// The update branch clamps `updated_at` for consistency with `stamp_row` and
+/// the junction upsert, so that no write in the engine can lower a row's clock.
+/// Unlike those, no test pins this one: both statements here run only inside
+/// `reconcile_tag_name`, on rows that are then published and re-compared on
+/// merge, and no arrangement of devices was found where the clamp changes the
+/// outcome. It is uniformity, not a fix for a demonstrated failure.
 pub const TAG_REPOINT_MEMBERSHIPS: &str = "\
     INSERT INTO paper_tags (paper_id, tag_id, updated_at, updated_by, deleted) \
     SELECT paper_id, ?1, ?2, ?3, 0 FROM paper_tags WHERE tag_id = ?4 AND deleted = 0 \
-    ON CONFLICT(paper_id, tag_id) DO UPDATE SET deleted = 0, updated_at = ?2";
+    ON CONFLICT(paper_id, tag_id) DO UPDATE SET \
+        deleted = 0, updated_at = MAX(?2, paper_tags.updated_at + 1), updated_by = ?3";
 /// Tombstone every membership of a retired tag.
+///
+/// Clamped for the same reason as [`TAG_REPOINT_MEMBERSHIPS`], and equally
+/// unpinned by any test.
 pub const TAG_TOMBSTONE_MEMBERSHIPS: &str = "\
-    UPDATE paper_tags SET deleted = 1, updated_at = ?1, updated_by = ?2 WHERE tag_id = ?3";
+    UPDATE paper_tags SET deleted = 1, \
+        updated_at = MAX(?1, updated_at + 1), updated_by = ?2 WHERE tag_id = ?3";
 /// Retire a duplicate tag, freeing its name.
 ///
-/// The name is cleared, not just tombstoned: `tags.name` is UNIQUE across dead
-/// rows too, so leaving it would reject the survivor on every later merge.
-pub const TAG_RETIRE_DUPLICATE: &str = "\
-    UPDATE tags SET name = ?4, deleted = 1, updated_at = ?1, updated_by = ?2 WHERE id = ?3";
+/// The name has to be changed rather than left on a tombstone: `tags.name` is
+/// UNIQUE across dead rows too, so leaving it would reject the survivor on
+/// every later merge.
+///
+/// The row is hidden as well as renamed, so the retired duplicate does not
+/// show up in the user's tag list next to the one that survived.
+///
+/// The sync *clock* is deliberately untouched, though. Stamping it would
+/// publish the rename, making a local repair into a fact every device has to
+/// agree about — see `reconcile_tag_name` for why that does not work.
+pub const TAG_RETIRE_DUPLICATE: &str = "UPDATE tags SET name = ?1, deleted = 1 WHERE id = ?2";
 
 /// Whether a table exists.
 pub const TABLE_EXISTS: &str = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1";
@@ -298,15 +299,6 @@ pub const APP_FLAG_SELECT: &str = "SELECT value FROM app_flags WHERE key = ?1";
 pub const APP_FLAG_UPSERT: &str = "\
     INSERT INTO app_flags (key, value) VALUES (?1, ?2) \
     ON CONFLICT(key) DO UPDATE SET value = ?2";
-
-/// Composite keys of a paper's outgoing citation edges.
-pub const PAPER_CITATION_PKS_OUT: &str = "\
-    SELECT citing_paper_id || ':' || cited_paper_id FROM paper_citations \
-    WHERE citing_paper_id = ?1";
-/// Composite keys of a paper's incoming citation edges.
-pub const PAPER_CITATION_PKS_IN: &str = "\
-    SELECT citing_paper_id || ':' || cited_paper_id FROM paper_citations \
-    WHERE cited_paper_id = ?1";
 
 // ── Templates ───────────────────────────────────────────────────────
 //

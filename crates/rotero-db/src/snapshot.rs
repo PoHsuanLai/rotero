@@ -135,7 +135,7 @@ impl Database {
         }
 
         let mut stats = MergeStats::default();
-        for row in rows {
+        for mut row in rows {
             let Some(table) = crate::sync_schema::synced_table(&row.t) else {
                 // A table this build does not know about: a newer peer may sync
                 // more than we do. Skip rather than fail the whole file.
@@ -145,7 +145,7 @@ impl Database {
             // `tags.name` is UNIQUE across live and dead rows alike, so any
             // incoming tag can collide with a local one holding that name.
             if table.name == "tags" {
-                self.reconcile_tag_name(&row).await?;
+                self.reconcile_tag_name(&mut row).await?;
             }
             if self.apply_row(table, &row).await? {
                 stats.applied += 1;
@@ -232,7 +232,10 @@ impl Database {
         let mut insert_cols: Vec<&str> = key_cols.clone();
         insert_cols.extend(payload_cols.iter().copied());
         let skeleton: Vec<(&str, Value)> = if row.d {
-            not_null_skeleton(table.name)
+            not_null_skeleton(
+                table.name,
+                row.k.first().map(String::as_str).unwrap_or_default(),
+            )
         } else {
             Vec::new()
         };
@@ -374,8 +377,18 @@ impl Database {
     /// survivor is `min(id)` rather than the newer one so that every device
     /// reaches the same answer regardless of the order peer files arrive in —
     /// which is what makes this converge without coordination.
-    async fn reconcile_tag_name(&self, row: &SnapshotRow) -> Result<(), SnapshotError> {
-        let incoming_id = &row.k[0];
+    ///
+    /// The loser is renamed only in the local table, never in what this device
+    /// publishes: the rename is a local repair, and writing it into a synced
+    /// column would make it a fact other devices have to agree about. Three
+    /// devices that each created the tag would then each retire a different
+    /// row, exchange those decisions, and disagree — and because a tombstone
+    /// ships no payload, a retired name arrives as an empty string and
+    /// overwrites a live one. Keeping the rename local means every device
+    /// derives the same survivor from `min(id)`, which they can all compute.
+    async fn reconcile_tag_name(&self, row: &mut SnapshotRow) -> Result<(), SnapshotError> {
+        let incoming_id = row.k[0].clone();
+        let incoming_id = incoming_id.as_str();
         // A tombstoned tag carries no payload, so there is no name to collide
         // with and nothing to reconcile.
         let Some(name) = row
@@ -393,17 +406,16 @@ impl Database {
                 crate::queries::TAG_FIND_NAME_CLASH,
                 turso::params::Params::Positional(vec![
                     Value::Text(name.to_string()),
-                    Value::Text(incoming_id.clone()),
+                    Value::Text(incoming_id.to_string()),
                 ]),
             )
             .await
             .map_err(crate::DbError::from)?;
 
-        let local_id = rows
-            .next()
-            .await
-            .map_err(crate::DbError::from)?
-            .map(|r| text_at(&r, 0));
+        let mut clashing = Vec::new();
+        while let Some(r) = rows.next().await.map_err(crate::DbError::from)? {
+            clashing.push(text_at(&r, 0));
+        }
         // Drop the cursor before writing to the same table: turso keeps the
         // statement's view of the index alive while rows are still readable, so
         // renaming the loser under an open SELECT leaves the freed name still
@@ -411,77 +423,109 @@ impl Database {
         // reflects the data.
         drop(rows);
 
-        let Some(local_id) = local_id else {
-            return Ok(());
-        };
-
-        let (winner, loser) = tag_survivor(incoming_id, &local_id);
-        if winner == loser {
+        if clashing.is_empty() {
             return Ok(());
         }
-        // The loser may be the row we are about to write. Retiring it here and
-        // letting the upsert re-apply it is still correct: the upsert's clock
-        // guard decides, and the survivor keeps the name either way.
+
+        // The survivor is the smallest id among everyone holding this name,
+        // the incoming row included. Taking the minimum over the whole set
+        // rather than comparing pairwise is what makes the outcome independent
+        // of the order the peers' files happen to arrive in.
+        let winner = clashing
+            .iter()
+            .map(String::as_str)
+            .chain(std::iter::once(incoming_id))
+            .min()
+            .expect("the set contains the incoming row")
+            .to_string();
 
         let now = chrono::Utc::now().timestamp_millis();
 
-        // Move memberships to the survivor before retiring the loser, so no
-        // paper silently loses the tag.
-        self.conn()
-            .execute(
-                crate::queries::TAG_REPOINT_MEMBERSHIPS,
-                turso::params::Params::Positional(vec![
-                    Value::Text(winner.to_string()),
-                    Value::Integer(now),
-                    Value::Text(self.device_id().to_string()),
-                    Value::Text(loser.to_string()),
-                ]),
-            )
-            .await
-            .map_err(crate::DbError::from)?;
+        // When the incoming row is the one that loses, there is nothing local
+        // to retire — it does not exist here yet — and the upsert below would
+        // insert the name a local row already holds, failing the UNIQUE
+        // constraint. A failed merge abandons the peer's whole snapshot, so
+        // devices that each created the same tag name offline would stop
+        // syncing altogether rather than merely disagreeing about one tag.
+        //
+        // Rename it as it lands instead. The row is still stored, so its clock
+        // and any later deletion still travel onward to a third device; only
+        // the name this device shows is local.
+        if winner != incoming_id {
+            if let Some(values) = row.v.as_mut() {
+                values.insert(
+                    "name".to_string(),
+                    serde_json::Value::String(retired_tag_name(incoming_id)),
+                );
+            }
+            return Ok(());
+        }
 
-        self.conn()
-            .execute(
-                crate::queries::TAG_TOMBSTONE_MEMBERSHIPS,
-                turso::params::Params::Positional(vec![
-                    Value::Integer(now),
-                    Value::Text(self.device_id().to_string()),
-                    Value::Text(loser.to_string()),
-                ]),
-            )
-            .await
-            .map_err(crate::DbError::from)?;
+        // The incoming row wins, so every local row holding the name has to
+        // give it up — all of them, not just the first found: a third device
+        // arriving late can find two local rows already sharing the name.
+        for loser in clashing.iter().filter(|id| *id != &winner) {
+            // Move memberships to the survivor before retiring the loser, so no
+            // paper silently loses the tag.
+            self.conn()
+                .execute(
+                    crate::queries::TAG_REPOINT_MEMBERSHIPS,
+                    turso::params::Params::Positional(vec![
+                        Value::Text(winner.clone()),
+                        Value::Integer(now),
+                        Value::Text(self.device_id().to_string()),
+                        Value::Text(loser.clone()),
+                    ]),
+                )
+                .await
+                .map_err(crate::DbError::from)?;
 
-        // The retired tag's name is cleared, not just tombstoned. `tags.name`
-        // is UNIQUE across every row, dead ones included, so leaving the name in
-        // place would keep rejecting the survivor on the next merge and sync
-        // would stall permanently on this one row.
-        self.conn()
-            .execute(
-                crate::queries::TAG_RETIRE_DUPLICATE,
-                turso::params::Params::Positional(vec![
-                    Value::Integer(now),
-                    Value::Text(self.device_id().to_string()),
-                    Value::Text(loser.to_string()),
-                    Value::Text(format!("__retired:{loser}")),
-                ]),
-            )
-            .await
-            .map_err(crate::DbError::from)?;
+            self.conn()
+                .execute(
+                    crate::queries::TAG_TOMBSTONE_MEMBERSHIPS,
+                    turso::params::Params::Positional(vec![
+                        Value::Integer(now),
+                        Value::Text(self.device_id().to_string()),
+                        Value::Text(loser.clone()),
+                    ]),
+                )
+                .await
+                .map_err(crate::DbError::from)?;
+
+            // Free the name so the survivor can take it. `tags.name` is UNIQUE
+            // across every row, dead ones included, so leaving it in place would
+            // keep rejecting the survivor on every future merge and sync would
+            // stall permanently on this one row.
+            //
+            // The sync clock is deliberately not stamped here. This rename is a
+            // local repair, and stamping it would publish it: the retired name
+            // would outrank the real one on every other device, and since a
+            // tombstone carries no payload it would arrive as an empty string.
+            // Left unstamped, each device repairs its own copy and they still agree
+            // on which tag survives, because `min(id)` is the same everywhere.
+            self.conn()
+                .execute(
+                    crate::queries::TAG_RETIRE_DUPLICATE,
+                    turso::params::Params::Positional(vec![
+                        Value::Text(retired_tag_name(loser)),
+                        Value::Text(loser.clone()),
+                    ]),
+                )
+                .await
+                .map_err(crate::DbError::from)?;
+        }
 
         Ok(())
     }
 }
 
-/// Reconcile two tags that were created independently with the same name.
+/// The placeholder name for a tag that cannot keep the one it came with.
 ///
-/// `tags.name` is UNIQUE, so two devices creating "ml" offline produce
-/// different ids for the same name and the second insert fails. The survivor is
-/// `min(id)` rather than the newer one, so every device reaches the same answer
-/// regardless of the order peer files arrive in — which is what makes this
-/// converge without any coordination.
-pub fn tag_survivor<'a>(a: &'a str, b: &'a str) -> (&'a str, &'a str) {
-    if a <= b { (a, b) } else { (b, a) }
+/// Derived from the id so that it is unique. Both callers depend on that:
+/// several tags can lose the same name, and several deleted tags can arrive
+/// carrying none, and `tags.name` is UNIQUE across all of them.
+pub fn retired_tag_name(id: &str) -> String {
+    format!("__retired:{id}")
 }
 
 impl PkSpec {
@@ -497,7 +541,13 @@ impl PkSpec {
 /// insert must satisfy the schema even though nothing will ever read the row.
 /// Kept deliberately minimal — a real value here would be a fabrication, and the
 /// row is dead.
-fn not_null_skeleton(table: &str) -> Vec<(&'static str, Value)> {
+///
+/// `tags.name` is the exception and takes the row's id. The constraint on it is
+/// UNIQUE and spans dead rows, so a shared placeholder collides as soon as a
+/// second deleted tag arrives: two tags deleted on two devices before either
+/// synced would leave the second merge failing forever, and a failed merge
+/// abandons the peer's whole snapshot.
+fn not_null_skeleton(table: &str, id: &str) -> Vec<(&'static str, Value)> {
     let empty = |c| (c, Value::Text(String::new()));
     match table {
         "papers" => vec![
@@ -508,7 +558,7 @@ fn not_null_skeleton(table: &str) -> Vec<(&'static str, Value)> {
             ("item_type", Value::Text("journalArticle".into())),
         ],
         "collections" => vec![empty("name")],
-        "tags" => vec![empty("name")],
+        "tags" => vec![("name", Value::Text(retired_tag_name(id)))],
         "annotations" => vec![
             empty("paper_id"),
             ("page", Value::Integer(0)),
