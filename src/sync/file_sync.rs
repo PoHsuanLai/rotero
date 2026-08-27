@@ -1153,7 +1153,10 @@ mod tests {
                 .map(|e| e.file_name().to_string_lossy().into_owned())
                 .filter(|n| *n != format!("{sha}.pdf"))
                 .collect();
-            assert!(strays.is_empty(), "stray temp files left behind: {strays:?}");
+            assert!(
+                strays.is_empty(),
+                "stray temp files left behind: {strays:?}"
+            );
         }
 
         /// A blob two papers share must survive one of them being deleted.
@@ -1268,7 +1271,10 @@ mod tests {
             }
 
             let escaped = dir.path().parent().unwrap().join("etc");
-            assert!(!escaped.exists(), "a malformed hash escaped the sync folder");
+            assert!(
+                !escaped.exists(),
+                "a malformed hash escaped the sync folder"
+            );
         }
     }
 

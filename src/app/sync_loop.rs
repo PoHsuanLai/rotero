@@ -120,16 +120,8 @@ pub fn SyncLoop() -> Element {
                                     let mut first_error: Option<String> = None;
                                     for (_, path, sha256) in &papers {
                                         for outcome in [
-                                            engine.export_pdf(
-                                                &papers_dir,
-                                                path,
-                                                sha256.as_deref(),
-                                            ),
-                                            engine.import_pdf(
-                                                &papers_dir,
-                                                path,
-                                                sha256.as_deref(),
-                                            ),
+                                            engine.export_pdf(&papers_dir, path, sha256.as_deref()),
+                                            engine.import_pdf(&papers_dir, path, sha256.as_deref()),
                                         ] {
                                             if let Err(e) = outcome {
                                                 tracing::warn!("PDF sync failed for {path}: {e}");

@@ -187,7 +187,10 @@ pub fn LoadLibraryData() -> Element {
                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
                 loop {
-                    let pending = db.list_papers_needing_pdf_hashes().await.unwrap_or_default();
+                    let pending = db
+                        .list_papers_needing_pdf_hashes()
+                        .await
+                        .unwrap_or_default();
                     if pending.is_empty() {
                         break;
                     }

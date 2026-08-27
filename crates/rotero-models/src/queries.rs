@@ -68,30 +68,26 @@ pub const PAPER_UPDATE_PDF_PATH: &str =
     "UPDATE papers SET pdf_path = ?1, pdf_sha256 = ?2, date_modified = ?3 WHERE id = ?4";
 
 /// The stored content hash of a paper's PDF, if one has been computed.
-pub const PAPER_SELECT_PDF_SHA256: &str =
-    "SELECT pdf_sha256 FROM papers_live WHERE id = ?1";
+pub const PAPER_SELECT_PDF_SHA256: &str = "SELECT pdf_sha256 FROM papers_live WHERE id = ?1";
 
 /// Record a freshly computed hash without touching the path.
 ///
 /// Used by the backfill, which is repairing rows that predate the column rather
 /// than reacting to a new file.
-pub const PAPER_UPDATE_PDF_SHA256: &str =
-    "UPDATE papers SET pdf_sha256 = ?1 WHERE id = ?2";
+pub const PAPER_UPDATE_PDF_SHA256: &str = "UPDATE papers SET pdf_sha256 = ?1 WHERE id = ?2";
 
 /// Every live paper that names a PDF, with its hash where one is known.
 ///
 /// Drives PDF sync. Deliberately not `list_papers`, which is capped at the 500
 /// most recently added and is loaded for the UI — a library past that cap had
 /// the rest of its PDFs silently excluded from sync entirely.
-pub const PAPER_LIST_WITH_PDFS: &str =
-    "SELECT id, pdf_path, pdf_sha256 FROM papers_live \
+pub const PAPER_LIST_WITH_PDFS: &str = "SELECT id, pdf_path, pdf_sha256 FROM papers_live \
      WHERE pdf_path IS NOT NULL AND pdf_path <> ''";
 
 /// Live papers that have a PDF but no hash for it yet.
 ///
 /// The backfill queue for libraries created before `pdf_sha256` existed.
-pub const PAPER_LIST_NEEDING_PDF_HASHES: &str =
-    "SELECT id, pdf_path FROM papers_live \
+pub const PAPER_LIST_NEEDING_PDF_HASHES: &str = "SELECT id, pdf_path FROM papers_live \
      WHERE pdf_path IS NOT NULL AND pdf_path <> '' \
        AND (pdf_sha256 IS NULL OR pdf_sha256 = '')";
 

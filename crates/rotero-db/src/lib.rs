@@ -412,8 +412,8 @@ impl Database {
     /// so a stored path cannot reach outside the papers directory.
     pub fn hash_stored_pdf(&self, rel_path: &str) -> Result<String, String> {
         let abs = self.resolve_pdf_path(rel_path);
-        let bytes = std::fs::read(&abs)
-            .map_err(|e| format!("Failed to read {}: {e}", abs.display()))?;
+        let bytes =
+            std::fs::read(&abs).map_err(|e| format!("Failed to read {}: {e}", abs.display()))?;
         Ok(crate::snapshot::checksum(&bytes))
     }
 }
