@@ -5,7 +5,7 @@ use crate::state::app_state::{LibraryState, PdfTabManager};
 
 use super::message::ChatMessageBubble;
 use super::resize_handle::ResizeHandle;
-use super::{AgentChannel, do_send, get_context_paper_title};
+use super::{AgentChannel, do_send};
 
 #[component]
 pub fn ChatPanel() -> Element {
@@ -35,9 +35,19 @@ pub fn ChatPanel() -> Element {
             );
         });
     });
-    let paper_title = get_context_paper_title(&lib_state.read(), &tab_mgr.read());
-    let has_context = paper_title.is_some();
-    let paper_title_display = paper_title.unwrap_or_default();
+    // What the conversation is about, falling back to what the next message
+    // would be about before one has started.
+    let subject = chat_state
+        .read()
+        .current_subject
+        .clone()
+        .or_else(|| super::current_subject(&lib_state.read(), &tab_mgr.read()));
+    let subject_name = subject
+        .as_ref()
+        .map(|s| super::subject_label(s, &lib_state.read()));
+    let has_context = subject_name.is_some();
+    let paper_title_display = subject_name.unwrap_or_default();
+    let pending_switch = chat_state.read().pending_switch.clone();
     let active_provider = chat_state.read().active_provider_id.clone();
     let provider_name = crate::agent::types::AGENT_PROVIDERS
         .iter()
@@ -79,6 +89,36 @@ pub fn ChatPanel() -> Element {
     };
 
     rsx! {
+        super::SubjectFollower {}
+
+        if let Some(switch) = pending_switch {
+            {
+                let subject = switch.subject.clone();
+                let db_switch = db.clone();
+                rsx! {
+                    crate::ui::components::confirm_dialog::ConfirmDialog {
+                        title: "Switch conversation?".to_string(),
+                        message: format!(
+                            "Continue the conversation about {}? This chat stays saved.",
+                            switch.label,
+                        ),
+                        confirm_label: "Switch".to_string(),
+                        on_confirm: move |_| {
+                            super::switch_to(&mut chat_state, &agent_channel, &db_switch, subject.clone());
+                        },
+                        on_cancel: move |_| {
+                            chat_state.with_mut(|s| {
+                                // Remembered as declined so the follower does
+                                // not re-ask about the same subject on every
+                                // render; a different subject asks afresh.
+                                s.declined_subject = s.pending_switch.take().map(|p| p.subject);
+                            });
+                        },
+                    }
+                }
+            }
+        }
+
         div { class: "chat-panel",
             ResizeHandle { target: "chat" }
 
@@ -195,7 +235,7 @@ pub fn ChatPanel() -> Element {
 
             if has_context {
                 div { class: "chat-context-badge",
-                    span { class: "chat-context-text", "Discussing: {paper_title_display}" }
+                    span { class: "chat-context-text", "About: {paper_title_display}" }
                 }
             }
 

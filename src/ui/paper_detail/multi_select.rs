@@ -1,7 +1,9 @@
 use dioxus::prelude::*;
 
 use crate::state::app_state::LibraryState;
+use crate::ui::chat_panel::switch_to;
 use rotero_db::Database;
+use rotero_db::chat_sessions::ChatSubject;
 use rotero_models::Paper;
 
 use super::DetailShell;
@@ -10,6 +12,8 @@ use super::DetailShell;
 pub fn MultiSelectSummary() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<Database>();
+    let mut chat_state = use_context::<Signal<crate::agent::types::ChatState>>();
+    let agent_channel = use_context::<crate::ui::chat_panel::AgentChannel>();
 
     let state = lib_state.read();
     let count = state.selection_count();
@@ -83,6 +87,25 @@ pub fn MultiSelectSummary() -> Element {
                             },
                             i { class: "bi bi-book-fill" }
                             " Mark All Read"
+                        }
+                    }
+                }
+
+                {
+                    // The selection is the subject: several papers discussed
+                    // together are one conversation, not one per paper.
+                    let ids_chat = ids.clone();
+                    let db_chat = db.clone();
+                    rsx! {
+                        button {
+                            class: "btn btn--ghost multi-select-btn",
+                            onclick: move |_| {
+                                let subject = ChatSubject::Group(ids_chat.clone());
+                                chat_state.with_mut(|s| s.panel_open = true);
+                                switch_to(&mut chat_state, &agent_channel, &db_chat, subject);
+                            },
+                            i { class: "bi bi-chat-dots" }
+                            " Chat About These"
                         }
                     }
                 }

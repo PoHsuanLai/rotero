@@ -355,7 +355,14 @@ pub(crate) fn connect_and_run(
                         });
                     }
                     Err(e) => {
-                        let _ = evt_tx.send(ChatEvent::Error(format!("Load session failed: {e}")));
+                        // The agent has forgotten this conversation — it was
+                        // pruned, or belongs to another machine. Not the user's
+                        // problem to solve, so report it as a lost session
+                        // rather than an error and let a fresh one take over.
+                        tracing::info!("ACP: session {load_id} could not be loaded: {e}");
+                        let _ = evt_tx.send(ChatEvent::SessionLoadFailed {
+                            session_id: load_id,
+                        });
                     }
                 }
             }

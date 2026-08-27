@@ -268,6 +268,21 @@ pub fn handle_chat_event(
                 }
             });
         }
+        ChatEvent::SessionLoadFailed { session_id } => {
+            // Nothing to tell the user: they asked for this subject's
+            // conversation and they get one, it just starts empty.
+            chat_state.with_mut(|s| {
+                s.status = AgentStatus::Idle;
+                s.messages.clear();
+                s.current_session_id = None;
+            });
+            let db = db.clone();
+            spawn(async move {
+                if let Err(e) = db.mark_chat_session_dead(&session_id).await {
+                    tracing::debug!("chat: retiring a lost session failed: {e}");
+                }
+            });
+        }
         ChatEvent::SessionList(sessions) => {
             chat_state.with_mut(|s| {
                 s.past_sessions = sessions;

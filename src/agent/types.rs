@@ -172,6 +172,23 @@ pub struct ChatState {
     /// What the next session created will be about. Set when a message is sent,
     /// since the subject is known then but the session id is not yet.
     pub pending_subject: Option<rotero_db::chat_sessions::ChatSubject>,
+    /// What the visible conversation is about, once it has been resumed or
+    /// started for a subject.
+    pub current_subject: Option<rotero_db::chat_sessions::ChatSubject>,
+    /// A subject the panel would switch to, waiting on the user's answer
+    /// because switching now would abandon a conversation in progress.
+    pub pending_switch: Option<PendingSwitch>,
+    /// A subject the user declined to switch to, so the offer is not repeated
+    /// until they move somewhere else.
+    pub declined_subject: Option<rotero_db::chat_sessions::ChatSubject>,
+}
+
+/// A subject switch the user has been asked about but not yet answered.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PendingSwitch {
+    pub subject: rotero_db::chat_sessions::ChatSubject,
+    /// What to call it in the prompt.
+    pub label: String,
 }
 
 pub enum ChatRequest {
@@ -255,6 +272,11 @@ pub enum ChatEvent {
     SessionSummary {
         session_id: String,
         summary: String,
+    },
+    /// The agent could not load a conversation, so it no longer exists as far
+    /// as this device is concerned.
+    SessionLoadFailed {
+        session_id: String,
     },
     AuthRequired {
         provider_name: String,
