@@ -352,6 +352,21 @@ async fn run_migrations(conn: &Connection) -> Result<(), SchemaError> {
             .await;
     }
 
+    // Unconditional, not guarded on the version: an earlier build stamped 16
+    // without ever running this, stranding the column in a library that then
+    // reported itself up to date. Attempting it every open costs one failed
+    // statement and repairs those libraries; a version check cannot.
+    //
+    // Separates the papers a conversation is about from the ones the agent
+    // merely read. A library created at 15 already has the table, so the CREATE
+    // above is a no-op for it and only this ALTER adds the column.
+    let _ = conn
+        .execute(
+            "ALTER TABLE chat_session_papers ADD COLUMN is_subject INTEGER NOT NULL DEFAULT 0",
+            (),
+        )
+        .await;
+
     if current_version < SCHEMA_VERSION {
         conn.execute("UPDATE schema_version SET version = ?1", [SCHEMA_VERSION])
             .await?;
