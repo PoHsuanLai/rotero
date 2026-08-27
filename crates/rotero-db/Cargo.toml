@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 rotero-models.workspace = true
-turso = "0.6.1"
+turso.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 flate2.workspace = true

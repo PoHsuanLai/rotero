@@ -18,6 +18,10 @@ edition = "2024"
 license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
+# One pin for the database driver: two crates drifting apart put two copies of
+# turso in the tree, and its types stop being interchangeable across the crate
+# boundary.
+turso = "0.7.2"
 serde = { version = "1", features = ["derive", "rc"] }
 # Snapshot compression and integrity, shared by the sync engine and the Node.js
 # download that predates it.

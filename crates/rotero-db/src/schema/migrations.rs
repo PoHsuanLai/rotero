@@ -37,7 +37,7 @@ pub enum SchemaError {
 /// the sync store's initialization.
 pub async fn initialize_db(conn: &Connection) -> Result<(), SchemaError> {
     conn.execute_batch(CREATE_TABLES).await?;
-    create_live_views(conn).await;
+    conn.execute_batch(CREATE_LIVE_VIEWS).await?;
 
     run_migrations(conn).await?;
 
@@ -735,7 +735,7 @@ async fn migrate_to_lww(conn: &Connection) -> Result<(), turso::Error> {
         seed_from_timestamp(conn, table, column, seed_ms).await?;
     }
 
-    create_live_views(conn).await;
+    conn.execute_batch(CREATE_LIVE_VIEWS).await?;
 
     Ok(())
 }
@@ -813,13 +813,3 @@ async fn seed_from_timestamp(
     Ok(())
 }
 
-/// Create the `<table>_live` views, ignoring ones that already exist.
-///
-/// turso rejects `CREATE VIEW ... IF NOT EXISTS` with "View ... already exists"
-/// rather than treating it as a no-op, so each statement is attempted on its own
-/// and an existing view is not an error.
-async fn create_live_views(conn: &Connection) {
-    for stmt in CREATE_LIVE_VIEWS {
-        let _ = conn.execute(*stmt, ()).await;
-    }
-}

@@ -25,7 +25,7 @@ serde_json.workspace = true
 chrono.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-turso = "0.6.0-pre.15"
+turso.workspace = true
 clap = { version = "4", features = ["derive"] }
 directories = "6"
 schemars = "1"
