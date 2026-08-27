@@ -152,7 +152,7 @@ impl Database {
     /// keep associations pointing at a tag that no longer exists.
     pub async fn delete_tag(&self, id: &str) -> Result<(), crate::DbError> {
         let tagged = self
-            .junction_ids("SELECT paper_id FROM paper_tags WHERE tag_id = ?1", id)
+            .junction_ids(queries::TAG_MEMBER_PAPER_IDS, id)
             .await?;
 
         self.tombstone("tags", crate::clock::Pk::Single(id)).await?;

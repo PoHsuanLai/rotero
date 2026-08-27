@@ -33,6 +33,9 @@ pub mod snapshot;
 /// Which tables and columns sync between devices.
 pub mod sync_schema;
 
+/// SQL the sync engine generates per synced table.
+pub mod sync_sql;
+
 pub mod sync_test_helpers;
 /// Tag CRUD and paper-tag membership.
 pub mod tags;
@@ -451,19 +454,19 @@ async fn read_device_id(conn: &Connection) -> Result<Arc<str>, String> {
     // empty.
     let _ = conn
         .execute(
-            "CREATE TABLE IF NOT EXISTS crr_site_id (site_id BLOB PRIMARY KEY)",
+            crate::queries::DEVICE_ID_CREATE_TABLE,
             (),
         )
         .await;
     let _ = conn
         .execute(
-            "INSERT OR IGNORE INTO crr_site_id (site_id) VALUES (randomblob(16))",
+            crate::queries::DEVICE_ID_SEED,
             (),
         )
         .await;
 
     let mut rows = conn
-        .query("SELECT lower(hex(site_id)) FROM crr_site_id LIMIT 1", ())
+        .query(crate::queries::DEVICE_ID_SELECT, ())
         .await
         .map_err(|e| format!("Failed to read device id: {e}"))?;
 

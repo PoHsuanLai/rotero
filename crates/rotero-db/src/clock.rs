@@ -59,12 +59,7 @@ impl Database {
 
         self.conn()
             .execute(
-                &format!(
-                    "INSERT INTO {table} ({col_a}, {col_b}, updated_at, updated_by, deleted) \
-                     VALUES (?1, ?2, ?3, ?4, 0) \
-                     ON CONFLICT({col_a}, {col_b}) DO UPDATE SET \
-                        deleted = 0, updated_at = ?3, updated_by = ?4"
-                ),
+                &crate::sync_sql::upsert_junction(table, col_a, col_b),
                 turso::params::Params::Positional(vec![
                     Value::Text(val_a.to_string()),
                     Value::Text(val_b.to_string()),
@@ -81,17 +76,19 @@ impl Database {
         let device = self.device_id().to_string();
         let now = self.now_millis();
 
-        let (predicate, key_values) = match pk {
-            Pk::Single(id) => ("id = ?4".to_string(), vec![Value::Text(id.to_string())]),
+        // The manifest is the authority on a table's key columns. A table it
+        // does not know is not synced, so stamping it would write a clock
+        // nothing ever reads — and guessing the key columns could stamp the
+        // wrong row entirely.
+        let Some(spec) = crate::sync_schema::synced_table(table) else {
+            return Ok(());
+        };
+
+        let predicate = crate::sync_sql::pk_predicate(spec.pk, 4);
+        let key_values = match pk {
+            Pk::Single(id) => vec![Value::Text(id.to_string())],
             Pk::Composite(a, b) => {
-                let table = crate::sync_schema::synced_table(table);
-                let cols = table
-                    .map(|t| t.pk.columns())
-                    .unwrap_or_else(|| vec!["paper_id", "tag_id"]);
-                (
-                    format!("{} = ?4 AND {} = ?5", cols[0], cols[1]),
-                    vec![Value::Text(a.to_string()), Value::Text(b.to_string())],
-                )
+                vec![Value::Text(a.to_string()), Value::Text(b.to_string())]
             }
         };
 
@@ -104,13 +101,7 @@ impl Database {
 
         self.conn()
             .execute(
-                &format!(
-                    "UPDATE {table} SET \
-                        updated_at = MAX(?1, updated_at + 1), \
-                        updated_by = ?2, \
-                        deleted = ?3 \
-                     WHERE {predicate}"
-                ),
+                &crate::sync_sql::stamp_row(table, &predicate),
                 turso::params::Params::Positional(params),
             )
             .await?;

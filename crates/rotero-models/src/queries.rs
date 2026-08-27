@@ -56,6 +56,8 @@ pub const PAPER_UPDATE_METADATA: &str = "\
     journal = ?6, volume = ?7, issue = ?8, pages = ?9, publisher = ?10, url = ?11, \
     date_modified = ?12, item_type = ?13 WHERE id = ?14";
 
+/// Read a paper's extracted full text.
+pub const PAPER_SELECT_FULLTEXT: &str = "SELECT fulltext FROM papers_live WHERE id = ?1";
 /// Set or replace the local PDF file path for a paper.
 pub const PAPER_UPDATE_PDF_PATH: &str =
     "UPDATE papers SET pdf_path = ?1, date_modified = ?2 WHERE id = ?3";
@@ -236,3 +238,104 @@ pub const PAPER_COUNT_FAVORITES: &str = "SELECT COUNT(*) FROM papers_live WHERE 
 pub const COLLECTION_COUNT: &str = "SELECT COUNT(*) FROM collections_live";
 /// Count total tags.
 pub const TAG_COUNT: &str = "SELECT COUNT(*) FROM tags_live";
+
+// ── Sync bookkeeping ────────────────────────────────────────────────
+//
+// The statements the sync engine runs that name one fixed table. The ones it
+// builds per synced table live in `rotero_db::sync_sql`, which needs the table
+// manifest to generate them.
+
+/// This device's sync identity, as lowercase hex.
+pub const DEVICE_ID_SELECT: &str = "SELECT lower(hex(site_id)) FROM crr_site_id LIMIT 1";
+/// Create the device identity table if a library predates it.
+pub const DEVICE_ID_CREATE_TABLE: &str =
+    "CREATE TABLE IF NOT EXISTS crr_site_id (site_id BLOB PRIMARY KEY)";
+/// Seed a device identity, leaving an existing one alone.
+pub const DEVICE_ID_SEED: &str =
+    "INSERT OR IGNORE INTO crr_site_id (site_id) VALUES (randomblob(16))";
+/// Whether the library records a device identity at all.
+pub const DEVICE_ID_EXISTS: &str = "SELECT site_id FROM crr_site_id LIMIT 1";
+
+/// Paper IDs a collection holds, including tombstoned memberships.
+///
+/// Reads the base table rather than the `_live` view: the cascade that deletes a
+/// collection needs every membership it must tombstone, dead ones included.
+pub const COLLECTION_MEMBER_PAPER_IDS: &str =
+    "SELECT paper_id FROM paper_collections WHERE collection_id = ?1";
+/// Paper IDs a tag is applied to, including tombstoned associations.
+pub const TAG_MEMBER_PAPER_IDS: &str = "SELECT paper_id FROM paper_tags WHERE tag_id = ?1";
+/// Collection IDs a paper belongs to, tombstones included.
+pub const PAPER_COLLECTION_IDS: &str =
+    "SELECT collection_id FROM paper_collections WHERE paper_id = ?1";
+/// Tag IDs applied to a paper, tombstones included.
+pub const PAPER_TAG_IDS: &str = "SELECT tag_id FROM paper_tags WHERE paper_id = ?1";
+
+/// Another tag holding a name, for reconciling a same-name collision on merge.
+pub const TAG_FIND_NAME_CLASH: &str =
+    "SELECT id FROM tags WHERE name = ?1 AND id <> ?2 LIMIT 1";
+/// Move a retired tag's memberships onto the surviving tag.
+pub const TAG_REPOINT_MEMBERSHIPS: &str = "\
+    INSERT INTO paper_tags (paper_id, tag_id, updated_at, updated_by, deleted) \
+    SELECT paper_id, ?1, ?2, ?3, 0 FROM paper_tags WHERE tag_id = ?4 AND deleted = 0 \
+    ON CONFLICT(paper_id, tag_id) DO UPDATE SET deleted = 0, updated_at = ?2";
+/// Tombstone every membership of a retired tag.
+pub const TAG_TOMBSTONE_MEMBERSHIPS: &str = "\
+    UPDATE paper_tags SET deleted = 1, updated_at = ?1, updated_by = ?2 WHERE tag_id = ?3";
+/// Retire a duplicate tag, freeing its name.
+///
+/// The name is cleared, not just tombstoned: `tags.name` is UNIQUE across dead
+/// rows too, so leaving it would reject the survivor on every later merge.
+pub const TAG_RETIRE_DUPLICATE: &str = "\
+    UPDATE tags SET name = ?4, deleted = 1, updated_at = ?1, updated_by = ?2 WHERE id = ?3";
+
+/// Whether a table exists.
+pub const TABLE_EXISTS: &str =
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1";
+
+/// Read a one-time-task flag.
+pub const APP_FLAG_SELECT: &str = "SELECT value FROM app_flags WHERE key = ?1";
+/// Set a one-time-task flag.
+pub const APP_FLAG_UPSERT: &str = "\
+    INSERT INTO app_flags (key, value) VALUES (?1, ?2) \
+    ON CONFLICT(key) DO UPDATE SET value = ?2";
+
+/// Composite keys of a paper's outgoing citation edges.
+pub const PAPER_CITATION_PKS_OUT: &str = "\
+    SELECT citing_paper_id || ':' || cited_paper_id FROM paper_citations \
+    WHERE citing_paper_id = ?1";
+/// Composite keys of a paper's incoming citation edges.
+pub const PAPER_CITATION_PKS_IN: &str = "\
+    SELECT citing_paper_id || ':' || cited_paper_id FROM paper_citations \
+    WHERE cited_paper_id = ?1";
+
+// ── Templates ───────────────────────────────────────────────────────
+//
+// Statements whose text depends on a value known only at runtime — the shared
+// paper column list, or a placeholder run sized to the caller's slice. Kept as
+// functions beside the constants so every statement is still in this file.
+
+/// Papers ordered newest first, one page at a time.
+pub fn paper_list_paginated() -> String {
+    format!("SELECT {PAPER_SELECT_COLS} FROM papers_live ORDER BY date_added DESC LIMIT ?1 OFFSET ?2")
+}
+
+/// Papers by id, for `placeholders` bound ids.
+pub fn paper_select_by_ids(placeholders: &str) -> String {
+    format!("SELECT {PAPER_SELECT_COLS} FROM papers_live WHERE id IN ({placeholders})")
+}
+
+/// Distinct paper ids across several collections.
+pub fn collection_paper_ids_in(placeholders: &str) -> String {
+    format!(
+        "SELECT DISTINCT paper_id FROM paper_collections_live \
+         WHERE collection_id IN ({placeholders})"
+    )
+}
+
+/// Ids of a paper's child rows in a table keyed by `column`.
+///
+/// Reads the base table: the delete cascade needs every child it must
+/// tombstone, dead ones included.
+pub fn child_ids(table: &str, column: &str) -> String {
+    format!("SELECT id FROM {table} WHERE {column} = ?1")
+}

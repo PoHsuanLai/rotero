@@ -164,10 +164,7 @@ impl Database {
         limit: u32,
     ) -> Result<Vec<Paper>, crate::DbError> {
         let conn = self.conn();
-        let sql = format!(
-            "SELECT {} FROM papers_live ORDER BY date_added DESC LIMIT ?1 OFFSET ?2",
-            queries::PAPER_SELECT_COLS
-        );
+        let sql = queries::paper_list_paginated();
         let mut rows = conn
             .query(
                 &sql,
@@ -250,11 +247,7 @@ impl Database {
             return Ok(Vec::new());
         }
         let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{i}")).collect();
-        let sql = format!(
-            "SELECT {} FROM papers_live WHERE id IN ({})",
-            queries::PAPER_SELECT_COLS,
-            placeholders.join(", ")
-        );
+        let sql = queries::paper_select_by_ids(&placeholders.join(", "));
         let params: Vec<Value> = ids.iter().map(|id| Value::Text(id.clone())).collect();
         let mut rows = conn
             .query(&sql, turso::params::Params::Positional(params))
@@ -424,10 +417,7 @@ impl Database {
 
         for table in ["annotations", "notes", "paper_collections", "paper_tags"] {
             conn.execute(
-                &format!(
-                    "UPDATE {table} SET deleted = 1, updated_at = ?2, updated_by = ?3 \
-                     WHERE paper_id = ?1"
-                ),
+                &crate::sync_sql::tombstone_children(table, "paper_id"),
                 turso::params::Params::Positional(vec![
                     Value::Text(id.to_string()),
                     Value::Integer(now),
@@ -437,8 +427,7 @@ impl Database {
             .await?;
         }
         conn.execute(
-            "UPDATE paper_citations SET deleted = 1, updated_at = ?2, updated_by = ?3 \
-             WHERE citing_paper_id = ?1 OR cited_paper_id = ?1",
+            crate::sync_sql::tombstone_citations(),
             turso::params::Params::Positional(vec![
                 Value::Text(id.to_string()),
                 Value::Integer(now),
@@ -474,11 +463,8 @@ impl Database {
         column: &str,
         paper_id: &str,
     ) -> Result<Vec<String>, crate::DbError> {
-        self.junction_ids(
-            &format!("SELECT id FROM {table} WHERE {column} = ?1"),
-            paper_id,
-        )
-        .await
+        self.junction_ids(&queries::child_ids(table, column), paper_id)
+            .await
     }
 
     /// Composite keys of a paper's citation edges, in whichever direction.
@@ -488,11 +474,9 @@ impl Database {
         outgoing: bool,
     ) -> Result<Vec<String>, crate::DbError> {
         let sql = if outgoing {
-            "SELECT citing_paper_id || ':' || cited_paper_id FROM paper_citations \
-             WHERE citing_paper_id = ?1"
+            queries::PAPER_CITATION_PKS_OUT
         } else {
-            "SELECT citing_paper_id || ':' || cited_paper_id FROM paper_citations \
-             WHERE cited_paper_id = ?1"
+            queries::PAPER_CITATION_PKS_IN
         };
         self.junction_ids(sql, paper_id).await
     }
@@ -607,7 +591,7 @@ impl Database {
         paper_id: &str,
     ) -> Result<Vec<String>, crate::DbError> {
         self.junction_ids(
-            "SELECT collection_id FROM paper_collections WHERE paper_id = ?1",
+            queries::PAPER_COLLECTION_IDS,
             paper_id,
         )
         .await
@@ -616,7 +600,7 @@ impl Database {
     /// Tag ids attached to a paper.
     async fn tag_ids_for_paper(&self, paper_id: &str) -> Result<Vec<String>, crate::DbError> {
         self.junction_ids(
-            "SELECT tag_id FROM paper_tags WHERE paper_id = ?1",
+            queries::PAPER_TAG_IDS,
             paper_id,
         )
         .await

@@ -77,10 +77,7 @@ impl Database {
             let affected = self
                 .conn()
                 .execute(
-                    &format!(
-                        "DELETE FROM {} WHERE deleted = 1 AND updated_at < ?1 AND updated_by = ?2",
-                        table.name
-                    ),
+                    &crate::sync_sql::reap_tombstones(table.name),
                     turso::params::Params::Positional(vec![
                         Value::Integer(cutoff),
                         Value::Text(self.device_id().to_string()),

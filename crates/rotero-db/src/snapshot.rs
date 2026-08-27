@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use turso::Value;
 
 use crate::Database;
-use crate::sync_schema::{PkSpec, SYNC_COLUMNS, SYNCED_TABLES, SyncedTable};
+use crate::sync_schema::{PkSpec, SYNCED_TABLES, SyncedTable};
 
 /// Bumped when the on-disk shape changes incompatibly.
 pub const FORMAT_VERSION: u32 = 1;
@@ -156,8 +156,7 @@ impl Database {
 
     /// Read one table's rows into snapshot form.
     async fn read_table(&self, table: &SyncedTable) -> Result<Vec<SnapshotRow>, SnapshotError> {
-        let cols = table.all_columns();
-        let sql = format!("SELECT {} FROM {}", cols.join(", "), table.name);
+        let sql = crate::sync_sql::select_snapshot_rows(table);
         let mut rows = self
             .conn()
             .query(&sql, ())
@@ -235,32 +234,10 @@ impl Database {
         } else {
             Vec::new()
         };
-        insert_cols.extend(skeleton.iter().map(|(c, _)| *c));
-        insert_cols.extend_from_slice(SYNC_COLUMNS);
 
-        let placeholders: Vec<String> = (1..=insert_cols.len()).map(|i| format!("?{i}")).collect();
-
-        let mut assignments: Vec<String> = payload_cols
-            .iter()
-            .map(|c| format!("{c} = excluded.{c}"))
-            .collect();
-        for c in SYNC_COLUMNS {
-            assignments.push(format!("{c} = excluded.{c}"));
-        }
-
-        let conflict = key_cols.join(", ");
-        let sql = format!(
-            "INSERT INTO {table_name} ({cols}) VALUES ({vals}) \
-             ON CONFLICT({conflict}) DO UPDATE SET {sets} \
-             WHERE excluded.updated_at > {table_name}.updated_at \
-                OR (excluded.updated_at = {table_name}.updated_at \
-                    AND excluded.updated_by > {table_name}.updated_by)",
-            table_name = table.name,
-            cols = insert_cols.join(", "),
-            vals = placeholders.join(", "),
-            conflict = conflict,
-            sets = assignments.join(", "),
-        );
+        let mut generated_cols: Vec<&str> = payload_cols.clone();
+        generated_cols.extend(skeleton.iter().map(|(c, _)| *c));
+        let sql = crate::sync_sql::merge_row(table.name, &key_cols, &generated_cols);
 
         let mut params: Vec<Value> = row.k.iter().map(|k| Value::Text(k.clone())).collect();
         let empty = BTreeMap::new();
@@ -409,7 +386,7 @@ impl Database {
         let mut rows = self
             .conn()
             .query(
-                "SELECT id FROM tags WHERE name = ?1 AND id <> ?2 LIMIT 1",
+                crate::queries::TAG_FIND_NAME_CLASH,
                 turso::params::Params::Positional(vec![
                     Value::Text(name.to_string()),
                     Value::Text(incoming_id.clone()),
@@ -448,9 +425,7 @@ impl Database {
         // paper silently loses the tag.
         self.conn()
             .execute(
-                "INSERT INTO paper_tags (paper_id, tag_id, updated_at, updated_by, deleted) \
-                 SELECT paper_id, ?1, ?2, ?3, 0 FROM paper_tags WHERE tag_id = ?4 AND deleted = 0 \
-                 ON CONFLICT(paper_id, tag_id) DO UPDATE SET deleted = 0, updated_at = ?2",
+                crate::queries::TAG_REPOINT_MEMBERSHIPS,
                 turso::params::Params::Positional(vec![
                     Value::Text(winner.to_string()),
                     Value::Integer(now),
@@ -463,8 +438,7 @@ impl Database {
 
         self.conn()
             .execute(
-                "UPDATE paper_tags SET deleted = 1, updated_at = ?1, updated_by = ?2 \
-                 WHERE tag_id = ?3",
+                crate::queries::TAG_TOMBSTONE_MEMBERSHIPS,
                 turso::params::Params::Positional(vec![
                     Value::Integer(now),
                     Value::Text(self.device_id().to_string()),
@@ -480,8 +454,7 @@ impl Database {
         // would stall permanently on this one row.
         self.conn()
             .execute(
-                "UPDATE tags SET name = ?4, deleted = 1, updated_at = ?1, updated_by = ?2 \
-                 WHERE id = ?3",
+                crate::queries::TAG_RETIRE_DUPLICATE,
                 turso::params::Params::Positional(vec![
                     Value::Integer(now),
                     Value::Text(self.device_id().to_string()),

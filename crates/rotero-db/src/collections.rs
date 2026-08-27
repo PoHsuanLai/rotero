@@ -84,7 +84,7 @@ impl Database {
     pub async fn delete_collection(&self, id: &str) -> Result<(), crate::DbError> {
         let members = self
             .junction_ids(
-                "SELECT paper_id FROM paper_collections WHERE collection_id = ?1",
+                queries::COLLECTION_MEMBER_PAPER_IDS,
                 id,
             )
             .await?;
@@ -144,13 +144,10 @@ impl Database {
             return Ok(Vec::new());
         }
 
-        // SELECT DISTINCT paper_id FROM paper_collections WHERE collection_id IN (?, ?, ...)
         let placeholders = std::iter::repeat_n("?", subtree.len())
             .collect::<Vec<_>>()
             .join(", ");
-        let sql = format!(
-            "SELECT DISTINCT paper_id FROM paper_collections_live WHERE collection_id IN ({placeholders})"
-        );
+        let sql = queries::collection_paper_ids_in(&placeholders);
         let params: Vec<Value> = subtree.into_iter().map(Value::Text).collect();
 
         let mut rows = conn

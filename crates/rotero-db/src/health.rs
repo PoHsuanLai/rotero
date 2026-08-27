@@ -121,7 +121,7 @@ async fn table_exists(db: &Database, name: &str) -> Result<bool, turso::Error> {
     let mut rows = db
         .conn()
         .query(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            crate::queries::TABLE_EXISTS,
             [turso::Value::Text(name.to_string())],
         )
         .await?;
@@ -132,7 +132,7 @@ async fn table_exists(db: &Database, name: &str) -> Result<bool, turso::Error> {
 async fn actual_columns(db: &Database, table: &str) -> Result<Vec<String>, turso::Error> {
     let mut rows = db
         .conn()
-        .query(&format!("PRAGMA table_info({table})"), ())
+        .query(&crate::sync_sql::table_info(table), ())
         .await?;
     let mut names = Vec::new();
     while let Some(row) = rows.next().await? {
@@ -244,7 +244,7 @@ pub async fn verify_database_health(db: &Database) -> Vec<HealthIssue> {
 async fn count_where(db: &Database, table: &str, predicate: &str) -> Result<i64, turso::Error> {
     let mut rows = db
         .conn()
-        .query(&format!("SELECT COUNT(*) FROM {table} WHERE {predicate}"), ())
+        .query(&crate::sync_sql::count_where(table, predicate), ())
         .await?;
     match rows.next().await? {
         Some(row) => Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0)),
@@ -256,7 +256,7 @@ async fn count_where(db: &Database, table: &str, predicate: &str) -> Result<i64,
 async fn stored_device_id_exists(db: &Database) -> bool {
     let Ok(mut rows) = db
         .conn()
-        .query("SELECT site_id FROM crr_site_id LIMIT 1", ())
+        .query(crate::queries::DEVICE_ID_EXISTS, ())
         .await
     else {
         return false;
