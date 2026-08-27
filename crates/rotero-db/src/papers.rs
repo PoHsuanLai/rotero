@@ -359,13 +359,25 @@ impl Database {
         Ok(())
     }
 
-    /// Update the relative PDF file path for a paper.
-    pub async fn update_pdf_path(&self, id: &str, pdf_path: &str) -> Result<(), crate::DbError> {
+    /// Update the relative PDF file path for a paper, and the hash of the file
+    /// it names.
+    ///
+    /// The hash is what the sync engine addresses the shared copy by. Passing
+    /// `None` records a path whose contents are not yet known — the backfill
+    /// will fill it in — but every caller that has the bytes should supply it,
+    /// because a path without a hash cannot be published to peers.
+    pub async fn update_pdf_path(
+        &self,
+        id: &str,
+        pdf_path: &str,
+        pdf_sha256: Option<&str>,
+    ) -> Result<(), crate::DbError> {
         let conn = self.conn();
         conn.execute(
             queries::PAPER_UPDATE_PDF_PATH,
             turso::params::Params::Positional(vec![
                 Value::Text(pdf_path.to_string()),
+                crate::opt_text(pdf_sha256.map(str::to_string).as_ref()),
                 Value::Text(chrono::Utc::now().to_rfc3339()),
                 Value::Text(id.to_string()),
             ]),
@@ -373,6 +385,117 @@ impl Database {
         .await?;
         self.touch("papers", crate::clock::Pk::Single(id)).await?;
         Ok(())
+    }
+
+    /// The stored content hash of a paper's PDF, if one has been computed.
+    pub async fn pdf_sha256(&self, id: &str) -> Result<Option<String>, crate::DbError> {
+        let conn = self.conn();
+        let mut rows = conn
+            .query(
+                queries::PAPER_SELECT_PDF_SHA256,
+                [Value::Text(id.to_string())],
+            )
+            .await?;
+        let Some(row) = rows.next().await? else {
+            return Ok(None);
+        };
+        Ok(crate::get_opt_text(&row, 0).filter(|h| !h.is_empty()))
+    }
+
+    /// Record a computed hash without disturbing the path.
+    ///
+    /// Deliberately does **not** stamp the sync clock. The hash of an unchanged
+    /// file is a local repair of a row that predates the column, not an edit —
+    /// stamping it would republish every backfilled paper and let a backfill on
+    /// one device outrank a real metadata edit made on another.
+    pub async fn set_pdf_sha256(&self, id: &str, sha256: &str) -> Result<(), crate::DbError> {
+        let conn = self.conn();
+        conn.execute(
+            queries::PAPER_UPDATE_PDF_SHA256,
+            [Value::Text(sha256.to_string()), Value::Text(id.to_string())],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Every live paper that names a PDF, as `(id, pdf_path, pdf_sha256)`.
+    ///
+    /// What PDF sync iterates. Unlike [`list_papers`](Self::list_papers) this is
+    /// the whole library, not the 500 most recent — that cap is a UI concern,
+    /// and applying it to sync silently excluded everything past it.
+    pub async fn list_papers_with_pdfs(
+        &self,
+    ) -> Result<Vec<(String, String, Option<String>)>, crate::DbError> {
+        let conn = self.conn();
+        let mut rows = conn.query(queries::PAPER_LIST_WITH_PDFS, ()).await?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().await? {
+            let id = crate::get_text(&row, 0);
+            let path = crate::get_text(&row, 1);
+            let hash = crate::get_opt_text(&row, 2).filter(|h| !h.is_empty());
+            if !id.is_empty() && !path.is_empty() {
+                out.push((id, path, hash));
+            }
+        }
+        Ok(out)
+    }
+
+    /// Live papers with a PDF but no hash yet, as `(id, pdf_path)`.
+    pub async fn list_papers_needing_pdf_hashes(
+        &self,
+    ) -> Result<Vec<(String, String)>, crate::DbError> {
+        let conn = self.conn();
+        let mut rows = conn
+            .query(queries::PAPER_LIST_NEEDING_PDF_HASHES, ())
+            .await?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().await? {
+            let id = crate::get_text(&row, 0);
+            let path = crate::get_text(&row, 1);
+            if !id.is_empty() && !path.is_empty() {
+                out.push((id, path));
+            }
+        }
+        Ok(out)
+    }
+
+    /// PDF hashes that only tombstoned papers still name.
+    ///
+    /// Read *before* reaping tombstones, because reaping removes the rows that
+    /// carry these hashes — after which nothing records which shared blobs the
+    /// deletion orphaned.
+    pub async fn orphaned_pdf_hashes(&self) -> Result<Vec<String>, crate::DbError> {
+        let conn = self.conn();
+        let mut rows = conn.query(queries::PAPER_ORPHANED_PDF_HASHES, ()).await?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().await? {
+            if let Some(h) = crate::get_opt_text(&row, 0).filter(|h| !h.is_empty()) {
+                out.push(h);
+            }
+        }
+        Ok(out)
+    }
+
+    /// How many live papers still point at a given PDF hash.
+    ///
+    /// A shared blob may only be reaped when this is zero: content addressing
+    /// means one file can back several papers, so deleting on behalf of one
+    /// would strand the others.
+    pub async fn count_live_papers_with_pdf_hash(
+        &self,
+        sha256: &str,
+    ) -> Result<i64, crate::DbError> {
+        let conn = self.conn();
+        let mut rows = conn
+            .query(
+                queries::PAPER_COUNT_LIVE_BY_PDF_SHA256,
+                [Value::Text(sha256.to_string())],
+            )
+            .await?;
+        let Some(row) = rows.next().await? else {
+            return Ok(0);
+        };
+        Ok(crate::get_opt_i64(&row, 0).unwrap_or(0))
     }
 
     /// Update a paper's `date_modified` to now.

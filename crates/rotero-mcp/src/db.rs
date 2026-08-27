@@ -610,9 +610,18 @@ impl Database {
     }
 
     /// Update the pdf_path for a paper after downloading a PDF.
-    pub async fn update_pdf_path(&self, id: &str, pdf_path: &str) -> Result<(), turso::Error> {
+    ///
+    /// `pdf_sha256` is the hash of the file now at that path, which the sync
+    /// engine addresses the shared copy by. Callers that wrote the file through
+    /// `import_pdf`/`import_pdf_bytes` already have it back from those.
+    pub async fn update_pdf_path(
+        &self,
+        id: &str,
+        pdf_path: &str,
+        pdf_sha256: Option<&str>,
+    ) -> Result<(), turso::Error> {
         self.as_rotero_db()
-            .update_pdf_path(id, pdf_path)
+            .update_pdf_path(id, pdf_path, pdf_sha256)
             .await
             .map_err(to_turso)?;
         self.notify();

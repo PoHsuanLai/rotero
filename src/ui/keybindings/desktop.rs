@@ -673,14 +673,14 @@ fn action_import_bibtex(db: Database, mut lib_state: Signal<LibraryState>) {
                         let pdf_abs = bib_dir.join(rel_pdf);
                         let author_names = paper.author_names();
                         if pdf_abs.exists()
-                            && let Ok(rel_path) = db.import_pdf(
+                            && let Ok((rel_path, sha256)) = db.import_pdf(
                                 pdf_abs.to_str().unwrap_or_default(),
                                 Some(paper.title.as_str()),
                                 author_names.first().map(|a| a.as_str()),
                                 paper.year,
                             )
                         {
-                            let _ = db.update_pdf_path(&id, &rel_path).await;
+                            let _ = db.update_pdf_path(&id, &rel_path, Some(&sha256)).await;
                             paper.links.pdf_path = Some(rel_path);
                         }
                     }

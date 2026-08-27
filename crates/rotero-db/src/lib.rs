@@ -298,14 +298,18 @@ impl Database {
     }
 
     /// Import a PDF into the library.
-    /// Layout: `papers/{year}/{Title} - {FirstAuthor}.pdf`, falling back to `papers/unsorted/`.
+    ///
+    /// Layout: `papers/{year}/{Title} - {FirstAuthor}.pdf`, falling back to
+    /// `papers/unsorted/`. Returns the relative path and the SHA-256 of the
+    /// file's contents — see [`import_pdf_bytes`](Self::import_pdf_bytes) for
+    /// why the hash comes back with the path rather than being derived later.
     pub fn import_pdf(
         &self,
         source_path: &str,
         title: Option<&str>,
         first_author: Option<&str>,
         year: Option<i32>,
-    ) -> Result<String, String> {
+    ) -> Result<(String, String), String> {
         let source = Path::new(source_path);
 
         let clean_name = build_clean_filename(source, title, first_author);
@@ -334,22 +338,33 @@ impl Database {
 
         std::fs::copy(source, &dest).map_err(|e| format!("Failed to copy PDF: {e}"))?;
 
+        let bytes = std::fs::read(&dest).map_err(|e| format!("Failed to re-read PDF: {e}"))?;
+        let sha256 = crate::snapshot::checksum(&bytes);
+
         let rel_path = std::path::Path::new(&subfolder)
             .join(&dest_name)
             .to_string_lossy()
             .into_owned();
-        Ok(rel_path)
+        Ok((rel_path, sha256))
     }
 
     /// Import a PDF from bytes (e.g. downloaded from the web).
-    /// Returns the relative path within the papers directory.
+    ///
+    /// Returns the relative path within the papers directory and the SHA-256 of
+    /// the contents.
+    ///
+    /// The hash is produced here rather than recomputed later because this is
+    /// the one moment the bytes are already in hand. The filename is derived
+    /// from `(year, title, first_author)` alone and its collision counter only
+    /// sees the local disk, so the path is not a stable identity across devices
+    /// — the hash is.
     pub fn import_pdf_bytes(
         &self,
         bytes: &[u8],
         title: &str,
         first_author: Option<&str>,
         year: Option<i32>,
-    ) -> Result<String, String> {
+    ) -> Result<(String, String), String> {
         if bytes.len() < 5 || &bytes[..5] != b"%PDF-" {
             return Err("Not a valid PDF file".to_string());
         }
@@ -381,11 +396,25 @@ impl Database {
 
         std::fs::write(&dest, bytes).map_err(|e| format!("Failed to write PDF: {e}"))?;
 
+        let sha256 = crate::snapshot::checksum(bytes);
+
         let rel_path = std::path::Path::new(&subfolder)
             .join(&dest_name)
             .to_string_lossy()
             .into_owned();
-        Ok(rel_path)
+        Ok((rel_path, sha256))
+    }
+
+    /// The SHA-256 of a PDF already sitting in the library.
+    ///
+    /// For the backfill, which is hashing files that were imported before the
+    /// column existed. Reads through [`resolve_pdf_path`](Self::resolve_pdf_path)
+    /// so a stored path cannot reach outside the papers directory.
+    pub fn hash_stored_pdf(&self, rel_path: &str) -> Result<String, String> {
+        let abs = self.resolve_pdf_path(rel_path);
+        let bytes = std::fs::read(&abs)
+            .map_err(|e| format!("Failed to read {}: {e}", abs.display()))?;
+        Ok(crate::snapshot::checksum(&bytes))
     }
 }
 

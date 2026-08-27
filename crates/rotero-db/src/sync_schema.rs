@@ -83,6 +83,7 @@ pub const SYNCED_TABLES: &[SyncedTable] = &[
             "publisher",
             "url",
             "pdf_path",
+            "pdf_sha256",
             "date_added",
             "date_modified",
             "is_favorite",

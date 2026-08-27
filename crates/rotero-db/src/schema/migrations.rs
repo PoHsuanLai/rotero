@@ -5,7 +5,7 @@ use turso::Connection;
 use super::tables::{CREATE_FTS_INDEX, CREATE_LIVE_VIEWS, CREATE_TABLES};
 
 /// Current schema version; incremented with each migration.
-pub const SCHEMA_VERSION: i64 = 17;
+pub const SCHEMA_VERSION: i64 = 18;
 
 /// Why a database could not be prepared for use.
 #[derive(Debug, thiserror::Error)]
@@ -381,6 +381,20 @@ async fn run_migrations(conn: &Connection) -> Result<(), SchemaError> {
             )
             .await;
     }
+
+    // Content identity for the PDF a paper points at.
+    //
+    // `pdf_path` syncs but the bytes behind it do not, and the path is derived
+    // from title/author/year alone — so two devices that add the same paper
+    // agree on a filename while holding different files. The hash is what makes
+    // a PDF addressable by what it *is* rather than what it is called.
+    //
+    // Unconditional rather than version-guarded, matching the ALTER above: a
+    // library stamped forward without the column would otherwise be stranded,
+    // and a duplicate ALTER costs one failed statement.
+    let _ = conn
+        .execute("ALTER TABLE papers ADD COLUMN pdf_sha256 TEXT", ())
+        .await;
 
     if current_version < SCHEMA_VERSION {
         conn.execute("UPDATE schema_version SET version = ?1", [SCHEMA_VERSION])

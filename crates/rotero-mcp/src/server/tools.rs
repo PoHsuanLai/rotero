@@ -684,9 +684,15 @@ impl RoteroMcp {
         let dest = papers_dir.join(&filename);
         std::fs::write(&dest, &bytes).map_err(|e| err(format!("Failed to save PDF: {e}")))?;
 
+        // Record the hash alongside the path. This is a third PDF write path,
+        // independent of `Database::import_pdf{,_bytes}` and with its own naming
+        // scheme, so it has to compute the hash itself — a path stored without
+        // one cannot be published to peers.
+        let sha256 = rotero_db::snapshot::checksum(&bytes);
+
         // Update the paper's pdf_path in the database
         self.db
-            .update_pdf_path(&params.paper_id, &filename)
+            .update_pdf_path(&params.paper_id, &filename, Some(&sha256))
             .await
             .map_err(err)?;
 

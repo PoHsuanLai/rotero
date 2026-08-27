@@ -133,13 +133,13 @@ fn ImportButton() -> Element {
                                                 if let (Some(bib_dir), Some(rel_pdf)) = (&bib_dir, &source_pdf) {
                                                     let pdf_abs = bib_dir.join(rel_pdf);
                                                     if pdf_abs.exists()
-                                                        && let Ok(rel_path) = db.import_pdf(
+                                                        && let Ok((rel_path, sha256)) = db.import_pdf(
                                                             pdf_abs.to_str().unwrap_or_default(),
                                                             Some(paper.title.as_str()),
                                                             author_names.first().map(|a| a.as_str()),
                                                             paper.year,
                                                         ) {
-                                                            let _ = db.update_pdf_path(&id, &rel_path).await;
+                                                            let _ = db.update_pdf_path(&id, &rel_path, Some(&sha256)).await;
                                                             paper.links.pdf_path = Some(rel_path);
                                                             pdfs_found += 1;
                                                         }
@@ -232,10 +232,10 @@ fn OaPromptDialog(papers: Vec<OaPending>) -> Element {
                                 oa_state.set(Some(OaState::Downloading { done: i + 1, total, downloaded }));
                                 let urls = crate::metadata::pdf_download::resolve_pdf_urls(p.pdf_url.as_deref(), p.doi.as_deref(), &p.title).await;
                                 if cancelled.load(Ordering::Relaxed) { break; }
-                                if let Ok(rel_path) = crate::metadata::pdf_download::download_and_save_pdf(
+                                if let Ok((rel_path, sha256)) = crate::metadata::pdf_download::download_and_save_pdf(
                                     &db, &urls, &p.title, p.first_author.as_deref(), p.year,
                                 ).await {
-                                    let _ = db.update_pdf_path(&p.id, &rel_path).await;
+                                    let _ = db.update_pdf_path(&p.id, &rel_path, Some(&sha256)).await;
                                     let pid = p.id.clone();
                                     lib_state.with_mut(|s| {
                                         if let Some(paper) = s.papers.iter_mut().find(|paper| paper.id.as_deref() == Some(pid.as_str())) {

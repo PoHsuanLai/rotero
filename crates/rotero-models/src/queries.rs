@@ -58,9 +58,63 @@ pub const PAPER_UPDATE_METADATA: &str = "\
 
 /// Read a paper's extracted full text.
 pub const PAPER_SELECT_FULLTEXT: &str = "SELECT fulltext FROM papers_live WHERE id = ?1";
-/// Set or replace the local PDF file path for a paper.
+/// Set or replace the local PDF file path for a paper, along with the hash of
+/// its contents.
+///
+/// The two are written together on purpose. `pdf_path` syncs, so a path without
+/// its hash reaches a peer that then cannot tell which file the name refers to —
+/// the state that lets two devices hold different documents under one name.
 pub const PAPER_UPDATE_PDF_PATH: &str =
-    "UPDATE papers SET pdf_path = ?1, date_modified = ?2 WHERE id = ?3";
+    "UPDATE papers SET pdf_path = ?1, pdf_sha256 = ?2, date_modified = ?3 WHERE id = ?4";
+
+/// The stored content hash of a paper's PDF, if one has been computed.
+pub const PAPER_SELECT_PDF_SHA256: &str =
+    "SELECT pdf_sha256 FROM papers_live WHERE id = ?1";
+
+/// Record a freshly computed hash without touching the path.
+///
+/// Used by the backfill, which is repairing rows that predate the column rather
+/// than reacting to a new file.
+pub const PAPER_UPDATE_PDF_SHA256: &str =
+    "UPDATE papers SET pdf_sha256 = ?1 WHERE id = ?2";
+
+/// Every live paper that names a PDF, with its hash where one is known.
+///
+/// Drives PDF sync. Deliberately not `list_papers`, which is capped at the 500
+/// most recently added and is loaded for the UI — a library past that cap had
+/// the rest of its PDFs silently excluded from sync entirely.
+pub const PAPER_LIST_WITH_PDFS: &str =
+    "SELECT id, pdf_path, pdf_sha256 FROM papers_live \
+     WHERE pdf_path IS NOT NULL AND pdf_path <> ''";
+
+/// Live papers that have a PDF but no hash for it yet.
+///
+/// The backfill queue for libraries created before `pdf_sha256` existed.
+pub const PAPER_LIST_NEEDING_PDF_HASHES: &str =
+    "SELECT id, pdf_path FROM papers_live \
+     WHERE pdf_path IS NOT NULL AND pdf_path <> '' \
+       AND (pdf_sha256 IS NULL OR pdf_sha256 = '')";
+
+/// PDF hashes named only by tombstoned papers.
+///
+/// The shared blobs that no live paper anywhere still needs. Deliberately a
+/// `NOT IN` against the live set rather than a scan of deleted rows alone:
+/// content addressing means one blob can back several papers, so a hash is only
+/// orphaned when *every* paper naming it is gone.
+pub const PAPER_ORPHANED_PDF_HASHES: &str = "\
+    SELECT DISTINCT pdf_sha256 FROM papers \
+    WHERE deleted = 1 AND pdf_sha256 IS NOT NULL AND pdf_sha256 <> '' \
+      AND pdf_sha256 NOT IN ( \
+          SELECT pdf_sha256 FROM papers_live \
+          WHERE pdf_sha256 IS NOT NULL AND pdf_sha256 <> '')";
+
+/// Whether any live paper still points at a given PDF hash.
+///
+/// Content addressing means one blob can back several papers — a deduplicated
+/// import, or a merged duplicate. Reaping a shared blob is only safe when this
+/// finds nothing.
+pub const PAPER_COUNT_LIVE_BY_PDF_SHA256: &str =
+    "SELECT COUNT(*) FROM papers_live WHERE pdf_sha256 = ?1";
 /// Set the title for a paper, leaving every other bibliographic field alone.
 pub const PAPER_UPDATE_TITLE: &str =
     "UPDATE papers SET title = ?1, date_modified = ?2 WHERE id = ?3";

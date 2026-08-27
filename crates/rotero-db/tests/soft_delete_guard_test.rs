@@ -52,6 +52,16 @@ const READS_ALL_ROWS: &[(&str, &str)] = &[
     // holds its name against the survivor. Looking only at live rows would miss
     // the clash and the insert would fail on every later merge.
     ("TAG_FIND_NAME_CLASH", "UNIQUE spans tombstones"),
+    // Finding which shared PDFs a deletion orphaned means reading the deleted
+    // rows: they are the only record of which hash the deleted paper pointed
+    // at. The live half of the question is asked in the same statement, as a
+    // `NOT IN` against `papers_live`, so a blob another paper still uses is
+    // never reported.
+    (
+        "PAPER_ORPHANED_PDF_HASHES",
+        "reads tombstones to find the PDFs they orphaned; excludes live rows \
+         via NOT IN papers_live",
+    ),
 ];
 
 #[test]

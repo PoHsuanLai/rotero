@@ -209,7 +209,7 @@ pub async fn download_and_import_pdf(
     let author_names = paper.author_names();
     let first_author = author_names.first().map(|s| s.as_str());
 
-    let rel_path = crate::metadata::pdf_download::download_and_save_pdf(
+    let (rel_path, sha256) = crate::metadata::pdf_download::download_and_save_pdf(
         db,
         &[pdf_url.to_string()],
         &paper.title,
@@ -219,7 +219,7 @@ pub async fn download_and_import_pdf(
     .await
     .map_err(|e| format!("{e}"))?;
 
-    db.update_pdf_path(paper_id, &rel_path)
+    db.update_pdf_path(paper_id, &rel_path, Some(&sha256))
         .await
         .map_err(|e| format!("Failed to update pdf_path: {e}"))?;
 

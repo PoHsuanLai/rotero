@@ -172,14 +172,16 @@ async fn translator_pdf_urls(doi: &str) -> Result<Vec<String>, String> {
 }
 
 /// Download a PDF from the first working URL and save it to the library.
-/// Returns the relative path within the papers directory.
+///
+/// Returns the relative path within the papers directory and the SHA-256 of the
+/// saved bytes, which the sync engine addresses the shared copy by.
 pub async fn download_and_save_pdf(
     db: &Database,
     urls: &[String],
     title: &str,
     first_author: Option<&str>,
     year: Option<i32>,
-) -> Result<String, PdfDownloadError> {
+) -> Result<(String, String), PdfDownloadError> {
     if urls.is_empty() {
         return Err(PdfDownloadError::NoUrls);
     }
@@ -304,6 +306,8 @@ async fn download_once(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, S
 /// `direct_url` is any PDF link the paper already carries (arXiv `pdf_url`, an
 /// OA location); it is tried first before falling back to translator scraping
 /// and the OA metadata APIs.
+///
+/// Returns the relative path and the SHA-256 of the saved bytes.
 pub async fn find_and_download_pdf(
     db: &Database,
     direct_url: Option<&str>,
@@ -311,7 +315,7 @@ pub async fn find_and_download_pdf(
     title: &str,
     first_author: Option<&str>,
     year: Option<i32>,
-) -> Result<String, PdfDownloadError> {
+) -> Result<(String, String), PdfDownloadError> {
     let urls = resolve_pdf_urls(direct_url, doi, title).await;
     download_and_save_pdf(db, &urls, title, first_author, year).await
 }
