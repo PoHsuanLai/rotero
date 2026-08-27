@@ -169,119 +169,6 @@ pub(crate) fn current_subject(
     None
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::state::app_state::PdfTab;
-    use rotero_models::Paper;
-
-    fn paper(id: &str, title: &str) -> Paper {
-        Paper {
-            id: Some(id.to_string()),
-            title: title.to_string(),
-            ..Default::default()
-        }
-    }
-
-    fn library() -> LibraryState {
-        LibraryState {
-            papers: vec![paper("p1", "First"), paper("p2", "Second")],
-            ..Default::default()
-        }
-    }
-
-    /// An open PDF is what the user is reading, whatever the list has selected.
-    #[test]
-    fn an_open_pdf_wins_over_the_selection() {
-        let mut lib = library();
-        lib.select_one("p2".into());
-        let mut tabs = PdfTabManager::default();
-        let id = tabs.next_id();
-        let mut tab = PdfTab::new(id, "/tmp/a.pdf".into(), "First".into(), 1.0, 4, 1.0);
-        tab.paper_id = Some("p1".into());
-        tabs.open_tab(tab);
-
-        assert_eq!(
-            current_subject(&lib, &tabs),
-            Some(ChatSubject::Paper("p1".into()))
-        );
-    }
-
-    /// Several papers selected is one conversation about the group, not one
-    /// conversation per paper.
-    #[test]
-    fn a_multi_selection_is_a_single_group_subject() {
-        let mut lib = library();
-        lib.select_one("p1".into());
-        lib.toggle_select("p2".into());
-
-        let subject = current_subject(&lib, &PdfTabManager::default()).unwrap();
-        assert!(matches!(subject, ChatSubject::Group(ref ids) if ids.len() == 2));
-    }
-
-    #[test]
-    fn a_browsed_collection_is_the_subject_when_nothing_is_selected() {
-        let mut lib = library();
-        lib.view = LibraryView::Collection("c1".into());
-
-        assert_eq!(
-            current_subject(&lib, &PdfTabManager::default()),
-            Some(ChatSubject::Collection("c1".into()))
-        );
-    }
-
-    /// Nothing open and nothing selected is a general chat, not a subject.
-    #[test]
-    fn browsing_the_whole_library_has_no_subject() {
-        assert_eq!(current_subject(&library(), &PdfTabManager::default()), None);
-    }
-
-    /// The agent only ever sees the paper that happens to be open unless the
-    /// group names them all.
-    #[test]
-    fn a_group_context_names_every_paper() {
-        let block = group_context(&library(), &["p1".to_string(), "p2".to_string()]);
-        assert!(block.contains("Paper ID: p1"));
-        assert!(block.contains("Paper ID: p2"));
-        assert!(block.contains("First"));
-        assert!(block.contains("Second"));
-    }
-
-    /// A large selection must not crowd out the conversation itself.
-    #[test]
-    fn a_large_group_is_capped_and_says_so() {
-        let mut lib = LibraryState::default();
-        let ids: Vec<String> = (0..GROUP_CONTEXT_LIMIT + 5)
-            .map(|i| {
-                let id = format!("p{i}");
-                lib.papers.push(paper(&id, &format!("Paper {i}")));
-                id
-            })
-            .collect();
-
-        let block = group_context(&lib, &ids);
-        assert_eq!(block.matches("Paper ID:").count(), GROUP_CONTEXT_LIMIT);
-        assert!(block.contains("and 5 more"));
-    }
-
-    /// A group conversation stays about its group even while one of its papers
-    /// is open, or the agent would silently narrow to that paper.
-    #[test]
-    fn the_subject_beats_the_open_pdf_when_building_context() {
-        let lib = library();
-        let mut tabs = PdfTabManager::default();
-        let id = tabs.next_id();
-        let mut tab = PdfTab::new(id, "/tmp/a.pdf".into(), "First".into(), 1.0, 4, 1.0);
-        tab.paper_id = Some("p1".into());
-        tabs.open_tab(tab);
-
-        let group = ChatSubject::Group(vec!["p1".into(), "p2".into()]);
-        let context = build_paper_context(&lib, &tabs, Some(&group)).unwrap();
-        assert!(context.contains("Paper ID: p2"));
-        assert!(context.contains("asking about these papers together"));
-    }
-}
-
 fn do_send(
     chat_state: &mut Signal<ChatState>,
     agent_channel: &AgentChannel,
@@ -354,5 +241,118 @@ fn do_send(
     // happened yet.
     if first_message && let Some(session_id) = session_id {
         agent_channel.send(ChatRequest::SummarizeSession { session_id });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::app_state::PdfTab;
+    use rotero_models::Paper;
+
+    fn paper(id: &str, title: &str) -> Paper {
+        Paper {
+            id: Some(id.to_string()),
+            title: title.to_string(),
+            ..Default::default()
+        }
+    }
+
+    fn library() -> LibraryState {
+        LibraryState {
+            papers: vec![paper("p1", "First"), paper("p2", "Second")],
+            ..Default::default()
+        }
+    }
+
+    /// An open PDF is what the user is reading, whatever the list has selected.
+    #[test]
+    fn an_open_pdf_wins_over_the_selection() {
+        let mut lib = library();
+        lib.select_one("p2".into());
+        let mut tabs = PdfTabManager::default();
+        let id = tabs.next_id();
+        let mut tab = PdfTab::new(id, "/tmp/a.pdf".into(), "First".into(), 1.0, 4, 1.0);
+        tab.paper_id = Some("p1".into());
+        tabs.open_tab(tab);
+
+        assert_eq!(
+            current_subject(&lib, &tabs),
+            Some(ChatSubject::Paper("p1".into()))
+        );
+    }
+
+    /// Several papers selected is one conversation about the group, not one
+    /// conversation per paper.
+    #[test]
+    fn a_multi_selection_is_a_single_group_subject() {
+        let mut lib = library();
+        lib.select_one("p1".into());
+        lib.toggle_select("p2");
+
+        let subject = current_subject(&lib, &PdfTabManager::default()).unwrap();
+        assert!(matches!(subject, ChatSubject::Group(ref ids) if ids.len() == 2));
+    }
+
+    #[test]
+    fn a_browsed_collection_is_the_subject_when_nothing_is_selected() {
+        let mut lib = library();
+        lib.view = LibraryView::Collection("c1".into());
+
+        assert_eq!(
+            current_subject(&lib, &PdfTabManager::default()),
+            Some(ChatSubject::Collection("c1".into()))
+        );
+    }
+
+    /// Nothing open and nothing selected is a general chat, not a subject.
+    #[test]
+    fn browsing_the_whole_library_has_no_subject() {
+        assert_eq!(current_subject(&library(), &PdfTabManager::default()), None);
+    }
+
+    /// The agent only ever sees the paper that happens to be open unless the
+    /// group names them all.
+    #[test]
+    fn a_group_context_names_every_paper() {
+        let block = group_context(&library(), &["p1".to_string(), "p2".to_string()]);
+        assert!(block.contains("Paper ID: p1"));
+        assert!(block.contains("Paper ID: p2"));
+        assert!(block.contains("First"));
+        assert!(block.contains("Second"));
+    }
+
+    /// A large selection must not crowd out the conversation itself.
+    #[test]
+    fn a_large_group_is_capped_and_says_so() {
+        let mut lib = LibraryState::default();
+        let ids: Vec<String> = (0..GROUP_CONTEXT_LIMIT + 5)
+            .map(|i| {
+                let id = format!("p{i}");
+                lib.papers.push(paper(&id, &format!("Paper {i}")));
+                id
+            })
+            .collect();
+
+        let block = group_context(&lib, &ids);
+        assert_eq!(block.matches("Paper ID:").count(), GROUP_CONTEXT_LIMIT);
+        assert!(block.contains("and 5 more"));
+    }
+
+    /// A group conversation stays about its group even while one of its papers
+    /// is open, or the agent would silently narrow to that paper.
+    #[test]
+    fn the_subject_beats_the_open_pdf_when_building_context() {
+        let lib = library();
+        let mut tabs = PdfTabManager::default();
+        let id = tabs.next_id();
+        let mut tab = PdfTab::new(id, "/tmp/a.pdf".into(), "First".into(), 1.0, 4, 1.0);
+        tab.paper_id = Some("p1".into());
+        tabs.open_tab(tab);
+
+        let group = ChatSubject::Group(vec!["p1".into(), "p2".into()]);
+        let context = build_paper_context(&lib, &tabs, Some(&group)).unwrap();
+        assert!(context.contains("Paper ID: p2"));
+        assert!(context.contains("asking about these papers together"));
     }
 }
