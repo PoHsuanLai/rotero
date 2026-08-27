@@ -181,6 +181,12 @@ pub struct ChatState {
     /// A subject the user declined to switch to, so the offer is not repeated
     /// until they move somewhere else.
     pub declined_subject: Option<rotero_db::chat_sessions::ChatSubject>,
+    /// A conversation's first message, held until the agent reports a session
+    /// id to attach it to.
+    ///
+    /// The id does not exist yet when the message is sent, so a label written
+    /// at send time would have nothing to key on and be dropped.
+    pub pending_summary: Option<String>,
 }
 
 /// A subject switch the user has been asked about but not yet answered.
@@ -282,4 +288,28 @@ pub enum ChatEvent {
         provider_name: String,
     },
     Error(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bug this guards: a conversation's first message is sent before the
+    /// agent reports a session id, so a label written at send time had nothing
+    /// to key on and was dropped — leaving every stored summary null.
+    #[test]
+    fn a_first_message_label_survives_until_a_session_id_arrives() {
+        let mut state = ChatState {
+            pending_summary: Some("What does this paper claim?".into()),
+            ..Default::default()
+        };
+        assert!(state.current_session_id.is_none());
+
+        // What ChatEvent::SessionCreated does once the agent answers.
+        let held = state.pending_summary.take();
+        state.current_session_id = Some("sess-1".into());
+
+        assert_eq!(held.as_deref(), Some("What does this paper claim?"));
+        assert!(state.pending_summary.is_none(), "must not be written twice");
+    }
 }
