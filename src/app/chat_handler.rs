@@ -56,6 +56,7 @@ fn link_papers(
     lib_state: &Signal<LibraryState>,
     db: &Database,
     paper_ids: Vec<String>,
+    is_subject: bool,
 ) {
     let Some(session_id) = chat_state.read().current_session_id.clone() else {
         return;
@@ -73,7 +74,10 @@ fn link_papers(
     let db = db.clone();
     spawn(async move {
         for paper_id in known {
-            if let Err(e) = db.link_chat_session_paper(&session_id, &paper_id).await {
+            if let Err(e) = db
+                .link_chat_session_paper(&session_id, &paper_id, is_subject)
+                .await
+            {
                 tracing::debug!("chat: linking {paper_id} failed: {e}");
             }
         }
@@ -148,8 +152,9 @@ pub fn handle_chat_event(
             context_paper_ids,
         } => {
             // A replayed transcript is the only place an older conversation's
-            // subject survives, so capture before rendering.
-            link_papers(chat_state, lib_state, db, context_paper_ids);
+            // subject survives, so capture before rendering. The context block
+            // names the paper the user was reading — the subject itself.
+            link_papers(chat_state, lib_state, db, context_paper_ids, true);
             if !text.is_empty() {
                 chat_state.with_mut(|s| {
                     s.messages.push(ChatMessage::new(
@@ -198,7 +203,16 @@ pub fn handle_chat_event(
             if status == crate::agent::types::ToolStatus::Completed
                 && let Some(text) = output.as_deref()
             {
-                link_papers(chat_state, lib_state, db, paper_ids_from_tool_output(text));
+                // Papers the agent read while answering, not what the
+                // conversation is about: a search returns dozens, and each
+                // would otherwise claim this chat on its own detail panel.
+                link_papers(
+                    chat_state,
+                    lib_state,
+                    db,
+                    paper_ids_from_tool_output(text),
+                    false,
+                );
             }
             chat_state.with_mut(|s| {
                 if let Some(last) = s.messages.last_mut() {

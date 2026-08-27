@@ -119,10 +119,14 @@ async fn linking_is_idempotent_and_ignores_unknown_papers() {
         .await
         .unwrap();
 
-    db.link_chat_session_paper("sess-1", &paper).await.unwrap();
-    db.link_chat_session_paper("sess-1", &paper).await.unwrap();
+    db.link_chat_session_paper("sess-1", &paper, false)
+        .await
+        .unwrap();
+    db.link_chat_session_paper("sess-1", &paper, false)
+        .await
+        .unwrap();
     // An id the agent invented is not a library paper, so it is dropped.
-    db.link_chat_session_paper("sess-1", "not-a-real-paper")
+    db.link_chat_session_paper("sess-1", "not-a-real-paper", false)
         .await
         .unwrap();
 
@@ -130,6 +134,58 @@ async fn linking_is_idempotent_and_ignores_unknown_papers() {
         db.chat_session_paper_ids("sess-1").await.unwrap(),
         vec![paper]
     );
+}
+
+/// The bug this guards: an agent answering a question searches the library, and
+/// every paper it reads used to be linked as though the conversation were about
+/// it — so one chat about one paper appeared on the detail panel of every paper
+/// the search happened to return.
+#[tokio::test]
+async fn a_paper_the_agent_merely_read_does_not_claim_the_conversation() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = common::open_test_db(dir.path()).await;
+    let discussed = insert(&db, "The paper being read").await;
+    let stumbled_on = insert(&db, "A search result").await;
+
+    let subject = ChatSubject::Paper(discussed.clone());
+    db.upsert_chat_session(&row("sess-1", &subject), &subject.paper_ids())
+        .await
+        .unwrap();
+    db.link_chat_session_paper("sess-1", &stumbled_on, false)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        db.chat_sessions_for_paper(&discussed).await.unwrap().len(),
+        1
+    );
+    assert!(
+        db.chat_sessions_for_paper(&stumbled_on)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // Both are still on record, so the conversation can be traced.
+    assert_eq!(db.chat_session_paper_ids("sess-1").await.unwrap().len(), 2);
+}
+
+/// A paper that is the subject stays the subject: the agent re-reading it
+/// mid-conversation must not demote it to an incidental mention.
+#[tokio::test]
+async fn an_incidental_mention_cannot_demote_a_subject() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = common::open_test_db(dir.path()).await;
+    let paper = insert(&db, "A").await;
+    let subject = ChatSubject::Paper(paper.clone());
+    db.upsert_chat_session(&row("sess-1", &subject), &subject.paper_ids())
+        .await
+        .unwrap();
+
+    db.link_chat_session_paper("sess-1", &paper, false)
+        .await
+        .unwrap();
+
+    assert_eq!(db.chat_sessions_for_paper(&paper).await.unwrap().len(), 1);
 }
 
 #[tokio::test]

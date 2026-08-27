@@ -116,11 +116,14 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     is_dead      INTEGER NOT NULL DEFAULT 0
 );
 
--- Papers a conversation is about: the single anchor for a 'paper' subject, the
--- whole member set for 'collection' and 'group'.
+-- Papers a conversation touched. `is_subject` marks the ones it is actually
+-- about — the single anchor for a 'paper' subject, the whole member set for
+-- 'collection' and 'group'. The rest are papers the agent read while answering,
+-- recorded so the conversation can be traced, but not claiming to be about them.
 CREATE TABLE IF NOT EXISTS chat_session_papers (
     session_id TEXT NOT NULL REFERENCES chat_sessions(session_id) ON DELETE CASCADE,
     paper_id   TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    is_subject INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (session_id, paper_id)
 );
 

@@ -162,8 +162,10 @@ impl Database {
         )
         .await?;
 
+        // These are the subject's own papers, so they define what the
+        // conversation is about.
         for paper_id in paper_ids {
-            self.link_chat_session_paper(&row.session_id, paper_id)
+            self.link_chat_session_paper(&row.session_id, paper_id, true)
                 .await?;
         }
         Ok(())
@@ -171,12 +173,19 @@ impl Database {
 
     /// Record that a conversation touched a paper. Idempotent.
     ///
+    /// `is_subject` separates the papers a conversation is *about* from the ones
+    /// it merely read: an agent answering a question runs searches, and every
+    /// result would otherwise claim the conversation as its own. A paper already
+    /// recorded as a subject stays one — a later incidental mention must not
+    /// demote it.
+    ///
     /// Unknown ids are dropped rather than inserted: foreign keys are not
     /// enforced, and the agent can name a paper that isn't in the library.
     pub async fn link_chat_session_paper(
         &self,
         session_id: &str,
         paper_id: &str,
+        is_subject: bool,
     ) -> Result<(), crate::DbError> {
         let conn = self.conn();
         let mut existing = conn
@@ -189,10 +198,14 @@ impl Database {
             return Ok(());
         }
         conn.execute(
-            "INSERT OR IGNORE INTO chat_session_papers (session_id, paper_id) VALUES (?1, ?2)",
+            "INSERT INTO chat_session_papers (session_id, paper_id, is_subject) \
+             VALUES (?1, ?2, ?3) \
+             ON CONFLICT(session_id, paper_id) DO UPDATE SET \
+                 is_subject = MAX(chat_session_papers.is_subject, excluded.is_subject)",
             [
                 Value::Text(session_id.to_string()),
                 Value::Text(paper_id.to_string()),
+                Value::Integer(i64::from(is_subject)),
             ],
         )
         .await?;
@@ -249,7 +262,14 @@ impl Database {
         Ok(())
     }
 
-    /// Every live conversation that touched a paper, most recently used first.
+    /// Every live conversation *about* a paper, most recently used first.
+    ///
+    /// Deliberately narrower than "touched this paper": an agent answering a
+    /// question runs searches, and every result it reads is linked to the
+    /// conversation. Listing those would put one chat about one paper on the
+    /// panel of every paper it happened to look at. A conversation belongs to a
+    /// paper when the paper is its subject, or when it is a member of the group
+    /// or collection the conversation is about.
     pub async fn chat_sessions_for_paper(
         &self,
         paper_id: &str,
@@ -268,7 +288,7 @@ impl Database {
             "SELECT {cols} FROM chat_sessions s \
              JOIN chat_session_papers p ON p.session_id = s.session_id \
              JOIN papers_live lp ON lp.id = p.paper_id \
-             WHERE p.paper_id = ?1 AND s.is_dead = 0 \
+             WHERE p.paper_id = ?1 AND p.is_subject = 1 AND s.is_dead = 0 \
              ORDER BY s.last_used_at DESC"
         );
         let mut rows = conn

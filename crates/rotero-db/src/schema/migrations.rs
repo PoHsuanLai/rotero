@@ -5,7 +5,7 @@ use turso::Connection;
 use super::tables::{CREATE_FTS_INDEX, CREATE_LIVE_VIEWS, CREATE_TABLES};
 
 /// Current schema version; incremented with each migration.
-pub const SCHEMA_VERSION: i64 = 15;
+pub const SCHEMA_VERSION: i64 = 16;
 
 /// Why a database could not be prepared for use.
 #[derive(Debug, thiserror::Error)]
@@ -323,8 +323,16 @@ async fn run_migrations(conn: &Connection) -> Result<(), SchemaError> {
                 "CREATE TABLE IF NOT EXISTS chat_session_papers (
                     session_id TEXT NOT NULL REFERENCES chat_sessions(session_id) ON DELETE CASCADE,
                     paper_id   TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+                    is_subject INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY (session_id, paper_id)
                 )",
+                (),
+            )
+            .await;
+        // Idempotent: adds the column to a v15 library, no-op once present.
+        let _ = conn
+            .execute(
+                "ALTER TABLE chat_session_papers ADD COLUMN is_subject INTEGER NOT NULL DEFAULT 0",
                 (),
             )
             .await;
