@@ -1,0 +1,9 @@
+CREATE VIEW IF NOT EXISTS papers_live AS SELECT * FROM papers WHERE deleted = 0;
+CREATE VIEW IF NOT EXISTS collections_live AS SELECT * FROM collections WHERE deleted = 0;
+CREATE VIEW IF NOT EXISTS tags_live AS SELECT * FROM tags WHERE deleted = 0;
+CREATE VIEW IF NOT EXISTS annotations_live AS SELECT * FROM annotations WHERE deleted = 0;
+CREATE VIEW IF NOT EXISTS notes_live AS SELECT * FROM notes WHERE deleted = 0;
+CREATE VIEW IF NOT EXISTS saved_searches_live AS SELECT * FROM saved_searches WHERE deleted = 0;
+CREATE VIEW IF NOT EXISTS paper_collections_live AS SELECT * FROM paper_collections WHERE deleted = 0;
+CREATE VIEW IF NOT EXISTS paper_tags_live AS SELECT * FROM paper_tags WHERE deleted = 0;
+CREATE VIEW IF NOT EXISTS paper_citations_live AS SELECT * FROM paper_citations WHERE deleted = 0;
