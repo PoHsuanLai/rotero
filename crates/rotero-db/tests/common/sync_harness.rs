@@ -282,12 +282,18 @@ pub async fn run(scenario: &Scenario, shared: &std::path::Path, max_papers: usiz
 ///
 /// Not generated: convergence is only meaningful once the network has settled,
 /// and a generator that had to discover a settling sequence on its own would
-/// spend every case failing to find one. Two rounds suffice — one to publish and
-/// one to carry rows onward to a third device — and the fixed-point property
-/// runs a third to check that claim rather than assuming it.
+/// spend every case failing to find one.
+///
+/// Three rounds, not two. Two would be enough if merging only ever consumed
+/// rows — one to publish, one to carry them on to a third device. But merging
+/// can also *write*: resolving a tag-name collision repoints the loser's
+/// memberships onto the survivor, and those rows are stamped by the device that
+/// did the repointing, so they are news that still has to be published. A
+/// membership created during the last round would otherwise be left sitting on
+/// one device, looking exactly like a row that failed to propagate.
 pub async fn quiesce(devices: &[DeviceCtx]) -> Vec<String> {
     let mut errors = Vec::new();
-    for _ in 0..2 {
+    for _ in 0..3 {
         // Export everything before importing anything. Interleaving the two
         // per device would let one device's rows reach a second within the
         // round but a third only in the next, making the number of rounds
@@ -343,6 +349,10 @@ async fn apply(
         }
         Op::GetOrCreateTag { name } => {
             let id = db.get_or_create_tag(&name_of(name), None).await.map_err(err)?;
+            // Creating a tag under a name a tombstone still holds revives that
+            // row rather than making a second one, so this is a revival like
+            // any edit: whoever asked for the name back asked for the tag back.
+            intents.remove(&("tags", vec![id.clone()]));
             if !ctx.registry.tags.contains(&id) {
                 ctx.registry.tags.push(id);
             }

@@ -169,11 +169,15 @@ pub struct Budget {
 /// The active budget.
 pub fn budget() -> Budget {
     match std::env::var("ROTERO_PROPTEST").as_deref() {
+        // Sized to finish inside nextest's ten-minute per-test cap rather than
+        // being killed partway. A scenario costs roughly its event count times
+        // its device count, and both are raised here, so the case count cannot
+        // also grow by an order of magnitude.
         Ok("heavy") => Budget {
-            cases: 512,
+            cases: 192,
             devices: 2..=4,
-            events: 10..=40,
-            max_papers: 24,
+            events: 8..=24,
+            max_papers: 16,
         },
         _ => Budget {
             cases: 48,
