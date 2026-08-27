@@ -164,6 +164,83 @@ pub fn LoadLibraryData() -> Element {
         });
     }
 
+    // Backfill content hashes for PDFs imported before `pdf_sha256` existed.
+    //
+    // Sync addresses a shared PDF by its hash, so a row without one is simply
+    // skipped by the transfer — its file never publishes and never arrives.
+    // This drains the queue in small batches rather than hashing the whole
+    // library at once: a library of thousands of PDFs must stay responsive
+    // while it catches up, and reading every one of them is the single most
+    // expensive thing startup could do.
+    //
+    // Resumable by construction — the queue is "has a path, has no hash", so an
+    // interrupted run simply picks up where it stopped, and a completed one
+    // costs one empty query per pass.
+    #[cfg(feature = "desktop")]
+    {
+        let db_hash = db.clone();
+        use_future(move || {
+            let db = db_hash.clone();
+            async move {
+                // Let the library finish loading first; this is repair work,
+                // not anything the user is waiting on.
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+                loop {
+                    let pending = db
+                        .list_papers_needing_pdf_hashes()
+                        .await
+                        .unwrap_or_default();
+                    if pending.is_empty() {
+                        break;
+                    }
+
+                    // Whether this pass hashed anything. A row whose file is
+                    // missing stays in the queue, so without this the loop
+                    // would re-read the same unreadable rows every 5 seconds
+                    // for as long as the app runs.
+                    let mut progressed = false;
+
+                    for (paper_id, rel_path) in pending.iter().take(20) {
+                        let hasher = db.clone();
+                        let (id, path) = (paper_id.clone(), rel_path.clone());
+                        // Hashing reads the whole file, so keep it off the UI
+                        // thread the way the PDF import path already does.
+                        let hashed = tokio::task::spawn_blocking(move || {
+                            hasher.hash_stored_pdf(&path).map(|h| (id, h))
+                        })
+                        .await;
+
+                        match hashed {
+                            Ok(Ok((id, hash))) => match db.set_pdf_sha256(&id, &hash).await {
+                                Ok(()) => progressed = true,
+                                Err(e) => tracing::warn!("Could not record PDF hash: {e}"),
+                            },
+                            // A paper whose file is gone — deleted outside the
+                            // app, or never downloaded. Nothing to hash, and
+                            // retrying will not change that.
+                            Ok(Err(e)) => tracing::debug!("Skipping PDF hash: {e}"),
+                            Err(e) => tracing::warn!("PDF hash task failed: {e}"),
+                        }
+                    }
+
+                    if !progressed {
+                        tracing::debug!(
+                            "PDF hash backfill stopping: {} row(s) name files that \
+                             cannot be read",
+                            pending.len()
+                        );
+                        break;
+                    }
+
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                }
+
+                tracing::info!("PDF hash backfill complete");
+            }
+        });
+    }
+
     #[cfg(feature = "desktop")]
     use_future(move || {
         let db = db.clone();

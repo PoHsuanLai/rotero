@@ -290,7 +290,7 @@ pub fn LibraryPanel() -> Element {
                                     .unwrap_or_else(|| "Untitled".to_string());
 
                                 match db.import_pdf(&file_path_str, Some(&title), None, None) {
-                                    Ok(rel_path) => {
+                                    Ok((rel_path, sha256)) => {
                                         let mut paper = rotero_models::Paper {
                                             title,
                                             links: rotero_models::PaperLinks {
@@ -301,6 +301,12 @@ pub fn LibraryPanel() -> Element {
                                         };
                                         let paper_id = match db.insert_paper(&paper).await {
                                             Ok(id) => {
+                                                // The model carries no hash
+                                                // field; record it here so the
+                                                // synced path has one.
+                                                let _ = db
+                                                    .update_pdf_path(&id, &rel_path, Some(&sha256))
+                                                    .await;
                                                 paper.id = Some(id.clone());
                                                 lib_state.with_mut(|s| s.papers.insert(0, paper));
                                                 Some(id)

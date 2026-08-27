@@ -2,6 +2,22 @@
 //!
 //! Uses the private CloudKit database with a custom zone "RoteroSync".
 //! Each changeset batch is stored as a CKRecord of type "Changeset".
+//!
+//! # PDFs do not sync over this transport
+//!
+//! This moves the database only. The file transport
+//! ([`FileSyncEngine::export_pdf`](crate::sync::file_sync::FileSyncEngine::export_pdf)
+//! and its counterpart) has no CloudKit equivalent, so a device syncing over
+//! iCloud publishes every paper's metadata — `pdf_path` included — and none of
+//! the files those paths name. A peer therefore holds rows pointing at PDFs it
+//! can never obtain.
+//!
+//! This is a known gap, not an oversight: attachments here would mean CKAsset
+//! records with their own upload lifecycle, which is a separate piece of work
+//! from the shared-folder copy the file transport does. What matters is that it
+//! is no longer *silent* — the settings pane says so where the transport is
+//! chosen, because a sync that quietly moves half the library is worse than one
+//! that admits its limits.
 
 use rotero_db::Database;
 

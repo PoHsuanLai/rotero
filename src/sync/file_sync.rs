@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use rotero_db::Database;
 
+#[derive(Clone)]
 pub struct FileSyncEngine {
     sync_folder: PathBuf,
     site_id: Vec<u8>,
@@ -187,9 +188,39 @@ impl FileSyncEngine {
         Ok(stats.applied)
     }
 
-    pub fn export_pdf(&self, library_papers_dir: &Path, rel_path: &str) -> Result<(), String> {
+    /// Where a PDF with a given content hash lives in the shared folder.
+    ///
+    /// Addressed by content rather than by name. `pdf_path` is derived from
+    /// title, author and year, and its collision counter only ever sees one
+    /// device's disk — so two devices that add the same paper agree on a
+    /// filename while holding different bytes, and a name-addressed shared
+    /// folder silently serves one of them to both. A hash cannot collide that
+    /// way, and it makes an identical file stored once rather than per-paper.
+    fn shared_pdf_path(&self, sha256: &str) -> PathBuf {
+        self.sync_folder
+            .join("papers")
+            .join("by-hash")
+            .join(format!("{sha256}.pdf"))
+    }
+
+    /// Publish a paper's PDF into the shared folder, keyed by its content hash.
+    ///
+    /// A no-op when the local file is missing, when the blob is already
+    /// published, or when `sha256` is `None` — the last meaning the hash has not
+    /// been computed yet, which the backfill resolves. Publishing without one
+    /// would have to fall back to the name, which is the collision this exists
+    /// to prevent.
+    pub fn export_pdf(
+        &self,
+        library_papers_dir: &Path,
+        rel_path: &str,
+        sha256: Option<&str>,
+    ) -> Result<(), String> {
         let Some(safe) = safe_relative_path(rel_path) else {
             return Err(format!("Refusing to sync PDF at unsafe path {rel_path:?}"));
+        };
+        let Some(sha256) = sha256.filter(|h| is_sha256(h)) else {
+            return Ok(());
         };
 
         let src = library_papers_dir.join(&safe);
@@ -197,7 +228,7 @@ impl FileSyncEngine {
             return Ok(());
         }
 
-        let dest = self.sync_folder.join("papers").join(&safe);
+        let dest = self.shared_pdf_path(sha256);
         if dest.exists() {
             return Ok(());
         }
@@ -206,24 +237,56 @@ impl FileSyncEngine {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create sync papers dir: {e}"))?;
         }
-        std::fs::copy(&src, &dest).map_err(|e| format!("Failed to copy PDF to sync: {e}"))?;
+
+        // Read and write rather than `fs::copy`, so the bytes land through
+        // `write_atomic`. This directory is watched by a cloud daemon, and a
+        // peer that observes a half-written PDF keeps it forever — nothing ever
+        // re-copies over a destination that exists.
+        let bytes = std::fs::read(&src).map_err(|e| format!("Failed to read PDF: {e}"))?;
+        write_atomic(&dest, &bytes).map_err(|e| format!("Failed to copy PDF to sync: {e}"))?;
         Ok(())
     }
 
-    pub fn import_pdf(&self, library_papers_dir: &Path, rel_path: &str) -> Result<(), String> {
+    /// Fetch a paper's PDF out of the shared folder, verifying it first.
+    ///
+    /// The bytes are hashed before they are installed, so a partly-uploaded or
+    /// placeholder file is skipped for this tick rather than written into the
+    /// library — where, the destination now existing, nothing would ever correct
+    /// it. This is the same contract [`merge_peer`](Self::merge_peer) applies to
+    /// snapshots via their checksum sidecar.
+    ///
+    /// Also replaces a local file whose contents no longer match, which is how
+    /// an edited or re-scanned PDF reaches the other device at all.
+    pub fn import_pdf(
+        &self,
+        library_papers_dir: &Path,
+        rel_path: &str,
+        sha256: Option<&str>,
+    ) -> Result<(), String> {
         let Some(safe) = safe_relative_path(rel_path) else {
             return Err(format!(
                 "Refusing to import PDF at unsafe path {rel_path:?}"
             ));
         };
+        let Some(sha256) = sha256.filter(|h| is_sha256(h)) else {
+            return Ok(());
+        };
 
-        let src = self.sync_folder.join("papers").join(&safe);
-        if !src.exists() {
+        let dest = library_papers_dir.join(&safe);
+        if dest.exists() && file_hash(&dest).as_deref() == Some(sha256) {
             return Ok(());
         }
 
-        let dest = library_papers_dir.join(&safe);
-        if dest.exists() {
+        let src = self.shared_pdf_path(sha256);
+        let Ok(bytes) = std::fs::read(&src) else {
+            // Not published yet, or still arriving.
+            return Ok(());
+        };
+
+        if rotero_db::snapshot::checksum(&bytes) != sha256 {
+            // A blob under a hash-named path whose contents hash to something
+            // else is still uploading, or truncated. Skip it; the next tick
+            // sees the finished file.
             return Ok(());
         }
 
@@ -231,9 +294,45 @@ impl FileSyncEngine {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create local papers dir: {e}"))?;
         }
-        std::fs::copy(&src, &dest).map_err(|e| format!("Failed to import PDF from sync: {e}"))?;
+        write_atomic(&dest, &bytes).map_err(|e| format!("Failed to import PDF from sync: {e}"))?;
         Ok(())
     }
+
+    /// Remove a published blob no live paper points at any more.
+    ///
+    /// Called only from the tombstone reaper, which runs a long way past
+    /// [`peer_horizon`](Self::peer_horizon) and the TTL — so every device has
+    /// provably seen the deletion. Deliberately touches only the shared copy:
+    /// each device's own file is the user's data, and sync has no business
+    /// unlinking it.
+    pub fn reap_shared_pdf(&self, sha256: &str) -> Result<(), String> {
+        if !is_sha256(sha256) {
+            return Ok(());
+        }
+        let blob = self.shared_pdf_path(sha256);
+        match std::fs::remove_file(&blob) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("Failed to remove shared PDF: {e}")),
+        }
+    }
+}
+
+/// Whether a string is a well-formed SHA-256 digest.
+///
+/// The hash reaches here from a peer's snapshot, and it is used to build a
+/// filename. Checking the shape keeps anything that is not one — a path
+/// fragment, an empty string, a stray placeholder — from ever becoming a path
+/// component.
+fn is_sha256(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// The SHA-256 of a file, or `None` if it cannot be read.
+fn file_hash(path: &Path) -> Option<String> {
+    std::fs::read(path)
+        .ok()
+        .map(|b| rotero_db::snapshot::checksum(&b))
 }
 
 /// A peer-supplied path, accepted only if it stays inside the directory it is
@@ -751,6 +850,430 @@ mod tests {
                 titles(&p.b).await.len(),
                 2,
                 "a corrupt file must self-heal on the next export"
+            );
+        }
+    }
+
+    /// PDF file transfer between two devices, through the real engine.
+    ///
+    /// The snapshot half of sync is covered by `two_device` above. These cover
+    /// the *files*, which travel by a separate path and had no end-to-end
+    /// coverage at all — only `safe_relative_path` and `write_atomic` were
+    /// tested, both in isolation and neither reached through `export_pdf` or
+    /// `import_pdf`.
+    mod pdf_transfer {
+        use super::*;
+        use rotero_db::Database;
+
+        /// Two devices, two libraries, one shared folder — with the papers
+        /// directories exposed, which `two_device::Pair` keeps private.
+        struct Pair {
+            ea: FileSyncEngine,
+            eb: FileSyncEngine,
+            shared: tempfile::TempDir,
+            da: tempfile::TempDir,
+            db: tempfile::TempDir,
+        }
+
+        impl Pair {
+            async fn new() -> Self {
+                let shared = tempfile::tempdir().unwrap();
+                let da = tempfile::tempdir().unwrap();
+                let db_dir = tempfile::tempdir().unwrap();
+                // The libraries are opened and dropped: they create the
+                // `papers/` directories these tests write into, which is all the
+                // file-transfer path needs from them.
+                Database::open(da.path().to_path_buf()).await.unwrap();
+                Database::open(db_dir.path().to_path_buf()).await.unwrap();
+                Self {
+                    ea: engine(shared.path(), 0xa1),
+                    eb: engine(shared.path(), 0xb2),
+                    shared,
+                    da,
+                    db: db_dir,
+                }
+            }
+
+            fn a_papers(&self) -> PathBuf {
+                self.da.path().join("papers")
+            }
+
+            fn b_papers(&self) -> PathBuf {
+                self.db.path().join("papers")
+            }
+
+            /// One PDF sync tick on both devices, as the sync loop drives it.
+            ///
+            /// Each device publishes the file it currently holds and then tries
+            /// to fetch the one its row names — which is what the loop does once
+            /// it reads `(pdf_path, pdf_sha256)` per paper.
+            fn sync_pdfs(&self, rel: &str) {
+                let a = file_hash(&self.a_papers().join(rel));
+                let b = file_hash(&self.b_papers().join(rel));
+                self.ea
+                    .export_pdf(&self.a_papers(), rel, a.as_deref())
+                    .unwrap();
+                self.eb
+                    .export_pdf(&self.b_papers(), rel, b.as_deref())
+                    .unwrap();
+                self.ea
+                    .import_pdf(&self.a_papers(), rel, a.as_deref())
+                    .unwrap();
+                self.eb
+                    .import_pdf(&self.b_papers(), rel, b.as_deref())
+                    .unwrap();
+            }
+
+            /// A tick after a row has synced: both devices name the same file.
+            fn sync_pdfs_agreeing_on(&self, rel: &str, sha256: &str) {
+                self.ea
+                    .export_pdf(&self.a_papers(), rel, Some(sha256))
+                    .unwrap();
+                self.eb
+                    .export_pdf(&self.b_papers(), rel, Some(sha256))
+                    .unwrap();
+                self.ea
+                    .import_pdf(&self.a_papers(), rel, Some(sha256))
+                    .unwrap();
+                self.eb
+                    .import_pdf(&self.b_papers(), rel, Some(sha256))
+                    .unwrap();
+            }
+        }
+
+        /// Write a PDF into a library's papers directory, as an import would.
+        fn place_pdf(papers_dir: &Path, rel: &str, body: &[u8]) {
+            let path = papers_dir.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let mut bytes = b"%PDF-1.7\n".to_vec();
+            bytes.extend_from_slice(body);
+            std::fs::write(&path, bytes).unwrap();
+        }
+
+        fn read_pdf(papers_dir: &Path, rel: &str) -> Vec<u8> {
+            std::fs::read(papers_dir.join(rel)).unwrap()
+        }
+
+        /// Two devices that add the same paper must not overwrite each other's
+        /// file.
+        ///
+        /// `import_pdf_bytes` derives the filename from `(year, title,
+        /// first_author)` alone, and its `while dest.exists()` counter only
+        /// looks at the *local* disk. Two devices that add the same paper
+        /// therefore both compute `2024/Same Paper - Author.pdf`. `export_pdf`
+        /// then skips when the shared destination exists, so the first device
+        /// to publish wins the slot and the second's bytes never leave. The
+        /// second device keeps its own copy, but a third device — and the
+        /// shared folder itself — hold the wrong document under that name, with
+        /// no error anywhere.
+        #[tokio::test]
+        async fn two_devices_adding_the_same_paper_do_not_overwrite_each_other() {
+            let p = Pair::new().await;
+            let rel = "2024/Same Paper - Author.pdf";
+
+            place_pdf(&p.a_papers(), rel, b"device A's copy");
+            place_pdf(&p.b_papers(), rel, b"device B's copy");
+
+            let a_bytes = read_pdf(&p.a_papers(), rel);
+            let b_bytes = read_pdf(&p.b_papers(), rel);
+
+            p.sync_pdfs(rel);
+
+            // Each device must still serve its own bytes.
+            assert_eq!(
+                read_pdf(&p.a_papers(), rel),
+                a_bytes,
+                "device A lost its own PDF"
+            );
+            assert_eq!(
+                read_pdf(&p.b_papers(), rel),
+                b_bytes,
+                "device B's PDF was replaced by A's"
+            );
+
+            // And both documents must be published, under separate names, so
+            // neither device's row resolves to the other's bytes.
+            for (label, bytes) in [("A", &a_bytes), ("B", &b_bytes)] {
+                let blob = p
+                    .shared
+                    .path()
+                    .join("papers")
+                    .join("by-hash")
+                    .join(format!("{}.pdf", rotero_db::snapshot::checksum(bytes)));
+                assert_eq!(
+                    std::fs::read(&blob).ok().as_ref(),
+                    Some(bytes),
+                    "device {label}'s PDF was not published under its own name"
+                );
+            }
+        }
+
+        /// A PDF replaced on one device must reach the other.
+        ///
+        /// Both transfer functions return early when the destination exists,
+        /// and `exists()` is their only idempotency check — no size, mtime, or
+        /// content comparison. Re-scanning a paper, flattening annotations, or
+        /// swapping in a better copy therefore never propagates.
+        #[tokio::test]
+        async fn a_pdf_replaced_on_one_device_reaches_the_other() {
+            let p = Pair::new().await;
+            let rel = "2024/Revised - Author.pdf";
+
+            place_pdf(&p.a_papers(), rel, b"first edition");
+            let first = file_hash(&p.a_papers().join(rel)).unwrap();
+            p.sync_pdfs_agreeing_on(rel, &first);
+            assert!(
+                read_pdf(&p.b_papers(), rel).ends_with(b"first edition"),
+                "the original must arrive first"
+            );
+
+            place_pdf(&p.a_papers(), rel, b"second edition, rescanned");
+            let second = file_hash(&p.a_papers().join(rel)).unwrap();
+            assert_ne!(first, second, "the replacement must hash differently");
+
+            // The row's hash now names the new bytes, as it would once A's
+            // metadata edit merged.
+            p.sync_pdfs_agreeing_on(rel, &second);
+
+            assert!(
+                read_pdf(&p.b_papers(), rel).ends_with(b"second edition, rescanned"),
+                "the replacement never reached device B"
+            );
+        }
+
+        /// A half-uploaded PDF must never be installed as if it were complete.
+        ///
+        /// Cloud providers expose partly-downloaded and zero-byte placeholder
+        /// files routinely — the snapshot path guards against exactly this with
+        /// a checksum sidecar, and says so. The PDF path has no such check, so
+        /// a truncated blob is copied in and then, because the local
+        /// destination exists, is never corrected.
+        #[tokio::test]
+        async fn a_truncated_shared_pdf_is_not_installed() {
+            let p = Pair::new().await;
+            let rel = "2024/Truncated - Author.pdf";
+
+            place_pdf(&p.a_papers(), rel, b"the complete document body");
+            let sha = file_hash(&p.a_papers().join(rel)).unwrap();
+            p.ea.export_pdf(&p.a_papers(), rel, Some(&sha)).unwrap();
+
+            // The shared copy is still uploading: truncate it.
+            let blob = p
+                .shared
+                .path()
+                .join("papers")
+                .join("by-hash")
+                .join(format!("{sha}.pdf"));
+            let full = std::fs::read(&blob).unwrap();
+            std::fs::write(&blob, &full[..full.len() / 2]).unwrap();
+
+            p.eb.import_pdf(&p.b_papers(), rel, Some(&sha)).unwrap();
+            assert!(
+                !p.b_papers().join(rel).exists(),
+                "a partly-written PDF must be skipped, not installed"
+            );
+
+            // Once the upload finishes, it must arrive.
+            std::fs::write(&blob, &full).unwrap();
+            p.eb.import_pdf(&p.b_papers(), rel, Some(&sha)).unwrap();
+            assert_eq!(
+                read_pdf(&p.b_papers(), rel),
+                full,
+                "the complete file must arrive once it lands"
+            );
+        }
+
+        /// A zero-byte placeholder must not become the library's copy.
+        ///
+        /// The same hazard as truncation, in the shape iCloud Drive actually
+        /// produces: the file exists and is readable, but holds nothing.
+        #[tokio::test]
+        async fn a_placeholder_shared_pdf_is_not_installed() {
+            let p = Pair::new().await;
+            let rel = "2024/Placeholder - Author.pdf";
+
+            // A blob whose name promises real content, holding nothing — what a
+            // not-yet-downloaded iCloud file looks like.
+            let sha = rotero_db::snapshot::checksum(b"%PDF-1.7\nthe real document");
+            let blob = p
+                .shared
+                .path()
+                .join("papers")
+                .join("by-hash")
+                .join(format!("{sha}.pdf"));
+            std::fs::create_dir_all(blob.parent().unwrap()).unwrap();
+            std::fs::write(&blob, b"").unwrap();
+
+            p.eb.import_pdf(&p.b_papers(), rel, Some(&sha)).unwrap();
+            assert!(
+                !p.b_papers().join(rel).exists(),
+                "an empty placeholder must not be installed as the PDF"
+            );
+        }
+
+        /// An exported PDF must appear at its final path complete, or not at
+        /// all.
+        ///
+        /// The shared folder is watched by a cloud daemon, and a peer that
+        /// observes a half-written PDF keeps it permanently — nothing ever
+        /// re-copies over an existing destination. Snapshots in this same file
+        /// go through `write_atomic` for precisely this reason.
+        ///
+        /// This asserts the *observable* contract — the destination, once
+        /// present, holds the whole file — rather than the mechanism. A
+        /// direct `fs::copy` satisfies it here because a single-threaded test
+        /// cannot catch the copy mid-flight; only a concurrent reader could,
+        /// and racing one would make the test flaky rather than sharper. It
+        /// is a regression guard on the outcome, and deliberately not
+        /// evidence that the write is atomic. What pins the atomicity is the
+        /// temp-file assertion below, once `export_pdf` routes through
+        /// `write_atomic`.
+        #[tokio::test]
+        async fn an_exported_pdf_is_complete_or_absent() {
+            let p = Pair::new().await;
+            let rel = "2024/Atomic - Author.pdf";
+            let body = vec![b'x'; 4096];
+
+            place_pdf(&p.a_papers(), rel, &body);
+            let sha = file_hash(&p.a_papers().join(rel)).unwrap();
+            p.ea.export_pdf(&p.a_papers(), rel, Some(&sha)).unwrap();
+
+            let dir = p.shared.path().join("papers").join("by-hash");
+            assert_eq!(
+                std::fs::read(dir.join(format!("{sha}.pdf"))).unwrap(),
+                read_pdf(&p.a_papers(), rel),
+                "the published copy must match the source byte for byte"
+            );
+
+            // No `.tmp` sibling may outlive the export, or the cloud daemon
+            // uploads a file that is never cleaned up.
+            let strays: Vec<String> = std::fs::read_dir(&dir)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| *n != format!("{sha}.pdf"))
+                .collect();
+            assert!(
+                strays.is_empty(),
+                "stray temp files left behind: {strays:?}"
+            );
+        }
+
+        /// A blob two papers share must survive one of them being deleted.
+        ///
+        /// Content addressing means one file can back several papers — a
+        /// deduplicated import, or the survivor of a merged duplicate. Reaping
+        /// on behalf of the deleted paper alone would strand the other, whose
+        /// row still points at that hash. This is the failure mode content
+        /// addressing introduces, so it is guarded directly.
+        #[tokio::test]
+        async fn a_blob_two_papers_share_is_not_orphaned_by_one_deletion() {
+            let dir = tempfile::tempdir().unwrap();
+            let db = Database::open(dir.path().to_path_buf()).await.unwrap();
+
+            let bytes = b"%PDF-1.7\nshared between two records";
+            let sha = rotero_db::snapshot::checksum(bytes);
+
+            let mut ids = Vec::new();
+            for title in ["First record", "Second record"] {
+                let id = db
+                    .insert_paper(&rotero_models::Paper {
+                        title: title.into(),
+                        ..Default::default()
+                    })
+                    .await
+                    .unwrap();
+                db.update_pdf_path(&id, "2024/Shared - Author.pdf", Some(&sha))
+                    .await
+                    .unwrap();
+                ids.push(id);
+            }
+
+            db.delete_paper(&ids[0]).await.unwrap();
+
+            assert!(
+                db.orphaned_pdf_hashes().await.unwrap().is_empty(),
+                "a blob the surviving paper still points at must not be reapable"
+            );
+            assert_eq!(
+                db.count_live_papers_with_pdf_hash(&sha).await.unwrap(),
+                1,
+                "one live paper must still claim the hash"
+            );
+
+            // Once the last claimant goes, it becomes reapable.
+            db.delete_paper(&ids[1]).await.unwrap();
+            assert_eq!(
+                db.orphaned_pdf_hashes().await.unwrap(),
+                vec![sha],
+                "with no live paper left, the blob must be reapable"
+            );
+        }
+
+        /// Reaping removes the shared copy and leaves the local one alone.
+        ///
+        /// The shared folder is a transport, and letting it grow forever was the
+        /// old behaviour. The device's own PDF is not a transport — it is the
+        /// user's data — so a deletion that syncs must never unlink it. Only the
+        /// published copy goes.
+        #[tokio::test]
+        async fn reaping_a_blob_leaves_the_local_pdf_untouched() {
+            let p = Pair::new().await;
+            let rel = "2024/Doomed - Author.pdf";
+
+            place_pdf(&p.a_papers(), rel, b"about to be deleted");
+            let sha = file_hash(&p.a_papers().join(rel)).unwrap();
+            p.ea.export_pdf(&p.a_papers(), rel, Some(&sha)).unwrap();
+
+            let blob = p
+                .shared
+                .path()
+                .join("papers")
+                .join("by-hash")
+                .join(format!("{sha}.pdf"));
+            assert!(blob.exists(), "the blob must be published first");
+
+            p.ea.reap_shared_pdf(&sha).unwrap();
+
+            assert!(!blob.exists(), "the shared copy must be removed");
+            assert!(
+                p.a_papers().join(rel).exists(),
+                "the device's own PDF must never be unlinked by sync"
+            );
+
+            // Reaping again is not an error — the blob may already be gone,
+            // reaped by whichever device got there first.
+            p.ea.reap_shared_pdf(&sha).unwrap();
+        }
+
+        /// A hash that is not a hash must never become a path component.
+        ///
+        /// `pdf_sha256` arrives over sync, so it is whatever another device
+        /// wrote, and it is interpolated straight into a filename. The traversal
+        /// guard covers `pdf_path`; this covers the other peer-supplied string.
+        #[test]
+        fn a_malformed_hash_is_refused_rather_than_used_as_a_path() {
+            let dir = tempfile::tempdir().unwrap();
+            let lib = tempfile::tempdir().unwrap();
+            let e = engine(dir.path(), 1);
+
+            for bad in [
+                "../../../etc/passwd",
+                "",
+                "nothex!!",
+                "abc",
+                &"f".repeat(63),
+                &"f".repeat(65),
+            ] {
+                e.export_pdf(lib.path(), "2024/x.pdf", Some(bad)).unwrap();
+                e.import_pdf(lib.path(), "2024/x.pdf", Some(bad)).unwrap();
+                e.reap_shared_pdf(bad).unwrap();
+            }
+
+            let escaped = dir.path().parent().unwrap().join("etc");
+            assert!(
+                !escaped.exists(),
+                "a malformed hash escaped the sync folder"
             );
         }
     }

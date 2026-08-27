@@ -123,8 +123,8 @@ pub async fn download_pdf_into_library(
     )
     .await
     {
-        Ok(rel_path) => {
-            let _ = db.update_pdf_path(paper_id, &rel_path).await;
+        Ok((rel_path, sha256)) => {
+            let _ = db.update_pdf_path(paper_id, &rel_path, Some(&sha256)).await;
             let pid = paper_id.to_string();
             lib_state.with_mut(|s| {
                 if let Some(p) = s

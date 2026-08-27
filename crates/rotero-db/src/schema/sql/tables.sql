@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS papers (
     citation_count INTEGER,
     citation_key  TEXT,
     pdf_url       TEXT,
+    pdf_sha256    TEXT,
     item_type     TEXT NOT NULL DEFAULT 'journalArticle',
     updated_at INTEGER NOT NULL DEFAULT 0,
     updated_by TEXT NOT NULL DEFAULT '',

@@ -101,6 +101,13 @@ pub fn SyncSection() -> Element {
                     p { class: "settings-hint",
                         "Syncs via your iCloud account. No setup needed."
                     }
+                    // Say so here rather than letting a user discover it by
+                    // opening a paper on another device and finding no file.
+                    p { class: "settings-hint",
+                        "PDF files are not copied over iCloud sync — only your \
+                         library metadata. Choose a shared folder to sync the \
+                         files themselves."
+                    }
                 } else {
                     PathField {
                         label: "Sync folder",

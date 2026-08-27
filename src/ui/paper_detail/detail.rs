@@ -290,9 +290,9 @@ pub fn PaperDetail() -> Element {
                                                 oa_statuses.with_mut(|m| { m.insert(paper_id.clone(), "Downloading...".into()); });
                                                 let first_author = authors.first().map(|a| a.as_str());
                                                 match crate::metadata::pdf_download::download_and_save_pdf(&db, &urls, &title, first_author, year).await {
-                                                    Ok(rel_path) => {
+                                                    Ok((rel_path, sha256)) => {
                                                         let pid = paper_id.clone();
-                                                        let _ = db.update_pdf_path(&pid, &rel_path).await;
+                                                        let _ = db.update_pdf_path(&pid, &rel_path, Some(&sha256)).await;
                                                         let pid2 = pid.clone();
                                                         lib_state.with_mut(|s| {
                                                             if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {

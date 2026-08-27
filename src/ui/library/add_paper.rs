@@ -31,7 +31,7 @@ pub(crate) fn AddPaperButtons() -> Element {
                                 .unwrap_or_else(|| "Untitled".to_string());
 
                             match db.import_pdf(&path_str, Some(&filename), None, None) {
-                                Ok(rel_path) => {
+                                Ok((rel_path, sha256)) => {
                                     let mut paper = rotero_models::Paper {
                                         title: filename,
                                         links: rotero_models::PaperLinks {
@@ -47,6 +47,13 @@ pub(crate) fn AddPaperButtons() -> Element {
 
                                     match db.insert_paper(&paper).await {
                                         Ok(id) => {
+                                            // The model carries no hash field, so
+                                            // record it right after the insert —
+                                            // a synced `pdf_path` without one
+                                            // cannot be published to peers.
+                                            let _ = db
+                                                .update_pdf_path(&id, &rel_path, Some(&sha256))
+                                                .await;
                                             paper.id = Some(id.clone());
                                             lib_state.with_mut(|s| s.papers.insert(0, paper));
                                             error_msg.set(None);
