@@ -50,15 +50,17 @@ pub fn ConversationsSection(paper_id: String) -> Element {
     let lib_state = use_context::<Signal<LibraryState>>();
     let mut chat_state = use_context::<Signal<ChatState>>();
     let agent_channel = use_context::<AgentChannel>();
-    let mut sessions = use_signal(Vec::<(ChatSessionRow, Vec<String>)>::new);
-
-    {
+    // Keyed on the prop rather than an effect over a captured copy: the panel
+    // reuses this component when the selection changes, so an effect that read
+    // `paper_id` once would keep listing the first paper's conversations under
+    // every paper selected after it.
+    let loaded = use_resource({
         let db = db.clone();
         let pid = paper_id.clone();
-        use_effect(move || {
+        move || {
             let db = db.clone();
             let pid = pid.clone();
-            spawn(async move {
+            async move {
                 let rows = db.chat_sessions_for_paper(&pid).await.unwrap_or_default();
                 let mut with_papers = Vec::new();
                 for row in rows {
@@ -68,12 +70,16 @@ pub fn ConversationsSection(paper_id: String) -> Element {
                         .unwrap_or_default();
                     with_papers.push((row, papers));
                 }
-                sessions.set(with_papers);
-            });
-        });
-    }
+                with_papers
+            }
+        }
+    });
 
-    let listed = sessions.read();
+    let listed = loaded.read();
+    let listed = match listed.as_ref() {
+        Some(rows) => rows,
+        None => return rsx! {},
+    };
     if listed.is_empty() {
         return rsx! {};
     }
