@@ -348,7 +348,10 @@ async fn apply(
             ctx.registry.collections.push(id);
         }
         Op::GetOrCreateTag { name } => {
-            let id = db.get_or_create_tag(&name_of(name), None).await.map_err(err)?;
+            let id = db
+                .get_or_create_tag(&name_of(name), None)
+                .await
+                .map_err(err)?;
             // Creating a tag under a name a tombstone still holds revives that
             // row rather than making a second one, so this is a revival like
             // any edit: whoever asked for the name back asked for the tag back.

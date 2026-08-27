@@ -292,8 +292,7 @@ pub const TAG_TOMBSTONE_MEMBERSHIPS: &str = "\
 /// The sync *clock* is deliberately untouched, though. Stamping it would
 /// publish the rename, making a local repair into a fact every device has to
 /// agree about — see `reconcile_tag_name` for why that does not work.
-pub const TAG_RETIRE_DUPLICATE: &str =
-    "UPDATE tags SET name = ?1, deleted = 1 WHERE id = ?2";
+pub const TAG_RETIRE_DUPLICATE: &str = "UPDATE tags SET name = ?1, deleted = 1 WHERE id = ?2";
 
 /// Whether a table exists.
 pub const TABLE_EXISTS: &str = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1";

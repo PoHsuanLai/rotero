@@ -377,11 +377,10 @@ async fn removing_a_paper_from_a_collection_reaches_the_other_device() {
     let d = Devices::new().await;
 
     let paper = insert_paper(&d.a, "Filed").await;
-    let collection = d
-        .a
-        .insert_collection(&rotero_models::Collection::new("Reading".into()))
-        .await
-        .unwrap();
+    let collection =
+        d.a.insert_collection(&rotero_models::Collection::new("Reading".into()))
+            .await
+            .unwrap();
     d.a.add_paper_to_collection(&paper, &collection)
         .await
         .unwrap();

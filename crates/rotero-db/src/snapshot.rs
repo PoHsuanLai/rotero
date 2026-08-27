@@ -232,7 +232,10 @@ impl Database {
         let mut insert_cols: Vec<&str> = key_cols.clone();
         insert_cols.extend(payload_cols.iter().copied());
         let skeleton: Vec<(&str, Value)> = if row.d {
-            not_null_skeleton(table.name, row.k.first().map(String::as_str).unwrap_or_default())
+            not_null_skeleton(
+                table.name,
+                row.k.first().map(String::as_str).unwrap_or_default(),
+            )
         } else {
             Vec::new()
         };
@@ -489,17 +492,17 @@ impl Database {
                 .await
                 .map_err(crate::DbError::from)?;
 
-        // Free the name so the survivor can take it. `tags.name` is UNIQUE
-        // across every row, dead ones included, so leaving it in place would
-        // keep rejecting the survivor on every future merge and sync would
-        // stall permanently on this one row.
-        //
-        // The sync clock is deliberately not stamped here. This rename is a
-        // local repair, and stamping it would publish it: the retired name
-        // would outrank the real one on every other device, and since a
-        // tombstone carries no payload it would arrive as an empty string.
-        // Left unstamped, each device repairs its own copy and they still agree
-        // on which tag survives, because `min(id)` is the same everywhere.
+            // Free the name so the survivor can take it. `tags.name` is UNIQUE
+            // across every row, dead ones included, so leaving it in place would
+            // keep rejecting the survivor on every future merge and sync would
+            // stall permanently on this one row.
+            //
+            // The sync clock is deliberately not stamped here. This rename is a
+            // local repair, and stamping it would publish it: the retired name
+            // would outrank the real one on every other device, and since a
+            // tombstone carries no payload it would arrive as an empty string.
+            // Left unstamped, each device repairs its own copy and they still agree
+            // on which tag survives, because `min(id)` is the same everywhere.
             self.conn()
                 .execute(
                     crate::queries::TAG_RETIRE_DUPLICATE,
