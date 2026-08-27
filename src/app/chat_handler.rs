@@ -84,6 +84,49 @@ fn link_papers(
     });
 }
 
+/// File the conversation now that it has something in it.
+///
+/// Called when a message is sent rather than when the session opens: the agent
+/// creates a session on connect, so recording there filed an empty row every
+/// time the app started one.
+///
+/// Idempotent — later messages in the same conversation refresh `last_used_at`
+/// and leave the rest alone.
+pub fn record_session(
+    chat_state: &Signal<ChatState>,
+    db: &Database,
+    subject: Option<rotero_db::chat_sessions::ChatSubject>,
+) {
+    let Some(session_id) = chat_state.read().current_session_id.clone() else {
+        return;
+    };
+    let provider_id = chat_state.read().active_provider_id.clone();
+    let now = chrono::Utc::now().to_rfc3339();
+    let paper_ids = subject.as_ref().map(|s| s.paper_ids()).unwrap_or_default();
+    // Without a subject the conversation is a general one; it is still worth
+    // recording, so it can be found once a subject is inferred from the papers
+    // it goes on to touch.
+    let row = ChatSessionRow {
+        session_id,
+        provider_id,
+        subject_kind: subject
+            .as_ref()
+            .map(|s| s.kind().to_string())
+            .unwrap_or_else(|| "general".into()),
+        subject_id: subject.as_ref().map(|s| s.id()),
+        summary: None,
+        created_at: now.clone(),
+        last_used_at: now,
+        is_dead: false,
+    };
+    let db = db.clone();
+    spawn(async move {
+        if let Err(e) = db.upsert_chat_session(&row, &paper_ids).await {
+            tracing::debug!("chat: recording session failed: {e}");
+        }
+    });
+}
+
 pub fn handle_chat_event(
     chat_state: &mut Signal<ChatState>,
     lib_state: &Signal<LibraryState>,
@@ -114,37 +157,14 @@ pub fn handle_chat_event(
             });
         }
         ChatEvent::SessionCreated { session_id } => {
-            let subject = chat_state.read().pending_subject.clone();
+            // Deliberately does not record the conversation: the agent opens a
+            // session when it connects, so recording here filed a row for every
+            // launch, whether or not the user ever said anything. A conversation
+            // earns its row by carrying a message — see `record_session`.
             chat_state.with_mut(|s| {
                 s.status = AgentStatus::Idle;
                 s.session_active = true;
-                s.current_session_id = Some(session_id.clone());
-            });
-
-            // Without a subject the conversation is a general one; it is still
-            // worth recording, so it can be found once a subject is inferred
-            // from the papers it goes on to touch.
-            let provider_id = chat_state.read().active_provider_id.clone();
-            let now = chrono::Utc::now().to_rfc3339();
-            let paper_ids = subject.as_ref().map(|s| s.paper_ids()).unwrap_or_default();
-            let row = ChatSessionRow {
-                session_id,
-                provider_id,
-                subject_kind: subject
-                    .as_ref()
-                    .map(|s| s.kind().to_string())
-                    .unwrap_or_else(|| "general".into()),
-                subject_id: subject.as_ref().map(|s| s.id()),
-                summary: None,
-                created_at: now.clone(),
-                last_used_at: now,
-                is_dead: false,
-            };
-            let db = db.clone();
-            spawn(async move {
-                if let Err(e) = db.upsert_chat_session(&row, &paper_ids).await {
-                    tracing::debug!("chat: recording session failed: {e}");
-                }
+                s.current_session_id = Some(session_id);
             });
         }
         ChatEvent::UserMessage {

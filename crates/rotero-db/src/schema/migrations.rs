@@ -5,7 +5,7 @@ use turso::Connection;
 use super::tables::{CREATE_FTS_INDEX, CREATE_LIVE_VIEWS, CREATE_TABLES};
 
 /// Current schema version; incremented with each migration.
-pub const SCHEMA_VERSION: i64 = 16;
+pub const SCHEMA_VERSION: i64 = 17;
 
 /// Why a database could not be prepared for use.
 #[derive(Debug, thiserror::Error)]
@@ -366,6 +366,21 @@ async fn run_migrations(conn: &Connection) -> Result<(), SchemaError> {
             (),
         )
         .await;
+
+    if current_version < 17 {
+        // Clear out conversations that never happened. An earlier build filed a
+        // row when the agent opened a session, which it does on connect — so
+        // every launch left one behind whether or not anything was said. They
+        // are identifiable by having neither a label nor a linked paper.
+        let _ = conn
+            .execute(
+                "DELETE FROM chat_sessions \
+                 WHERE (summary IS NULL OR summary = '') \
+                   AND session_id NOT IN (SELECT session_id FROM chat_session_papers)",
+                (),
+            )
+            .await;
+    }
 
     if current_version < SCHEMA_VERSION {
         conn.execute("UPDATE schema_version SET version = ?1", [SCHEMA_VERSION])

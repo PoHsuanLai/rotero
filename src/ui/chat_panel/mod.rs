@@ -15,7 +15,7 @@ use rotero_db::chat_sessions::ChatSubject;
 
 pub use panel::ChatPanel;
 pub use resize_handle::ResizeHandle;
-pub use resume::{SubjectFollower, subject_label, subject_of_row, switch_to};
+pub use resume::{SubjectFollower, subject_label, subject_of_row, switch_to, unlabelled_title};
 pub use toggle::ChatToggleButton;
 
 #[derive(Clone, Copy)]
@@ -311,6 +311,18 @@ fn do_send(
         }
     });
 
+    // The conversation's own subject wins over what is on screen: a group chat
+    // stays about its group even while one of its papers is open.
+    let context_subject = chat_state
+        .read()
+        .current_subject
+        .clone()
+        .or_else(|| chat_state.read().pending_subject.clone());
+
+    // It has a message now, so it earns its row. Must precede the label write
+    // below, which needs a row to attach to.
+    crate::app::chat_handler::record_session(&chat_state, &db, context_subject.clone());
+
     // A cheap label immediately, so a conversation is never nameless: the agent
     // summary is better but costs a round trip, and may not arrive at all.
     let first_message = chat_state
@@ -329,13 +341,6 @@ fn do_send(
         });
     }
 
-    // The conversation's own subject wins over what is on screen: a group chat
-    // stays about its group even while one of its papers is open.
-    let context_subject = chat_state
-        .read()
-        .current_subject
-        .clone()
-        .or_else(|| chat_state.read().pending_subject.clone());
     let paper_context =
         build_paper_context(&lib_state.read(), &tab_mgr.read(), context_subject.as_ref());
 

@@ -33,6 +33,32 @@ pub fn subject_label(subject: &ChatSubject, lib: &LibraryState) -> String {
     }
 }
 
+/// When a conversation was last used, as a short human date.
+///
+/// Same-subject conversations are otherwise indistinguishable in a list, so the
+/// time is what tells them apart.
+pub fn short_time(rfc3339: &str) -> Option<String> {
+    chrono::DateTime::parse_from_rfc3339(rfc3339).ok().map(|t| {
+        t.with_timezone(&chrono::Local)
+            .format("%-d %b, %H:%M")
+            .to_string()
+    })
+}
+
+/// What to call a conversation with no stored summary.
+///
+/// The agent's own title is useless here — it names the transcript's first
+/// message, which is a startup command — so name the conversation by what it is
+/// about and when it was last used instead.
+pub fn unlabelled_title(about: Option<&str>, last_used_at: &str) -> String {
+    match (about, short_time(last_used_at)) {
+        (Some(a), Some(t)) => format!("{a} — {t}"),
+        (Some(a), None) => a.to_string(),
+        (None, Some(t)) => format!("Chat — {t}"),
+        (None, None) => "Untitled chat".into(),
+    }
+}
+
 /// Rebuild the subject a stored conversation is about.
 ///
 /// A group is identified by its members rather than by `subject_id`, which
@@ -192,5 +218,32 @@ mod tests {
     #[test]
     fn a_group_with_no_surviving_members_has_no_subject() {
         assert_eq!(subject_of_row(&row("group", Some("hash")), &[]), None);
+    }
+
+    /// The agent's own title is a startup command, so an unlabelled conversation
+    /// is named by what it is about instead.
+    #[test]
+    fn an_unlabelled_conversation_is_named_by_subject_and_time() {
+        let title = unlabelled_title(Some("Attention Is All You Need"), "2026-08-27T07:54:10Z");
+        assert!(
+            title.starts_with("Attention Is All You Need — "),
+            "got {title}"
+        );
+    }
+
+    /// Two conversations about the same paper are otherwise identical in a
+    /// list, so the time has to be what separates them.
+    #[test]
+    fn same_subject_conversations_differ_by_time() {
+        let a = unlabelled_title(Some("A paper"), "2026-08-27T07:54:10Z");
+        let b = unlabelled_title(Some("A paper"), "2026-08-27T09:31:00Z");
+        assert_ne!(a, b);
+    }
+
+    /// A conversation about nothing in particular, with an unreadable date,
+    /// still needs a name.
+    #[test]
+    fn a_conversation_with_nothing_known_still_has_a_name() {
+        assert_eq!(unlabelled_title(None, "not-a-date"), "Untitled chat");
     }
 }

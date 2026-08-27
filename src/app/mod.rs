@@ -1,4 +1,4 @@
-mod chat_handler;
+pub mod chat_handler;
 mod chat_papers;
 mod library_loader;
 // Poses the UI for documentation screenshots. Debug builds only.
