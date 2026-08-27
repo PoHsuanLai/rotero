@@ -185,12 +185,14 @@ impl Database {
             // backfilled costs one indexed query and changes nothing.
             for table in &crr.schema().tables {
                 for column in &table.columns {
-                    crr.migrate_add_column(&table.name, column).await.map_err(|e| {
-                        format!(
-                            "Failed to backfill CRR clocks for {}.{column}: {e}",
-                            table.name
-                        )
-                    })?;
+                    crr.migrate_add_column(&table.name, column)
+                        .await
+                        .map_err(|e| {
+                            format!(
+                                "Failed to backfill CRR clocks for {}.{column}: {e}",
+                                table.name
+                            )
+                        })?;
                 }
             }
         }
