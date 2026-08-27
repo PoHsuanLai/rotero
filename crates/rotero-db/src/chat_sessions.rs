@@ -301,6 +301,40 @@ impl Database {
         Ok(out)
     }
 
+    /// Every conversation on record, keyed by session id.
+    ///
+    /// For joining against a list the agent reports: the agent titles a session
+    /// after its first user message, which for these is a synthetic startup
+    /// entry, so its titles are uninformative and ours are not.
+    pub async fn all_chat_sessions(&self) -> Result<Vec<ChatSessionRow>, crate::DbError> {
+        let conn = self.conn();
+        let sql = format!("SELECT {SELECT_COLS} FROM chat_sessions");
+        let mut rows = conn.query(&sql, ()).await?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().await? {
+            out.push(row_to_session(&row));
+        }
+        Ok(out)
+    }
+
+    /// The subject papers of every conversation, as `(session_id, paper_id)`.
+    pub async fn all_chat_session_subjects(&self) -> Result<Vec<(String, String)>, crate::DbError> {
+        let conn = self.conn();
+        let mut rows = conn
+            .query(
+                "SELECT p.session_id, p.paper_id FROM chat_session_papers p \
+                 JOIN papers_live lp ON lp.id = p.paper_id \
+                 WHERE p.is_subject = 1",
+                (),
+            )
+            .await?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().await? {
+            out.push((crate::get_text(&row, 0), crate::get_text(&row, 1)));
+        }
+        Ok(out)
+    }
+
     /// The papers a conversation covers, excluding any since deleted.
     pub async fn chat_session_paper_ids(
         &self,

@@ -15,7 +15,7 @@ use rotero_db::chat_sessions::ChatSubject;
 
 pub use panel::ChatPanel;
 pub use resize_handle::ResizeHandle;
-pub use resume::{SubjectFollower, subject_label, switch_to};
+pub use resume::{SubjectFollower, subject_label, subject_of_row, switch_to};
 pub use toggle::ChatToggleButton;
 
 #[derive(Clone, Copy)]

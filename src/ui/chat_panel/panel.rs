@@ -61,6 +61,36 @@ pub fn ChatPanel() -> Element {
     let show_sessions = chat_state.read().show_session_browser;
     let past_sessions = chat_state.read().past_sessions.clone();
 
+    // The agent titles a session after its first user message, which for these
+    // is a synthetic startup entry — so every one reads "/model". Our own record
+    // knows what each conversation is about, so label them from that and fall
+    // back to the agent's title only where we have no record.
+    let described = use_resource({
+        let db = db.clone();
+        let sessions = past_sessions.clone();
+        move || {
+            let db = db.clone();
+            let sessions = sessions.clone();
+            let lib = lib_state;
+            async move {
+                let rows = db.all_chat_sessions().await.unwrap_or_default();
+                let subjects = db.all_chat_session_subjects().await.unwrap_or_default();
+                sessions
+                    .iter()
+                    .map(|s| {
+                        let known = rows.iter().find(|r| r.session_id == s.session_id);
+                        let summary = known.and_then(|r| r.summary.clone());
+                        let about = known.and_then(|r| {
+                            super::subject_of_row(r, &subjects)
+                                .map(|subj| super::subject_label(&subj, &lib.read()))
+                        });
+                        (s.session_id.clone(), summary, about)
+                    })
+                    .collect::<Vec<_>>()
+            }
+        }
+    });
+
     let status_text = match &status {
         AgentStatus::Idle => "Ready",
         AgentStatus::Connecting => "Connecting...",
@@ -185,7 +215,21 @@ pub fn ChatPanel() -> Element {
                                 {
                                     let sid = session.session_id.clone();
                                     let session_cwd = session.cwd.clone();
-                                    let title = session.title.clone().unwrap_or_else(|| "Untitled".into());
+                                    let known = described
+                                        .read()
+                                        .as_ref()
+                                        .and_then(|rows: &Vec<(String, Option<String>, Option<String>)>| {
+                                            rows.iter().find(|(id, _, _)| *id == sid).cloned()
+                                        });
+                                    let (summary, about) = known
+                                        .map(|(_, s, a)| (s, a))
+                                        .unwrap_or((None, None));
+                                    // Only fall back to the agent's title where
+                                    // we have nothing: it is the transcript's
+                                    // first message, which is a startup command.
+                                    let title = summary
+                                        .or_else(|| session.title.clone())
+                                        .unwrap_or_else(|| "Untitled".into());
                                     let updated = session.updated_at.clone().unwrap_or_default();
                                     rsx! {
                                         button {
@@ -203,6 +247,9 @@ pub fn ChatPanel() -> Element {
                                                 });
                                             },
                                             div { class: "chat-session-item-title", "{title}" }
+                                            if let Some(about) = about {
+                                                div { class: "chat-session-item-about", "About: {about}" }
+                                            }
                                             div { class: "chat-session-item-date", "{updated}" }
                                         }
                                     }

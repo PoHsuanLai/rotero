@@ -604,10 +604,22 @@
     background: var(--bg-hover);
 }
 
+/* Holds a stored summary, which is a sentence rather than a label, so it wraps
+   to a second line before being clipped. */
 .chat-session-item-title {
     font-size: var(--text-sm);
     font-weight: 500;
     color: var(--text-primary);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    max-width: 100%;
+}
+
+.chat-session-item-about {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

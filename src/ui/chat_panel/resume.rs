@@ -7,7 +7,7 @@
 
 use dioxus::prelude::*;
 use rotero_db::Database;
-use rotero_db::chat_sessions::ChatSubject;
+use rotero_db::chat_sessions::{ChatSessionRow, ChatSubject};
 
 use crate::agent::types::{AgentStatus, ChatRequest, ChatState, PendingSwitch};
 use crate::state::app_state::{LibraryState, PdfTabManager};
@@ -30,6 +30,27 @@ pub fn subject_label(subject: &ChatSubject, lib: &LibraryState) -> String {
             .map(|c| c.name.clone())
             .unwrap_or_else(|| "this collection".into()),
         ChatSubject::Group(ids) => format!("{} papers", ids.len()),
+    }
+}
+
+/// Rebuild the subject a stored conversation is about.
+///
+/// A group is identified by its members rather than by `subject_id`, which
+/// holds only their hash, so the members are looked up from the supplied
+/// `(session_id, paper_id)` pairs.
+pub fn subject_of_row(row: &ChatSessionRow, subjects: &[(String, String)]) -> Option<ChatSubject> {
+    match row.subject_kind.as_str() {
+        "paper" => row.subject_id.clone().map(ChatSubject::Paper),
+        "collection" => row.subject_id.clone().map(ChatSubject::Collection),
+        "group" => {
+            let members: Vec<String> = subjects
+                .iter()
+                .filter(|(sid, _)| *sid == row.session_id)
+                .map(|(_, pid)| pid.clone())
+                .collect();
+            (!members.is_empty()).then_some(ChatSubject::Group(members))
+        }
+        _ => None,
     }
 }
 
@@ -122,4 +143,54 @@ pub fn SubjectFollower() -> Element {
     });
 
     rsx! {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(kind: &str, subject_id: Option<&str>) -> ChatSessionRow {
+        ChatSessionRow {
+            session_id: "sess-1".into(),
+            provider_id: "claude".into(),
+            subject_kind: kind.into(),
+            subject_id: subject_id.map(String::from),
+            summary: None,
+            created_at: String::new(),
+            last_used_at: String::new(),
+            is_dead: false,
+        }
+    }
+
+    #[test]
+    fn a_paper_row_rebuilds_its_subject() {
+        assert_eq!(
+            subject_of_row(&row("paper", Some("p1")), &[]),
+            Some(ChatSubject::Paper("p1".into()))
+        );
+    }
+
+    /// A group's `subject_id` is a hash of its members, so the members
+    /// themselves have to come from the link rows.
+    #[test]
+    fn a_group_row_rebuilds_from_its_member_links() {
+        let links = vec![
+            ("sess-1".to_string(), "p1".to_string()),
+            ("sess-1".to_string(), "p2".to_string()),
+            ("sess-other".to_string(), "p3".to_string()),
+        ];
+
+        let subject = subject_of_row(&row("group", Some("hash")), &links).unwrap();
+
+        match subject {
+            ChatSubject::Group(ids) => assert_eq!(ids, vec!["p1", "p2"]),
+            other => panic!("expected a group, got {other:?}"),
+        }
+    }
+
+    /// Every member deleted leaves nothing to describe the conversation by.
+    #[test]
+    fn a_group_with_no_surviving_members_has_no_subject() {
+        assert_eq!(subject_of_row(&row("group", Some("hash")), &[]), None);
+    }
 }
