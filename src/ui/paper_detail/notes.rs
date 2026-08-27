@@ -6,19 +6,15 @@ use rotero_db::Database;
 pub fn NotesSection(paper_id: String) -> Element {
     let db = use_context::<Database>();
 
-    // Keyed on the prop rather than an effect over a captured copy: the panel
-    // reuses this component when the selection changes, so an effect that read
-    // `paper_id` once would keep showing the first paper's notes under every
-    // paper selected after it.
-    let notes = use_resource({
-        let db = db.clone();
-        let pid = paper_id.clone();
-        move || {
-            let db = db.clone();
-            let pid = pid.clone();
-            async move { db.list_notes_for_paper(&pid).await.unwrap_or_default() }
-        }
-    });
+    // `use_reactive` is what ties this to the prop: the panel reuses this
+    // component when the selection changes, and a plain captured clone is not
+    // reactive, so the query would run once and every later paper would show
+    // the first one's notes.
+    let db_load = db.clone();
+    let notes = use_resource(use_reactive!(|paper_id| {
+        let db = db_load.clone();
+        async move { db.list_notes_for_paper(&paper_id).await.unwrap_or_default() }
+    }));
 
     let note_list = notes.read();
     let note_list = match note_list.as_ref() {

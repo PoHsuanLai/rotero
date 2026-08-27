@@ -50,30 +50,29 @@ pub fn ConversationsSection(paper_id: String) -> Element {
     let lib_state = use_context::<Signal<LibraryState>>();
     let mut chat_state = use_context::<Signal<ChatState>>();
     let agent_channel = use_context::<AgentChannel>();
-    // Keyed on the prop rather than an effect over a captured copy: the panel
-    // reuses this component when the selection changes, so an effect that read
-    // `paper_id` once would keep listing the first paper's conversations under
-    // every paper selected after it.
-    let loaded = use_resource({
-        let db = db.clone();
-        let pid = paper_id.clone();
-        move || {
-            let db = db.clone();
-            let pid = pid.clone();
-            async move {
-                let rows = db.chat_sessions_for_paper(&pid).await.unwrap_or_default();
-                let mut with_papers = Vec::new();
-                for row in rows {
-                    let papers = db
-                        .chat_session_paper_ids(&row.session_id)
-                        .await
-                        .unwrap_or_default();
-                    with_papers.push((row, papers));
-                }
-                with_papers
+    // `use_reactive` is what ties this to the prop: the panel reuses this
+    // component when the selection changes, and a plain captured clone is not
+    // reactive, so the query would run once and every later paper would show
+    // the first one's conversations.
+    let db_load = db.clone();
+    let loaded = use_resource(use_reactive!(|paper_id| {
+        let db = db_load.clone();
+        async move {
+            let rows = db
+                .chat_sessions_for_paper(&paper_id)
+                .await
+                .unwrap_or_default();
+            let mut with_papers = Vec::new();
+            for row in rows {
+                let papers = db
+                    .chat_session_paper_ids(&row.session_id)
+                    .await
+                    .unwrap_or_default();
+                with_papers.push((row, papers));
             }
+            with_papers
         }
-    });
+    }));
 
     let listed = loaded.read();
     let listed = match listed.as_ref() {

@@ -186,6 +186,9 @@ pub fn PaperDetail() -> Element {
                 crate::ui::citation_dialog::CitationDialog {}
             }
 
+            // These reload on `paper_id` via `use_reactive!` internally: the
+            // panel reuses the instance across selections, and a key here is
+            // not allowed on a non-first node.
             ConversationsSection { paper_id: paper_id.clone() }
             NotesSection { paper_id: paper_id.clone() }
 
