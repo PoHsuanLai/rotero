@@ -1,10 +1,14 @@
 //! `SYNCED_TABLES` must describe the database it claims to describe.
 //!
 //! The manifest decides what a snapshot carries and what the merge applies. A
-//! column in the database but missing from the manifest is silently never
-//! synced — the row saves locally, looks right in the UI, and never reaches the
-//! other device. That is the failure mode this whole rewrite exists to remove,
-//! so it is checked mechanically rather than by review.
+//! column — or a whole table — in the database but missing from the manifest is
+//! silently never synced: the row saves locally, looks right in the UI, and
+//! never reaches the other device. That is the failure mode this whole rewrite
+//! exists to remove, so it is checked mechanically rather than by review.
+//!
+//! Both directions are checked, and in both the allowlist is the point: staying
+//! local is a legitimate choice, but it has to be written down rather than
+//! arrived at by forgetting.
 
 mod common;
 
@@ -86,6 +90,73 @@ async fn every_table_column_is_accounted_for() {
                 table.name
             );
         }
+    }
+}
+
+/// Every table in the database must either sync or say why it does not.
+///
+/// The column checks above only ever look at tables the manifest already names,
+/// so a whole table added to the SQL and forgotten is invisible to them — the
+/// one direction that was still uncovered. It is also the easier mistake: a new
+/// feature adds its table, the app works on that device, and nothing says the
+/// data never leaves it.
+///
+/// Being local-only is a legitimate answer, and often the right one. The point
+/// is that it has to be *chosen* — an entry here — rather than reached by
+/// forgetting the manifest exists.
+#[tokio::test]
+async fn every_table_either_syncs_or_is_declared_local() {
+    /// Tables that exist but deliberately do not sync, and why.
+    const LOCAL_ONLY_TABLES: &[(&str, &str)] = &[
+        // Records what THIS install has done, not shared library state.
+        ("app_flags", "per-install task bookkeeping"),
+        // This device's sync identity. Replicating it would give two devices
+        // the same name, and every clock comparison keys on that name.
+        ("crr_site_id", "this device's own identity"),
+        // Where the local schema has got to. A peer mid-migration would
+        // otherwise be told it is already done.
+        ("schema_version", "local migration state"),
+        // Session ids are minted by the agent binary on this machine, so a
+        // synced row would name a session that resolves to nothing elsewhere.
+        // These carry none of the bookkeeping columns and have no `_live` view.
+        ("chat_sessions", "agent session ids are machine-local"),
+        ("chat_session_papers", "child of chat_sessions"),
+    ];
+
+    let dir = tempfile::tempdir().unwrap();
+    let db = common::open_test_db(dir.path()).await;
+
+    let mut rows = db
+        .conn()
+        .query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+            (),
+        )
+        .await
+        .unwrap();
+
+    while let Some(row) = rows.next().await.unwrap() {
+        let Some(name) = row.get_value(0).ok().and_then(|v| v.as_text().cloned()) else {
+            continue;
+        };
+        // SQLite's own bookkeeping and turso's FTS shadow tables are not ours
+        // to classify: they are created by the engine, and their names are an
+        // implementation detail rather than a decision anyone makes.
+        if name.starts_with("sqlite_") || name.starts_with("__turso_internal_") {
+            continue;
+        }
+        let synced = SYNCED_TABLES.iter().any(|t| t.name == name);
+        let local = LOCAL_ONLY_TABLES.iter().any(|(t, _)| *t == name);
+        assert!(
+            synced || local,
+            "table `{name}` is in the database but neither in SYNCED_TABLES nor \
+             LOCAL_ONLY_TABLES. Add it to the manifest so it syncs, or to \
+             LOCAL_ONLY_TABLES with the reason it must not."
+        );
+        assert!(
+            !(synced && local),
+            "table `{name}` is both in SYNCED_TABLES and LOCAL_ONLY_TABLES"
+        );
     }
 }
 
