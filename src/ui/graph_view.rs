@@ -18,6 +18,7 @@ enum EdgeMode {
     Authors,
     Journals,
     Citations,
+    Conversations,
 }
 
 impl EdgeMode {
@@ -28,6 +29,7 @@ impl EdgeMode {
             Self::Authors => "Authors",
             Self::Journals => "Journals",
             Self::Citations => "Citations",
+            Self::Conversations => "Chats",
         }
     }
 
@@ -38,6 +40,7 @@ impl EdgeMode {
             show_author_edges: self == Self::Authors,
             show_journal_edges: self == Self::Journals,
             show_citation_edges: self == Self::Citations,
+            show_conversation_edges: self == Self::Conversations,
             ..Default::default()
         }
     }
@@ -49,16 +52,18 @@ impl EdgeMode {
             Self::Authors => "#f59e0b",
             Self::Journals => "#94a3b8",
             Self::Citations => "#e11d48",
+            Self::Conversations => "#a855f7",
         }
     }
 }
 
-const ALL_MODES: [EdgeMode; 5] = [
+const ALL_MODES: [EdgeMode; 6] = [
     EdgeMode::Tags,
     EdgeMode::Collections,
     EdgeMode::Authors,
     EdgeMode::Journals,
     EdgeMode::Citations,
+    EdgeMode::Conversations,
 ];
 
 #[component]
@@ -93,15 +98,19 @@ pub fn GraphView() -> Element {
             let tag_pairs = db.list_all_paper_tags().await.unwrap_or_default();
             let coll_pairs = db.list_all_paper_collections().await.unwrap_or_default();
             let citation_pairs = db.list_all_citations().await.unwrap_or_default();
+            let chat_pairs = db.all_chat_session_subjects().await.unwrap_or_default();
 
             let filter = mode.to_filter();
 
             let mut data = rotero_graph::build_and_simulate(
                 &papers,
                 &tags,
-                &tag_pairs,
-                &coll_pairs,
-                &citation_pairs,
+                rotero_graph::Relations {
+                    paper_tags: &tag_pairs,
+                    paper_collections: &coll_pairs,
+                    citations: &citation_pairs,
+                    conversations: &chat_pairs,
+                },
                 &filter,
                 500,
             );
@@ -112,6 +121,20 @@ pub fn GraphView() -> Element {
                     .find(|p| p.id.as_deref() == Some(node.id.as_str()))
                 {
                     node.label = crate::ui::truncate_text(&paper.title, 25);
+                }
+            }
+
+            // Papers with a conversation are drawn larger and in the mode's own
+            // colour, but only in this mode: elsewhere it would be noise on a
+            // graph that is about something else. This is what makes a chat
+            // about a single paper visible — it has no second paper to link to,
+            // so an edge alone would leave it looking untouched.
+            if mode == EdgeMode::Conversations {
+                for node in &mut data.nodes {
+                    if node.is_discussed {
+                        node.size = 6.0;
+                        node.color = EdgeMode::Conversations.edge_color().to_string();
+                    }
                 }
             }
 

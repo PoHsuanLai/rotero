@@ -11,27 +11,32 @@ use std::collections::HashMap;
 
 use rotero_models::{Paper, Tag};
 
-pub use data::{EdgeType, GraphData, GraphEdge, GraphFilter, GraphNode};
+pub use data::{EdgeType, GraphData, GraphEdge, GraphFilter, GraphNode, Relations};
 pub use edges::MergedEdge;
 
 /// Build the full graph and run force simulation.
 pub fn build_and_simulate(
     papers: &[Paper],
     tags: &[Tag],
-    paper_tag_pairs: &[(String, String)],
-    paper_collection_pairs: &[(String, String)],
-    citation_pairs: &[(String, String)],
+    relations: Relations<'_>,
     filter: &GraphFilter,
     iterations: usize,
 ) -> GraphData {
-    let merged_edges = edges::compute_edges(
-        papers,
-        tags,
-        paper_tag_pairs,
-        paper_collection_pairs,
-        citation_pairs,
-        filter,
-    );
+    let Relations {
+        paper_tags: paper_tag_pairs,
+        conversations: conversation_pairs,
+        ..
+    } = relations;
+    let merged_edges = edges::compute_edges(papers, tags, relations, filter);
+
+    // Every paper any conversation is about. A node carries this regardless of
+    // whether it shares an edge: a paper discussed on its own has no partner to
+    // link to, and would otherwise be indistinguishable from one never
+    // discussed at all.
+    let discussed: std::collections::HashSet<&str> = conversation_pairs
+        .iter()
+        .map(|(_, paper_id)| paper_id.as_str())
+        .collect();
 
     let tag_colors: HashMap<&str, &str> = tags
         .iter()
@@ -195,6 +200,7 @@ pub fn build_and_simulate(
                 color,
                 is_read: paper.status.is_read,
                 is_favorite: paper.status.is_favorite,
+                is_discussed: discussed.contains(pid),
             })
         })
         .collect();
