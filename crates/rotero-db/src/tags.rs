@@ -80,7 +80,8 @@ impl Database {
             ],
         )
         .await?;
-        self.tombstone("paper_tags", crate::clock::Pk::Composite(paper_id, tag_id)).await?;
+        self.tombstone("paper_tags", crate::clock::Pk::Composite(paper_id, tag_id))
+            .await?;
         Ok(())
     }
 
@@ -151,13 +152,12 @@ impl Database {
     /// junction rows would vanish locally with no `track_delete` and peers would
     /// keep associations pointing at a tag that no longer exists.
     pub async fn delete_tag(&self, id: &str) -> Result<(), crate::DbError> {
-        let tagged = self
-            .junction_ids(queries::TAG_MEMBER_PAPER_IDS, id)
-            .await?;
+        let tagged = self.junction_ids(queries::TAG_MEMBER_PAPER_IDS, id).await?;
 
         self.tombstone("tags", crate::clock::Pk::Single(id)).await?;
         for paper_id in &tagged {
-            self.tombstone("paper_tags", crate::clock::Pk::Composite(paper_id, id)).await?;
+            self.tombstone("paper_tags", crate::clock::Pk::Composite(paper_id, id))
+                .await?;
         }
         Ok(())
     }

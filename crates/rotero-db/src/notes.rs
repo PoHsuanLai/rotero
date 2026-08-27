@@ -64,7 +64,8 @@ impl Database {
 
     /// Delete a note by ID.
     pub async fn delete_note(&self, id: &str) -> Result<(), crate::DbError> {
-        self.tombstone("notes", crate::clock::Pk::Single(id)).await?;
+        self.tombstone("notes", crate::clock::Pk::Single(id))
+            .await?;
         Ok(())
     }
 }

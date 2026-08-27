@@ -48,10 +48,7 @@ async fn fts_search_excludes_deleted_papers() {
     tombstone(&db, "papers", &doomed).await;
 
     let found = db.search_papers("quantum").await.unwrap();
-    let ids: Vec<&str> = found
-        .iter()
-        .filter_map(|p| p.id.as_deref())
-        .collect();
+    let ids: Vec<&str> = found.iter().filter_map(|p| p.id.as_deref()).collect();
     assert_eq!(
         ids,
         vec![keep.as_str()],

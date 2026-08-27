@@ -116,8 +116,7 @@ async fn composite_keys_match_the_schema() {
         // matching sequence would fail on a schema that is in fact correct. The
         // membership is what matters — it is what identifies a snapshot row.
         let mut actual: Vec<String> = pk_cols.into_iter().map(|(_, n)| n).collect();
-        let mut declared: Vec<String> =
-            table.pk.columns().iter().map(|s| s.to_string()).collect();
+        let mut declared: Vec<String> = table.pk.columns().iter().map(|s| s.to_string()).collect();
         actual.sort();
         declared.sort();
         assert_eq!(

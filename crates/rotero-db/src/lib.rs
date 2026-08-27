@@ -5,6 +5,9 @@
 
 /// PDF annotation CRUD operations.
 pub mod annotations;
+/// Test utilities for simulating multi-device sync round-trips.
+/// Stamping local writes so they can win a merge.
+pub mod clock;
 /// One-time repair for libraries written without CRR change tracking.
 /// Collection (folder) CRUD and paper-collection membership.
 pub mod collections;
@@ -20,9 +23,6 @@ pub mod papers;
 pub mod saved_searches;
 /// Table definitions, FTS index, and schema migrations.
 pub mod schema;
-/// Test utilities for simulating multi-device sync round-trips.
-/// Stamping local writes so they can win a merge.
-pub mod clock;
 
 /// Removing tombstones once every device has certainly seen them.
 pub mod reaper;
@@ -120,7 +120,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use turso::Connection;
-
 
 /// Handle to the Rotero SQLite database, wrapping a turso connection and the library data directory.
 #[derive(Clone)]
@@ -254,8 +253,6 @@ impl Database {
     pub fn device_id(&self) -> &str {
         &self.device_id
     }
-
-
 
     /// Returns the root library data directory (contains `rotero.db` and `papers/`).
     pub fn data_dir(&self) -> &Path {
@@ -453,17 +450,9 @@ async fn read_device_id(conn: &Connection) -> Result<Arc<str>, String> {
     // migrated from before it existed reaches this with the table present and
     // empty.
     let _ = conn
-        .execute(
-            crate::queries::DEVICE_ID_CREATE_TABLE,
-            (),
-        )
+        .execute(crate::queries::DEVICE_ID_CREATE_TABLE, ())
         .await;
-    let _ = conn
-        .execute(
-            crate::queries::DEVICE_ID_SEED,
-            (),
-        )
-        .await;
+    let _ = conn.execute(crate::queries::DEVICE_ID_SEED, ()).await;
 
     let mut rows = conn
         .query(crate::queries::DEVICE_ID_SELECT, ())

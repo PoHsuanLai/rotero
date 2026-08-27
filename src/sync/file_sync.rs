@@ -173,8 +173,8 @@ impl FileSyncEngine {
         // The sidecar is a few dozen bytes, so it lands atomically enough even
         // over a network sync; the snapshot beside it may still be arriving.
         let meta_path = path.with_extension("meta");
-        let expected = std::fs::read_to_string(&meta_path)
-            .map_err(|e| format!("no checksum sidecar: {e}"))?;
+        let expected =
+            std::fs::read_to_string(&meta_path).map_err(|e| format!("no checksum sidecar: {e}"))?;
         let actual = rotero_db::snapshot::checksum(&bytes);
         if expected.trim() != actual {
             return Err("checksum mismatch — file is still uploading or corrupt".into());
@@ -312,7 +312,10 @@ mod tests {
         let (a_snap, a_meta) = engine(dir.path(), 1).snapshot_paths();
         let (b_snap, b_meta) = engine(dir.path(), 2).snapshot_paths();
 
-        assert_ne!(a_snap, b_snap, "two devices must not write the same snapshot");
+        assert_ne!(
+            a_snap, b_snap,
+            "two devices must not write the same snapshot"
+        );
         assert_ne!(a_meta, b_meta, "nor the same checksum sidecar");
         assert_eq!(
             a_snap.parent(),
@@ -381,7 +384,10 @@ mod tests {
             })
             .await
             .unwrap();
-        engine(shared.path(), 7).export_changes(&peer_db).await.unwrap();
+        engine(shared.path(), 7)
+            .export_changes(&peer_db)
+            .await
+            .unwrap();
 
         // Corrupt only the sidecar, leaving a perfectly parseable snapshot.
         let devices = shared.path().join("devices");
@@ -390,7 +396,10 @@ mod tests {
         let my_db = rotero_db::Database::open(my_lib.path().to_path_buf())
             .await
             .unwrap();
-        let applied = engine(shared.path(), 1).import_changes(&my_db).await.unwrap();
+        let applied = engine(shared.path(), 1)
+            .import_changes(&my_db)
+            .await
+            .unwrap();
 
         assert_eq!(applied, 0, "a checksum mismatch must be skipped");
         assert!(
@@ -421,7 +430,11 @@ mod tests {
         let mine = engine(shared.path(), 3);
         let peers = mine.peer_files();
 
-        assert_eq!(peers.len(), 1, "exactly one file is a peer's, got {peers:?}");
+        assert_eq!(
+            peers.len(),
+            1,
+            "exactly one file is a peer's, got {peers:?}"
+        );
         assert!(
             peers[0].ends_with(format!("{}.snapshot", hex(4))),
             "the peer's file must be the one kept, got {peers:?}"
@@ -451,7 +464,10 @@ mod tests {
             .unwrap();
 
         // A healthy peer writes a real snapshot...
-        engine(shared.path(), 9).export_changes(&good_db).await.unwrap();
+        engine(shared.path(), 9)
+            .export_changes(&good_db)
+            .await
+            .unwrap();
 
         // ...and a broken one sits alphabetically before it.
         let devices = shared.path().join("devices");
@@ -460,7 +476,10 @@ mod tests {
         let my_db = rotero_db::Database::open(my_lib.path().to_path_buf())
             .await
             .unwrap();
-        let applied = engine(shared.path(), 1).import_changes(&my_db).await.unwrap();
+        let applied = engine(shared.path(), 1)
+            .import_changes(&my_db)
+            .await
+            .unwrap();
 
         assert!(
             applied > 0,
@@ -494,10 +513,12 @@ mod tests {
             })
             .await
             .unwrap();
-            engine(shared.path(), site).export_changes(&db).await.unwrap();
+            engine(shared.path(), site)
+                .export_changes(&db)
+                .await
+                .unwrap();
 
-            let bytes =
-                std::fs::read(devices.join(format!("{}.snapshot", hex(site)))).unwrap();
+            let bytes = std::fs::read(devices.join(format!("{}.snapshot", hex(site)))).unwrap();
             let (header, _) = rotero_db::snapshot::parse_snapshot(&bytes).unwrap();
             stamps.push(header.generated_at);
 
@@ -636,11 +657,10 @@ mod tests {
         async fn deleting_a_collection_clears_memberships_everywhere() {
             let p = Pair::new().await;
             let paper = add_paper(&p.a, "Shelved").await;
-            let shelf = p
-                .a
-                .insert_collection(&rotero_models::Collection::new("Shelf".into()))
-                .await
-                .unwrap();
+            let shelf =
+                p.a.insert_collection(&rotero_models::Collection::new("Shelf".into()))
+                    .await
+                    .unwrap();
             p.a.add_paper_to_collection(&paper, &shelf).await.unwrap();
             p.sync().await;
             assert_eq!(
@@ -667,12 +687,9 @@ mod tests {
         async fn deleting_a_paper_removes_its_children_everywhere() {
             let p = Pair::new().await;
             let paper = add_paper(&p.a, "Doomed").await;
-            p.a.insert_note(&rotero_models::Note::new(
-                paper.clone(),
-                "Thought".into(),
-            ))
-            .await
-            .unwrap();
+            p.a.insert_note(&rotero_models::Note::new(paper.clone(), "Thought".into()))
+                .await
+                .unwrap();
             p.sync().await;
             assert_eq!(p.b.list_notes_for_paper(&paper).await.unwrap().len(), 1);
 

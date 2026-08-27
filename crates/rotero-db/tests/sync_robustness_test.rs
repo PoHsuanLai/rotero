@@ -180,11 +180,10 @@ async fn junctions_sync() {
     let d = Devices::new().await;
     let paper = insert_paper(&d.a, "Tagged and shelved").await;
     let tag = d.a.get_or_create_tag("method", None).await.unwrap();
-    let collection = d
-        .a
-        .insert_collection(&rotero_models::Collection::new("Shelf".into()))
-        .await
-        .unwrap();
+    let collection =
+        d.a.insert_collection(&rotero_models::Collection::new("Shelf".into()))
+            .await
+            .unwrap();
     d.a.add_tag_to_paper(&paper, &tag).await.unwrap();
     d.a.add_paper_to_collection(&paper, &collection)
         .await
@@ -192,7 +191,11 @@ async fn junctions_sync() {
 
     d.converge().await;
 
-    assert_eq!(d.b.list_tags_for_paper(&paper).await.unwrap().len(), 1, "tag");
+    assert_eq!(
+        d.b.list_tags_for_paper(&paper).await.unwrap().len(),
+        1,
+        "tag"
+    );
     assert_eq!(
         d.b.list_collections_for_paper(&paper).await.unwrap().len(),
         1,
@@ -206,12 +209,9 @@ async fn annotations_and_notes_sync() {
     let d = Devices::new().await;
     let paper = insert_paper(&d.a, "Annotated").await;
 
-    d.a.insert_note(&rotero_models::Note::new(
-        paper.clone(),
-        "A thought".into(),
-    ))
-    .await
-    .unwrap();
+    d.a.insert_note(&rotero_models::Note::new(paper.clone(), "A thought".into()))
+        .await
+        .unwrap();
 
     d.converge().await;
 

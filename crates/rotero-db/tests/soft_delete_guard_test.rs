@@ -30,12 +30,27 @@ const READS_ALL_ROWS: &[(&str, &str)] = &[
     // The delete cascades collect the rows they are about to tombstone. A
     // tombstoned membership still has to be found and re-stamped, or the
     // deletion stops propagating at whichever device already applied it.
-    ("COLLECTION_MEMBER_PAPER_IDS", "cascade: collects rows to tombstone"),
-    ("TAG_MEMBER_PAPER_IDS", "cascade: collects rows to tombstone"),
-    ("PAPER_COLLECTION_IDS", "cascade: collects rows to tombstone"),
+    (
+        "COLLECTION_MEMBER_PAPER_IDS",
+        "cascade: collects rows to tombstone",
+    ),
+    (
+        "TAG_MEMBER_PAPER_IDS",
+        "cascade: collects rows to tombstone",
+    ),
+    (
+        "PAPER_COLLECTION_IDS",
+        "cascade: collects rows to tombstone",
+    ),
     ("PAPER_TAG_IDS", "cascade: collects rows to tombstone"),
-    ("PAPER_CITATION_PKS_OUT", "cascade: collects rows to tombstone"),
-    ("PAPER_CITATION_PKS_IN", "cascade: collects rows to tombstone"),
+    (
+        "PAPER_CITATION_PKS_OUT",
+        "cascade: collects rows to tombstone",
+    ),
+    (
+        "PAPER_CITATION_PKS_IN",
+        "cascade: collects rows to tombstone",
+    ),
     // `tags.name` is UNIQUE across dead rows too, so a retired duplicate still
     // holds its name against the survivor. Looking only at live rows would miss
     // the clash and the insert would fail on every later merge.

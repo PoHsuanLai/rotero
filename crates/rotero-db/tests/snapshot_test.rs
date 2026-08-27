@@ -373,11 +373,8 @@ async fn a_short_snapshot_is_rejected() {
 
     let bytes = db.write_snapshot().await.unwrap();
     let mut plain = String::new();
-    std::io::Read::read_to_string(
-        &mut flate2::read::GzDecoder::new(&bytes[..]),
-        &mut plain,
-    )
-    .unwrap();
+    std::io::Read::read_to_string(&mut flate2::read::GzDecoder::new(&bytes[..]), &mut plain)
+        .unwrap();
 
     // Keep the header, drop the last row, and re-compress cleanly.
     let mut lines: Vec<&str> = plain.lines().collect();

@@ -147,7 +147,8 @@ impl Database {
         )
         .await?;
 
-        self.touch("papers", crate::clock::Pk::Single(&uuid)).await?;
+        self.touch("papers", crate::clock::Pk::Single(&uuid))
+            .await?;
 
         Ok(uuid)
     }
@@ -436,21 +437,30 @@ impl Database {
         )
         .await?;
 
-        self.tombstone("papers", crate::clock::Pk::Single(id)).await?;
+        self.tombstone("papers", crate::clock::Pk::Single(id))
+            .await?;
         for annotation_id in &annotations {
-            self.tombstone("annotations", crate::clock::Pk::Single(annotation_id)).await?;
+            self.tombstone("annotations", crate::clock::Pk::Single(annotation_id))
+                .await?;
         }
         for note_id in &notes {
-            self.tombstone("notes", crate::clock::Pk::Single(note_id)).await?;
+            self.tombstone("notes", crate::clock::Pk::Single(note_id))
+                .await?;
         }
         for collection_id in &collections {
-            self.tombstone("paper_collections", crate::clock::Pk::Composite(id, collection_id)).await?;
+            self.tombstone(
+                "paper_collections",
+                crate::clock::Pk::Composite(id, collection_id),
+            )
+            .await?;
         }
         for tag_id in &tags {
-            self.tombstone("paper_tags", crate::clock::Pk::Composite(id, tag_id)).await?;
+            self.tombstone("paper_tags", crate::clock::Pk::Composite(id, tag_id))
+                .await?;
         }
         for pk in citing.iter().chain(cited.iter()) {
-            self.tombstone("paper_citations", crate::clock::Pk::Single(pk)).await?;
+            self.tombstone("paper_citations", crate::clock::Pk::Single(pk))
+                .await?;
         }
 
         Ok(())
@@ -573,10 +583,15 @@ impl Database {
             .iter()
             .filter(|id| !existing_collections.contains(id))
         {
-            self.touch("paper_collections", crate::clock::Pk::Composite(keep_id, collection_id)).await?;
+            self.touch(
+                "paper_collections",
+                crate::clock::Pk::Composite(keep_id, collection_id),
+            )
+            .await?;
         }
         for tag_id in tags.iter().filter(|id| !existing_tags.contains(id)) {
-            self.touch("paper_tags", crate::clock::Pk::Composite(keep_id, tag_id)).await?;
+            self.touch("paper_tags", crate::clock::Pk::Composite(keep_id, tag_id))
+                .await?;
         }
 
         // `delete_paper` tracks the duplicate's own junction rows as deleted, so
@@ -590,20 +605,13 @@ impl Database {
         &self,
         paper_id: &str,
     ) -> Result<Vec<String>, crate::DbError> {
-        self.junction_ids(
-            queries::PAPER_COLLECTION_IDS,
-            paper_id,
-        )
-        .await
+        self.junction_ids(queries::PAPER_COLLECTION_IDS, paper_id)
+            .await
     }
 
     /// Tag ids attached to a paper.
     async fn tag_ids_for_paper(&self, paper_id: &str) -> Result<Vec<String>, crate::DbError> {
-        self.junction_ids(
-            queries::PAPER_TAG_IDS,
-            paper_id,
-        )
-        .await
+        self.junction_ids(queries::PAPER_TAG_IDS, paper_id).await
     }
 
     pub(crate) async fn junction_ids(

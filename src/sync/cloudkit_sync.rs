@@ -119,7 +119,9 @@ impl CloudKitSyncEngine {
             .map_err(|e| format!("Failed to build snapshot: {e}"))?;
 
         let checksum = rotero_db::snapshot::checksum(&bytes);
-        if read_text_state(db, "cloudkit_last_pushed_checksum").await.as_deref()
+        if read_text_state(db, "cloudkit_last_pushed_checksum")
+            .await
+            .as_deref()
             == Some(checksum.as_str())
         {
             return Ok(0);

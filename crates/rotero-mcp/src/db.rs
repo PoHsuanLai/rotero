@@ -411,10 +411,7 @@ impl Database {
 
     /// Return all (paper_id, tag_id) pairs for building the relationship graph.
     pub async fn list_all_paper_tags(&self) -> Result<Vec<(String, String)>, turso::Error> {
-        let mut rows = self
-            .conn
-            .query(queries::GRAPH_ALL_PAPER_TAGS, ())
-            .await?;
+        let mut rows = self.conn.query(queries::GRAPH_ALL_PAPER_TAGS, ()).await?;
         let mut pairs = Vec::new();
         while let Some(row) = rows.next().await? {
             if let (Some(pid), Some(tid)) = (get_opt_text(&row, 0), get_opt_text(&row, 1)) {
@@ -441,13 +438,7 @@ impl Database {
 
     /// List all directed (citing, cited) citation edges.
     pub async fn list_all_citations(&self) -> Result<Vec<(String, String)>, turso::Error> {
-        let mut rows = self
-            .conn
-            .query(
-                queries::GRAPH_ALL_CITATIONS,
-                (),
-            )
-            .await?;
+        let mut rows = self.conn.query(queries::GRAPH_ALL_CITATIONS, ()).await?;
         let mut pairs = Vec::new();
         while let Some(row) = rows.next().await? {
             if let (Some(a), Some(b)) = (get_opt_text(&row, 0), get_opt_text(&row, 1)) {
@@ -613,10 +604,7 @@ impl Database {
 
     /// Delete a tag (cascades to paper-tag associations).
     pub async fn delete_tag(&self, id: &str) -> Result<(), turso::Error> {
-        self.as_rotero_db()
-            .delete_tag(id)
-            .await
-            .map_err(to_turso)?;
+        self.as_rotero_db().delete_tag(id).await.map_err(to_turso)?;
         self.notify();
         Ok(())
     }

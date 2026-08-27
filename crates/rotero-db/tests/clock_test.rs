@@ -129,7 +129,9 @@ async fn deletes_leave_a_stamped_tombstone() {
 
     let tombstoned = scalar(
         &db,
-        &format!("SELECT COUNT(*) FROM papers WHERE id = '{paper}' AND deleted = 1 AND updated_at > 0"),
+        &format!(
+            "SELECT COUNT(*) FROM papers WHERE id = '{paper}' AND deleted = 1 AND updated_at > 0"
+        ),
     )
     .await;
     assert_eq!(

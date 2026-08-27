@@ -195,7 +195,13 @@ async fn reaping_is_rate_limited() {
     let horizon = now - TOMBSTONE_TTL_MS;
 
     aged_tombstone(&db, "First", TOMBSTONE_TTL_MS * 4, &device, now).await;
-    assert_eq!(db.reap_tombstones(Some(horizon), now).await.unwrap().removed, 1);
+    assert_eq!(
+        db.reap_tombstones(Some(horizon), now)
+            .await
+            .unwrap()
+            .removed,
+        1
+    );
 
     // A second tombstone, and another launch an hour later.
     aged_tombstone(&db, "Second", TOMBSTONE_TTL_MS * 4, &device, now).await;
@@ -204,9 +210,10 @@ async fn reaping_is_rate_limited() {
         .await
         .unwrap();
 
+    assert_eq!(stats.removed, 0, "a full scan must not run on every launch");
     assert_eq!(
-        stats.removed, 0,
-        "a full scan must not run on every launch"
+        tombstone_count(&db).await,
+        1,
+        "the second is simply deferred"
     );
-    assert_eq!(tombstone_count(&db).await, 1, "the second is simply deferred");
 }

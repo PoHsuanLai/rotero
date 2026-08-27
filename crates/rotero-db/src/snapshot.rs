@@ -108,8 +108,7 @@ impl Database {
                 .map_err(|e| SnapshotError::Malformed(e.to_string()))?;
         }
 
-        let mut encoder =
-            flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         encoder
             .write_all(&plain)
             .map_err(|e| SnapshotError::Malformed(e.to_string()))?;
@@ -246,7 +245,9 @@ impl Database {
         let empty = BTreeMap::new();
         let values = row.v.as_ref().unwrap_or(&empty);
         for c in &payload_cols {
-            params.push(from_json(values.get(*c).unwrap_or(&serde_json::Value::Null)));
+            params.push(from_json(
+                values.get(*c).unwrap_or(&serde_json::Value::Null),
+            ));
         }
         for (_, v) in &skeleton {
             params.push(v.clone());
@@ -276,8 +277,8 @@ pub fn parse_snapshot(bytes: &[u8]) -> Result<(SnapshotHeader, Vec<SnapshotRow>)
         .read_to_end(&mut plain)
         .map_err(|e| SnapshotError::Malformed(format!("not gzip: {e}")))?;
 
-    let text =
-        String::from_utf8(plain).map_err(|e| SnapshotError::Malformed(format!("not utf-8: {e}")))?;
+    let text = String::from_utf8(plain)
+        .map_err(|e| SnapshotError::Malformed(format!("not utf-8: {e}")))?;
     let mut lines = text.lines();
 
     let header_line = lines
@@ -467,7 +468,6 @@ impl Database {
             )
             .await
             .map_err(crate::DbError::from)?;
-
 
         Ok(())
     }

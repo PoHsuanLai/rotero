@@ -24,7 +24,8 @@ impl Database {
         )
         .await?;
 
-        self.touch("saved_searches", crate::clock::Pk::Single(&uuid)).await?;
+        self.touch("saved_searches", crate::clock::Pk::Single(&uuid))
+            .await?;
 
         Ok(uuid)
     }
@@ -38,7 +39,8 @@ impl Database {
 
     /// Delete a saved search by ID.
     pub async fn delete_saved_search(&self, id: &str) -> Result<(), crate::DbError> {
-        self.tombstone("saved_searches", crate::clock::Pk::Single(id)).await?;
+        self.tombstone("saved_searches", crate::clock::Pk::Single(id))
+            .await?;
         Ok(())
     }
 
@@ -50,7 +52,8 @@ impl Database {
             [Value::Text(name.to_string()), Value::Text(id.to_string())],
         )
         .await?;
-        self.touch("saved_searches", crate::clock::Pk::Single(id)).await?;
+        self.touch("saved_searches", crate::clock::Pk::Single(id))
+            .await?;
         Ok(())
     }
 }

@@ -104,7 +104,8 @@ pub const PAPER_LIST_CITATION_KEYS: &str =
     "SELECT citation_key FROM papers_live WHERE citation_key IS NOT NULL";
 
 /// List papers that have a remote PDF URL.
-pub const PAPER_SELECT_PDF_URL: &str = "SELECT id, pdf_url FROM papers_live WHERE pdf_url IS NOT NULL";
+pub const PAPER_SELECT_PDF_URL: &str =
+    "SELECT id, pdf_url FROM papers_live WHERE pdf_url IS NOT NULL";
 
 /// Insert a new collection.
 pub const COLLECTION_INSERT: &str =
@@ -218,7 +219,8 @@ pub const GRAPH_ALL_PAPER_TAGS: &str = "SELECT paper_id, tag_id FROM paper_tags_
 pub const GRAPH_ALL_PAPER_COLLECTIONS: &str =
     "SELECT paper_id, collection_id FROM paper_collections_live";
 /// Fetch all directed citation edges (citing → cited) for the graph.
-pub const GRAPH_ALL_CITATIONS: &str = "SELECT citing_paper_id, cited_paper_id FROM paper_citations_live";
+pub const GRAPH_ALL_CITATIONS: &str =
+    "SELECT citing_paper_id, cited_paper_id FROM paper_citations_live";
 /// Upsert one citation edge; ignore if it already exists.
 pub const CITATION_INSERT: &str =
     "INSERT OR IGNORE INTO paper_citations (citing_paper_id, cited_paper_id) VALUES (?1, ?2)";
@@ -271,8 +273,7 @@ pub const PAPER_COLLECTION_IDS: &str =
 pub const PAPER_TAG_IDS: &str = "SELECT tag_id FROM paper_tags WHERE paper_id = ?1";
 
 /// Another tag holding a name, for reconciling a same-name collision on merge.
-pub const TAG_FIND_NAME_CLASH: &str =
-    "SELECT id FROM tags WHERE name = ?1 AND id <> ?2 LIMIT 1";
+pub const TAG_FIND_NAME_CLASH: &str = "SELECT id FROM tags WHERE name = ?1 AND id <> ?2 LIMIT 1";
 /// Move a retired tag's memberships onto the surviving tag.
 pub const TAG_REPOINT_MEMBERSHIPS: &str = "\
     INSERT INTO paper_tags (paper_id, tag_id, updated_at, updated_by, deleted) \
@@ -289,8 +290,7 @@ pub const TAG_RETIRE_DUPLICATE: &str = "\
     UPDATE tags SET name = ?4, deleted = 1, updated_at = ?1, updated_by = ?2 WHERE id = ?3";
 
 /// Whether a table exists.
-pub const TABLE_EXISTS: &str =
-    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1";
+pub const TABLE_EXISTS: &str = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1";
 
 /// Read a one-time-task flag.
 pub const APP_FLAG_SELECT: &str = "SELECT value FROM app_flags WHERE key = ?1";
@@ -316,7 +316,9 @@ pub const PAPER_CITATION_PKS_IN: &str = "\
 
 /// Papers ordered newest first, one page at a time.
 pub fn paper_list_paginated() -> String {
-    format!("SELECT {PAPER_SELECT_COLS} FROM papers_live ORDER BY date_added DESC LIMIT ?1 OFFSET ?2")
+    format!(
+        "SELECT {PAPER_SELECT_COLS} FROM papers_live ORDER BY date_added DESC LIMIT ?1 OFFSET ?2"
+    )
 }
 
 /// Papers by id, for `placeholders` bound ids.

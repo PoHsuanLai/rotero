@@ -25,10 +25,7 @@ async fn strip_clocks(dir: &std::path::Path) {
     let conn = raw.connect().unwrap();
     for table in SYNCED_TABLES {
         conn.execute(
-            &format!(
-                "UPDATE {} SET updated_at = 0, updated_by = ''",
-                table.name
-            ),
+            &format!("UPDATE {} SET updated_at = 0, updated_by = ''", table.name),
             (),
         )
         .await
@@ -78,7 +75,9 @@ async fn populate(db: &Database) -> String {
         .await
         .unwrap();
     db.add_tag_to_paper(&paper, &tag).await.unwrap();
-    db.add_paper_to_collection(&paper, &collection).await.unwrap();
+    db.add_paper_to_collection(&paper, &collection)
+        .await
+        .unwrap();
     db.insert_note(&rotero_models::Note::new(paper.clone(), "Note".into()))
         .await
         .unwrap();

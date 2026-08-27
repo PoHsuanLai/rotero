@@ -87,7 +87,8 @@ impl Database {
             removed += affected as usize;
         }
 
-        self.set_app_flag(LAST_REAP_KEY, &now_ms.to_string()).await?;
+        self.set_app_flag(LAST_REAP_KEY, &now_ms.to_string())
+            .await?;
         Ok(ReapStats { removed })
     }
 

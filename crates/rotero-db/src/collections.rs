@@ -23,7 +23,8 @@ impl Database {
         )
         .await?;
 
-        self.touch("collections", crate::clock::Pk::Single(&uuid)).await?;
+        self.touch("collections", crate::clock::Pk::Single(&uuid))
+            .await?;
 
         Ok(uuid)
     }
@@ -46,7 +47,8 @@ impl Database {
             ]),
         )
         .await?;
-        self.touch("collections", crate::clock::Pk::Single(id)).await?;
+        self.touch("collections", crate::clock::Pk::Single(id))
+            .await?;
         Ok(())
     }
 
@@ -67,7 +69,8 @@ impl Database {
             ]),
         )
         .await?;
-        self.touch("collections", crate::clock::Pk::Single(id)).await?;
+        self.touch("collections", crate::clock::Pk::Single(id))
+            .await?;
         Ok(())
     }
 
@@ -83,15 +86,17 @@ impl Database {
     /// that no longer exists.
     pub async fn delete_collection(&self, id: &str) -> Result<(), crate::DbError> {
         let members = self
-            .junction_ids(
-                queries::COLLECTION_MEMBER_PAPER_IDS,
-                id,
-            )
+            .junction_ids(queries::COLLECTION_MEMBER_PAPER_IDS, id)
             .await?;
 
-        self.tombstone("collections", crate::clock::Pk::Single(id)).await?;
+        self.tombstone("collections", crate::clock::Pk::Single(id))
+            .await?;
         for paper_id in &members {
-            self.tombstone("paper_collections", crate::clock::Pk::Composite(paper_id, id)).await?;
+            self.tombstone(
+                "paper_collections",
+                crate::clock::Pk::Composite(paper_id, id),
+            )
+            .await?;
         }
         Ok(())
     }
@@ -210,7 +215,11 @@ impl Database {
             ],
         )
         .await?;
-        self.tombstone("paper_collections", crate::clock::Pk::Composite(paper_id, collection_id)).await?;
+        self.tombstone(
+            "paper_collections",
+            crate::clock::Pk::Composite(paper_id, collection_id),
+        )
+        .await?;
         Ok(())
     }
 }

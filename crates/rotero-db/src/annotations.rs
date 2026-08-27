@@ -39,7 +39,8 @@ impl Database {
         )
         .await?;
 
-        self.touch("annotations", crate::clock::Pk::Single(&uuid)).await?;
+        self.touch("annotations", crate::clock::Pk::Single(&uuid))
+            .await?;
 
         Ok(uuid)
     }
@@ -79,7 +80,8 @@ impl Database {
             ]),
         )
         .await?;
-        self.touch("annotations", crate::clock::Pk::Single(id)).await?;
+        self.touch("annotations", crate::clock::Pk::Single(id))
+            .await?;
         Ok(())
     }
 
@@ -100,13 +102,15 @@ impl Database {
             ]),
         )
         .await?;
-        self.touch("annotations", crate::clock::Pk::Single(id)).await?;
+        self.touch("annotations", crate::clock::Pk::Single(id))
+            .await?;
         Ok(())
     }
 
     /// Delete an annotation by ID.
     pub async fn delete_annotation(&self, id: &str) -> Result<(), crate::DbError> {
-        self.tombstone("annotations", crate::clock::Pk::Single(id)).await?;
+        self.tombstone("annotations", crate::clock::Pk::Single(id))
+            .await?;
         Ok(())
     }
 }

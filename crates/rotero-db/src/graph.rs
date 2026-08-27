@@ -64,7 +64,11 @@ impl Database {
             ],
         )
         .await?;
-        self.touch("paper_citations", crate::clock::Pk::Composite(citing_paper_id, cited_paper_id)).await?;
+        self.touch(
+            "paper_citations",
+            crate::clock::Pk::Composite(citing_paper_id, cited_paper_id),
+        )
+        .await?;
         Ok(())
     }
 
@@ -72,10 +76,7 @@ impl Database {
     pub async fn get_app_flag(&self, key: &str) -> Result<Option<String>, crate::DbError> {
         let conn = self.conn();
         let mut rows = conn
-            .query(
-                queries::APP_FLAG_SELECT,
-                [Value::Text(key.to_string())],
-            )
+            .query(queries::APP_FLAG_SELECT, [Value::Text(key.to_string())])
             .await?;
         if let Some(row) = rows.next().await? {
             Ok(row.get_value(0)?.as_text().cloned())

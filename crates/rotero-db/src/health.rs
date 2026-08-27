@@ -254,11 +254,7 @@ async fn count_where(db: &Database, table: &str, predicate: &str) -> Result<i64,
 
 /// Whether the library on disk records a device identity.
 async fn stored_device_id_exists(db: &Database) -> bool {
-    let Ok(mut rows) = db
-        .conn()
-        .query(crate::queries::DEVICE_ID_EXISTS, ())
-        .await
-    else {
+    let Ok(mut rows) = db.conn().query(crate::queries::DEVICE_ID_EXISTS, ()).await else {
         return false;
     };
     matches!(rows.next().await, Ok(Some(_)))
