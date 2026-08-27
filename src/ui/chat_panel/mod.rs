@@ -9,6 +9,7 @@ use crate::agent::types::{
     AgentStatus, ChatMessage, ChatRequest, ChatRole, ChatState, MessageContent,
 };
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager};
+use rotero_db::Database;
 use rotero_db::chat_sessions::ChatSubject;
 
 pub use panel::ChatPanel;
@@ -123,6 +124,7 @@ fn do_send(
     agent_channel: &AgentChannel,
     lib_state: &Signal<LibraryState>,
     tab_mgr: &Signal<PdfTabManager>,
+    db: &Database,
 ) {
     let input = chat_state.read().input_text.trim().to_string();
     if input.is_empty() {
@@ -146,10 +148,35 @@ fn do_send(
         }
     });
 
+    // A cheap label immediately, so a conversation is never nameless: the agent
+    // summary is better but costs a round trip, and may not arrive at all.
+    let first_message = chat_state
+        .read()
+        .messages
+        .iter()
+        .filter(|m| m.role == ChatRole::User)
+        .count()
+        == 1;
+    let session_id = chat_state.read().current_session_id.clone();
+    if first_message && let Some(session_id) = session_id.clone() {
+        let fallback: String = input.chars().take(120).collect();
+        let db = db.clone();
+        spawn(async move {
+            let _ = db.set_chat_session_summary(&session_id, &fallback).await;
+        });
+    }
+
     let paper_context = build_paper_context(&lib_state.read(), &tab_mgr.read());
 
     agent_channel.send(ChatRequest::SendMessage {
         prompt: input,
         paper_context,
     });
+
+    // Queued behind the message above: the agent thread handles requests in
+    // order, so asking first would summarize a conversation that hasn't
+    // happened yet.
+    if first_message && let Some(session_id) = session_id {
+        agent_channel.send(ChatRequest::SummarizeSession { session_id });
+    }
 }

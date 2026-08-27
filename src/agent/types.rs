@@ -195,6 +195,13 @@ pub enum ChatRequest {
         session_id: String,
         cwd: String,
     },
+    /// Ask for a one-line description of the conversation so far.
+    ///
+    /// The reply is routed to [`ChatEvent::SessionSummary`] and never reaches
+    /// the transcript.
+    SummarizeSession {
+        session_id: String,
+    },
     SwitchAgent {
         provider_id: String,
     },
@@ -243,6 +250,12 @@ pub enum ChatEvent {
         current: String,
     },
     SessionList(Vec<PastSession>),
+    /// A one-line description of a conversation, for surfaces that show it
+    /// without its transcript. Carries no visible message.
+    SessionSummary {
+        session_id: String,
+        summary: String,
+    },
     AuthRequired {
         provider_name: String,
     },

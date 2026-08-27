@@ -11,6 +11,8 @@ use super::{AgentChannel, do_send, get_context_paper_title};
 pub fn ChatPanel() -> Element {
     let mut chat_state = use_context::<Signal<ChatState>>();
     let agent_channel = use_context::<AgentChannel>();
+    let db = use_context::<rotero_db::Database>();
+    let db_key = db.clone();
     let lib_state = use_context::<Signal<LibraryState>>();
     let tab_mgr = use_context::<Signal<PdfTabManager>>();
 
@@ -262,7 +264,7 @@ pub fn ChatPanel() -> Element {
                     onkeydown: move |e| {
                         if e.key() == Key::Enter && !e.modifiers().shift() {
                             e.prevent_default();
-                            do_send(&mut chat_state, &agent_channel, &lib_state, &tab_mgr);
+                            do_send(&mut chat_state, &agent_channel, &lib_state, &tab_mgr, &db_key);
                         }
                         if e.key() == Key::Escape {
                             chat_state.with_mut(|s| s.show_command_picker = false);
@@ -277,7 +279,7 @@ pub fn ChatPanel() -> Element {
                             agent_channel.send(ChatRequest::Cancel);
                             chat_state.with_mut(|s| s.status = AgentStatus::Idle);
                         } else {
-                            do_send(&mut chat_state, &agent_channel, &lib_state, &tab_mgr);
+                            do_send(&mut chat_state, &agent_channel, &lib_state, &tab_mgr, &db);
                         }
                     },
                     if is_busy {

@@ -255,6 +255,19 @@ pub fn handle_chat_event(
         ChatEvent::CommandsAvailable(commands) => {
             chat_state.with_mut(|s| s.commands = commands);
         }
+        ChatEvent::SessionSummary {
+            session_id,
+            summary,
+        } => {
+            // Deliberately does not touch `messages`: the summary describes the
+            // conversation from outside it.
+            let db = db.clone();
+            spawn(async move {
+                if let Err(e) = db.set_chat_session_summary(&session_id, &summary).await {
+                    tracing::debug!("chat: recording summary failed: {e}");
+                }
+            });
+        }
         ChatEvent::SessionList(sessions) => {
             chat_state.with_mut(|s| {
                 s.past_sessions = sessions;
