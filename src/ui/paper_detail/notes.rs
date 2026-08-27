@@ -5,26 +5,22 @@ use rotero_db::Database;
 #[component]
 pub fn NotesSection(paper_id: String) -> Element {
     let db = use_context::<Database>();
-    let mut notes = use_signal(Vec::new);
 
-    {
-        let db = db.clone();
-        let pid = paper_id.clone();
-        use_effect(move || {
-            let db = db.clone();
-            let pid = pid.clone();
-            spawn(async move {
-                if let Ok(paper_notes) = db.list_notes_for_paper(&pid).await {
-                    notes.set(paper_notes);
-                }
-            });
-        });
-    }
+    // `use_reactive` is what ties this to the prop: the panel reuses this
+    // component when the selection changes, and a plain captured clone is not
+    // reactive, so the query would run once and every later paper would show
+    // the first one's notes.
+    let db_load = db.clone();
+    let notes = use_resource(use_reactive!(|paper_id| {
+        let db = db_load.clone();
+        async move { db.list_notes_for_paper(&paper_id).await.unwrap_or_default() }
+    }));
 
     let note_list = notes.read();
-    if note_list.is_empty() {
-        return rsx! {};
-    }
+    let note_list = match note_list.as_ref() {
+        Some(notes) if !notes.is_empty() => notes,
+        _ => return rsx! {},
+    };
 
     rsx! {
         div { class: "detail-notes-section",
@@ -40,7 +36,6 @@ pub fn NotesSection(paper_id: String) -> Element {
                     let body_preview = rotero_models::truncate_chars(&note.body, 117);
                     let body_html = crate::ui::markdown::md_to_html(&body_preview);
                     let db_del = db.clone();
-                    let pid = paper_id.clone();
                     rsx! {
                         div { key: "note-{note_id}", class: "detail-note-card",
                             div { class: "detail-note-title", "{title}" }
@@ -53,12 +48,12 @@ pub fn NotesSection(paper_id: String) -> Element {
                                 onclick: move |_| {
                                     let db = db_del.clone();
                                     let nid = note_id.clone();
-                                    let pid = pid.clone();
+                                    let mut notes = notes;
                                     spawn(async move {
                                         let _ = db.delete_note(&nid).await;
-                                        if let Ok(paper_notes) = db.list_notes_for_paper(&pid).await {
-                                            notes.set(paper_notes);
-                                        }
+                                        // Re-reads through the same query the
+                                        // list was built from.
+                                        notes.restart();
                                     });
                                 },
                                 "Delete"

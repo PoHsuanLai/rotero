@@ -5,6 +5,7 @@ use crate::sync::engine::SyncConfig;
 use rotero_db::Database;
 
 use super::DetailShell;
+use super::conversations::ConversationsSection;
 use super::detail_fields::DetailFields;
 use super::fields::{CollectionsField, TagsField};
 use super::notes::NotesSection;
@@ -185,6 +186,10 @@ pub fn PaperDetail() -> Element {
                 crate::ui::citation_dialog::CitationDialog {}
             }
 
+            // These reload on `paper_id` via `use_reactive!` internally: the
+            // panel reuses the instance across selections, and a key here is
+            // not allowed on a non-first node.
+            ConversationsSection { paper_id: paper_id.clone() }
             NotesSection { paper_id: paper_id.clone() }
 
             div { class: "detail-delete-section",

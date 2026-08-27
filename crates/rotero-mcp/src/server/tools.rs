@@ -717,9 +717,14 @@ impl RoteroMcp {
         let edges = rotero_graph::edges::compute_edges(
             &papers,
             &tags,
-            &paper_tags,
-            &paper_colls,
-            &citations,
+            rotero_graph::data::Relations {
+                paper_tags: &paper_tags,
+                paper_collections: &paper_colls,
+                citations: &citations,
+                // Deliberately empty: these tools describe the library to the
+                // agent, and its own past chats are not a property of it.
+                conversations: &[],
+            },
             &filter,
         );
 
@@ -781,9 +786,14 @@ impl RoteroMcp {
         let mut edges = rotero_graph::edges::compute_edges(
             &papers,
             &tags,
-            &paper_tags,
-            &paper_colls,
-            &citations,
+            rotero_graph::data::Relations {
+                paper_tags: &paper_tags,
+                paper_collections: &paper_colls,
+                citations: &citations,
+                // Deliberately empty: these tools describe the library to the
+                // agent, and its own past chats are not a property of it.
+                conversations: &[],
+            },
             &filter,
         );
         edges.truncate(max_edges);

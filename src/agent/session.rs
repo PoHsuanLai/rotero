@@ -6,7 +6,7 @@ use super::connection::RawAcpConnection;
 use super::helpers::{
     agent_working_dir, build_mcp_servers_json, extract_auth_methods, extract_models_event,
     extract_permission_options, first_allow_option_id, handle_notification, is_auth_error,
-    wait_for_switch_or_shutdown,
+    strip_protocol_tags, wait_for_switch_or_shutdown,
 };
 use super::install::ensure_agent_installed;
 use super::types::{AgentProvider, ChatEvent, ChatRequest, PastSession};
@@ -96,7 +96,9 @@ pub(crate) fn connect_and_run(
                 .unwrap_or("")
                 .to_string();
             tracing::info!("ACP: session created: {session_id}");
-            let _ = evt_tx.send(ChatEvent::SessionCreated);
+            let _ = evt_tx.send(ChatEvent::SessionCreated {
+                session_id: session_id.clone(),
+            });
 
             if let Some(models) = r.get("models") {
                 let _ = evt_tx.send(extract_models_event(models));
@@ -120,6 +122,9 @@ pub(crate) fn connect_and_run(
         }
     }
 
+    // A summary request that arrived while a turn was streaming, run once it
+    // completes so it describes a conversation that has actually happened.
+    let mut deferred_summary: Option<String> = None;
     let mut pending_auth_id: Option<u64> = None;
     let mut pending_auth_start: Option<std::time::Instant> = None;
     const AUTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
@@ -172,6 +177,13 @@ pub(crate) fn connect_and_run(
                                 "session/cancel",
                                 serde_json::json!({ "sessionId": session_id }),
                             );
+                        }
+                        // A summary asked for while the turn it describes is
+                        // still streaming: hold it until the turn finishes
+                        // rather than dropping it, which is what `_ => {}` did
+                        // to every other request that arrived mid-turn.
+                        Ok(ChatRequest::SummarizeSession { session_id: sid }) => {
+                            deferred_summary = Some(sid);
                         }
                         _ => {}
                     }
@@ -235,6 +247,18 @@ pub(crate) fn connect_and_run(
                             }
                         }
                     }
+                }
+
+                // The turn is over, so a summary asked for mid-stream can now
+                // describe it.
+                if let Some(sid) = deferred_summary.take()
+                    && sid == session_id
+                    && let Some(summary) = request_session_summary(&mut conn, &session_id)
+                {
+                    let _ = evt_tx.send(ChatEvent::SessionSummary {
+                        session_id: sid,
+                        summary,
+                    });
                 }
             }
             Ok(ChatRequest::Cancel) => {
@@ -317,14 +341,43 @@ pub(crate) fn connect_and_run(
                 });
                 match conn.send_request("session/load", params, Some(evt_tx)) {
                     Ok(result) => {
-                        if let Some(sid) = result.get("sessionId").and_then(|v| v.as_str()) {
-                            session_id = sid.to_string();
-                        }
-                        let _ = evt_tx.send(ChatEvent::SessionCreated);
+                        // Fall back to the id we asked for: an agent that omits
+                        // `sessionId` from the reply would otherwise leave the
+                        // previous session's id in place, and the loaded chat
+                        // would be recorded against the wrong subject.
+                        session_id = result
+                            .get("sessionId")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(load_id.as_str())
+                            .to_string();
+                        let _ = evt_tx.send(ChatEvent::SessionCreated {
+                            session_id: session_id.clone(),
+                        });
                     }
                     Err(e) => {
-                        let _ = evt_tx.send(ChatEvent::Error(format!("Load session failed: {e}")));
+                        // The agent has forgotten this conversation — it was
+                        // pruned, or belongs to another machine. Not the user's
+                        // problem to solve, so report it as a lost session
+                        // rather than an error and let a fresh one take over.
+                        tracing::info!("ACP: session {load_id} could not be loaded: {e}");
+                        let _ = evt_tx.send(ChatEvent::SessionLoadFailed {
+                            session_id: load_id,
+                        });
                     }
+                }
+            }
+            Ok(ChatRequest::SummarizeSession {
+                session_id: summarize_id,
+            }) => {
+                // Summarizing a session other than the live one would describe
+                // the wrong conversation.
+                if summarize_id == session_id
+                    && let Some(summary) = request_session_summary(&mut conn, &session_id)
+                {
+                    let _ = evt_tx.send(ChatEvent::SessionSummary {
+                        session_id: summarize_id,
+                        summary,
+                    });
                 }
             }
             Ok(ChatRequest::SwitchAgent { provider_id }) => {
@@ -398,7 +451,14 @@ pub(crate) fn connect_and_run(
                                         {
                                             session_id = sid.to_string();
                                         }
-                                        let _ = evt_tx.send(ChatEvent::SessionCreated);
+                                        // No requested id to fall back on here, so
+                                        // stay silent rather than announce a session
+                                        // keyed on an empty string.
+                                        if !session_id.is_empty() {
+                                            let _ = evt_tx.send(ChatEvent::SessionCreated {
+                                                session_id: session_id.clone(),
+                                            });
+                                        }
                                     }
                                     Err(e) if is_auth_error(&e) => {
                                         let _ = evt_tx.send(ChatEvent::AuthRequired {
@@ -446,4 +506,94 @@ pub(crate) fn connect_and_run(
 
     conn.kill();
     result
+}
+
+/// Ask the agent to describe the conversation, returning the reply text.
+///
+/// Deliberately does not go through `handle_notification`: routing the reply
+/// here rather than filtering it downstream means the summary turn emits no
+/// events at all, so there is no window in which a stray delta could land in
+/// the visible transcript. Correlation is by JSON-RPC id, which is exact.
+///
+/// Returns `None` if the agent declines, errors, or says nothing.
+fn request_session_summary(conn: &mut RawAcpConnection, session_id: &str) -> Option<String> {
+    const PROMPT: &str = "<rotero-context>\nIn one sentence of at most 120 characters, describe \
+what this conversation has been about. Name the specific paper or topic. Reply with the sentence \
+only — no preamble, no markdown, no quotes.\n</rotero-context>";
+    /// A summary must never wedge the loop the user's own messages run through.
+    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
+
+    let prompt_id = conn.next_id;
+    conn.next_id += 1;
+    let msg = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": prompt_id,
+        "method": "session/prompt",
+        "params": {
+            "sessionId": session_id,
+            "prompt": [{ "type": "text", "text": PROMPT }],
+        },
+    });
+    conn.write_message(&msg).ok()?;
+
+    let deadline = std::time::Instant::now() + TIMEOUT;
+    let mut buf = String::new();
+    loop {
+        match conn.incoming.try_recv() {
+            Ok(line) => {
+                let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+                    continue;
+                };
+                if v.get("id").and_then(|i| i.as_u64()) == Some(prompt_id) {
+                    if v.get("error").is_some() {
+                        return None;
+                    }
+                    break;
+                }
+                // Auto-allow: a summary should never raise a dialog, and a
+                // pending permission would otherwise stall until the timeout.
+                if v.get("method").and_then(|m| m.as_str()) == Some("session/request_permission") {
+                    if let Some(req_id) = v.get("id") {
+                        let option_id = first_allow_option_id(&v);
+                        let response = serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": req_id,
+                            "result": { "outcome": { "outcome": "selected", "optionId": option_id } }
+                        });
+                        let _ = conn.write_message(&response);
+                    }
+                    continue;
+                }
+                // Everything else this turn produces is dropped on purpose.
+                if v.pointer("/params/update/sessionUpdate")
+                    .and_then(|s| s.as_str())
+                    == Some("agent_message_chunk")
+                    && let Some(text) = v
+                        .pointer("/params/update/content/text")
+                        .and_then(|t| t.as_str())
+                {
+                    buf.push_str(text);
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                if std::time::Instant::now() > deadline {
+                    tracing::debug!("ACP: session summary timed out");
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(mpsc::TryRecvError::Disconnected) => break,
+        }
+    }
+
+    let summary: String = strip_protocol_tags(&buf)
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("")
+        .trim_matches('"')
+        .chars()
+        .take(200)
+        .collect();
+    (!summary.is_empty()).then_some(summary)
 }

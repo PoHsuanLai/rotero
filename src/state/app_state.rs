@@ -870,6 +870,39 @@ mod tests {
         }
     }
 
+    /// Shift-clicking papers in the graph gathers them into one selection,
+    /// which is what the "Chat About These" action takes as its subject.
+    #[test]
+    fn toggling_gathers_papers_and_toggling_again_drops_them() {
+        let mut state = LibraryState::default();
+
+        state.toggle_select("p1");
+        state.toggle_select("p2");
+        state.toggle_select("p3");
+        assert_eq!(state.selection_count(), 3);
+
+        // The same click again removes it, leaving the rest gathered.
+        state.toggle_select("p2");
+        assert_eq!(state.selection_count(), 2);
+        assert!(state.is_selected("p1"));
+        assert!(!state.is_selected("p2"));
+        assert!(state.is_selected("p3"));
+    }
+
+    /// A plain click is not an accumulating one: it replaces whatever was
+    /// gathered, so the graph's ordinary click still means "look at this paper".
+    #[test]
+    fn a_plain_click_replaces_a_gathered_selection() {
+        let mut state = LibraryState::default();
+        state.toggle_select("p1");
+        state.toggle_select("p2");
+
+        state.select_one("p3".to_string());
+
+        assert_eq!(state.selection_count(), 1);
+        assert!(state.is_selected("p3"));
+    }
+
     /// Search results are a snapshot taken when the query ran, and no mutation
     /// path updates it. Reading through to `papers` is what stops a favourite
     /// toggled during a search from appearing to revert.

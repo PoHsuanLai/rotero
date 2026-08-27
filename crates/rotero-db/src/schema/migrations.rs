@@ -5,7 +5,7 @@ use turso::Connection;
 use super::tables::{CREATE_FTS_INDEX, CREATE_LIVE_VIEWS, CREATE_TABLES};
 
 /// Current schema version; incremented with each migration.
-pub const SCHEMA_VERSION: i64 = 14;
+pub const SCHEMA_VERSION: i64 = 17;
 
 /// Why a database could not be prepared for use.
 #[derive(Debug, thiserror::Error)]
@@ -297,6 +297,89 @@ async fn run_migrations(conn: &Connection) -> Result<(), SchemaError> {
 
     if current_version < 14 {
         migrate_to_lww(conn).await?;
+    }
+
+    if current_version < 15 {
+        // Chat-session index, keyed by the subject a conversation is about.
+        // Created here for existing DBs; CREATE_TABLES handles fresh ones.
+        // Local-only, so no sync columns and no _live view — see tables.rs.
+        let _ = conn
+            .execute(
+                "CREATE TABLE IF NOT EXISTS chat_sessions (
+                    session_id   TEXT PRIMARY KEY,
+                    provider_id  TEXT NOT NULL DEFAULT '',
+                    subject_kind TEXT NOT NULL,
+                    subject_id   TEXT,
+                    summary      TEXT,
+                    created_at   TEXT NOT NULL,
+                    last_used_at TEXT NOT NULL,
+                    is_dead      INTEGER NOT NULL DEFAULT 0
+                )",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "CREATE TABLE IF NOT EXISTS chat_session_papers (
+                    session_id TEXT NOT NULL REFERENCES chat_sessions(session_id) ON DELETE CASCADE,
+                    paper_id   TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+                    is_subject INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (session_id, paper_id)
+                )",
+                (),
+            )
+            .await;
+        // Idempotent: adds the column to a v15 library, no-op once present.
+        let _ = conn
+            .execute(
+                "ALTER TABLE chat_session_papers ADD COLUMN is_subject INTEGER NOT NULL DEFAULT 0",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "CREATE INDEX IF NOT EXISTS idx_chat_sessions_subject \
+                 ON chat_sessions (subject_kind, subject_id)",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "CREATE INDEX IF NOT EXISTS idx_chat_session_papers_paper \
+                 ON chat_session_papers (paper_id)",
+                (),
+            )
+            .await;
+    }
+
+    // Unconditional, not guarded on the version: an earlier build stamped 16
+    // without ever running this, stranding the column in a library that then
+    // reported itself up to date. Attempting it every open costs one failed
+    // statement and repairs those libraries; a version check cannot.
+    //
+    // Separates the papers a conversation is about from the ones the agent
+    // merely read. A library created at 15 already has the table, so the CREATE
+    // above is a no-op for it and only this ALTER adds the column.
+    let _ = conn
+        .execute(
+            "ALTER TABLE chat_session_papers ADD COLUMN is_subject INTEGER NOT NULL DEFAULT 0",
+            (),
+        )
+        .await;
+
+    if current_version < 17 {
+        // Clear out conversations that never happened. An earlier build filed a
+        // row when the agent opened a session, which it does on connect — so
+        // every launch left one behind whether or not anything was said. They
+        // are identifiable by having neither a label nor a linked paper.
+        let _ = conn
+            .execute(
+                "DELETE FROM chat_sessions \
+                 WHERE (summary IS NULL OR summary = '') \
+                   AND session_id NOT IN (SELECT session_id FROM chat_session_papers)",
+                (),
+            )
+            .await;
     }
 
     if current_version < SCHEMA_VERSION {

@@ -97,6 +97,39 @@ CREATE TABLE IF NOT EXISTS app_flags (
     value TEXT
 );
 
+-- The agent conversation for one subject: a paper, a collection, or an ad-hoc
+-- set of papers. Local-only for the same reason as app_flags, and a stronger
+-- one: session ids are minted by the agent binary on THIS machine, so a synced
+-- row would name a session that resolves to nothing on the other device. Hence
+-- no updated_at/updated_by/deleted columns and no _live view.
+--
+-- subject_id is deliberately not a foreign key: deleting a paper should leave
+-- the conversation on record rather than erase it.
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    session_id   TEXT PRIMARY KEY,
+    provider_id  TEXT NOT NULL DEFAULT '',
+    subject_kind TEXT NOT NULL,
+    subject_id   TEXT,
+    summary      TEXT,
+    created_at   TEXT NOT NULL,
+    last_used_at TEXT NOT NULL,
+    is_dead      INTEGER NOT NULL DEFAULT 0
+);
+
+-- Papers a conversation touched. `is_subject` marks the ones it is actually
+-- about — the single anchor for a 'paper' subject, the whole member set for
+-- 'collection' and 'group'. The rest are papers the agent read while answering,
+-- recorded so the conversation can be traced, but not claiming to be about them.
+CREATE TABLE IF NOT EXISTS chat_session_papers (
+    session_id TEXT NOT NULL REFERENCES chat_sessions(session_id) ON DELETE CASCADE,
+    paper_id   TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    is_subject INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (session_id, paper_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_subject ON chat_sessions (subject_kind, subject_id);
+CREATE INDEX IF NOT EXISTS idx_chat_session_papers_paper ON chat_session_papers (paper_id);
+
 CREATE TABLE IF NOT EXISTS annotations (
     id          TEXT PRIMARY KEY,
     paper_id    TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
