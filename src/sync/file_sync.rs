@@ -99,20 +99,8 @@ impl FileSyncEngine {
             return Ok(0);
         }
 
-        let mine = format!("{}.snapshot", self.site_id_hex());
-        let entries =
-            std::fs::read_dir(&dir).map_err(|e| format!("Failed to read devices dir: {e}"))?;
-
-        let mut files: Vec<PathBuf> = entries
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|ext| ext == "snapshot"))
-            .filter(|p| p.file_name().is_none_or(|n| n != mine.as_str()))
-            .collect();
-        files.sort();
-
         let mut total_applied = 0;
-        for path in files {
+        for path in self.peer_files() {
             match self.merge_peer(db, &path).await {
                 Ok(applied) => total_applied += applied,
                 Err(e) => tracing::warn!("Skipping {}: {e}", path.display()),
@@ -120,6 +108,25 @@ impl FileSyncEngine {
         }
 
         Ok(total_applied)
+    }
+
+    /// Every other device's snapshot in the shared folder, sorted.
+    ///
+    /// Excludes this device's own file: reading it back would decompress and
+    /// walk a whole copy of the library on every tick to apply nothing.
+    fn peer_files(&self) -> Vec<PathBuf> {
+        let mine = format!("{}.snapshot", self.site_id_hex());
+        let Ok(entries) = std::fs::read_dir(self.devices_dir()) else {
+            return Vec::new();
+        };
+        let mut files: Vec<PathBuf> = entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|ext| ext == "snapshot"))
+            .filter(|p| p.file_name().is_none_or(|n| n != mine.as_str()))
+            .collect();
+        files.sort();
+        files
     }
 
     /// The oldest `generated_at` across every readable peer snapshot.
@@ -347,6 +354,77 @@ mod tests {
             me.import_changes(&db).await.unwrap(),
             0,
             "a checksum mismatch must be skipped, not merged"
+        );
+    }
+
+    /// A snapshot that parses cleanly but does not match its checksum is
+    /// rejected.
+    ///
+    /// The other checksum test writes bytes that are not a snapshot at all, so
+    /// it passes on the parse failure alone and proves nothing about the
+    /// checksum. This one swaps in a *valid* snapshot from a different library —
+    /// what a half-finished cloud upload of an older version looks like — so
+    /// only the checksum can catch it.
+    #[tokio::test]
+    async fn a_valid_snapshot_with_the_wrong_checksum_is_rejected() {
+        let shared = tempfile::tempdir().unwrap();
+        let peer_lib = tempfile::tempdir().unwrap();
+        let my_lib = tempfile::tempdir().unwrap();
+
+        let peer_db = rotero_db::Database::open(peer_lib.path().to_path_buf())
+            .await
+            .unwrap();
+        peer_db
+            .insert_paper(&rotero_models::Paper {
+                title: "Should not arrive".into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        engine(shared.path(), 7).export_changes(&peer_db).await.unwrap();
+
+        // Corrupt only the sidecar, leaving a perfectly parseable snapshot.
+        let devices = shared.path().join("devices");
+        std::fs::write(devices.join(format!("{}.meta", hex(7))), "0".repeat(64)).unwrap();
+
+        let my_db = rotero_db::Database::open(my_lib.path().to_path_buf())
+            .await
+            .unwrap();
+        let applied = engine(shared.path(), 1).import_changes(&my_db).await.unwrap();
+
+        assert_eq!(applied, 0, "a checksum mismatch must be skipped");
+        assert!(
+            my_db.list_papers().await.unwrap().is_empty(),
+            "and nothing from that peer may be applied"
+        );
+    }
+
+    /// A device's own snapshot is filtered out of the import.
+    ///
+    /// Skipping it is an optimisation rather than a correctness boundary: were
+    /// it read, every row would lose the clock comparison against itself and a
+    /// failed read is skipped anyway, so the library is safe either way. What
+    /// this pins is that the filter selects the right file — an off-by-one in
+    /// the name comparison would either read a whole extra copy of the library
+    /// every tick, or silently skip a real peer.
+    #[tokio::test]
+    async fn a_device_filters_its_own_snapshot_out_of_the_import() {
+        let shared = tempfile::tempdir().unwrap();
+        let devices = shared.path().join("devices");
+        std::fs::create_dir_all(&devices).unwrap();
+
+        // Two files whose names differ only by device.
+        for site in [3u8, 4u8] {
+            std::fs::write(devices.join(format!("{}.snapshot", hex(site))), b"x").unwrap();
+        }
+
+        let mine = engine(shared.path(), 3);
+        let peers = mine.peer_files();
+
+        assert_eq!(peers.len(), 1, "exactly one file is a peer's, got {peers:?}");
+        assert!(
+            peers[0].ends_with(format!("{}.snapshot", hex(4))),
+            "the peer's file must be the one kept, got {peers:?}"
         );
     }
 

@@ -126,8 +126,11 @@ impl Database {
     pub async fn merge_snapshot(&self, bytes: &[u8]) -> Result<MergeStats, SnapshotError> {
         let (header, rows) = parse_snapshot(bytes)?;
 
-        // Applying our own snapshot back onto ourselves is at best wasted work
-        // and at worst confusing to debug.
+        // Skip our own snapshot. This is an optimisation, not a correctness
+        // requirement — the clock guard already rejects every row, since a
+        // device's own rows can never beat their own timestamps. Removing it
+        // changes no observable behaviour, only the amount of work done, which
+        // is why no test asserts on it.
         if header.site_id == self.device_id() {
             return Ok(MergeStats::default());
         }
