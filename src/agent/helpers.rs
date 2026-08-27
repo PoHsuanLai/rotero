@@ -137,11 +137,18 @@ pub(crate) fn handle_notification(
                         .and_then(|c| c.get("text"))
                         .and_then(|t| t.as_str())
                     {
+                        // Read the context block before stripping it: on a
+                        // replayed transcript this is the only record of which
+                        // paper the conversation was about.
+                        let context_paper_ids = paper_ids_from_context_block(text);
                         // A user chunk is a whole message, so the padding
                         // left behind by tag removal can go.
                         let cleaned = strip_protocol_tags(text).trim().to_string();
-                        if !cleaned.is_empty() {
-                            let _ = evt_tx.send(ChatEvent::UserMessage(cleaned));
+                        if !cleaned.is_empty() || !context_paper_ids.is_empty() {
+                            let _ = evt_tx.send(ChatEvent::UserMessage {
+                                text: cleaned,
+                                context_paper_ids,
+                            });
                         }
                     }
                 }
@@ -353,6 +360,39 @@ pub(crate) fn strip_protocol_tags(text: &str) -> String {
     result
 }
 
+/// Paper ids named in a message's `<rotero-context>` blocks, in order.
+///
+/// Runs here rather than in the app layer because [`strip_protocol_tags`]
+/// removes the block before a message is ever emitted: the agent's stored
+/// transcript is the only record of which paper a past conversation was about,
+/// and it is readable exactly once, as the transcript replays on `session/load`.
+pub(crate) fn paper_ids_from_context_block(raw: &str) -> Vec<String> {
+    const OPEN: &str = "<rotero-context";
+    const CLOSE: &str = "</rotero-context>";
+    const KEY: &str = "Paper ID:";
+
+    let mut ids = Vec::new();
+    let mut rest = raw;
+    while let Some(start) = rest.find(OPEN) {
+        let after_open = &rest[start..];
+        // An unterminated block still carries a usable id, so scan to the end.
+        let (block, consumed) = match after_open.find(CLOSE) {
+            Some(end) => (&after_open[..end], start + end + CLOSE.len()),
+            None => (after_open, rest.len()),
+        };
+        for line in block.lines() {
+            if let Some(value) = line.trim().strip_prefix(KEY) {
+                let id = value.trim();
+                if !id.is_empty() && !ids.iter().any(|seen| seen == id) {
+                    ids.push(id.to_string());
+                }
+            }
+        }
+        rest = &rest[consumed..];
+    }
+    ids
+}
+
 pub(crate) fn extract_models_event(models: &serde_json::Value) -> ChatEvent {
     let available = models
         .get("availableModels")
@@ -455,6 +495,47 @@ pub(crate) fn extract_auth_methods(init_result: &serde_json::Value) -> Vec<Agent
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The exact shape `build_paper_context` produces.
+    #[test]
+    fn reads_the_paper_id_the_app_sends() {
+        let raw = "<rotero-context>\nWhen finding papers, prefer the rotero MCP tools.\n\
+                   I'm currently looking at this paper in my library:\n\
+                   Title: Attention Is All You Need\nAuthors: Vaswani\nYear: 2017\n\
+                   DOI: 10.5555/1\nPaper ID: abc-123\n\
+                   You can use the rotero MCP tools.\n</rotero-context>\n\nWhat is this about?";
+        assert_eq!(paper_ids_from_context_block(raw), vec!["abc-123"]);
+    }
+
+    /// The variant the paper detail panel sends when asking for an OA PDF.
+    #[test]
+    fn reads_the_shorter_block_from_the_detail_panel() {
+        let raw = "<rotero-context>\nPaper ID: xyz-789\nTitle: A\n</rotero-context>";
+        assert_eq!(paper_ids_from_context_block(raw), vec!["xyz-789"]);
+    }
+
+    #[test]
+    fn a_message_without_a_block_names_no_papers() {
+        assert!(paper_ids_from_context_block("Just a question.").is_empty());
+        assert!(paper_ids_from_context_block("").is_empty());
+    }
+
+    #[test]
+    fn reads_every_block_and_records_each_paper_once() {
+        let raw = "<rotero-context>\nPaper ID: a\n</rotero-context>\
+                   <rotero-context>\nPaper ID: b\n</rotero-context>\
+                   <rotero-context>\nPaper ID: a\n</rotero-context>";
+        assert_eq!(paper_ids_from_context_block(raw), vec!["a", "b"]);
+    }
+
+    /// A block cut off mid-stream still names the paper it was about.
+    #[test]
+    fn an_unterminated_block_still_yields_its_id() {
+        assert_eq!(
+            paper_ids_from_context_block("<rotero-context>\nPaper ID: a\n"),
+            vec!["a"]
+        );
+    }
 
     #[test]
     fn recognises_windows_batch_extensions() {

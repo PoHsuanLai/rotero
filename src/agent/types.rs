@@ -169,6 +169,9 @@ pub struct ChatState {
     pub current_model: String,
     /// The agent session backing the visible transcript, once one exists.
     pub current_session_id: Option<String>,
+    /// What the next session created will be about. Set when a message is sent,
+    /// since the subject is known then but the session id is not yet.
+    pub pending_subject: Option<rotero_db::chat_sessions::ChatSubject>,
 }
 
 pub enum ChatRequest {
@@ -212,7 +215,12 @@ pub enum ChatEvent {
     SessionCreated {
         session_id: String,
     },
-    UserMessage(String),
+    UserMessage {
+        text: String,
+        /// Papers named in the message's `<rotero-context>` block, recovered
+        /// before the block was stripped for display.
+        context_paper_ids: Vec<String>,
+    },
     TextDelta(String),
     ToolCallStarted {
         id: String,

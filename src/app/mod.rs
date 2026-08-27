@@ -1,4 +1,5 @@
 mod chat_handler;
+mod chat_papers;
 mod library_loader;
 // Poses the UI for documentation screenshots. Debug builds only.
 #[cfg(all(feature = "desktop", debug_assertions))]
@@ -17,7 +18,7 @@ use crate::ui::chat_panel::AgentChannel;
 use crate::ui::layout::Layout;
 use rotero_db::Database;
 
-use chat_handler::handle_chat_event;
+use chat_handler::{AgentEvents, ChatEventPump};
 use library_loader::LoadLibraryData;
 use sync_loop::SyncLoop;
 #[cfg(feature = "desktop")]
@@ -134,8 +135,7 @@ pub fn App() -> Element {
         crate::init::preflight::check_pdf_engine().await;
     });
 
-    let mut chat_state: Signal<ChatState> =
-        use_context_provider(|| Signal::new(ChatState::default()));
+    let _chat_state: Signal<ChatState> = use_context_provider(|| Signal::new(ChatState::default()));
     let (agent_tx, agent_rx) = use_hook(|| {
         let (req_tx, evt_rx) = crate::agent::spawn_agent_thread();
         (Signal::new(Some(req_tx)), Signal::new(Some(evt_rx)))
@@ -143,20 +143,10 @@ pub fn App() -> Element {
     let agent_channel: AgentChannel = use_context_provider(|| AgentChannel { inner: agent_tx });
     let _ = agent_channel;
 
-    use_future(move || {
-        let mut rx_sig = agent_rx;
-        async move {
-            let Some(mut rx) = rx_sig.write().take() else {
-                return;
-            };
-            loop {
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                while let Ok(event) = rx.try_recv() {
-                    handle_chat_event(&mut chat_state, event);
-                }
-            }
-        }
-    });
+    // The receiver is drained by `ChatEventPump`, which renders once the
+    // database is open: recording which papers a conversation touched needs a
+    // `Database`, and this scope is above the one that provides it.
+    use_context_provider(|| AgentEvents { inner: agent_rx });
 
     let db_gen = *db_generation.read();
     let db_resource = use_resource(move || async move {
@@ -208,6 +198,7 @@ pub fn App() -> Element {
                 document::Script { {GRAPH_JS} }
                 {longpress_script()}
                 LoadLibraryData {}
+                ChatEventPump {}
                 SyncLoop {}
                 {update_checker_element()}
                 {shot_driver_element()}
