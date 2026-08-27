@@ -321,7 +321,7 @@ fn do_send(
 
     // It has a message now, so it earns its row. Must precede the label write
     // below, which needs a row to attach to.
-    crate::app::chat_handler::record_session(&chat_state, &db, context_subject.clone());
+    crate::app::chat_handler::record_session(chat_state, db, context_subject.clone());
 
     // A cheap label immediately, so a conversation is never nameless: the agent
     // summary is better but costs a round trip, and may not arrive at all.
