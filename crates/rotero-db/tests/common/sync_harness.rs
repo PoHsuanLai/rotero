@@ -537,6 +537,34 @@ fn value_string(row: &turso::Row, idx: usize) -> String {
     }
 }
 
+/// Write rows in the snapshot format, without a database behind them.
+///
+/// `write_snapshot` serializes whatever is in the tables, which is the right
+/// thing for the engine and the wrong thing for testing the format: it can only
+/// ever produce rows the rest of the code already agreed to store. This builds
+/// the same bytes from rows chosen freely, so the parser can be shown text the
+/// writer would never have thought to emit.
+pub fn encode_snapshot(site: &str, rows: &[rotero_db::snapshot::SnapshotRow]) -> Vec<u8> {
+    use std::io::Write;
+
+    let header = serde_json::json!({
+        "format": rotero_db::snapshot::FORMAT_VERSION,
+        "site_id": site,
+        "generated_at": 0,
+        "rows": rows.len(),
+    });
+
+    let mut plain = Vec::new();
+    writeln!(plain, "{header}").unwrap();
+    for row in rows {
+        writeln!(plain, "{}", serde_json::to_string(row).unwrap()).unwrap();
+    }
+
+    let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    enc.write_all(&plain).unwrap();
+    enc.finish().unwrap()
+}
+
 /// Whether two states of one row differ only in a tag's local retired name.
 ///
 /// When two devices independently create a tag with the same name, every device
@@ -549,25 +577,58 @@ fn value_string(row: &turso::Row, idx: usize) -> String {
 /// Narrow on purpose: it requires identical clocks and identical remaining
 /// columns, and at least one side to actually carry a retired name. Any other
 /// disagreement about a tag's name is still a failure.
-fn differs_only_by_retirement(x: &RowState, y: &RowState) -> bool {
-    if x.deleted != y.deleted || x.updated_at != y.updated_at || x.updated_by != y.updated_by {
+fn differs_only_by_retirement(id: &str, x: &RowState, y: &RowState) -> bool {
+    // The clock still has to match exactly. Retiring a duplicate is a local
+    // repair that does not stamp anything, so it cannot move a row's clock —
+    // and if the clocks differ, whatever caused that is not this.
+    if x.updated_at != y.updated_at || x.updated_by != y.updated_by {
         return false;
     }
-    let (Some(xv), Some(yv)) = (x.values.as_ref(), y.values.as_ref()) else {
-        return false;
+
+    // A retired name has to be the one derived from this row's own id. That is
+    // what keeps the exemption honest: a device decides locally to retire a
+    // tag, but it cannot invent a name, so the only retired name it can
+    // legitimately show for this row is this one. A device showing a retired
+    // name belonging to a different row is showing a decision that travelled,
+    // which is what keeping the repair local exists to prevent.
+    let expected = format!("__retired:{id}");
+    let retired = |s: &RowState| match s.values.as_ref().and_then(|v| v.get("name")) {
+        Some(n) => *n == expected,
+        // A tombstone carries no payload, so a hidden retired row shows no
+        // name at all. It counts as retired only if it is actually deleted.
+        None => s.deleted,
     };
-    let retired = |v: &BTreeMap<String, String>| {
-        v.get("name").is_some_and(|n| n.starts_with("__retired:"))
-    };
-    if !retired(xv) && !retired(yv) {
+    if !retired(x) && !retired(y) {
         return false;
     }
-    let strip = |v: &BTreeMap<String, String>| {
-        let mut c = v.clone();
-        c.remove("name");
-        c
-    };
-    strip(xv) == strip(yv)
+    if let Some(n) = x.values.as_ref().and_then(|v| v.get("name"))
+        && n.starts_with("__retired:")
+        && *n != expected
+    {
+        return false;
+    }
+    if let Some(n) = y.values.as_ref().and_then(|v| v.get("name"))
+        && n.starts_with("__retired:")
+        && *n != expected
+    {
+        return false;
+    }
+
+    // Everything except the name may still have to agree — but only when both
+    // sides carry a payload. One device hiding its retired duplicate while
+    // another has not yet is the expected state, and a hidden row ships
+    // nothing to compare.
+    match (x.values.as_ref(), y.values.as_ref()) {
+        (Some(xv), Some(yv)) => {
+            let strip = |v: &BTreeMap<String, String>| {
+                let mut c = v.clone();
+                c.remove("name");
+                c
+            };
+            strip(xv) == strip(yv)
+        }
+        _ => true,
+    }
 }
 
 /// The first place two devices' states differ, rendered for a failure message.
@@ -580,7 +641,16 @@ pub fn first_difference(a: &Canonical, b: &Canonical) -> Option<String> {
     for k in keys {
         match (a.get(k), b.get(k)) {
             (x, y) if x == y => continue,
-            (Some(x), Some(y)) if k.0 == "tags" && differs_only_by_retirement(x, y) => continue,
+            (Some(x), Some(y))
+                if k.0 == "tags"
+                    && differs_only_by_retirement(
+                        k.1.first().map(String::as_str).unwrap_or_default(),
+                        x,
+                        y,
+                    ) =>
+            {
+                continue;
+            }
             (Some(x), Some(y)) => {
                 return Some(format!(
                     "{}{:?} differs:\n    left  = {x:?}\n    right = {y:?}",

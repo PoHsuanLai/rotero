@@ -281,10 +281,14 @@ pub const TAG_TOMBSTONE_MEMBERSHIPS: &str = "\
 /// UNIQUE across dead rows too, so leaving it would reject the survivor on
 /// every later merge.
 ///
-/// The sync clock is deliberately untouched. This is a local repair for a
-/// local constraint, not a fact other devices have to agree about — see
-/// `reconcile_tag_name` for what publishing it would do.
-pub const TAG_RETIRE_DUPLICATE: &str = "UPDATE tags SET name = ?1 WHERE id = ?2";
+/// The row is hidden as well as renamed, so the retired duplicate does not
+/// show up in the user's tag list next to the one that survived.
+///
+/// The sync *clock* is deliberately untouched, though. Stamping it would
+/// publish the rename, making a local repair into a fact every device has to
+/// agree about — see `reconcile_tag_name` for why that does not work.
+pub const TAG_RETIRE_DUPLICATE: &str =
+    "UPDATE tags SET name = ?1, deleted = 1 WHERE id = ?2";
 
 /// Whether a table exists.
 pub const TABLE_EXISTS: &str = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1";

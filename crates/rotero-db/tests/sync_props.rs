@@ -201,3 +201,79 @@ proptest! {
         }
     }
 }
+
+/// A strategy for one snapshot row, with text that is not merely ASCII.
+///
+/// This is where arbitrary Unicode belongs. The scenario generator deliberately
+/// draws from a tiny pool of names, because there the point is to force
+/// collisions; here the point is the opposite — that a title with a newline, a
+/// NUL, or an astral-plane character survives being gzipped, written as one
+/// line of JSON, and read back.
+fn snapshot_row_strategy() -> impl Strategy<Value = rotero_db::snapshot::SnapshotRow> {
+    use proptest::collection::{btree_map, vec};
+    let text = any::<String>();
+    (
+        proptest::sample::select(vec!["papers", "tags", "collections", "notes"]),
+        vec(text.clone(), 1..=2),
+        btree_map(text.clone(), text.prop_map(serde_json::Value::String), 0..4),
+        any::<i64>(),
+        any::<String>(),
+        any::<bool>(),
+    )
+        .prop_map(|(t, k, v, ua, ub, d)| rotero_db::snapshot::SnapshotRow {
+            t: t.to_string(),
+            k,
+            // A tombstone carries no payload, so generating one with values
+            // would be generating a row the writer never produces.
+            v: (!d).then_some(v),
+            ua,
+            ub,
+            d,
+        })
+}
+
+proptest! {
+    // Pure and in-memory: no database, no files, so it can afford far more
+    // cases than the scenario properties.
+    #![proptest_config(ProptestConfig { cases: 256, ..ProptestConfig::default() })]
+
+    /// A snapshot survives being written and read back, whatever is in it.
+    #[test]
+    fn a_snapshot_round_trips(rows in proptest::collection::vec(snapshot_row_strategy(), 0..12)) {
+        let bytes = common::sync_harness::encode_snapshot("device-0", &rows);
+        let (header, parsed) = rotero_db::snapshot::parse_snapshot(&bytes)
+            .map_err(|e| TestCaseError::fail(format!("failed to parse: {e}")))?;
+
+        prop_assert_eq!(header.rows, rows.len());
+        prop_assert_eq!(parsed.len(), rows.len());
+        for (before, after) in rows.iter().zip(parsed.iter()) {
+            prop_assert_eq!(&before.t, &after.t);
+            prop_assert_eq!(&before.k, &after.k);
+            prop_assert_eq!(&before.v, &after.v);
+            prop_assert_eq!(before.ua, after.ua);
+            prop_assert_eq!(&before.ub, &after.ub);
+            prop_assert_eq!(before.d, after.d);
+        }
+    }
+
+    /// A snapshot cut short is refused rather than half-applied.
+    ///
+    /// Half a peer's library applied is worse than none of it, because nothing
+    /// downstream can tell the difference — the rows that did land look like
+    /// the whole truth.
+    #[test]
+    fn a_truncated_snapshot_is_refused(
+        rows in proptest::collection::vec(snapshot_row_strategy(), 1..8),
+        cut in 0.0f64..1.0,
+    ) {
+        let bytes = common::sync_harness::encode_snapshot("device-0", &rows);
+        let keep = ((bytes.len() as f64) * cut) as usize;
+        prop_assume!(keep < bytes.len());
+
+        prop_assert!(
+            rotero_db::snapshot::parse_snapshot(&bytes[..keep]).is_err(),
+            "a snapshot cut to {keep} of {} bytes parsed anyway",
+            bytes.len()
+        );
+    }
+}
