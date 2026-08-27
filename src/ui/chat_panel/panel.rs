@@ -60,6 +60,7 @@ pub fn ChatPanel() -> Element {
     let commands = chat_state.read().commands.clone();
     let show_sessions = chat_state.read().show_session_browser;
     let past_sessions = chat_state.read().past_sessions.clone();
+    let browse_all = chat_state.read().browse_all_sessions;
 
     // Labelled from our own record rather than the agent's. The agent titles a
     // session after its first user message, which for these is a synthetic
@@ -79,6 +80,25 @@ pub fn ChatPanel() -> Element {
             }
         }
     });
+
+    // The list is about what is open, so it shows that subject's conversations
+    // unless widened. Filtering waits for the record to load: without it every
+    // row would be hidden for the frame before it arrives.
+    let visible_sessions: Vec<_> = match (&*described.read(), browse_all, subject.as_ref()) {
+        (Some((rows, subjects)), false, Some(current)) => past_sessions
+            .iter()
+            .filter(|s| {
+                rows.iter()
+                    .find(|r| r.session_id == s.session_id)
+                    .and_then(|r| super::subject_of_row(r, subjects))
+                    .is_some_and(|subj| subj == *current)
+            })
+            .cloned()
+            .collect(),
+        _ => past_sessions.clone(),
+    };
+
+    let hidden_count = past_sessions.len().saturating_sub(visible_sessions.len());
 
     let status_text = match &status {
         AgentStatus::Idle => "Ready",
@@ -185,7 +205,25 @@ pub fn ChatPanel() -> Element {
             if show_sessions {
                 div { class: "chat-session-browser",
                     div { class: "chat-session-header",
-                        span { class: "chat-session-title", "Past chats" }
+                        span { class: "chat-session-title",
+                            if browse_all { "All chats" } else { "Chats about this" }
+                        }
+                        // Only worth offering when it would change the list.
+                        if hidden_count > 0 || browse_all {
+                            button {
+                                class: "chat-session-scope",
+                                onclick: move |_| {
+                                    chat_state.with_mut(|s| {
+                                        s.browse_all_sessions = !s.browse_all_sessions;
+                                    });
+                                },
+                                if browse_all {
+                                    "Only this"
+                                } else {
+                                    "Show all ({hidden_count})"
+                                }
+                            }
+                        }
                         button {
                             class: "chat-header-btn",
                             onclick: move |_| {
@@ -195,12 +233,18 @@ pub fn ChatPanel() -> Element {
                         }
                     }
                     div { class: "chat-session-list",
-                        if past_sessions.is_empty() {
+                        if visible_sessions.is_empty() {
                             div { class: "chat-empty",
-                                p { "No past chats found." }
+                                p {
+                                    if past_sessions.is_empty() {
+                                        "No past chats found."
+                                    } else {
+                                        "No past chats about this yet."
+                                    }
+                                }
                             }
                         } else {
-                            for session in past_sessions.iter() {
+                            for session in visible_sessions.iter() {
                                 {
                                     let sid = session.session_id.clone();
                                     let session_cwd = session.cwd.clone();

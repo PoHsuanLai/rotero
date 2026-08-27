@@ -247,6 +247,27 @@ mod tests {
         assert_eq!(unlabelled_title(None, "not-a-date"), "Untitled chat");
     }
 
+    /// The clock list shows the open subject's conversations, so a chat about a
+    /// different paper has to drop out — and a group is matched by its members,
+    /// not by the order they were selected in.
+    #[test]
+    fn only_the_current_subjects_conversations_match() {
+        let here = ChatSubject::Paper("p1".into());
+
+        let mine = row("paper", Some("p1"));
+        let theirs = row("paper", Some("p2"));
+
+        assert_eq!(subject_of_row(&mine, &[]).as_ref(), Some(&here));
+        assert_ne!(subject_of_row(&theirs, &[]).as_ref(), Some(&here));
+    }
+
+    /// A conversation about no paper at all belongs to no subject, so it is only
+    /// reachable once the list is widened.
+    #[test]
+    fn a_general_conversation_matches_no_subject() {
+        assert_eq!(subject_of_row(&row("general", None), &[]), None);
+    }
+
     /// The list renders before the stored record loads. A row must not settle on
     /// "Untitled chat" in that gap — the subject and time are there, one frame
     /// later, and that is what the row should end up saying.

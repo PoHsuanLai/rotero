@@ -181,6 +181,12 @@ pub struct ChatState {
     /// A subject the user declined to switch to, so the offer is not repeated
     /// until they move somewhere else.
     pub declined_subject: Option<rotero_db::chat_sessions::ChatSubject>,
+    /// Show every past chat rather than only the current subject's.
+    ///
+    /// The list is about what is open, so it filters by default; this widens it
+    /// to reach a conversation about something else — including the ones that
+    /// belong to no paper at all.
+    pub browse_all_sessions: bool,
 }
 
 /// A subject switch the user has been asked about but not yet answered.
