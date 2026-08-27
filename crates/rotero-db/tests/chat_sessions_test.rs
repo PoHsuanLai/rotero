@@ -253,3 +253,38 @@ async fn chat_tables_are_not_synced() {
         assert_ne!(table.name, "chat_session_papers");
     }
 }
+
+/// The bug this guards: the row is created when the agent announces the session
+/// and the label is written when the user sends a message, and both writes are
+/// spawned independently. An UPDATE that lost the race updated nothing, so every
+/// stored summary stayed null and the chat list fell back to the agent's own
+/// uninformative title.
+#[tokio::test]
+async fn a_summary_written_before_its_row_exists_is_not_lost() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = common::open_test_db(dir.path()).await;
+    let paper = insert(&db, "A").await;
+    let subject = ChatSubject::Paper(paper);
+
+    // The label lands first, with no row to update.
+    db.set_chat_session_summary("sess-1", "What does this paper claim?")
+        .await
+        .unwrap();
+    // The session announcement follows, and must not erase it.
+    db.upsert_chat_session(&row("sess-1", &subject), &subject.paper_ids())
+        .await
+        .unwrap();
+
+    let found = db
+        .chat_session_for_subject(&subject)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        found.summary.as_deref(),
+        Some("What does this paper claim?")
+    );
+    // The placeholder columns must not survive the real upsert.
+    assert_eq!(found.subject_kind, "paper");
+    assert_eq!(found.provider_id, "claude");
+}

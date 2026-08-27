@@ -115,24 +115,11 @@ pub fn handle_chat_event(
         }
         ChatEvent::SessionCreated { session_id } => {
             let subject = chat_state.read().pending_subject.clone();
-            // A first message is sent before any session id exists, so its label
-            // waits here for one to attach to.
-            let held_summary = chat_state.read().pending_summary.clone();
             chat_state.with_mut(|s| {
                 s.status = AgentStatus::Idle;
                 s.session_active = true;
                 s.current_session_id = Some(session_id.clone());
-                s.pending_summary = None;
             });
-            if let Some(summary) = held_summary {
-                let db = db.clone();
-                let sid = session_id.clone();
-                spawn(async move {
-                    if let Err(e) = db.set_chat_session_summary(&sid, &summary).await {
-                        tracing::debug!("chat: labelling {sid} failed: {e}");
-                    }
-                });
-            }
 
             // Without a subject the conversation is a general one; it is still
             // worth recording, so it can be found once a subject is inferred

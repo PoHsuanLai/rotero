@@ -311,12 +311,8 @@ fn do_send(
         }
     });
 
-    // A cheap label, so a conversation is never nameless: the agent summary is
-    // better but costs a round trip, and may not arrive at all.
-    //
-    // A new conversation has no session id yet — the agent reports one only
-    // after this message is sent — so hold the label until it does rather than
-    // writing it against nothing.
+    // A cheap label immediately, so a conversation is never nameless: the agent
+    // summary is better but costs a round trip, and may not arrive at all.
     let first_message = chat_state
         .read()
         .messages
@@ -324,18 +320,13 @@ fn do_send(
         .filter(|m| m.role == ChatRole::User)
         .count()
         == 1;
-    if first_message {
+    let session_id = chat_state.read().current_session_id.clone();
+    if first_message && let Some(session_id) = session_id.clone() {
         let fallback: String = input.chars().take(120).collect();
-        let existing = chat_state.read().current_session_id.clone();
-        match existing {
-            Some(session_id) => {
-                let db = db.clone();
-                spawn(async move {
-                    let _ = db.set_chat_session_summary(&session_id, &fallback).await;
-                });
-            }
-            None => chat_state.with_mut(|s| s.pending_summary = Some(fallback)),
-        }
+        let db = db.clone();
+        spawn(async move {
+            let _ = db.set_chat_session_summary(&session_id, &fallback).await;
+        });
     }
 
     // The conversation's own subject wins over what is on screen: a group chat
@@ -356,11 +347,7 @@ fn do_send(
     // Queued behind the message above: the agent thread handles requests in
     // order, so asking first would summarize a conversation that hasn't
     // happened yet.
-    //
-    // Only for a conversation that already has a session id. A brand new one
-    // gets its label from `pending_summary` instead, since there is nothing to
-    // address the request to yet.
-    if first_message && let Some(session_id) = chat_state.read().current_session_id.clone() {
+    if first_message && let Some(session_id) = session_id {
         agent_channel.send(ChatRequest::SummarizeSession { session_id });
     }
 }

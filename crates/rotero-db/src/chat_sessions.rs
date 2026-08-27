@@ -219,11 +219,20 @@ impl Database {
         summary: &str,
     ) -> Result<(), crate::DbError> {
         let conn = self.conn();
+        // Inserts rather than only updating: the row is created when the agent
+        // announces the session, and both writes are spawned independently, so
+        // a label written first would update nothing and be lost. The
+        // placeholder columns are all overwritten by the upsert that follows.
         conn.execute(
-            "UPDATE chat_sessions SET summary = ?1 WHERE session_id = ?2",
+            "INSERT INTO chat_sessions \
+                 (session_id, provider_id, subject_kind, subject_id, summary, \
+                  created_at, last_used_at, is_dead) \
+             VALUES (?1, '', 'general', NULL, ?2, ?3, ?3, 0) \
+             ON CONFLICT(session_id) DO UPDATE SET summary = excluded.summary",
             [
-                Value::Text(summary.to_string()),
                 Value::Text(session_id.to_string()),
+                Value::Text(summary.to_string()),
+                Value::Text(chrono::Utc::now().to_rfc3339()),
             ],
         )
         .await?;
