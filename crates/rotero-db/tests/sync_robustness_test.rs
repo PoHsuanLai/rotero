@@ -336,3 +336,82 @@ async fn sync_survives_losing_local_state() {
         "both papers must survive losing the folder's bookkeeping"
     );
 }
+
+/// Removing a tag from a paper reaches the other device, and stays removed.
+///
+/// Found by the generated schedules in `sync_props`. The removal used to delete
+/// the junction row and then tombstone it, but the delete left nothing for the
+/// tombstone to stamp: the removal never reached B, and B's surviving copy then
+/// put it back on A — undoing, on the device that made it, what the user had
+/// just done. Asserting on A alone passes either way, which is how it hid.
+#[tokio::test]
+async fn removing_a_tag_reaches_the_other_device() {
+    let d = Devices::new().await;
+
+    let paper = insert_paper(&d.a, "Tagged").await;
+    let tag = d.a.get_or_create_tag("ml", None).await.unwrap();
+    d.a.add_tag_to_paper(&paper, &tag).await.unwrap();
+    d.converge().await;
+    assert_eq!(
+        d.b.list_tags_for_paper(&paper).await.unwrap().len(),
+        1,
+        "B must first have the membership for its removal to mean anything"
+    );
+
+    d.a.remove_tag_from_paper(&paper, &tag).await.unwrap();
+    d.converge().await;
+
+    assert!(
+        d.b.list_tags_for_paper(&paper).await.unwrap().is_empty(),
+        "the removal must reach B"
+    );
+    assert!(
+        d.a.list_tags_for_paper(&paper).await.unwrap().is_empty(),
+        "and must not come back on A when B's copy is merged again"
+    );
+}
+
+/// The same, for a paper's collection membership.
+#[tokio::test]
+async fn removing_a_paper_from_a_collection_reaches_the_other_device() {
+    let d = Devices::new().await;
+
+    let paper = insert_paper(&d.a, "Filed").await;
+    let collection = d
+        .a
+        .insert_collection(&rotero_models::Collection::new("Reading".into()))
+        .await
+        .unwrap();
+    d.a.add_paper_to_collection(&paper, &collection)
+        .await
+        .unwrap();
+    d.converge().await;
+    assert_eq!(
+        d.b.list_paper_ids_in_collection(&collection)
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "B must first have the membership"
+    );
+
+    d.a.remove_paper_from_collection(&paper, &collection)
+        .await
+        .unwrap();
+    d.converge().await;
+
+    assert!(
+        d.b.list_paper_ids_in_collection(&collection)
+            .await
+            .unwrap()
+            .is_empty(),
+        "the removal must reach B"
+    );
+    assert!(
+        d.a.list_paper_ids_in_collection(&collection)
+            .await
+            .unwrap()
+            .is_empty(),
+        "and must not come back on A"
+    );
+}

@@ -166,3 +166,39 @@ async fn re_adding_a_tag_clears_its_tombstone() {
          nothing and leave the membership deleted while appearing to succeed"
     );
 }
+
+/// A tag can be created again under a name a deleted tag still holds.
+///
+/// Found by the generated schedules in `sync_props`. `tags.name` is UNIQUE
+/// across dead rows too, so a tombstoned tag keeps its name: looking only at
+/// live rows found nothing, and the insert then failed on a constraint the
+/// caller had no way to see. Deleting a tag and typing its name again is
+/// ordinary enough that it has to work.
+#[tokio::test]
+async fn a_deleted_tags_name_can_be_used_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = common::open_test_db(dir.path()).await;
+
+    let first = db.get_or_create_tag("recycled", None).await.unwrap();
+    db.delete_tag(&first).await.unwrap();
+    assert!(
+        db.list_tags().await.unwrap().is_empty(),
+        "the tag must be gone from the visible list"
+    );
+
+    let second = db
+        .get_or_create_tag("recycled", None)
+        .await
+        .expect("creating a tag whose name a tombstone still holds must succeed");
+
+    assert_eq!(
+        second, first,
+        "the dead row must be revived rather than duplicated: a fresh id would \
+         leave a peer that still holds the tag with a second tag of the same name"
+    );
+    assert_eq!(
+        db.list_tags().await.unwrap().len(),
+        1,
+        "the revived tag must be visible again"
+    );
+}

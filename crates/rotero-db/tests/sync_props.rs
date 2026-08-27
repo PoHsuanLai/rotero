@@ -211,11 +211,14 @@ proptest! {
 /// line of JSON, and read back.
 fn snapshot_row_strategy() -> impl Strategy<Value = rotero_db::snapshot::SnapshotRow> {
     use proptest::collection::{btree_map, vec};
-    let text = any::<String>();
     (
         proptest::sample::select(vec!["papers", "tags", "collections", "notes"]),
-        vec(text.clone(), 1..=2),
-        btree_map(text.clone(), text.prop_map(serde_json::Value::String), 0..4),
+        vec(any::<String>(), 1..=2),
+        btree_map(
+            any::<String>(),
+            any::<String>().prop_map(serde_json::Value::String),
+            0..4,
+        ),
         any::<i64>(),
         any::<String>(),
         any::<bool>(),

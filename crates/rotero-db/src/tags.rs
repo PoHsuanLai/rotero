@@ -12,11 +12,42 @@ impl Database {
         color: Option<&str>,
     ) -> Result<String, crate::DbError> {
         let conn = self.conn();
+        // Look past the `_live` view. `tags.name` is UNIQUE across dead rows
+        // too, so a deleted tag still owns its name: searching only live rows
+        // finds nothing, and the insert below then fails on a constraint the
+        // caller cannot see. Deleting a tag and typing its name again is
+        // ordinary enough that this has to work.
         let mut rows = conn
-            .query(queries::TAG_FIND_BY_NAME, [Value::Text(name.to_string())])
+            .query(
+                queries::TAG_FIND_BY_NAME_ANY,
+                [Value::Text(name.to_string())],
+            )
             .await?;
-        if let Some(row) = rows.next().await? {
-            let id = row.get_value(0)?.as_text().cloned().unwrap_or_default();
+        let existing = rows.next().await?.map(|row| {
+            (
+                row.get_value(0)
+                    .ok()
+                    .and_then(|v| v.as_text().cloned())
+                    .unwrap_or_default(),
+                row.get_value(1)
+                    .ok()
+                    .and_then(|v| v.as_integer().copied())
+                    .unwrap_or(0)
+                    != 0,
+            )
+        });
+        // Release the read cursor before writing to the same table.
+        drop(rows);
+
+        if let Some((id, deleted)) = existing {
+            if deleted {
+                // Revive the existing row rather than inserting a second one.
+                // Keeping the id is what makes this converge: a peer still
+                // holding the tag sees the same row come back to life, where a
+                // fresh id would leave the two devices with different tags
+                // wearing the same name.
+                self.touch("tags", crate::clock::Pk::Single(&id)).await?;
+            }
             return Ok(id);
         }
         let actual_color = color.map(|c| c.to_string()).unwrap_or_else(|| {

@@ -131,8 +131,13 @@ pub const COLLECTION_LIST_FOR_PAPER: &str = "\
     JOIN paper_collections_live pc ON pc.collection_id = c.id \
     WHERE pc.paper_id = ?1 ORDER BY c.name";
 
-/// Look up a tag ID by its name.
-pub const TAG_FIND_BY_NAME: &str = "SELECT id FROM tags_live WHERE name = ?1";
+/// Look up a tag by name, including a deleted one.
+///
+/// Reads the base table rather than `tags_live` on purpose. `tags.name` is
+/// UNIQUE across dead rows too, so a tombstoned tag still owns its name: a
+/// live-only lookup finds nothing and the insert that follows fails on a
+/// constraint the caller cannot see.
+pub const TAG_FIND_BY_NAME_ANY: &str = "SELECT id, deleted FROM tags WHERE name = ?1";
 /// Insert a new tag.
 pub const TAG_INSERT: &str = "INSERT INTO tags (id, name, color) VALUES (?1, ?2, ?3)";
 /// List all tags sorted alphabetically.
