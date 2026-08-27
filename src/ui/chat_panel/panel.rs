@@ -64,38 +64,18 @@ pub fn ChatPanel() -> Element {
     // Labelled from our own record rather than the agent's. The agent titles a
     // session after its first user message, which for these is a synthetic
     // startup entry — so every one of its titles reads "/model".
+    // Only the database read is deferred. Resolving a subject to its title reads
+    // the library, which is reactive state: doing that inside the future would
+    // not register as a dependency, so the labels would never refresh.
     let described = use_resource({
         let db = db.clone();
-        let sessions = past_sessions.clone();
         move || {
             let db = db.clone();
-            let sessions = sessions.clone();
-            let lib = lib_state;
             async move {
-                let rows = db.all_chat_sessions().await.unwrap_or_default();
-                let subjects = db.all_chat_session_subjects().await.unwrap_or_default();
-                sessions
-                    .iter()
-                    .map(|s| {
-                        let known = rows.iter().find(|r| r.session_id == s.session_id);
-                        let summary = known.and_then(|r| r.summary.clone());
-                        let about = known.and_then(|r| {
-                            super::subject_of_row(r, &subjects)
-                                .map(|subj| super::subject_label(&subj, &lib.read()))
-                        });
-                        // Named by subject and time when nothing was stored:
-                        // the agent's own title is the transcript's first
-                        // message, which is a startup command.
-                        let title = summary.unwrap_or_else(|| {
-                            let when = known
-                                .map(|r| r.last_used_at.as_str())
-                                .or(s.updated_at.as_deref())
-                                .unwrap_or_default();
-                            super::unlabelled_title(about.as_deref(), when)
-                        });
-                        (s.session_id.clone(), title, about)
-                    })
-                    .collect::<Vec<_>>()
+                (
+                    db.all_chat_sessions().await.unwrap_or_default(),
+                    db.all_chat_session_subjects().await.unwrap_or_default(),
+                )
             }
         }
     });
@@ -224,15 +204,37 @@ pub fn ChatPanel() -> Element {
                                 {
                                     let sid = session.session_id.clone();
                                     let session_cwd = session.cwd.clone();
-                                    let known = described
-                                        .read()
-                                        .as_ref()
-                                        .and_then(|rows: &Vec<(String, String, Option<String>)>| {
-                                            rows.iter().find(|(id, _, _)| *id == sid).cloned()
-                                        });
-                                    let (title, about) = known
-                                        .map(|(_, t, a)| (t, a))
-                                        .unwrap_or_else(|| ("Untitled chat".into(), None));
+                                    // Falls back to the agent's own title only
+                                    // until the record loads; ours is better
+                                    // but arrives a frame later.
+                                    let (title, about) = match &*described.read() {
+                                        Some((rows, subjects)) => {
+                                            let known =
+                                                rows.iter().find(|r| r.session_id == sid);
+                                            let about = known.and_then(|r| {
+                                                super::subject_of_row(r, subjects).map(|subj| {
+                                                    super::subject_label(&subj, &lib_state.read())
+                                                })
+                                            });
+                                            let title = known
+                                                .and_then(|r| r.summary.clone())
+                                                .unwrap_or_else(|| {
+                                                    let when = known
+                                                        .map(|r| r.last_used_at.as_str())
+                                                        .or(session.updated_at.as_deref())
+                                                        .unwrap_or_default();
+                                                    super::unlabelled_title(about.as_deref(), when)
+                                                });
+                                            (title, about)
+                                        }
+                                        None => (
+                                            session
+                                                .title
+                                                .clone()
+                                                .unwrap_or_else(|| "Loading…".into()),
+                                            None,
+                                        ),
+                                    };
                                     let updated = session.updated_at.clone().unwrap_or_default();
                                     rsx! {
                                         button {

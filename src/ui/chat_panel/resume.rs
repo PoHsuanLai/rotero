@@ -246,4 +246,34 @@ mod tests {
     fn a_conversation_with_nothing_known_still_has_a_name() {
         assert_eq!(unlabelled_title(None, "not-a-date"), "Untitled chat");
     }
+
+    /// The list renders before the stored record loads. A row must not settle on
+    /// "Untitled chat" in that gap — the subject and time are there, one frame
+    /// later, and that is what the row should end up saying.
+    #[test]
+    fn a_row_with_a_record_is_named_from_it_not_from_the_empty_fallback() {
+        let lib = LibraryState {
+            papers: vec![rotero_models::Paper {
+                id: Some("p1".into()),
+                title: "Attention Is All You Need".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut r = row("paper", Some("p1"));
+        r.last_used_at = "2026-08-27T07:54:10Z".into();
+
+        // What the render path does once the resource has resolved.
+        let about = subject_of_row(&r, &[]).map(|s| subject_label(&s, &lib));
+        let title = r
+            .summary
+            .clone()
+            .unwrap_or_else(|| unlabelled_title(about.as_deref(), &r.last_used_at));
+
+        assert_ne!(title, "Untitled chat");
+        assert!(
+            title.starts_with("Attention Is All You Need — "),
+            "got {title}"
+        );
+    }
 }
