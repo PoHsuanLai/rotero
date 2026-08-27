@@ -161,3 +161,52 @@
   color: var(--text-muted);
   font-size: var(--text-base);
 }
+
+/* Floating action bar for a shift-click selection. Positioned over the canvas
+   rather than in the toolbar: it belongs to the papers being gathered, and
+   appears only while a selection of more than one exists. */
+.graph-selection-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px 8px 14px;
+  border-radius: 999px;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border-subtle, #e5e5e5);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
+  z-index: 5;
+}
+
+.graph-selection-count {
+  color: var(--text-secondary, #555);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.graph-selection-chat {
+  white-space: nowrap;
+}
+
+.graph-selection-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-tertiary, #888);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.graph-selection-clear:hover {
+  background: var(--bg-hover, #f0f0f0);
+  color: var(--text-primary, #222);
+}

@@ -3,6 +3,7 @@ use rotero_graph::{GraphData, GraphFilter};
 
 use crate::state::app_state::{LibraryState, PdfTabManager};
 use rotero_db::Database;
+use rotero_db::chat_sessions::ChatSubject;
 
 #[derive(serde::Deserialize)]
 struct GraphEvent {
@@ -73,6 +74,9 @@ pub fn GraphView() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let dpr = use_context::<Signal<crate::app::DevicePixelRatio>>();
+
+    let mut chat_state = use_context::<Signal<crate::agent::types::ChatState>>();
+    let agent_channel = use_context::<crate::ui::chat_panel::AgentChannel>();
 
     let mut graph_json = use_signal(|| None::<String>);
     let mut edge_mode = use_signal(|| EdgeMode::Tags);
@@ -186,6 +190,30 @@ pub fn GraphView() -> Element {
         }
     });
 
+    // Mirror the selection into the canvas, which draws its own ring.
+    //
+    // The read is deliberately outside the spawn: a signal read inside an async
+    // future is not tracked, so the effect would run once and the ring would
+    // never follow the selection. The data-loading effect above carries the
+    // same note for the same reason.
+    use_effect(move || {
+        let mut selected: Vec<String> = lib_state
+            .read()
+            .selected_paper_ids
+            .iter()
+            .cloned()
+            .collect();
+        // Sorted so an unchanged selection serialises identically each time,
+        // rather than re-sending a reshuffled list on every render.
+        selected.sort();
+        spawn(async move {
+            let ids_json = serde_json::to_string(&selected).unwrap_or_default();
+            let _ = document::eval(&format!("window.__roteroGraph.setSelection({ids_json})"));
+        });
+    });
+
+    let db_bar = db.clone();
+
     // Long-lived eval that polls the JS event queue and sends results via dioxus.send()
     use_hook(move || {
         spawn(async move {
@@ -213,6 +241,11 @@ pub fn GraphView() -> Element {
                     "click" => {
                         lib_state.with_mut(|s| {
                             s.select_one(event.id.clone());
+                        });
+                    }
+                    "toggle" => {
+                        lib_state.with_mut(|s| {
+                            s.toggle_select(&event.id);
                         });
                     }
                     "open" | "dblclick" => {
@@ -247,6 +280,22 @@ pub fn GraphView() -> Element {
 
     let paper_count = lib_state.read().papers.len();
     let current_mode = edge_mode();
+    // Sorted because the selection is a HashSet: left in iteration order, the
+    // group's members would shuffle between renders. `ChatSubject::id` sorts
+    // for identity, but the papers it carries are shown in the order given.
+    let selected_ids: Vec<String> = {
+        let mut ids: Vec<String> = lib_state
+            .read()
+            .selected_paper_ids
+            .iter()
+            .cloned()
+            .collect();
+        ids.sort();
+        ids
+    };
+    // One paper is an ordinary click, not a gathered set: the bar is for acting
+    // on a selection the user built up, so it waits for a second paper.
+    let show_selection_bar = selected_ids.len() > 1;
 
     rsx! {
         div { class: "graph-view",
@@ -294,6 +343,43 @@ pub fn GraphView() -> Element {
                     canvas { id: "graph-canvas" }
                     div { id: "graph-tooltip", class: "graph-tooltip" }
                     div { id: "graph-hint", class: "graph-hint" }
+                    if show_selection_bar {
+                        div { class: "graph-selection-bar",
+                            span { class: "graph-selection-count",
+                                "{selected_ids.len()} papers selected"
+                            }
+                            button {
+                                class: "btn btn--primary graph-selection-chat",
+                                onclick: {
+                                    let db_chat = db_bar.clone();
+                                    let ids = selected_ids.clone();
+                                    move |_| {
+                                        // The gathered set is one subject: these
+                                        // papers discussed together, not one
+                                        // conversation apiece.
+                                        let subject = ChatSubject::Group(ids.clone());
+                                        chat_state.with_mut(|s| s.panel_open = true);
+                                        crate::ui::chat_panel::switch_to(
+                                            &mut chat_state,
+                                            &agent_channel,
+                                            &db_chat,
+                                            subject,
+                                        );
+                                    }
+                                },
+                                i { class: "bi bi-chat-dots" }
+                                " Chat About These"
+                            }
+                            button {
+                                class: "graph-selection-clear",
+                                title: "Clear selection",
+                                onclick: move |_| {
+                                    lib_state.with_mut(|s| s.clear_selection());
+                                },
+                                "\u{00d7}"
+                            }
+                        }
+                    }
                 }
             }
         }

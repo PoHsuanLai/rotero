@@ -15,6 +15,7 @@
   let isPanning = false, panStart = { x: 0, y: 0 };
   let hoverNode = null;
   let highlightIds = null;
+  let selectedIds = new Set();
   let tooltipEl = null;
   let hintEl = null;
   let animFrameId = null;
@@ -75,7 +76,7 @@
       hintEl = document.getElementById("graph-hint");
       if (hintEl) {
         const cmdKey = navigator.platform.indexOf('Mac') >= 0 ? '\u2318' : 'Ctrl';
-        hintEl.textContent = cmdKey + '+click to open';
+        hintEl.textContent = cmdKey + '+click to open \u00b7 shift+click to select';
       }
       if (!canvas) return;
       ctx = canvas.getContext("2d");
@@ -102,6 +103,12 @@
       });
       simTime = 0;
       startAnimation();
+    },
+
+    setSelection: function(ids) {
+      // No draw() here: the animation loop repaints every frame, and this can
+      // arrive before init() has a context to draw into.
+      selectedIds = new Set(ids || []);
     },
 
     highlight: function(ids) {
@@ -391,6 +398,17 @@
 
       const r = n.size;
 
+      // Selected nodes get a ring outside the circle, so the node keeps its
+      // own size and colour and the selection reads as an annotation on top.
+      if (selectedIds.has(n.id)) {
+        ctx.globalAlpha = 1.0;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, r + 3 / transform.scale, 0, Math.PI * 2);
+        ctx.strokeStyle = "#a855f7";
+        ctx.lineWidth = 2 / transform.scale;
+        ctx.stroke();
+      }
+
       // Flat filled circle — no stroke, no shadow
       ctx.globalAlpha = nodeAlpha;
       ctx.beginPath();
@@ -518,6 +536,10 @@
   function onMouseUp(e) {
     if (hoverNode && (e.metaKey || e.ctrlKey)) {
       window.__roteroGraphEvents.push({ type: "open", id: hoverNode.id });
+    } else if (hoverNode && e.shiftKey) {
+      // Add to / remove from the running selection. Cmd is already taken by
+      // "open", so shift is the accumulating click here.
+      window.__roteroGraphEvents.push({ type: "toggle", id: hoverNode.id });
     } else if (hoverNode) {
       window.__roteroGraphEvents.push({ type: "click", id: hoverNode.id });
     }
