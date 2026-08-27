@@ -257,13 +257,25 @@ pub const PAPER_TAG_IDS: &str = "SELECT tag_id FROM paper_tags WHERE paper_id = 
 /// second.
 pub const TAG_FIND_NAME_CLASH: &str = "SELECT id FROM tags WHERE name = ?1 AND id <> ?2";
 /// Move a retired tag's memberships onto the surviving tag.
+///
+/// The update branch clamps `updated_at` for consistency with `stamp_row` and
+/// the junction upsert, so that no write in the engine can lower a row's clock.
+/// Unlike those, no test pins this one: both statements here run only inside
+/// `reconcile_tag_name`, on rows that are then published and re-compared on
+/// merge, and no arrangement of devices was found where the clamp changes the
+/// outcome. It is uniformity, not a fix for a demonstrated failure.
 pub const TAG_REPOINT_MEMBERSHIPS: &str = "\
     INSERT INTO paper_tags (paper_id, tag_id, updated_at, updated_by, deleted) \
     SELECT paper_id, ?1, ?2, ?3, 0 FROM paper_tags WHERE tag_id = ?4 AND deleted = 0 \
-    ON CONFLICT(paper_id, tag_id) DO UPDATE SET deleted = 0, updated_at = ?2";
+    ON CONFLICT(paper_id, tag_id) DO UPDATE SET \
+        deleted = 0, updated_at = MAX(?2, paper_tags.updated_at + 1), updated_by = ?3";
 /// Tombstone every membership of a retired tag.
+///
+/// Clamped for the same reason as [`TAG_REPOINT_MEMBERSHIPS`], and equally
+/// unpinned by any test.
 pub const TAG_TOMBSTONE_MEMBERSHIPS: &str = "\
-    UPDATE paper_tags SET deleted = 1, updated_at = ?1, updated_by = ?2 WHERE tag_id = ?3";
+    UPDATE paper_tags SET deleted = 1, \
+        updated_at = MAX(?1, updated_at + 1), updated_by = ?2 WHERE tag_id = ?3";
 /// Retire a duplicate tag, freeing its name.
 ///
 /// The name has to be changed rather than left on a tombstone: `tags.name` is
