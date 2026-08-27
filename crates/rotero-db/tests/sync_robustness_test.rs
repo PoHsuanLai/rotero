@@ -414,3 +414,39 @@ async fn removing_a_paper_from_a_collection_reaches_the_other_device() {
         "and must not come back on A"
     );
 }
+
+/// Deleting a paper must retire its citation edges on both devices.
+///
+/// The edges are keyed by a pair of papers rather than by `paper_id`, so
+/// `delete_paper` reaches them through their own statement rather than the
+/// `paper_id` cascade the other children share. That statement is the only
+/// thing tombstoning them: an earlier per-row loop addressed the composite key
+/// with a single `"citing:cited"` value, so its predicate went unbound, matched
+/// nothing, and was removed as dead. Without a test, that removal would rest on
+/// having read the SQL correctly.
+#[tokio::test]
+async fn deleting_a_paper_retires_its_citation_edges() {
+    let d = Devices::new().await;
+
+    let citing = insert_paper(&d.a, "Citing").await;
+    let cited = insert_paper(&d.a, "Cited").await;
+    d.a.insert_citation(&citing, &cited).await.unwrap();
+    d.converge().await;
+    assert_eq!(
+        d.b.list_all_citations().await.unwrap().len(),
+        1,
+        "B must first have the edge"
+    );
+
+    d.a.delete_paper(&citing).await.unwrap();
+    d.converge().await;
+
+    assert!(
+        d.a.list_all_citations().await.unwrap().is_empty(),
+        "the edge must be gone on the device that deleted the paper"
+    );
+    assert!(
+        d.b.list_all_citations().await.unwrap().is_empty(),
+        "and the deletion must reach B rather than being resurrected by it"
+    );
+}

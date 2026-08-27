@@ -66,8 +66,6 @@ pub const PAPER_UPDATE_TITLE: &str =
     "UPDATE papers SET title = ?1, date_modified = ?2 WHERE id = ?3";
 /// Bump the date_modified timestamp on a paper.
 pub const PAPER_TOUCH: &str = "UPDATE papers SET date_modified = ?1 WHERE id = ?2";
-/// Delete a paper by ID.
-pub const PAPER_DELETE: &str = "DELETE FROM papers WHERE id = ?1";
 
 /// Find all papers that share a DOI with at least one other paper.
 pub const PAPER_FIND_DOI_DUPLICATES: &str = "\
@@ -103,10 +101,6 @@ pub const PAPER_LIST_NEEDING_CITATION_KEYS: &str = "\
 pub const PAPER_LIST_CITATION_KEYS: &str =
     "SELECT citation_key FROM papers_live WHERE citation_key IS NOT NULL";
 
-/// List papers that have a remote PDF URL.
-pub const PAPER_SELECT_PDF_URL: &str =
-    "SELECT id, pdf_url FROM papers_live WHERE pdf_url IS NOT NULL";
-
 /// Insert a new collection.
 pub const COLLECTION_INSERT: &str =
     "INSERT INTO collections (id, name, parent_id, position) VALUES (?1, ?2, ?3, ?4)";
@@ -119,8 +113,6 @@ pub const COLLECTION_LIST: &str = "\
 pub const COLLECTION_RENAME: &str = "UPDATE collections SET name = ?1 WHERE id = ?2";
 /// Move a collection under a new parent.
 pub const COLLECTION_REPARENT: &str = "UPDATE collections SET parent_id = ?1 WHERE id = ?2";
-/// Delete a collection by ID.
-pub const COLLECTION_DELETE: &str = "DELETE FROM collections WHERE id = ?1";
 
 /// List paper IDs belonging directly to a single collection.
 pub const COLLECTION_PAPER_IDS: &str =
@@ -155,8 +147,6 @@ pub const TAG_LIST_FOR_PAPER: &str = "\
     SELECT t.id, t.name, t.color FROM tags_live t \
     JOIN paper_tags_live pt ON pt.tag_id = t.id \
     WHERE pt.paper_id = ?1 ORDER BY t.name";
-/// Delete a tag by ID.
-pub const TAG_DELETE: &str = "DELETE FROM tags WHERE id = ?1";
 
 /// Insert a new annotation.
 pub const ANNOTATION_INSERT: &str = "\
@@ -174,8 +164,6 @@ pub const ANNOTATION_UPDATE_CONTENT: &str =
 /// Update an annotation's color.
 pub const ANNOTATION_UPDATE_COLOR: &str =
     "UPDATE annotations SET color = ?1, modified_at = ?2 WHERE id = ?3";
-/// Delete an annotation by ID.
-pub const ANNOTATION_DELETE: &str = "DELETE FROM annotations WHERE id = ?1";
 
 /// Insert a new note.
 pub const NOTE_INSERT: &str = "\
@@ -190,8 +178,6 @@ pub const NOTE_LIST_FOR_PAPER: &str = "\
 /// Update a note's title and body.
 pub const NOTE_UPDATE: &str =
     "UPDATE notes SET title = ?1, body = ?2, modified_at = ?3 WHERE id = ?4";
-/// Delete a note by ID.
-pub const NOTE_DELETE: &str = "DELETE FROM notes WHERE id = ?1";
 
 /// Insert a new saved search.
 pub const SAVED_SEARCH_INSERT: &str =
@@ -201,8 +187,6 @@ pub const SAVED_SEARCH_INSERT: &str =
 pub const SAVED_SEARCH_LIST: &str = "\
     SELECT id, name, query, created_at FROM saved_searches_live ORDER BY created_at DESC";
 
-/// Delete a saved search by ID.
-pub const SAVED_SEARCH_DELETE: &str = "DELETE FROM saved_searches WHERE id = ?1";
 /// Rename a saved search.
 pub const SAVED_SEARCH_RENAME: &str = "UPDATE saved_searches SET name = ?1 WHERE id = ?2";
 
@@ -303,15 +287,6 @@ pub const APP_FLAG_SELECT: &str = "SELECT value FROM app_flags WHERE key = ?1";
 pub const APP_FLAG_UPSERT: &str = "\
     INSERT INTO app_flags (key, value) VALUES (?1, ?2) \
     ON CONFLICT(key) DO UPDATE SET value = ?2";
-
-/// Composite keys of a paper's outgoing citation edges.
-pub const PAPER_CITATION_PKS_OUT: &str = "\
-    SELECT citing_paper_id || ':' || cited_paper_id FROM paper_citations \
-    WHERE citing_paper_id = ?1";
-/// Composite keys of a paper's incoming citation edges.
-pub const PAPER_CITATION_PKS_IN: &str = "\
-    SELECT citing_paper_id || ':' || cited_paper_id FROM paper_citations \
-    WHERE cited_paper_id = ?1";
 
 // ── Templates ───────────────────────────────────────────────────────
 //

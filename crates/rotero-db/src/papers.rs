@@ -405,9 +405,6 @@ impl Database {
         let tags = self.tag_ids_for_paper(id).await?;
         let annotations = self.child_ids("annotations", "paper_id", id).await?;
         let notes = self.child_ids("notes", "paper_id", id).await?;
-        let citing = self.citation_pks(id, true).await?;
-        let cited = self.citation_pks(id, false).await?;
-
         let conn = self.conn();
 
         // Tombstoned, not removed. A hard delete leaves nothing to publish, so
@@ -458,11 +455,6 @@ impl Database {
             self.tombstone("paper_tags", crate::clock::Pk::Composite(id, tag_id))
                 .await?;
         }
-        for pk in citing.iter().chain(cited.iter()) {
-            self.tombstone("paper_citations", crate::clock::Pk::Single(pk))
-                .await?;
-        }
-
         Ok(())
     }
 
@@ -475,20 +467,6 @@ impl Database {
     ) -> Result<Vec<String>, crate::DbError> {
         self.junction_ids(&queries::child_ids(table, column), paper_id)
             .await
-    }
-
-    /// Composite keys of a paper's citation edges, in whichever direction.
-    async fn citation_pks(
-        &self,
-        paper_id: &str,
-        outgoing: bool,
-    ) -> Result<Vec<String>, crate::DbError> {
-        let sql = if outgoing {
-            queries::PAPER_CITATION_PKS_OUT
-        } else {
-            queries::PAPER_CITATION_PKS_IN
-        };
-        self.junction_ids(sql, paper_id).await
     }
 
     /// Returns groups of 2+ papers that share the same DOI or normalized title.
