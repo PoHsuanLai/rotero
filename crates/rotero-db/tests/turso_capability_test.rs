@@ -120,7 +120,10 @@ async fn conditional_upsert_works_on_composite_keys() {
         .unwrap()
         .as_integer()
         .unwrap();
-    assert_eq!(got, 200, "composite-key upsert must resolve LWW the same way");
+    assert_eq!(
+        got, 200,
+        "composite-key upsert must resolve LWW the same way"
+    );
 }
 
 /// The soft-delete read path: a view that hides tombstoned rows.
@@ -136,9 +139,12 @@ async fn a_view_hides_soft_deleted_rows() {
     )
     .await
     .unwrap();
-    c.execute("CREATE VIEW t_live AS SELECT * FROM t WHERE deleted = 0", ())
-        .await
-        .unwrap();
+    c.execute(
+        "CREATE VIEW t_live AS SELECT * FROM t WHERE deleted = 0",
+        (),
+    )
+    .await
+    .unwrap();
     c.execute("INSERT INTO t VALUES ('a', 0), ('b', 0)", ())
         .await
         .unwrap();
