@@ -1,5 +1,59 @@
 # Changelog
 
+## v0.2.4
+
+Sync was rebuilt. v0.2.3 fixed the sync bugs that were known; this release replaces the mechanism that kept producing them, then goes looking for the ones nobody had found — by generating multi-device schedules at random and running them against real databases. That search found six more bugs in shipped code, three of which could stop a device syncing permanently.
+
+PDFs now sync by their contents rather than by a filename built from the title, which fixes a case where two devices could quietly serve each other the wrong file.
+
+Conversations with the AI assistant are now attached to the paper, collection, or group of papers they are about, instead of sitting in one flat list. And you can finally rename a paper.
+
+Upgrading migrates the library through several schema versions. It happens once, on first launch, and older versions of Rotero will not open the library afterwards.
+
+### Added
+- **Conversations belong to what they are about.** A chat about a paper is reachable from that paper; opening the paper resumes it. Select several papers and ask about the set. The paper detail panel lists the conversations a paper appears in, beside its notes, and the graph gains a **Chats** mode linking papers discussed together. The chat panel follows what you are reading — but only while it is idle, so it never switches out from under a reply in progress.
+- **Rename a paper.** The title was read-only everywhere in the app: metadata enrichment, the browser connector, and the AI assistant could all rewrite it, but you could not. Click the title in the detail panel, or use Rename in the library context menu.
+
+### Fixed
+
+**Sync**
+- **The wrong PDF could be served for a paper.** Shared PDFs were stored under a filename built from year, title, and first author, so two devices adding the same paper — or two different papers sharing a long title prefix — collided on one file. The first device to write it won; the second silently skipped, and both papers then pointed at the same PDF. Files are now identified by their contents.
+- **A replaced PDF never reached other devices.** Whether a file needed sending was decided by whether a file of that name already existed, so re-scanning a paper or flattening annotations changed nothing anywhere else.
+- **A partly-downloaded or zero-byte PDF could be installed permanently.** Cloud storage hands those out routinely, and nothing checked that a file arrived intact — nor reconsidered it afterwards, because the destination existed. Transfers are now verified before being installed.
+- **Only the 500 most recently added papers ever synced their PDFs.** Past that cap the rest of the library was excluded in both directions.
+- **PDF transfer failures were discarded entirely** — no log, no message, nothing in the interface. They are now reported with other sync failures.
+- **Removing a paper from a tag or collection never propagated, and undid itself.** The removal was recorded in the wrong order, so nothing was sent to other devices, and the next sync restored what had been removed on the device that removed it.
+- **A second deleted tag could halt sync permanently.** Deleted tags shared one placeholder name under a uniqueness constraint, so the second to arrive failed — and a failed merge abandons the whole batch, so nothing from that device was accepted again.
+- **A tag deleted and then recreated by name could halt sync the same way.** The name was still held by the deleted row, which nothing was looking at.
+- **Deleting a tag or collection left its memberships behind on other devices.** Both operations documented a cascade they never performed. Locally the leftovers were invisible, which is why this went unnoticed; a peer still held the membership.
+- **Favouriting or marking a paper read through the AI assistant never left the machine** — and a peer's stale value would win the next merge and silently revert it. The assistant kept its own duplicate copy of every write; there is now one implementation shared with the app.
+- **A deleted paper could come back, one annotation at a time.** Deletions left nothing to publish, so a device still holding the row treated its own copy as news.
+- **Re-adding a tag you had removed silently did nothing.**
+- **One unreadable file from one device stopped every other device's changes from arriving.** A peer that cannot be read, verified, or parsed is now skipped rather than aborting the whole pass, and a half-uploaded snapshot is no longer merged.
+- **Clock skew of a few seconds between machines could bury a write.** Six places recorded change times; only one guarded against writing a time a peer had already passed. Such a write looked successful locally while already having lost.
+- Rotero re-uploaded the whole library every 30 seconds while you read. It now uploads only when something changed.
+
+**A library could be left missing a column it reported having.** One migration was skipped on libraries already at a particular version while still being stamped as complete, so the library reported itself up to date and every query touching that column failed. An older migration dropped `item_type` immediately after adding it. Both repair themselves on open.
+
+**The AI assistant**
+- **Every past conversation was listed as "/model", then as "Untitled chat".** Two separate causes: the list was reading the agent's own title for a synthetic startup message, and stored summaries were being written by an update that raced the row's creation and usually lost.
+- **Every paper showed another paper's conversations and notes** — in practice, every paper in the library appearing to share one chat. Both sections read the paper once and kept the copy, and the detail panel reuses the component when you change selection.
+- **One conversation appeared on every paper's detail panel.** Searching the library linked every paper the search returned to the conversation, as though the chat were about all of them.
+- **Every launch left an empty conversation behind.** One real library had eight rows for three actual conversations. The leftovers are cleared out on upgrade.
+- **A summary requested while a reply was still streaming was silently dropped.**
+- **Streamed replies could render as broken markdown** — headings falling back to body text, table rows running together — depending on where the network split the response, so which parts broke varied from reply to reply.
+
+### Changed
+- Deleted PDFs are cleaned out of the shared folder once every device has seen the deletion. Your own local copy is never removed.
+- iCloud sync transfers metadata only, not PDFs. That was already true and silent; the settings pane now says so.
+- 389 tests, up from 267.
+
+### Known limitations
+- **Two devices editing different fields of the same paper within one sync window will lose one of the edits.** Merging judges a whole paper at once, so the later write wins every field, including ones it did not change. Background work such as citation-count fetches and metadata extraction rewrites papers on its own schedule, which is usually what triggers this.
+- **Conversations do not sync between devices.** They are tied to the machine that created them.
+- **iCloud sync is untested against the real service and remains off by default.**
+- A device left offline for more than 180 days can restore data the others have finished deleting.
+
 ## v0.2.3
 
 If you run Rotero on more than one machine, this is the important one. Several bugs meant a device could stop syncing entirely — silently, while reporting success — and that tags, notes, and merged papers could be lost between devices. All of them are fixed, and libraries damaged by earlier versions repair themselves on first launch.
