@@ -127,6 +127,94 @@ pub fn merge_row(table: &str, key_cols: &[&str], payload_cols: &[&str]) -> Strin
     )
 }
 
+/// Apply one peer row column by column, each judged on its own clock.
+///
+/// The row-level [`merge_row`] gates the whole row on one `WHERE`, so a peer row
+/// that loses discards every column — including ones it changed and this device
+/// did not. Here the gate moves inside each assignment, as a `CASE` over that
+/// column's own clock, and there is no outer `WHERE` at all.
+///
+/// `graded_cols` are the columns to judge; `insert_only_cols` are inserted to
+/// satisfy NOT NULL but never assigned. **That split is load-bearing.** A
+/// tombstone carries no payload, so the caller supplies fabricated placeholders
+/// (`title = ''`) for the insert path. Judging those would let an empty string
+/// win a live column, and because the win writes the clock alongside the value,
+/// the real one would be unrecoverable. Placeholders may create a row; they may
+/// never modify one.
+///
+/// `deleted` stays row-level and intentionally so: a tombstone has no per-column
+/// clocks to compare, so the row clock is the only thing that can order it, and
+/// the reaper filters on `deleted = 1 AND updated_at < ?`. A tombstone's column
+/// clocks are therefore never read, which is why a column clock sitting a
+/// millisecond ahead of the row clock — as the write path's clamp can produce —
+/// cannot make the reaper destroy anything a peer still needs.
+pub fn merge_row_per_column(
+    table: &str,
+    key_cols: &[&str],
+    graded_cols: &[&str],
+    insert_only_cols: &[&str],
+) -> String {
+    let mut insert_cols: Vec<String> = key_cols.iter().map(|c| (*c).to_string()).collect();
+    for c in graded_cols {
+        insert_cols.push((*c).to_string());
+        insert_cols.push(format!("{c}_ua"));
+        insert_cols.push(format!("{c}_ub"));
+    }
+    insert_cols.extend(insert_only_cols.iter().map(|c| (*c).to_string()));
+    insert_cols.extend(SYNC_COLUMNS.iter().map(|c| (*c).to_string()));
+
+    let placeholders: Vec<String> = (1..=insert_cols.len()).map(|i| format!("?{i}")).collect();
+
+    // One column wins when its own clock is newer, with the device id as the
+    // deterministic tiebreak — the same comparison the row-level merge makes,
+    // applied per column.
+    let wins = |c: &str| {
+        format!(
+            "excluded.{c}_ua > {table}.{c}_ua \
+             OR (excluded.{c}_ua = {table}.{c}_ua AND excluded.{c}_ub > {table}.{c}_ub)"
+        )
+    };
+    let row_wins = format!(
+        "excluded.updated_at > {table}.updated_at \
+         OR (excluded.updated_at = {table}.updated_at \
+             AND excluded.updated_by > {table}.updated_by)"
+    );
+
+    let mut assignments: Vec<String> = Vec::new();
+    for c in graded_cols {
+        let w = wins(c);
+        assignments.push(format!(
+            "{c} = CASE WHEN {w} THEN excluded.{c} ELSE {table}.{c} END"
+        ));
+        // MAX rather than a CASE: the clock only ever moves forward, and both
+        // sides are NOT NULL so scalar MAX cannot yield NULL here.
+        assignments.push(format!("{c}_ua = MAX({table}.{c}_ua, excluded.{c}_ua)"));
+        assignments.push(format!(
+            "{c}_ub = CASE WHEN {w} THEN excluded.{c}_ub ELSE {table}.{c}_ub END"
+        ));
+    }
+
+    // The row clock envelopes the column clocks, so it never moves backwards.
+    assignments.push(format!(
+        "updated_at = MAX({table}.updated_at, excluded.updated_at)"
+    ));
+    assignments.push(format!(
+        "updated_by = CASE WHEN {row_wins} THEN excluded.updated_by ELSE {table}.updated_by END"
+    ));
+    assignments.push(format!(
+        "deleted = CASE WHEN {row_wins} THEN excluded.deleted ELSE {table}.deleted END"
+    ));
+
+    format!(
+        "INSERT INTO {table} ({cols}) VALUES ({vals}) \
+         ON CONFLICT({conflict}) DO UPDATE SET {sets}",
+        cols = insert_cols.join(", "),
+        vals = placeholders.join(", "),
+        conflict = key_cols.join(", "),
+        sets = assignments.join(", "),
+    )
+}
+
 /// Permanently remove this device's settled tombstones from one table.
 ///
 /// The only statement here that destroys data. Both bounds are the caller's to

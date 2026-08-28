@@ -5,7 +5,7 @@ use turso::Connection;
 use super::tables::{CREATE_FTS_INDEX, CREATE_LIVE_VIEWS, CREATE_TABLES};
 
 /// Current schema version; incremented with each migration.
-pub const SCHEMA_VERSION: i64 = 19;
+pub const SCHEMA_VERSION: i64 = 20;
 
 /// Why a database could not be prepared for use.
 #[derive(Debug, thiserror::Error)]
@@ -432,6 +432,66 @@ async fn run_migrations(conn: &Connection) -> Result<(), SchemaError> {
                 (),
             )
             .await;
+    }
+
+    // Per-column clocks on `papers`.
+    //
+    // A row-level clock decides the whole row, so a peer row that loses discards
+    // every column — including ones it changed and this device did not. Editing
+    // a title on one device while another attaches a PDF lost one of the two,
+    // silently. These let each column be judged on its own.
+    //
+    // The ALTERs are swallowed and generated from the manifest, so adding a
+    // payload column later cannot leave its clocks behind. The backfill is not
+    // swallowed: a row whose clocks stayed 0 would lose every column to any
+    // peer's stale copy.
+    for table in crate::sync_schema::SYNCED_TABLES {
+        if !table.per_column {
+            continue;
+        }
+        for column in table.columns {
+            let _ = conn
+                .execute(
+                    &format!(
+                        "ALTER TABLE {} ADD COLUMN {}_ua INTEGER NOT NULL DEFAULT 0",
+                        table.name, column
+                    ),
+                    (),
+                )
+                .await;
+            let _ = conn
+                .execute(
+                    &format!(
+                        "ALTER TABLE {} ADD COLUMN {}_ub TEXT NOT NULL DEFAULT ''",
+                        table.name, column
+                    ),
+                    (),
+                )
+                .await;
+        }
+    }
+
+    if current_version < 20 {
+        // Copy the row clock down onto every column, rather than leaving them
+        // at 0. That makes the migration semantically a no-op: comparing
+        // identical per-column clocks reproduces exactly the row-level outcome,
+        // so an existing library behaves the same until something writes again.
+        // Backdating to 0 would let any peer's stale copy of any column win.
+        for table in crate::sync_schema::SYNCED_TABLES {
+            if !table.per_column || table.columns.is_empty() {
+                continue;
+            }
+            let sets: Vec<String> = table
+                .columns
+                .iter()
+                .map(|c| format!("{c}_ua = updated_at, {c}_ub = updated_by"))
+                .collect();
+            conn.execute(
+                &format!("UPDATE {} SET {}", table.name, sets.join(", ")),
+                (),
+            )
+            .await?;
+        }
     }
 
     if current_version < SCHEMA_VERSION {

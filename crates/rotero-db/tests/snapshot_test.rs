@@ -148,6 +148,15 @@ async fn merge_resolves_by_clock() {
 }
 
 /// Merging the same snapshot twice changes nothing the second time.
+///
+/// Asserted on the resulting *state* rather than on `MergeStats.applied`.
+/// `papers` merges per column, so its statement has no outer `WHERE` on
+/// `DO UPDATE` — every gate lives inside a `CASE` instead — and the row is
+/// therefore always "written" even when every column keeps its local value.
+/// `applied` counts statements that touched a row, which is no longer the same
+/// question as whether anything changed. What idempotence actually promises is
+/// that the second merge leaves the library identical, and that is what this
+/// now checks.
 #[tokio::test]
 async fn merge_is_idempotent() {
     let dir_a = tempfile::tempdir().unwrap();
@@ -159,12 +168,15 @@ async fn merge_is_idempotent() {
     let snap = a.write_snapshot().await.unwrap();
 
     let first = b.merge_snapshot(&snap).await.unwrap();
-    let second = b.merge_snapshot(&snap).await.unwrap();
-
     assert!(first.applied > 0, "the first merge must apply something");
+    let after_first = rows_of(&b).await;
+
+    b.merge_snapshot(&snap).await.unwrap();
+    let after_second = rows_of(&b).await;
+
     assert_eq!(
-        second.applied, 0,
-        "re-applying the same snapshot must be a no-op"
+        after_first, after_second,
+        "re-applying the same snapshot must leave every row identical"
     );
     assert_eq!(titles(&b).await, vec!["Once"]);
 }
@@ -297,9 +309,16 @@ async fn an_equal_timestamp_is_broken_by_device_id() {
     // otherwise vanishingly rare and so never covered.
     let now = chrono::Utc::now().timestamp_millis() + 60_000;
     for (db, device, title) in [(&a, "aaaa", "From A"), (&b, "bbbb", "From B")] {
+        // `title_ua`/`title_ub` alongside the row clock: `papers` is merged per
+        // column, so a title written without advancing its own clock would lose
+        // every comparison. No real write path can produce that state —
+        // `touch_columns` always writes both — so setting only the row clock
+        // here would be testing an unreachable one.
         db.conn()
             .execute(
-                "UPDATE papers SET title = ?1, updated_at = ?2, updated_by = ?3 WHERE id = ?4",
+                "UPDATE papers SET title = ?1, \
+                 updated_at = ?2, updated_by = ?3, \
+                 title_ua = ?2, title_ub = ?3 WHERE id = ?4",
                 turso::params::Params::Positional(vec![
                     turso::Value::Text(title.into()),
                     turso::Value::Integer(now),
@@ -445,4 +464,20 @@ async fn same_tag_name_on_two_devices_converges() {
             "device {name} lost the membership when the duplicate tag was retired"
         );
     }
+}
+
+/// Every synced row, as a comparable snapshot of the library's state.
+///
+/// Not the snapshot *bytes*: the header carries `generated_at`, so two writes
+/// of an unchanged library never compare equal. The rows are what "nothing
+/// changed" is actually a claim about.
+async fn rows_of(db: &rotero_db::Database) -> Vec<String> {
+    let bytes = db.write_snapshot().await.unwrap();
+    let (_, rows) = rotero_db::snapshot::parse_snapshot(&bytes).unwrap();
+    let mut out: Vec<String> = rows
+        .iter()
+        .map(|r| serde_json::to_string(r).unwrap())
+        .collect();
+    out.sort();
+    out
 }

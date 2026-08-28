@@ -33,6 +33,70 @@ impl Database {
         self.stamp(table, pk, false).await
     }
 
+    /// Stamp a row, and the individual columns this write changed.
+    ///
+    /// On a per-column table the merge judges each column by its own clock, so a
+    /// write has to say which columns it touched. The row clock is stamped too
+    /// and stays an envelope over the column clocks — the reaper and the health
+    /// check still read it, and a column clock ahead of the row clock would let
+    /// the reaper destroy a row carrying a newer column.
+    ///
+    /// `columns` must list exactly the columns whose value changed. Both errors
+    /// are silent: a column left out never propagates while its siblings do, and
+    /// one wrongly included stamps a value this device did not write, so a stale
+    /// local copy outranks and destroys a peer's real edit. Nothing at runtime
+    /// catches either — `write_statement_columns_match_their_call_sites` in
+    /// `sync_schema_test.rs` is what makes this safe to get wrong.
+    ///
+    /// On a row-level table this is exactly [`touch`](Self::touch); passing an
+    /// empty slice is the deliberate way to stamp only the row, which is what a
+    /// write to a non-synced column (`citation_key`) or a junction needs.
+    pub async fn touch_columns(
+        &self,
+        table: &str,
+        pk: Pk<'_>,
+        columns: &[&str],
+    ) -> Result<(), crate::DbError> {
+        self.stamp(table, pk, false).await?;
+
+        let per_column = crate::sync_schema::synced_table(table).is_some_and(|t| t.per_column);
+        if !per_column || columns.is_empty() {
+            return Ok(());
+        }
+
+        let now = self.now_millis();
+        let device = self.device_id().to_string();
+
+        // Clamped the same way `stamp_row` clamps the row clock: two writes in
+        // one millisecond would otherwise tie, and a backwards clock would let
+        // this device's own newer edit lose to its own older one.
+        let sets: Vec<String> = columns
+            .iter()
+            .map(|c| format!("{c}_ua = MAX(?1, {c}_ua + 1), {c}_ub = ?2"))
+            .collect();
+
+        // Only single-keyed tables can be per-column: the composite-keyed
+        // tables are the junctions, which have no payload columns at all, so
+        // there is nothing for a per-column clock to describe.
+        let Pk::Single(id) = pk else {
+            return Ok(());
+        };
+
+        let params = vec![
+            Value::Integer(now),
+            Value::Text(device),
+            Value::Text(id.to_string()),
+        ];
+
+        self.conn()
+            .execute(
+                &format!("UPDATE {table} SET {} WHERE id = ?3", sets.join(", ")),
+                turso::params::Params::Positional(params),
+            )
+            .await?;
+        Ok(())
+    }
+
     /// Mark a row deleted, stamped so the deletion propagates.
     ///
     /// A tombstone rather than a `DELETE`: removing the row outright leaves

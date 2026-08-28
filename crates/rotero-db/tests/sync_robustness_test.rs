@@ -130,8 +130,13 @@ async fn a_later_edit_beats_an_earlier_delete() {
     // B brings it back by re-creating the row with the same id.
     d.b.conn()
         .execute(
+            // The title's own clock moves too: `papers` is merged per column,
+            // so a resurrection that advanced only the row clock would bring the
+            // row back carrying its pre-delete title. `touch_columns` writes
+            // both on every real edit.
             "UPDATE papers SET deleted = 0, title = 'Resurrected', \
-             updated_at = ?2, updated_by = 'bb' WHERE id = ?1",
+             updated_at = ?2, updated_by = 'bb', \
+             title_ua = ?2, title_ub = 'bb' WHERE id = ?1",
             turso::params::Params::Positional(vec![
                 turso::Value::Text(paper.clone()),
                 turso::Value::Integer(chrono::Utc::now().timestamp_millis() + 1_000),
@@ -146,6 +151,11 @@ async fn a_later_edit_beats_an_earlier_delete() {
 }
 
 /// Applying the same snapshot twice changes nothing the second time.
+///
+/// Checked against the resulting state, not the applied count: `papers` merges
+/// per column, so its upsert has no outer `WHERE` and reports every row as
+/// written even when no column changes hands. See `merge_is_idempotent` in
+/// `snapshot_test.rs` for the full reasoning.
 #[tokio::test]
 async fn importing_twice_is_idempotent() {
     let d = Devices::new().await;
@@ -153,10 +163,16 @@ async fn importing_twice_is_idempotent() {
 
     d.engine_a.export_changes(&d.a).await;
     let first = d.engine_b.import_changes(&d.b).await;
-    let second = d.engine_b.import_changes(&d.b).await;
-
     assert!(first > 0, "the first import must apply something");
-    assert_eq!(second, 0, "the second must apply nothing");
+    let after_first = rows_of(&d.b).await;
+
+    d.engine_b.import_changes(&d.b).await;
+    let after_second = rows_of(&d.b).await;
+
+    assert_eq!(
+        after_first, after_second,
+        "the second import must leave every row identical"
+    );
     assert_eq!(titles(&d.b).await, vec!["Once"]);
 }
 
@@ -449,4 +465,20 @@ async fn deleting_a_paper_retires_its_citation_edges() {
         d.b.list_all_citations().await.unwrap().is_empty(),
         "and the deletion must reach B rather than being resurrected by it"
     );
+}
+
+/// Every synced row, as a comparable snapshot of the library's state.
+///
+/// Not the snapshot *bytes*: the header carries `generated_at`, so two writes
+/// of an unchanged library never compare equal. The rows are what "nothing
+/// changed" is actually a claim about.
+async fn rows_of(db: &rotero_db::Database) -> Vec<String> {
+    let bytes = db.write_snapshot().await.unwrap();
+    let (_, rows) = rotero_db::snapshot::parse_snapshot(&bytes).unwrap();
+    let mut out: Vec<String> = rows
+        .iter()
+        .map(|r| serde_json::to_string(r).unwrap())
+        .collect();
+    out.sort();
+    out
 }

@@ -128,7 +128,11 @@ fn op_strategy() -> impl Strategy<Value = Op> {
         1 => (0u8..4).prop_map(|name| Op::InsertSavedSearch { name }),
 
         3 => (sym(), 0u8..POOL).prop_map(|(paper, title)| Op::RetitlePaper { paper, title }),
-        1 => (sym(), any::<bool>()).prop_map(|(paper, on)| Op::SetFavorite { paper, on }),
+        // Weighted up alongside `RetitlePaper`: the two are the only ops that
+        // write different columns of one paper, so they are what generates the
+        // concurrent-different-columns case that per-column clocks exist for.
+        // At weight 1 it appeared, but rarely enough to be incidental.
+        3 => (sym(), any::<bool>()).prop_map(|(paper, on)| Op::SetFavorite { paper, on }),
         2 => (sym(), 0u8..POOL).prop_map(|(tag, name)| Op::RenameTag { tag, name }),
         2 => (sym(), 0u8..4).prop_map(|(note, body)| Op::EditNote { note, body }),
         2 => (sym(), 0u8..4).prop_map(|(ann, color)| Op::RecolorAnnotation { ann, color }),
