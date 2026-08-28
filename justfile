@@ -85,7 +85,40 @@ run-release: setup-pdfium
 
 # Bundle the desktop app for distribution
 bundle: setup-pdfium
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # PDFIUM_DYNAMIC_LIB_PATH only points the *build* at PDFium; it is not baked
+    # into the bundle. The library is loaded by name at runtime from beside the
+    # executable (see `candidate_dirs` in rotero-pdf), so it has to be copied in
+    # or the bundled app opens no PDFs. release.yml does the same for the
+    # published artifact.
     PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" dx bundle --release
+
+    case "$(uname -s)" in
+        Darwin) LIB_NAME="libpdfium.dylib" ;;
+        Linux)  LIB_NAME="libpdfium.so" ;;
+        *)      LIB_NAME="pdfium.dll" ;;
+    esac
+
+    SRC="{{justfile_directory()}}/lib/$LIB_NAME"
+    DX_DIR="{{justfile_directory()}}/target/dx/rotero"
+
+    # Every bundled copy of the executable needs the library beside it: `dx`
+    # emits the plain .app and any installer payload (DMG/deb/msi) separately,
+    # and only the former is what `just smoke` checks.
+    found=0
+    for exe in $(find "$DX_DIR" -type f -perm -u+x -name 'rotero' -o -type f -name 'rotero.exe'); do
+        exe_dir=$(dirname "$exe")
+        cp "$SRC" "$exe_dir/"
+        echo "PDFium -> $exe_dir/$LIB_NAME"
+        found=$((found + 1))
+    done
+
+    if [ "$found" -eq 0 ]; then
+        echo "error: no built executable found to place $LIB_NAME beside" >&2
+        exit 1
+    fi
 
 # Run the test suite (PDFium is downloaded first so the PDF tests don't skip).
 # Needs no network: provider tests run against a local stub.
