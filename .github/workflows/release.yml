@@ -41,6 +41,16 @@ jobs:
       # itself — and repeated in all three build jobs.
       - uses: cargo-bins/cargo-binstall@b629f84e79e8fbc4f76616a8efd340f3ea605cab # v1.21.1
       - name: Install Dioxus CLI
+        # binstall asks the GitHub API whether a prebuilt `dx` exists for this
+        # target. Unauthenticated, that request shares a per-IP rate limit with
+        # every other runner, and binstall reads the resulting 403 as "no
+        # prebuilt binary available" rather than as a failure -- so it silently
+        # falls back to `cargo install`, which currently cannot compile
+        # dioxus-cli at all (git2 dropped `Cred::credential_helper`). The token
+        # lifts the rate limit, so the artifact that has been published all
+        # along is actually found.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cargo binstall dioxus-cli --version 0.7.10 -y --force
 
       - name: Download PDFium
@@ -130,6 +140,16 @@ jobs:
       # itself — and repeated in all three build jobs.
       - uses: cargo-bins/cargo-binstall@b629f84e79e8fbc4f76616a8efd340f3ea605cab # v1.21.1
       - name: Install Dioxus CLI
+        # binstall asks the GitHub API whether a prebuilt `dx` exists for this
+        # target. Unauthenticated, that request shares a per-IP rate limit with
+        # every other runner, and binstall reads the resulting 403 as "no
+        # prebuilt binary available" rather than as a failure -- so it silently
+        # falls back to `cargo install`, which currently cannot compile
+        # dioxus-cli at all (git2 dropped `Cred::credential_helper`). The token
+        # lifts the rate limit, so the artifact that has been published all
+        # along is actually found.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cargo binstall dioxus-cli --version 0.7.10 -y --force
 
       - name: Download PDFium
@@ -193,6 +213,16 @@ jobs:
       # itself — and repeated in all three build jobs.
       - uses: cargo-bins/cargo-binstall@b629f84e79e8fbc4f76616a8efd340f3ea605cab # v1.21.1
       - name: Install Dioxus CLI
+        # binstall asks the GitHub API whether a prebuilt `dx` exists for this
+        # target. Unauthenticated, that request shares a per-IP rate limit with
+        # every other runner, and binstall reads the resulting 403 as "no
+        # prebuilt binary available" rather than as a failure -- so it silently
+        # falls back to `cargo install`, which currently cannot compile
+        # dioxus-cli at all (git2 dropped `Cred::credential_helper`). The token
+        # lifts the rate limit, so the artifact that has been published all
+        # along is actually found.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cargo binstall dioxus-cli --version 0.7.10 -y --force
 
       - name: Download PDFium
