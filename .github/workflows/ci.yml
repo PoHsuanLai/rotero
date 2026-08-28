@@ -200,19 +200,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: lib
-          # Keyed on the workflow too: the download URL lives here, not in the
-          # justfile, so a version change there would otherwise reuse a stale binary.
-          key: pdfium-macos-${{ hashFiles('justfile', '.github/workflows/ci.yml') }}
+          # The download URL lives in the justfile, so its hash alone tracks a
+          # version change; a stale binary cannot outlive an edit to the recipe.
+          key: pdfium-macos-${{ hashFiles('justfile') }}
+      - uses: taiki-e/install-action@just
       - name: Download PDFium
-        run: |
-          mkdir -p lib
-          if [ ! -f lib/libpdfium.dylib ]; then
-            TMP=$(mktemp -d)
-            curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz" -o "$TMP/pdfium.tgz"
-            tar -xzf "$TMP/pdfium.tgz" -C "$TMP"
-            cp "$TMP/lib/libpdfium.dylib" lib/libpdfium.dylib
-            rm -rf "$TMP"
-          fi
+        run: just setup-pdfium
       - uses: taiki-e/install-action@nextest
       # `clippy --all-targets` and the test build cannot share artifacts —
       # clippy stops at metadata while tests need real codegen. Same ordering as
@@ -267,17 +260,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: lib
-          key: pdfium-macos-${{ hashFiles('justfile', '.github/workflows/ci.yml') }}
+          key: pdfium-macos-${{ hashFiles('justfile') }}
+      - uses: taiki-e/install-action@just
       - name: Download PDFium
-        run: |
-          mkdir -p lib
-          if [ ! -f lib/libpdfium.dylib ]; then
-            TMP=$(mktemp -d)
-            curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz" -o "$TMP/pdfium.tgz"
-            tar -xzf "$TMP/pdfium.tgz" -C "$TMP"
-            cp "$TMP/lib/libpdfium.dylib" lib/libpdfium.dylib
-            rm -rf "$TMP"
-          fi
+        run: just setup-pdfium
       - name: Bundle
         run: PDFIUM_DYNAMIC_LIB_PATH="$PWD/lib" dx bundle --release
       # Mirrors release.yml: PDFium ships beside the executable, where the
