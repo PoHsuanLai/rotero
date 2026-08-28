@@ -54,14 +54,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cargo binstall dioxus-cli --version 0.7.10 -y --force
 
+      - uses: taiki-e/install-action@just
       - name: Download PDFium
-        run: |
-          mkdir -p lib
-          TMP=$(mktemp -d)
-          curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz" -o "$TMP/pdfium.tgz"
-          tar -xzf "$TMP/pdfium.tgz" -C "$TMP"
-          cp "$TMP/lib/libpdfium.dylib" lib/libpdfium.dylib
-          rm -rf "$TMP"
+        run: just setup-pdfium
 
       - name: Bundle app
         run: PDFIUM_DYNAMIC_LIB_PATH="$PWD/lib" dx bundle --release
@@ -153,16 +148,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cargo binstall dioxus-cli --version 0.7.10 -y --force
 
+      - uses: taiki-e/install-action@just
       - name: Download PDFium
         shell: bash
-        run: |
-          mkdir -p lib
-          TMP=$(mktemp -d)
-          curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz" -o "$TMP/pdfium.tgz"
-          tar -xzf "$TMP/pdfium.tgz" -C "$TMP"
-          # Windows ships the DLL under bin/; lib/ holds only the import library.
-          cp "$TMP/bin/pdfium.dll" lib/pdfium.dll
-          rm -rf "$TMP"
+        run: just setup-pdfium
 
       - name: Build
         shell: bash
@@ -226,14 +215,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cargo binstall dioxus-cli --version 0.7.10 -y --force
 
+      - uses: taiki-e/install-action@just
       - name: Download PDFium
-        run: |
-          mkdir -p lib
-          TMP=$(mktemp -d)
-          curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-x64.tgz" -o "$TMP/pdfium.tgz"
-          tar -xzf "$TMP/pdfium.tgz" -C "$TMP"
-          cp "$TMP/lib/libpdfium.so" lib/libpdfium.so
-          rm -rf "$TMP"
+        run: just setup-pdfium
 
       - name: Build
         run: PDFIUM_DYNAMIC_LIB_PATH="$PWD/lib" dx bundle --release --package-types deb
