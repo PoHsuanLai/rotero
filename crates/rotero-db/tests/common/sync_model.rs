@@ -186,6 +186,14 @@ pub struct Budget {
     pub events: std::ops::RangeInclusive<usize>,
     /// The ceiling on papers, which is what actually bounds the runtime.
     pub max_papers: usize,
+    /// How long one generated scenario may take before it is called
+    /// pathological, in milliseconds.
+    ///
+    /// Part of the budget rather than a constant beside it: a heavy case runs up
+    /// to four devices over twenty-four events, so it is several times the work
+    /// of a default one and cannot share the same ceiling. A single number for
+    /// both tiers is only ever right for one of them.
+    pub case_timeout_ms: u32,
 }
 
 /// The active budget.
@@ -200,12 +208,20 @@ pub fn budget() -> Budget {
             devices: 2..=4,
             events: 8..=24,
             max_papers: 16,
+            case_timeout_ms: 300_000,
         },
         _ => Budget {
             cases: 48,
             devices: 2..=3,
             events: 4..=14,
             max_papers: 12,
+            // Generous against the observed worst case rather than tight around
+            // it. This exists to stop a pathological scenario holding CI open,
+            // not to police performance: a case that is merely slow is a slow
+            // case, and failing it teaches nobody anything. Windows runners are
+            // roughly 2.5x slower than macOS here, and a 30s ceiling turned that
+            // into a red build the first time a column was added to `papers`.
+            case_timeout_ms: 120_000,
         },
     }
 }
