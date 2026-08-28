@@ -60,6 +60,11 @@ fn main() {
                 // only log failures of their own.
                 tracing::error!("Failed to initialize database: {e}");
                 init::preflight::record(|p| p.db = Some(e.clone()));
+                // Read before anything else can open a database and reset it.
+                init::database::DB_INIT_NEEDS_UPDATE.store(
+                    rotero_db::last_open_was_newer_schema(),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
                 let _ = init::database::DB_INIT_ERROR.set(e);
             }
         }
