@@ -31,8 +31,10 @@ fn config() -> ProptestConfig {
         // ceiling costs nothing on a green run.
         max_shrink_iters: 2048,
         // A generated scenario that somehow becomes pathological should fail
-        // loudly rather than hold a CI job open.
-        timeout: 30_000,
+        // loudly rather than hold a CI job open. Scaled with the budget: the
+        // heavy tier's cases are several times the work of the default tier's,
+        // so one fixed ceiling cannot suit both.
+        timeout: budget().case_timeout_ms,
         ..ProptestConfig::default()
     }
 }
