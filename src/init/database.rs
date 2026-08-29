@@ -16,6 +16,16 @@ pub static SHARED_DB: std::sync::OnceLock<rotero_db::Database> = std::sync::Once
 #[cfg(feature = "desktop")]
 pub static DB_INIT_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
+/// Whether [`DB_INIT_ERROR`] is version skew rather than a damaged library.
+///
+/// Captured at startup because it is only readable immediately after the failed
+/// open. The error screen uses it to offer an in-app update — the message tells
+/// the user to update, and until this existed that was the one state in which
+/// the updater never ran, because it mounts only on the success path.
+#[cfg(feature = "desktop")]
+pub static DB_INIT_NEEDS_UPDATE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// Open the library database, creating and migrating it if needed.
 ///
 /// Delegates to [`rotero_db::Database::open`] so the desktop app and the tests

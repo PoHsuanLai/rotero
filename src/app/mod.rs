@@ -211,11 +211,14 @@ pub fn App() -> Element {
                 document::Style { {FONTS_CSS} }
                 document::Style { {TOKENS_CSS} }
                 document::Style { {BASE_CSS} }
+                document::Style { {BUTTONS_CSS} }
                 document::Style { {LAYOUT_CSS} }
+                document::Style { {DIALOGS_CSS} }
                 document::Style { {THEME_CSS} }
                 div { class: "db-error",
                     h1 { "Database Error" }
                     p { "{err}" }
+                    {db_error_update_element()}
                 }
             }
         }
@@ -241,6 +244,40 @@ fn update_checker_element() -> Element {
 
 #[cfg(not(feature = "desktop"))]
 fn update_checker_element() -> Element {
+    rsx! {}
+}
+
+/// The update affordance on the Database Error screen.
+///
+/// Shown only for a library written by a newer build: that error tells the user
+/// to update, and the normal updater mounts on the success path only, so this
+/// was the one state where the app asked for something it had disabled. Every
+/// other open failure means a damaged or unreadable library, where an update
+/// button would promise a fix it cannot deliver.
+#[cfg(feature = "desktop")]
+fn db_error_update_element() -> Element {
+    use crate::init::database::DB_INIT_NEEDS_UPDATE;
+
+    if !DB_INIT_NEEDS_UPDATE.load(std::sync::atomic::Ordering::Relaxed) {
+        return rsx! {};
+    }
+
+    // The dialog needs its own state here: the provider above is on the
+    // success path, which by definition did not run.
+    let update_state = use_context_provider(|| Signal::new(crate::updates::UpdateState::default()));
+
+    rsx! {
+        button {
+            class: "btn btn-primary",
+            onclick: move |_| crate::updates::run_interactive_check(update_state),
+            "Check for Update"
+        }
+        super::ui::update_dialog::UpdateDialog {}
+    }
+}
+
+#[cfg(not(feature = "desktop"))]
+fn db_error_update_element() -> Element {
     rsx! {}
 }
 

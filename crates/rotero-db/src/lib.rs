@@ -42,6 +42,8 @@ pub mod sync_test_helpers;
 /// Tag CRUD and paper-tag membership.
 pub mod tags;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 pub use rotero_models::queries;
 
 // Re-export so the app crate doesn't need a direct turso dependency.
@@ -60,6 +62,22 @@ pub enum DbError {
 
 /// Convenience alias for results in the db layer.
 pub type DbResult<T> = Result<T, DbError>;
+
+/// Whether the most recent [`Database::open`] failed because the library was
+/// written by a newer build.
+///
+/// A flag rather than a richer error type because `open` reports `String` to a
+/// large number of callers (mostly tests); widening that signature to carry one
+/// bit through every `.unwrap()` is a poor trade. Set on every failed open, so
+/// a later unrelated failure clears it.
+static LAST_OPEN_WAS_NEWER_SCHEMA: AtomicBool = AtomicBool::new(false);
+
+/// Whether the last failed [`Database::open`] was version skew.
+///
+/// Only meaningful immediately after `open` returns an error.
+pub fn last_open_was_newer_schema() -> bool {
+    LAST_OPEN_WAS_NEWER_SCHEMA.load(Ordering::Relaxed)
+}
 
 /// Trait for deserializing a turso Row into a domain model.
 /// Each implementation maps column indices to struct fields based on the
@@ -165,9 +183,13 @@ impl Database {
             .connect()
             .map_err(|e| format!("Failed to connect: {e}"))?;
 
-        schema::initialize_db(&conn)
-            .await
-            .map_err(|e| format!("Failed to initialize schema: {e}"))?;
+        schema::initialize_db(&conn).await.map_err(|e| {
+            // Record the kind before the error is flattened to a string: the
+            // UI offers an in-app update only for version skew, and matching
+            // on the rendered message would break the moment it is reworded.
+            LAST_OPEN_WAS_NEWER_SCHEMA.store(e.is_newer_schema(), Ordering::Relaxed);
+            format!("Failed to initialize schema: {e}")
+        })?;
 
         let device_id = read_device_id(&conn).await?;
 

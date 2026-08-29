@@ -31,6 +31,19 @@ pub enum SchemaError {
     },
 }
 
+impl SchemaError {
+    /// Whether this failure is version skew that a newer build would fix.
+    ///
+    /// The one schema failure the user can resolve without touching the
+    /// library: the data is intact, this binary is simply too old to read it.
+    /// Callers use it to offer an in-app update; every other variant means
+    /// something is wrong with the database itself, where an update button
+    /// would be misleading.
+    pub fn is_newer_schema(&self) -> bool {
+        matches!(self, Self::NewerSchema { .. })
+    }
+}
+
 /// Create the application tables and run pending migrations.
 ///
 /// CRR metadata tables are created separately by [`crate::Database::open`] via
@@ -908,4 +921,59 @@ async fn seed_from_timestamp(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn open_conn() -> Connection {
+        let db = turso::Builder::new_local(":memory:")
+            .experimental_index_method(true)
+            .build()
+            .await
+            .unwrap();
+        db.connect().unwrap()
+    }
+
+    /// A library from a newer build is refused, and refused as version skew.
+    ///
+    /// The shape that stranded a v0.2.3 install: the schema had moved ahead of
+    /// the binary, and the error screen's update button keys off this variant.
+    #[tokio::test]
+    async fn a_newer_library_is_refused_as_version_skew() {
+        let conn = open_conn().await;
+        initialize_db(&conn).await.unwrap();
+        conn.execute(
+            "UPDATE schema_version SET version = ?1",
+            [SCHEMA_VERSION + 4],
+        )
+        .await
+        .unwrap();
+
+        let err = run_migrations(&conn).await.unwrap_err();
+        assert!(err.is_newer_schema(), "got {err:?}");
+        assert!(matches!(
+            err,
+            SchemaError::NewerSchema { found, supported }
+                if found == SCHEMA_VERSION + 4 && supported == SCHEMA_VERSION
+        ));
+    }
+
+    /// The version this build wrote is not skew, so no update is offered.
+    #[tokio::test]
+    async fn a_current_library_opens() {
+        let conn = open_conn().await;
+        initialize_db(&conn).await.unwrap();
+        run_migrations(&conn).await.unwrap();
+        assert_eq!(get_schema_version(&conn).await.unwrap(), SCHEMA_VERSION);
+    }
+
+    /// Only version skew sets the flag — a driver error must not offer an
+    /// update, which would promise a fix it cannot deliver.
+    #[test]
+    fn driver_errors_are_not_version_skew() {
+        let err = SchemaError::Turso(turso::Error::NotAdb("not a database".into()));
+        assert!(!err.is_newer_schema());
+    }
 }
