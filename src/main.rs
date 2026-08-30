@@ -26,6 +26,11 @@ pub use init::mcp::MCP_HTTP_PORT;
 fn main() {
     init::logging::init_logging();
 
+    // Ctrl+C / SIGTERM do not run Drop on the agent thread. The SDK child is in
+    // its own process group, so the signal never reaches it either. Kill it here.
+    #[cfg(all(unix, feature = "desktop"))]
+    agent::reaper::install_signal_handler();
+
     let config = sync::engine::SyncConfig::load();
 
     #[cfg(feature = "desktop")]

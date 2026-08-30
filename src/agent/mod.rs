@@ -2,6 +2,7 @@ mod helpers;
 pub(crate) mod install;
 pub(crate) mod launch;
 pub(crate) mod node;
+pub(crate) mod reaper;
 pub(crate) mod registry;
 mod session;
 pub mod types;

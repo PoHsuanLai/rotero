@@ -6708,6 +6708,7 @@ dependencies = [
  "directories",
  "flate2",
  "futures-util",
+ "libc",
  "objc2",
  "objc2-cloud-kit",
  "objc2-foundation",

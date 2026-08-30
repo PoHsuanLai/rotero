@@ -11,7 +11,9 @@ use agent_client_protocol::schema::v1::{
     SelectedPermissionOutcome, SessionId, SessionNotification, SetSessionConfigOptionRequest,
     TextContent,
 };
-use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo, Responder};
+use agent_client_protocol::{
+    AcpAgent, Agent, ByteStreams, Client, ConnectTo, ConnectionTo, Responder,
+};
 
 use super::LoopResult;
 use super::helpers::{
@@ -172,11 +174,59 @@ async fn run_client(
             },
             agent_client_protocol::on_receive_request!(),
         )
-        .connect_with(acp_agent, |cx: ConnectionTo<Agent>| async move {
+        .connect_with(SignalTracked(acp_agent), |cx: ConnectionTo<Agent>| async move {
             drive_session(cx, req_rx, ctx).await
         })
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Spawn the agent ourselves so we know the PID for Ctrl+C, then speak ACP over
+/// its stdio. Drop still SIGKILLs the process group on session switch.
+struct SignalTracked(AcpAgent);
+
+impl ConnectTo<Client> for SignalTracked {
+    async fn connect_to(
+        self,
+        client: impl ConnectTo<Agent>,
+    ) -> Result<(), agent_client_protocol::Error> {
+        let (stdin, stdout, stderr, mut child) = self.0.spawn_process()?;
+        let pid = child.id() as i32;
+        super::reaper::register(pid);
+        tokio::spawn(async move {
+            use futures_util::AsyncReadExt as _;
+            let mut stderr = stderr;
+            let mut buf = [0u8; 8192];
+            loop {
+                match stderr.read(&mut buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+            }
+        });
+        let _guard = ChildReaper {
+            pid,
+            kill: Some(move || {
+                let _ = child.kill();
+            }),
+        };
+        ConnectTo::<Client>::connect_to(ByteStreams::new(stdin, stdout), client).await
+    }
+}
+
+struct ChildReaper<F: FnOnce()> {
+    pid: i32,
+    kill: Option<F>,
+}
+
+impl<F: FnOnce()> Drop for ChildReaper<F> {
+    fn drop(&mut self) {
+        super::reaper::unregister(self.pid);
+        super::reaper::kill_group(self.pid);
+        if let Some(kill) = self.kill.take() {
+            kill();
+        }
+    }
 }
 
 async fn drive_session(
