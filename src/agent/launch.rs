@@ -191,17 +191,10 @@ fn install_binary(agent: &RegistryAgent, binary: &BinaryDist) -> Result<LaunchSp
         });
     let cmd_rel = binary.cmd.trim_start_matches("./");
     let entry = dest.join(cmd_rel);
-    if entry.exists() {
-        return Ok(LaunchSpec {
-            command: entry,
-            args: binary.args.clone(),
-            env: binary.env.clone().into_iter().collect(),
-        });
+    if !entry.exists() {
+        tracing::info!("Downloading {} ({})…", agent.name, agent.version);
+        download_and_extract(&binary.archive, binary.sha256.as_deref(), &dest)?;
     }
-
-    tracing::info!("Downloading {} ({})…", agent.name, agent.version);
-    download_and_extract(&binary.archive, binary.sha256.as_deref(), &dest)?;
-
     if !entry.exists() {
         return Err(format!(
             "{} archive did not contain {}",
@@ -209,21 +202,71 @@ fn install_binary(agent: &RegistryAgent, binary: &BinaryDist) -> Result<LaunchSp
             entry.display()
         ));
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&entry)
-            .map_err(|e| format!("Failed to read {}: {e}", entry.display()))?
-            .permissions();
-        perms.set_mode(perms.mode() | 0o755);
-        let _ = std::fs::set_permissions(&entry, perms);
-    }
+    ensure_extracted_executables(&dest);
 
     Ok(LaunchSpec {
         command: entry,
         args: binary.args.clone(),
         env: binary.env.clone().into_iter().collect(),
     })
+}
+
+/// Zip/tar extracts often land as 0644. Antigravity's `localharness_external`
+/// is a Mach-O next to the ACP server; without +x, login succeeds and then
+/// `session/new` fails with a non-auth error.
+fn ensure_extracted_executables(dir: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() || !looks_like_unix_executable(&path) {
+                continue;
+            }
+            let Ok(meta) = std::fs::metadata(&path) else {
+                continue;
+            };
+            let mut perms = meta.permissions();
+            if perms.mode() & 0o111 == 0 {
+                perms.set_mode(perms.mode() | 0o755);
+                let _ = std::fs::set_permissions(&path, perms);
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+    }
+}
+
+#[cfg_attr(not(unix), allow(dead_code))]
+fn looks_like_unix_executable(path: &Path) -> bool {
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut magic = [0u8; 4];
+    let Ok(n) = std::io::Read::read(&mut file, &mut magic) else {
+        return false;
+    };
+    if n >= 2 && magic[0] == b'#' && magic[1] == b'!' {
+        return true;
+    }
+    if n < 4 {
+        return false;
+    }
+    matches!(
+        magic,
+        [0x7f, b'E', b'L', b'F']
+            | [0xfe, 0xed, 0xfa, 0xce]
+            | [0xce, 0xfa, 0xed, 0xfe]
+            | [0xfe, 0xed, 0xfa, 0xcf]
+            | [0xcf, 0xfa, 0xed, 0xfe]
+            | [0xca, 0xfe, 0xba, 0xbe]
+            | [0xbe, 0xba, 0xfe, 0xca]
+    )
 }
 
 const DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
@@ -392,6 +435,11 @@ fn unpack_zip(bytes: &[u8], dest: &Path) -> Result<(), String> {
             .map_err(|e| format!("Failed to create {}: {e}", out.display()))?;
         std::io::copy(&mut file, &mut sink)
             .map_err(|e| format!("Failed to write {}: {e}", out.display()))?;
+        #[cfg(unix)]
+        if let Some(mode) = file.unix_mode() {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&out, std::fs::Permissions::from_mode(mode));
+        }
     }
     Ok(())
 }
@@ -461,6 +509,20 @@ mod tests {
             safe_rel(Path::new("ok/file")),
             Some(PathBuf::from("ok/file"))
         );
+    }
+
+    #[test]
+    fn shebang_and_elf_look_executable() {
+        let dir = tempfile::tempdir().unwrap();
+        let sh = dir.path().join("run");
+        std::fs::write(&sh, b"#!/bin/sh\n").unwrap();
+        assert!(looks_like_unix_executable(&sh));
+        let elf = dir.path().join("bin");
+        std::fs::write(&elf, b"\x7fELF rest").unwrap();
+        assert!(looks_like_unix_executable(&elf));
+        let txt = dir.path().join("readme");
+        std::fs::write(&txt, b"hello").unwrap();
+        assert!(!looks_like_unix_executable(&txt));
     }
 
     #[test]

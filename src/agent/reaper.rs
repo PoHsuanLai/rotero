@@ -46,15 +46,17 @@ pub(crate) fn unregister(pid: i32) {
 /// SIGKILL the process group whose leader is `pid`.
 ///
 /// Safe to call if the group is already gone.
+#[cfg(unix)]
 pub(crate) fn kill_group(pid: i32) {
-    if pid <= 0 {
-        return;
-    }
-    #[cfg(unix)]
-    unsafe {
-        libc::kill(-pid, libc::SIGKILL);
+    if pid > 0 {
+        unsafe {
+            libc::kill(-pid, libc::SIGKILL);
+        }
     }
 }
+
+#[cfg(not(unix))]
+pub(crate) fn kill_group(_pid: i32) {}
 
 #[cfg(unix)]
 fn kill_all() {
@@ -90,9 +92,6 @@ extern "C" fn handle_signal(sig: i32) {
         libc::raise(sig);
     }
 }
-
-#[cfg(not(unix))]
-pub(crate) fn install_signal_handler() {}
 
 #[cfg(test)]
 mod tests {

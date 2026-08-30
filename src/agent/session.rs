@@ -198,10 +198,20 @@ impl ConnectTo<Client> for SignalTracked {
             use futures_util::AsyncReadExt as _;
             let mut stderr = stderr;
             let mut buf = [0u8; 8192];
+            let mut leftover = String::new();
             loop {
                 match stderr.read(&mut buf).await {
                     Ok(0) | Err(_) => break,
-                    Ok(_) => {}
+                    Ok(n) => {
+                        leftover.push_str(&String::from_utf8_lossy(&buf[..n]));
+                        while let Some(i) = leftover.find('\n') {
+                            let line = leftover[..i].trim_end_matches('\r').to_string();
+                            leftover.replace_range(..=i, "");
+                            if !line.is_empty() {
+                                tracing::warn!("ACP stderr: {line}");
+                            }
+                        }
+                    }
                 }
             }
         });
@@ -291,11 +301,13 @@ async fn drive_session(
             }
         }
         Err(e) if is_auth_error(&e.to_string()) => {
+            tracing::info!("ACP: session/new needs auth: {e}");
             let _ = evt_tx.send(ChatEvent::AuthRequired {
                 provider_name: provider_name.clone(),
             });
         }
         Err(e) => {
+            tracing::error!("ACP: session/new failed: {e}");
             let _ = evt_tx.send(ChatEvent::Error(format!("Failed to create session: {e}")));
             return Err(e);
         }
@@ -488,10 +500,8 @@ async fn drive_session(
                 }
             }
             Ok(ChatRequest::Authenticate { method_id }) => {
-                let mut meta = serde_json::Map::new();
-                meta.insert("headless".into(), serde_json::Value::Bool(true));
                 match cx
-                    .send_request(AuthenticateRequest::new(method_id).meta(meta))
+                    .send_request(AuthenticateRequest::new(method_id))
                     .block_task()
                     .await
                 {
@@ -506,6 +516,7 @@ async fn drive_session(
                         {
                             Ok(created) => {
                                 session_id = created.session_id;
+                                tracing::info!("ACP: session created: {session_id}");
                                 if !session_id.to_string().is_empty() {
                                     let _ = evt_tx.send(ChatEvent::SessionCreated {
                                         session_id: session_id.to_string(),
@@ -513,17 +524,20 @@ async fn drive_session(
                                 }
                             }
                             Err(e) if is_auth_error(&e.to_string()) => {
+                                tracing::warn!("ACP: session/new still needs auth: {e}");
                                 let _ = evt_tx.send(ChatEvent::AuthRequired {
                                     provider_name: provider_name.clone(),
                                 });
                             }
                             Err(e) => {
+                                tracing::error!("ACP: session/new after auth failed: {e}");
                                 let _ =
                                     evt_tx.send(ChatEvent::Error(format!("Session failed: {e}")));
                             }
                         }
                     }
                     Err(e) => {
+                        tracing::error!("ACP: authenticate failed: {e}");
                         let _ = evt_tx.send(ChatEvent::Error(format!("Auth failed: {e}")));
                     }
                 }
