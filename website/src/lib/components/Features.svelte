@@ -142,8 +142,8 @@
         </div>
         <h3 class="showcase-title">Chat with your<br/>papers.</h3>
         <p class="showcase-desc">
-          Ask questions about any paper in your library. The built-in MCP server gives Claude
-          full context — your annotations, highlights, notes, and the paper's full text.
+          Ask questions about any paper in your library. The built-in MCP server gives your
+          coding agent full context — your annotations, highlights, notes, and the paper's full text.
           Research conversations grounded in your actual reading.
         </p>
       </div>

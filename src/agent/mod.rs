@@ -1,16 +1,17 @@
-mod connection;
 mod helpers;
 pub(crate) mod install;
+pub(crate) mod launch;
 pub(crate) mod node;
-pub(crate) mod reaper;
+pub(crate) mod registry;
 mod session;
 pub mod types;
 
 use std::sync::mpsc;
 
 use session::connect_and_run;
-use types::{AGENT_PROVIDERS, ChatEvent, ChatRequest};
+use types::{ChatEvent, ChatRequest};
 
+#[derive(Clone)]
 pub(crate) enum LoopResult {
     SwitchAgent(String),
     Shutdown,
@@ -36,10 +37,7 @@ fn agent_main(
     evt_tx: tokio::sync::mpsc::UnboundedSender<ChatEvent>,
 ) {
     let config = crate::sync::engine::SyncConfig::load();
-    let mut current_provider = AGENT_PROVIDERS
-        .iter()
-        .find(|p| p.id == config.agent.agent_provider)
-        .unwrap_or(&AGENT_PROVIDERS[0]);
+    let mut current_provider = crate::agent::registry::remap_provider_id(&config.agent.agent_provider);
 
     // Connecting eagerly meant every fresh install downloaded ~50MB of Node.js
     // and ran `npm install` on first launch, whether or not the user ever opened
@@ -70,19 +68,11 @@ fn agent_main(
     let req_rx = feed_rx;
 
     loop {
-        let result = connect_and_run(current_provider, &req_rx, &evt_tx);
+        let result = connect_and_run(&current_provider, &req_rx, &evt_tx);
 
         match result {
             LoopResult::SwitchAgent(provider_id) => {
-                if let Some(provider) = AGENT_PROVIDERS.iter().find(|p| p.id == provider_id) {
-                    current_provider = provider;
-                    continue;
-                } else {
-                    let _ = evt_tx.send(ChatEvent::Error(format!(
-                        "Unknown agent provider: {provider_id}"
-                    )));
-                    break;
-                }
+                current_provider = crate::agent::registry::remap_provider_id(&provider_id);
             }
             LoopResult::Shutdown => break,
         }

@@ -1,13 +1,4 @@
-use std::path::{Path, PathBuf};
-
-use super::node::find_npm;
-use super::types::AgentProvider;
-
-/// Ceiling on `npm install`. Generous, because a cold cache over a slow link is
-/// legitimately slow — but bounded, because a proxy that accepts the connection
-/// and never answers otherwise wedges the agent thread with no error and no way
-/// to abort.
-const NPM_INSTALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+use std::path::PathBuf;
 
 /// Run a command, killing it if it outruns `timeout`.
 ///
@@ -80,66 +71,6 @@ pub(crate) fn agents_cache_dir() -> PathBuf {
     #[cfg(not(feature = "desktop"))]
     let base = PathBuf::from(".");
     base.join("com.rotero.Rotero").join("agents")
-}
-
-pub(crate) fn ensure_agent_installed(provider: &AgentProvider) -> Result<PathBuf, String> {
-    let cache = agents_cache_dir();
-    let pkg_dir = cache.join(provider.id);
-    let pkg_root = pkg_dir.join("node_modules").join(provider.npm_package);
-    let pkg_json_path = pkg_root.join("package.json");
-
-    if pkg_json_path.exists() {
-        return resolve_bin_entry(&pkg_root);
-    }
-
-    std::fs::create_dir_all(&pkg_dir)
-        .map_err(|e| format!("Failed to create agent cache dir: {e}"))?;
-
-    tracing::info!("Installing {} (first time setup)...", provider.npm_package);
-
-    let npm_bin = find_npm()?;
-    let output = run_with_timeout(
-        super::helpers::command_for_program(&npm_bin).args([
-            "install",
-            "--prefix",
-            &pkg_dir.to_string_lossy(),
-            provider.npm_package,
-        ]),
-        NPM_INSTALL_TIMEOUT,
-    )?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("npm install failed: {stderr}"));
-    }
-
-    resolve_bin_entry(&pkg_root)
-}
-
-pub(crate) fn resolve_bin_entry(pkg_root: &Path) -> Result<PathBuf, String> {
-    let pkg_json = pkg_root.join("package.json");
-    let content =
-        std::fs::read_to_string(&pkg_json).map_err(|e| format!("Can't read package.json: {e}"))?;
-    let v: serde_json::Value =
-        serde_json::from_str(&content).map_err(|e| format!("Invalid package.json: {e}"))?;
-
-    let bin_path = match v.get("bin") {
-        Some(serde_json::Value::String(s)) => s.clone(),
-        Some(serde_json::Value::Object(obj)) => obj
-            .values()
-            .next()
-            .and_then(|v| v.as_str())
-            .ok_or("No bin entries in package.json")?
-            .to_string(),
-        _ => return Err("No bin field in package.json".into()),
-    };
-
-    let entry = pkg_root.join(&bin_path);
-    if entry.exists() {
-        Ok(entry)
-    } else {
-        Err(format!("Entry point not found: {}", entry.display()))
-    }
 }
 
 pub(crate) fn find_mcp_binary() -> Option<PathBuf> {

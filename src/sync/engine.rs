@@ -200,7 +200,7 @@ fn default_dpr() -> f32 {
     1.0
 }
 fn default_agent_provider() -> String {
-    "claude".to_string()
+    crate::agent::registry::default_provider_id()
 }
 
 fn default_zoom() -> f32 {
@@ -267,8 +267,12 @@ impl SyncConfig {
         }
 
         match std::fs::read_to_string(&path) {
-            Ok(content) => match serde_json::from_str(&content) {
-                Ok(config) => config,
+            Ok(content) => match serde_json::from_str::<Self>(&content) {
+                Ok(mut config) => {
+                    config.agent.agent_provider =
+                        crate::agent::registry::remap_provider_id(&config.agent.agent_provider);
+                    config
+                }
                 Err(e) => {
                     let stamp = chrono::Utc::now().format("%Y%m%d%H%M%S");
                     let backup = path.with_extension(format!("json.corrupt-{stamp}"));

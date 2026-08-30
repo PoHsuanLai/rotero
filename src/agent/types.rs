@@ -73,49 +73,7 @@ pub enum AgentStatus {
     ToolCall(String),
     NeedsAuth,
     Error(String),
-    #[allow(dead_code)]
-    NotInstalled,
 }
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct AgentProvider {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub description: &'static str,
-    pub npm_package: &'static str,
-    pub extra_args: &'static [&'static str],
-}
-
-pub const AGENT_PROVIDERS: &[AgentProvider] = &[
-    AgentProvider {
-        id: "claude",
-        name: "Claude",
-        description: "Anthropic Claude Code",
-        npm_package: "@agentclientprotocol/claude-agent-acp",
-        extra_args: &[],
-    },
-    AgentProvider {
-        id: "gemini",
-        name: "Gemini",
-        description: "Google Gemini CLI",
-        npm_package: "@google/gemini-cli",
-        extra_args: &["--acp"],
-    },
-    AgentProvider {
-        id: "copilot",
-        name: "GitHub Copilot",
-        description: "GitHub Copilot CLI",
-        npm_package: "@github/copilot",
-        extra_args: &["--acp"],
-    },
-    AgentProvider {
-        id: "codex",
-        name: "Codex",
-        description: "OpenAI Codex CLI",
-        npm_package: "@zed-industries/codex-acp",
-        extra_args: &[],
-    },
-];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SlashCommand {
@@ -144,10 +102,8 @@ pub struct AgentAuthMethod {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
-    pub terminal_command: Option<String>,
-    pub terminal_args: Vec<String>,
     pub is_api_key: bool,
-    /// The env var name for API key methods (e.g. "GEMINI_API_KEY").
+    /// The env var name for API key methods (e.g. "XAI_API_KEY").
     pub api_key_env_var: Option<String>,
 }
 
@@ -164,9 +120,12 @@ pub struct ChatState {
     pub show_session_browser: bool,
     pub auth_methods: Vec<AgentAuthMethod>,
     pub active_provider_id: String,
+    pub active_provider_name: String,
     pub supports_list_sessions: bool,
     pub available_models: Vec<AgentModel>,
     pub current_model: String,
+    /// Config-option id for the model picker, when the agent uses `configOptions`.
+    pub model_config_id: Option<String>,
     /// The agent session backing the visible transcript, once one exists.
     pub current_session_id: Option<String>,
     /// What the next session created will be about. Set when a message is sent,
@@ -240,6 +199,7 @@ pub enum ChatEvent {
     Connected {
         auth_methods: Vec<AgentAuthMethod>,
         provider_id: String,
+        provider_name: String,
         supports_list_sessions: bool,
     },
     SessionCreated {
@@ -271,6 +231,7 @@ pub enum ChatEvent {
     ModelsAvailable {
         models: Vec<AgentModel>,
         current: String,
+        config_id: Option<String>,
     },
     SessionList(Vec<PastSession>),
     /// A one-line description of a conversation, for surfaces that show it

@@ -26,11 +26,6 @@ pub use init::mcp::MCP_HTTP_PORT;
 fn main() {
     init::logging::init_logging();
 
-    // Reap spawned ACP agent node processes if the app is terminated by a signal
-    // (Cmd+Q, Ctrl+C, `dx serve` reload) — their Drop-based cleanup won't run then.
-    #[cfg(all(unix, feature = "desktop"))]
-    agent::reaper::install_signal_handler();
-
     let config = sync::engine::SyncConfig::load();
 
     #[cfg(feature = "desktop")]
