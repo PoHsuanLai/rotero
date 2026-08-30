@@ -3,7 +3,8 @@ use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
-pub const REGISTRY_URL: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
+pub const REGISTRY_URL: &str =
+    "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
 const CACHE_TTL: Duration = Duration::from_secs(3 * 60 * 60);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -108,7 +109,8 @@ pub fn load_cached_registry() -> Option<Registry> {
 pub fn save_cached_registry(registry: &Registry) -> Result<(), String> {
     let path = cache_path();
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create registry cache: {e}"))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create registry cache: {e}"))?;
     }
     let json = serde_json::to_string_pretty(registry).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| format!("Failed to write registry cache: {e}"))?;
@@ -161,7 +163,12 @@ pub fn find_agent<'a>(registry: &'a Registry, id: &str) -> Option<&'a RegistryAg
         .agents
         .iter()
         .find(|a| a.id == id)
-        .or_else(|| registry.agents.iter().find(|a| a.id == default_provider_id()))
+        .or_else(|| {
+            registry
+                .agents
+                .iter()
+                .find(|a| a.id == default_provider_id())
+        })
         .or_else(|| registry.agents.first())
 }
 

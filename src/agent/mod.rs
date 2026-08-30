@@ -37,7 +37,8 @@ fn agent_main(
     evt_tx: tokio::sync::mpsc::UnboundedSender<ChatEvent>,
 ) {
     let config = crate::sync::engine::SyncConfig::load();
-    let mut current_provider = crate::agent::registry::remap_provider_id(&config.agent.agent_provider);
+    let mut current_provider =
+        crate::agent::registry::remap_provider_id(&config.agent.agent_provider);
 
     // Connecting eagerly meant every fresh install downloaded ~50MB of Node.js
     // and ran `npm install` on first launch, whether or not the user ever opened

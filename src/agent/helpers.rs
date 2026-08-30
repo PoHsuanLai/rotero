@@ -122,8 +122,7 @@ pub(crate) fn models_from_config_options(
     options: &[SessionConfigOption],
 ) -> Option<(Vec<AgentModel>, String, String)> {
     let option = options.iter().find(|o| {
-        matches!(o.category, Some(SessionConfigOptionCategory::Model))
-            || o.id.0.as_ref() == "model"
+        matches!(o.category, Some(SessionConfigOptionCategory::Model)) || o.id.0.as_ref() == "model"
     })?;
     let SessionConfigKind::Select(select) = &option.kind else {
         return None;
@@ -419,7 +418,10 @@ mod tests {
             api_key_env_for_method("xai.api_key").as_deref(),
             Some("XAI_API_KEY")
         );
-        assert_eq!(api_key_env_for_method("gemini-api-key").as_deref(), Some("GEMINI_API_KEY"));
+        assert_eq!(
+            api_key_env_for_method("gemini-api-key").as_deref(),
+            Some("GEMINI_API_KEY")
+        );
     }
 }
 

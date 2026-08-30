@@ -307,7 +307,11 @@ fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 fn safe_rel(path: &Path) -> Option<PathBuf> {
@@ -321,11 +325,17 @@ fn safe_rel(path: &Path) -> Option<PathBuf> {
 }
 
 fn unpack_tar_gz(bytes: &[u8], dest: &Path) -> Result<(), String> {
-    unpack_tar(flate2::read::GzDecoder::new(std::io::Cursor::new(bytes)), dest)
+    unpack_tar(
+        flate2::read::GzDecoder::new(std::io::Cursor::new(bytes)),
+        dest,
+    )
 }
 
 fn unpack_tar_bz2(bytes: &[u8], dest: &Path) -> Result<(), String> {
-    unpack_tar(bzip2::read::BzDecoder::new(std::io::Cursor::new(bytes)), dest)
+    unpack_tar(
+        bzip2::read::BzDecoder::new(std::io::Cursor::new(bytes)),
+        dest,
+    )
 }
 
 fn unpack_tar<R: Read>(reader: R, dest: &Path) -> Result<(), String> {
@@ -400,11 +410,7 @@ mod tests {
     }
 
     fn agent(id: &str) -> RegistryAgent {
-        fixture()
-            .agents
-            .into_iter()
-            .find(|a| a.id == id)
-            .expect(id)
+        fixture().agents.into_iter().find(|a| a.id == id).expect(id)
     }
 
     #[test]

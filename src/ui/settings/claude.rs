@@ -1,6 +1,8 @@
 use dioxus::prelude::*;
 
-use crate::agent::registry::{RegistryAgent, load_cached_registry, load_registry, remap_provider_id};
+use crate::agent::registry::{
+    RegistryAgent, load_cached_registry, load_registry, remap_provider_id,
+};
 use crate::agent::types::{AgentStatus, ChatRequest, ChatState};
 use crate::sync::engine::SyncConfig;
 use crate::ui::chat_panel::AgentChannel;
@@ -20,11 +22,7 @@ pub fn AgentSection() -> Element {
     let agent_status = chat_state.read().status.clone();
     let auth_methods = chat_state.read().auth_methods.clone();
 
-    let mut agents = use_signal(|| {
-        load_cached_registry()
-            .map(|r| r.agents)
-            .unwrap_or_default()
-    });
+    let mut agents = use_signal(|| load_cached_registry().map(|r| r.agents).unwrap_or_default());
     let mut filter = use_signal(String::new);
     let mut load_error = use_signal(|| None::<String>);
 

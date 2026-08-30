@@ -3,14 +3,14 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
 use agent_client_protocol::schema::ProtocolVersion;
+use agent_client_protocol::schema::v1::RequestId;
 use agent_client_protocol::schema::v1::{
     AuthenticateRequest, CancelNotification, ContentBlock, Implementation, InitializeRequest,
     ListSessionsRequest, LoadSessionRequest, NewSessionRequest, PromptRequest,
-    RequestPermissionRequest, RequestPermissionResponse, RequestPermissionOutcome,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
     SelectedPermissionOutcome, SessionId, SessionNotification, SetSessionConfigOptionRequest,
     TextContent,
 };
-use agent_client_protocol::schema::v1::RequestId;
 use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo, Responder};
 
 use super::LoopResult;
@@ -31,7 +31,9 @@ pub(crate) fn connect_and_run(
     let registry = match load_registry() {
         Ok(r) => r,
         Err(e) => {
-            let _ = evt_tx.send(ChatEvent::Error(format!("Failed to load agent registry: {e}")));
+            let _ = evt_tx.send(ChatEvent::Error(format!(
+                "Failed to load agent registry: {e}"
+            )));
             return wait_for_switch_or_shutdown(req_rx);
         }
     };
@@ -63,9 +65,8 @@ pub(crate) fn connect_and_run(
 
     let acp_agent = AcpAgent::new(spec.into_agent_config());
     let outcome = Arc::new(Mutex::new(None::<LoopResult>));
-    let pending_permissions: Arc<
-        Mutex<HashMap<String, Responder<RequestPermissionResponse>>>,
-    > = Arc::new(Mutex::new(HashMap::new()));
+    let pending_permissions: Arc<Mutex<HashMap<String, Responder<RequestPermissionResponse>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     let summary = Arc::new(Mutex::new(SummaryBuf::default()));
 
     let rt = match tokio::runtime::Builder::new_current_thread()
@@ -74,7 +75,9 @@ pub(crate) fn connect_and_run(
     {
         Ok(rt) => rt,
         Err(e) => {
-            let _ = evt_tx.send(ChatEvent::Error(format!("Failed to start agent runtime: {e}")));
+            let _ = evt_tx.send(ChatEvent::Error(format!(
+                "Failed to start agent runtime: {e}"
+            )));
             return wait_for_switch_or_shutdown(req_rx);
         }
     };
@@ -169,8 +172,8 @@ async fn run_client(
             },
             agent_client_protocol::on_receive_request!(),
         )
-        .connect_with(acp_agent, |cx: ConnectionTo<Agent>| {
-            async move { drive_session(cx, req_rx, ctx).await }
+        .connect_with(acp_agent, |cx: ConnectionTo<Agent>| async move {
+            drive_session(cx, req_rx, ctx).await
         })
         .await
         .map_err(|e| e.to_string())
@@ -191,12 +194,9 @@ async fn drive_session(
     } = ctx;
     let evt_tx = &evt_tx;
     let init = cx
-        .send_request(
-            InitializeRequest::new(ProtocolVersion::V1).client_info(
-                Implementation::new("rotero", env!("CARGO_PKG_VERSION"))
-                    .title("Rotero Paper Reader"),
-            ),
-        )
+        .send_request(InitializeRequest::new(ProtocolVersion::V1).client_info(
+            Implementation::new("rotero", env!("CARGO_PKG_VERSION")).title("Rotero Paper Reader"),
+        ))
         .block_task()
         .await?;
 
@@ -218,9 +218,7 @@ async fn drive_session(
     let mut deferred_summary: Option<String> = None;
 
     match cx
-        .send_request(
-            NewSessionRequest::new(&cwd).mcp_servers(mcp_servers.clone()),
-        )
+        .send_request(NewSessionRequest::new(&cwd).mcp_servers(mcp_servers.clone()))
         .block_task()
         .await
     {
@@ -309,8 +307,7 @@ async fn drive_session(
                 }
                 if let Some(sid) = deferred_summary.take()
                     && sid == session_id.to_string()
-                    && let Some(summary) =
-                        request_session_summary(&cx, &session_id, &summary).await
+                    && let Some(summary) = request_session_summary(&cx, &session_id, &summary).await
                 {
                     let _ = evt_tx.send(ChatEvent::SessionSummary {
                         session_id: sid,
@@ -393,8 +390,7 @@ async fn drive_session(
             }
             Ok(ChatRequest::SummarizeSession { session_id: sid }) => {
                 if sid == session_id.to_string()
-                    && let Some(summary) =
-                        request_session_summary(&cx, &session_id, &summary).await
+                    && let Some(summary) = request_session_summary(&cx, &session_id, &summary).await
                 {
                     let _ = evt_tx.send(ChatEvent::SessionSummary {
                         session_id: sid,
@@ -414,7 +410,9 @@ async fn drive_session(
                     match cx
                         .send_request(SetSessionConfigOptionRequest::new(
                             session_id.clone(),
-                            agent_client_protocol::schema::v1::SessionConfigId::new(config_id.clone()),
+                            agent_client_protocol::schema::v1::SessionConfigId::new(
+                                config_id.clone(),
+                            ),
                             model_id.as_str(),
                         ))
                         .block_task()
@@ -469,7 +467,8 @@ async fn drive_session(
                                 });
                             }
                             Err(e) => {
-                                let _ = evt_tx.send(ChatEvent::Error(format!("Session failed: {e}")));
+                                let _ =
+                                    evt_tx.send(ChatEvent::Error(format!("Session failed: {e}")));
                             }
                         }
                     }
