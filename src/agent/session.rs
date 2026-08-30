@@ -174,9 +174,10 @@ async fn run_client(
             },
             agent_client_protocol::on_receive_request!(),
         )
-        .connect_with(SignalTracked(acp_agent), |cx: ConnectionTo<Agent>| async move {
-            drive_session(cx, req_rx, ctx).await
-        })
+        .connect_with(
+            SignalTracked(acp_agent),
+            |cx: ConnectionTo<Agent>| async move { drive_session(cx, req_rx, ctx).await },
+        )
         .await
         .map_err(|e| e.to_string())
 }
