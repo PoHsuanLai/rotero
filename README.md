@@ -26,7 +26,7 @@ A fast, private, local-first reference manager built with Rust. Read, annotate, 
 - **Zotero web translators compatible** — One-click import from Google Scholar, arXiv, PubMed, and 40+ academic sites, running entirely in-process (no Node sidecar)
 - **Navigable citations** — Click a citation in a PDF to preview the reference, jump within the document, or open the cited paper from your library
 - **Citation graph** — Interactive visualization of how your papers connect, including directed citing → cited edges
-- **AI research assistant** — Chat with your papers via ACP — use your Claude subscription, no API costs
+- **AI research assistant** — Chat with your papers via ACP — Claude, Grok, Codex, or any other registry agent you already have an account for
 - **CRR sync** — Custom conflict-free replicated relations for multi-device sync
 - **Local-first** — SQLite database, no accounts, no telemetry, no cloud dependency
 

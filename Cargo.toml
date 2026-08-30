@@ -13,7 +13,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.2.5"
+version = "0.2.6"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 
@@ -91,9 +91,6 @@ axum = "0.8"
 arboard = "3"
 open = "5"
 tempfile = { workspace = true, optional = true }
-# Spawns children into a process group (Unix) or job object (Windows) so the
-# whole tree can be killed together.
-process-wrap = { version = "9", features = ["std"] }
 # Node.js archive extraction: .tar.gz on Unix, .zip on Windows.
 flate2.workspace = true
 tar = "0.4"
@@ -101,15 +98,11 @@ tar = "0.4"
 sha2.workspace = true
 zip = { version = "8", default-features = false, features = ["deflate"] }
 self-replace = "1"
+agent-client-protocol = "2"
+bzip2 = "0.6.1"
 
-# Signal-based child reaping is Unix-only; Windows uses job objects instead.
 [target.'cfg(unix)'.dependencies]
-libc = "0.2.184"
-
-[target.'cfg(windows)'.dependencies]
-# Only for CREATE_NO_WINDOW. Must track the version process-wrap links against,
-# or the creation-flag type is a different, incompatible type.
-windows = { version = "0.62", features = ["Win32_System_Threading"] }
+libc = "0.2"
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 objc2 = { version = "0.6", optional = true }

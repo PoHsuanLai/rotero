@@ -1,45 +1,19 @@
-//! Tracks spawned ACP agent child processes so they can be killed even when the
-//! app exits via a signal (Cmd+Q, Ctrl+C, `dx serve` hot-reload → SIGTERM), where
-//! Rust destructors (and thus `RawAcpConnection`'s `Drop`) never run.
+//! Tracks the ACP agent process group so Ctrl+C / SIGTERM can kill it.
 //!
-//! Each child is spawned as a process-group leader (see `connection.rs`), so
-//! killing the group by its negative PID also reaps any grandchildren the node
-//! agent spawned. SIGKILL of the parent still can't be caught by anything, but
-//! that is the only uncatchable case.
+//! The SDK puts the child in its own process group so Drop can reap `npx`/`uvx`
+//! grandchildren. That also means SIGINT to Rotero never reaches the agent.
+//! Drop still handles session switch and a clean quit; this registry is for the
+//! case where the process dies without running destructors.
 //!
-//! Unix-only: this is about POSIX signal delivery. On Windows the equivalent
-//! guarantee comes from the job object the child is spawned into, which the
-//! kernel tears down with the process — no signal handler needed.
-//!
-//! # Async-signal-safety
-//!
-//! `handle_signal` runs in a real async-signal context, so everything it
-//! touches must be async-signal-safe. That rules out locking a `Mutex` or
-//! allocating: a signal arriving while [`register`] held a lock would deadlock
-//! the handler, and the process would hang instead of exiting. The registry is
-//! therefore a fixed-size array of `AtomicI32` — lock-free, allocation-free,
-//! and safe to walk from a handler.
+//! The handler only does atomic swaps and `kill(2)` — no locks, no allocation.
 
 use std::sync::atomic::{AtomicI32, Ordering};
 
-/// Maximum number of concurrently tracked agent processes. One ACP agent runs
-/// at a time in practice; the slack covers switching between providers before
-/// the old child is reaped.
 const MAX_TRACKED: usize = 16;
-
-/// Empty slot marker. Real PIDs are always > 0.
 const EMPTY: i32 = 0;
 
-/// Live child PIDs (each is also its process-group id).
-///
-/// A fixed array of atomics rather than a `Mutex<HashSet>` so the signal
-/// handler can read it without locking or allocating.
 static REGISTRY: [AtomicI32; MAX_TRACKED] = [const { AtomicI32::new(EMPTY) }; MAX_TRACKED];
 
-/// Record a live child PID (which is also its process-group id).
-///
-/// Silently drops the PID if every slot is occupied — the child is still
-/// reaped by `RawAcpConnection`'s `Drop` on a normal exit.
 pub(crate) fn register(pid: i32) {
     if pid <= 0 {
         return;
@@ -55,7 +29,6 @@ pub(crate) fn register(pid: i32) {
     tracing::warn!("agent reaper registry full; {pid} will not be signal-reaped");
 }
 
-/// Forget a child PID once we've reaped it ourselves.
 pub(crate) fn unregister(pid: i32) {
     if pid <= 0 {
         return;
@@ -70,27 +43,31 @@ pub(crate) fn unregister(pid: i32) {
     }
 }
 
-/// Kill every tracked process group.
+/// SIGKILL the process group whose leader is `pid`.
 ///
-/// Async-signal-safe: atomic swaps and `kill(2)` only — no locks, no
-/// allocation. The swap also clears each slot, so a concurrent handler cannot
-/// signal the same group twice.
+/// Safe to call if the group is already gone.
 #[cfg(unix)]
-fn kill_all() {
-    for slot in &REGISTRY {
-        let pid = slot.swap(EMPTY, Ordering::AcqRel);
-        if pid > 0 {
-            // Negative pid → signal the whole process group.
-            unsafe {
-                libc::kill(-pid, libc::SIGKILL);
-            }
+pub(crate) fn kill_group(pid: i32) {
+    if pid > 0 {
+        unsafe {
+            libc::kill(-pid, libc::SIGKILL);
         }
     }
 }
 
-/// Installs handlers for SIGTERM/SIGINT/SIGHUP that reap tracked children and
-/// then restore the default action and re-raise, so the process still exits with
-/// normal semantics. Call once at startup.
+#[cfg(not(unix))]
+pub(crate) fn kill_group(_pid: i32) {}
+
+#[cfg(unix)]
+fn kill_all() {
+    for slot in &REGISTRY {
+        let pid = slot.swap(EMPTY, Ordering::AcqRel);
+        kill_group(pid);
+    }
+}
+
+/// Install SIGTERM/SIGINT/SIGHUP handlers that kill tracked agent groups, then
+/// restore the default action and re-raise so the process still exits.
 #[cfg(unix)]
 pub(crate) fn install_signal_handler() {
     use std::sync::OnceLock;
@@ -110,7 +87,6 @@ pub(crate) fn install_signal_handler() {
 #[cfg(unix)]
 extern "C" fn handle_signal(sig: i32) {
     kill_all();
-    // Restore default handler and re-raise so the process terminates as expected.
     unsafe {
         libc::signal(sig, libc::SIG_DFL);
         libc::raise(sig);
@@ -121,12 +97,8 @@ extern "C" fn handle_signal(sig: i32) {
 mod tests {
     use super::*;
 
-    /// The registry is global and the test harness runs tests in parallel
-    /// threads, so each test takes this lock for its duration.
     static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    /// Drain the registry so each test starts from a known state, and hold the
-    /// lock until the guard is dropped at the end of the test.
     fn clear() -> std::sync::MutexGuard<'static, ()> {
         let guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         for slot in &REGISTRY {
@@ -183,7 +155,6 @@ mod tests {
     #[test]
     fn registry_saturates_without_panicking() {
         let _guard = clear();
-        // One more than capacity: the overflow is dropped, not a panic.
         for pid in 1..=(MAX_TRACKED as i32 + 1) {
             register(pid);
         }

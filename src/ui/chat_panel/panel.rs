@@ -48,12 +48,14 @@ pub fn ChatPanel() -> Element {
     let has_context = subject_name.is_some();
     let paper_title_display = subject_name.unwrap_or_default();
     let pending_switch = chat_state.read().pending_switch.clone();
-    let active_provider = chat_state.read().active_provider_id.clone();
-    let provider_name = crate::agent::types::AGENT_PROVIDERS
-        .iter()
-        .find(|p| p.id == active_provider)
-        .map(|p| p.name)
-        .unwrap_or("AI Chat");
+    let provider_name = {
+        let name = chat_state.read().active_provider_name.clone();
+        if name.is_empty() {
+            "AI Chat".into()
+        } else {
+            name
+        }
+    };
     let available_models = chat_state.read().available_models.clone();
     let current_model = chat_state.read().current_model.clone();
     let show_commands = chat_state.read().show_command_picker;
@@ -107,7 +109,6 @@ pub fn ChatPanel() -> Element {
         AgentStatus::ToolCall(name) => name.as_str(),
         AgentStatus::NeedsAuth => "Sign in required",
         AgentStatus::Error(_) => "Error",
-        AgentStatus::NotInstalled => "Not installed",
     };
 
     let is_busy = matches!(
@@ -313,7 +314,7 @@ pub fn ChatPanel() -> Element {
                 class: "chat-messages",
                 if messages.is_empty() && !show_sessions {
                     div { class: "chat-empty",
-                        p { "Ask Claude about your papers." }
+                        p { "Ask {provider_name} about your papers." }
                         if has_context {
                             p { class: "chat-empty-hint",
                                 "Context: {paper_title_display}"

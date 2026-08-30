@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.6
+
+### Changed
+- **The in-app assistant uses the ACP registry and the official Rust SDK.** Settings lists whatever agents the registry currently publishes — Claude, Grok, Codex, and the rest — instead of a hardcoded npm table. Gemini CLI and GitHub Copilot are no longer special-cased; they remain available as registry entries. Saved `claude` / `codex` / `copilot` provider ids remap on load.
+
 ## v0.2.4
 
 Sync was rebuilt. v0.2.3 fixed the sync bugs that were known; this release replaces the mechanism that kept producing them, then goes looking for the ones nobody had found — by generating multi-device schedules at random and running them against real databases. That search found six more bugs in shipped code, three of which could stop a device syncing permanently.

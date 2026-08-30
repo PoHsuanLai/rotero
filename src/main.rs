@@ -26,8 +26,8 @@ pub use init::mcp::MCP_HTTP_PORT;
 fn main() {
     init::logging::init_logging();
 
-    // Reap spawned ACP agent node processes if the app is terminated by a signal
-    // (Cmd+Q, Ctrl+C, `dx serve` reload) — their Drop-based cleanup won't run then.
+    // Ctrl+C / SIGTERM do not run Drop on the agent thread. The SDK child is in
+    // its own process group, so the signal never reaches it either. Kill it here.
     #[cfg(all(unix, feature = "desktop"))]
     agent::reaper::install_signal_handler();
 

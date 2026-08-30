@@ -1,36 +1,20 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::mpsc;
+
+use agent_client_protocol::schema::v1::{
+    AuthMethod, ContentBlock, McpServer, McpServerHttp, McpServerStdio, SessionConfigKind,
+    SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOptions, SessionUpdate,
+    ToolCall, ToolCallContent, ToolCallStatus, ToolCallUpdate,
+};
 
 use super::LoopResult;
 use super::install::{find_mcp_binary, find_pdfium_path};
 use super::types::{AgentAuthMethod, AgentModel, ChatEvent, ChatRequest, SlashCommand, ToolStatus};
 
-/// Builds a `Command` for an executable that may be a Windows batch file.
-///
-/// `npm` ships as `npm.cmd` on Windows, and `CreateProcess` cannot run a batch
-/// file directly — it has to go through `cmd.exe /C`. Everywhere else, and for
-/// real executables on Windows, the program is invoked directly.
-pub(crate) fn command_for_program(program: &Path) -> Command {
-    std::cfg_select! {
-        windows => {
-            if is_batch_file(program) {
-                let mut cmd = Command::new("cmd");
-                cmd.arg("/C").arg(program);
-                cmd
-            } else {
-                Command::new(program)
-            }
-        }
-        _ => Command::new(program),
-    }
-}
-
 /// Whether `program` is a Windows batch file, which `CreateProcess` refuses to
-/// execute directly. Defined on all platforms so it stays unit-testable; only
-/// the Windows arm of `command_for_program` calls it.
-#[cfg_attr(not(windows), allow(dead_code))]
-fn is_batch_file(program: &Path) -> bool {
+/// execute directly. Defined on all platforms so it stays unit-testable;
+/// `launch::npx_launch` wraps matching paths in `cmd /C`.
+pub(crate) fn is_batch_file(program: &Path) -> bool {
     program
         .extension()
         .and_then(|e| e.to_str())
@@ -50,37 +34,32 @@ pub(crate) fn agent_working_dir() -> PathBuf {
     }
 }
 
-pub(crate) fn build_mcp_servers_json() -> serde_json::Value {
+pub(crate) fn build_mcp_servers() -> Vec<McpServer> {
     #[cfg(feature = "desktop")]
     if let Some(&port) = crate::MCP_HTTP_PORT.get() {
         let url = format!("http://127.0.0.1:{port}/mcp");
         tracing::info!("MCP: using embedded HTTP server at {url}");
-        return serde_json::json!([{
-            "type": "http",
-            "name": "rotero",
-            "url": url,
-            "headers": [],
-        }]);
+        return vec![McpServer::Http(McpServerHttp::new("rotero", url))];
     }
 
     let mcp_binary = find_mcp_binary();
     let pdfium_path = find_pdfium_path();
 
-    if let Some(mcp_bin) = &mcp_binary {
+    if let Some(mcp_bin) = mcp_binary {
         tracing::info!("MCP: using stdio binary at {}", mcp_bin.display());
-        serde_json::json!([{
-            "type": "stdio",
-            "name": "rotero",
-            "command": mcp_bin.to_string_lossy(),
-            "args": [],
-            "env": [{
-                "name": "PDFIUM_DYNAMIC_LIB_PATH",
-                "value": pdfium_path.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
-            }]
-        }])
+        let env = match pdfium_path {
+            Some(p) => vec![agent_client_protocol::schema::v1::EnvVariable::new(
+                "PDFIUM_DYNAMIC_LIB_PATH",
+                p.to_string_lossy().into_owned(),
+            )],
+            None => vec![],
+        };
+        vec![McpServer::Stdio(
+            McpServerStdio::new("rotero", mcp_bin).env(env),
+        )]
     } else {
         tracing::warn!("MCP: no server available — agent won't have library tools");
-        serde_json::json!([])
+        vec![]
     }
 }
 
@@ -109,207 +88,185 @@ pub(crate) fn wait_for_switch_or_shutdown(req_rx: &mpsc::Receiver<ChatRequest>) 
     }
 }
 
-pub(crate) fn handle_notification(
-    evt_tx: &tokio::sync::mpsc::UnboundedSender<ChatEvent>,
-    v: &serde_json::Value,
-) {
-    let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
-
-    match method {
-        "sessionUpdate" | "session/update" => {
-            let params = match v.get("params") {
-                Some(p) => p,
-                None => return,
-            };
-            let update = match params.get("update") {
-                Some(u) => u,
-                None => return,
-            };
-            let update_type = update
-                .get("sessionUpdate")
-                .and_then(|u| u.as_str())
-                .unwrap_or("");
-
-            match update_type {
-                "user_message_chunk" => {
-                    if let Some(text) = update
-                        .get("content")
-                        .and_then(|c| c.get("text"))
-                        .and_then(|t| t.as_str())
-                    {
-                        // Read the context block before stripping it: on a
-                        // replayed transcript this is the only record of which
-                        // paper the conversation was about.
-                        let context_paper_ids = paper_ids_from_context_block(text);
-                        // A user chunk is a whole message, so the padding
-                        // left behind by tag removal can go.
-                        let cleaned = strip_protocol_tags(text).trim().to_string();
-                        if !cleaned.is_empty() || !context_paper_ids.is_empty() {
-                            let _ = evt_tx.send(ChatEvent::UserMessage {
-                                text: cleaned,
-                                context_paper_ids,
-                            });
-                        }
-                    }
-                }
-                "agent_message_chunk" => {
-                    if let Some(text) = update
-                        .get("content")
-                        .and_then(|c| c.get("text"))
-                        .and_then(|t| t.as_str())
-                    {
-                        // Chunks are concatenated downstream, so whitespace
-                        // at the boundary is load-bearing markdown structure.
-                        let cleaned = strip_protocol_tags(text);
-                        if !cleaned.is_empty() {
-                            let _ = evt_tx.send(ChatEvent::TextDelta(cleaned));
-                        }
-                    }
-                }
-                "tool_call" => {
-                    let id = update
-                        .get("toolCallId")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let title = update
-                        .get("title")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let _ = evt_tx.send(ChatEvent::ToolCallStarted { id, title });
-                }
-                "tool_call_update" => {
-                    let id = update
-                        .get("toolCallId")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let status = match update.get("status").and_then(|s| s.as_str()) {
-                        Some("pending") => ToolStatus::Pending,
-                        Some("in_progress") => ToolStatus::InProgress,
-                        Some("completed") => ToolStatus::Completed,
-                        Some("failed") => ToolStatus::Failed,
-                        _ => return,
-                    };
-                    let output = update
-                        .get("content")
-                        .and_then(|c| c.as_array())
-                        .and_then(|arr| {
-                            let texts: Vec<String> = arr
-                                .iter()
-                                .filter_map(|item| {
-                                    item.get("text")
-                                        .and_then(|t| t.as_str())
-                                        .map(String::from)
-                                        .or_else(|| {
-                                            item.get("content")
-                                                .and_then(|c| c.get("text"))
-                                                .and_then(|t| t.as_str())
-                                                .map(String::from)
-                                        })
-                                })
-                                .collect();
-                            if texts.is_empty() {
-                                None
-                            } else {
-                                Some(texts.join("\n"))
-                            }
-                        });
-                    let _ = evt_tx.send(ChatEvent::ToolCallUpdated { id, status, output });
-                }
-                "available_commands_update" => {
-                    let commands = update
-                        .get("availableCommands")
-                        .and_then(|c| c.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .map(|c| SlashCommand {
-                                    name: c
-                                        .get("name")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("")
-                                        .to_string(),
-                                    description: c
-                                        .get("description")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("")
-                                        .to_string(),
-                                    hint: c
-                                        .get("input")
-                                        .and_then(|i| i.get("hint"))
-                                        .and_then(|h| h.as_str())
-                                        .map(String::from),
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    let _ = evt_tx.send(ChatEvent::CommandsAvailable(commands));
-                }
-                _ => {}
-            }
-        }
-        "session/requestPermission" => {
-            if let Some(id) = v.get("id") {
-                tracing::debug!("ACP: auto-allowing permission request {id}");
-            }
-        }
-        _ => {}
-    }
-}
-
 pub(crate) fn api_key_env_for_method(method_id: &str) -> Option<String> {
     match method_id {
-        "gemini-api-key" => Some("GEMINI_API_KEY".into()),
+        "xai.api_key" | "xai-api-key" => Some("XAI_API_KEY".into()),
         "codex-api-key" | "openai-api-key" => Some("OPENAI_API_KEY".into()),
         "codex_api_key" => Some("CODEX_API_KEY".into()),
+        "anthropic-api-key" | "claude-api-key" => Some("ANTHROPIC_API_KEY".into()),
         id if id.contains("api-key") || id.contains("api_key") => {
-            Some(id.to_uppercase().replace('-', "_"))
+            Some(id.to_uppercase().replace(['-', '.'], "_"))
         }
         _ => None,
     }
 }
 
-pub(crate) fn extract_permission_options(v: &serde_json::Value) -> Vec<(String, String)> {
-    v.get("params")
-        .and_then(|p| p.get("options"))
-        .and_then(|o| o.as_array())
-        .map(|arr| {
-            arr.iter()
-                .map(|opt| {
-                    let id = opt
-                        .get("optionId")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("default")
-                        .to_string();
-                    let label = opt
-                        .get("label")
-                        .and_then(|v| v.as_str())
-                        .or_else(|| opt.get("name").and_then(|v| v.as_str()))
-                        .unwrap_or(&id)
-                        .to_string();
-                    (id, label)
-                })
-                .collect()
+pub(crate) fn auth_methods_from_acp(methods: &[AuthMethod]) -> Vec<AgentAuthMethod> {
+    methods
+        .iter()
+        .map(|m| {
+            let id = m.id().0.to_string();
+            let api_key_env_var = api_key_env_for_method(&id);
+            AgentAuthMethod {
+                id: id.clone(),
+                name: m.name().to_string(),
+                description: m.description().map(str::to_string),
+                is_api_key: api_key_env_var.is_some(),
+                api_key_env_var,
+            }
         })
-        .unwrap_or_else(|| vec![("default".into(), "Allow".into())])
+        .collect()
 }
 
-pub(crate) fn first_allow_option_id(v: &serde_json::Value) -> String {
-    v.get("params")
-        .and_then(|p| p.get("options"))
-        .and_then(|o| o.as_array())
-        .and_then(|arr| {
-            arr.iter()
-                .find(|opt| {
-                    let kind = opt.get("kind").and_then(|k| k.as_str()).unwrap_or("");
-                    kind.contains("allow") || kind == "default"
-                })
-                .or_else(|| arr.first())
+pub(crate) fn models_from_config_options(
+    options: &[SessionConfigOption],
+) -> Option<(Vec<AgentModel>, String, String)> {
+    let option = options.iter().find(|o| {
+        matches!(o.category, Some(SessionConfigOptionCategory::Model)) || o.id.0.as_ref() == "model"
+    })?;
+    let SessionConfigKind::Select(select) = &option.kind else {
+        return None;
+    };
+    let models = match &select.options {
+        SessionConfigSelectOptions::Ungrouped(opts) => opts
+            .iter()
+            .map(|o| AgentModel {
+                id: o.value.0.to_string(),
+                name: o.name.clone(),
+                description: o.description.clone().unwrap_or_default(),
+            })
+            .collect(),
+        SessionConfigSelectOptions::Grouped(groups) => groups
+            .iter()
+            .flat_map(|g| g.options.iter())
+            .map(|o| AgentModel {
+                id: o.value.0.to_string(),
+                name: o.name.clone(),
+                description: o.description.clone().unwrap_or_default(),
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    Some((
+        models,
+        select.current_value.0.to_string(),
+        option.id.0.to_string(),
+    ))
+}
+
+fn content_block_text(block: &ContentBlock) -> Option<&str> {
+    match block {
+        ContentBlock::Text(t) => Some(t.text.as_str()),
+        _ => None,
+    }
+}
+
+fn tool_status(status: ToolCallStatus) -> ToolStatus {
+    match status {
+        ToolCallStatus::Pending => ToolStatus::Pending,
+        ToolCallStatus::InProgress => ToolStatus::InProgress,
+        ToolCallStatus::Completed => ToolStatus::Completed,
+        ToolCallStatus::Failed => ToolStatus::Failed,
+        _ => ToolStatus::InProgress,
+    }
+}
+
+fn tool_output_text(content: &[ToolCallContent]) -> Option<String> {
+    let texts: Vec<String> = content
+        .iter()
+        .filter_map(|item| match item {
+            ToolCallContent::Content(c) => content_block_text(&c.content).map(str::to_string),
+            _ => None,
         })
-        .and_then(|opt| opt.get("optionId").and_then(|id| id.as_str()))
-        .unwrap_or("default")
-        .to_string()
+        .collect();
+    if texts.is_empty() {
+        None
+    } else {
+        Some(texts.join("\n"))
+    }
+}
+
+pub(crate) fn session_update_to_events(update: &SessionUpdate) -> Vec<ChatEvent> {
+    match update {
+        SessionUpdate::UserMessageChunk(chunk) => {
+            let Some(text) = content_block_text(&chunk.content) else {
+                return vec![];
+            };
+            let context_paper_ids = paper_ids_from_context_block(text);
+            let cleaned = strip_protocol_tags(text).trim().to_string();
+            if cleaned.is_empty() && context_paper_ids.is_empty() {
+                vec![]
+            } else {
+                vec![ChatEvent::UserMessage {
+                    text: cleaned,
+                    context_paper_ids,
+                }]
+            }
+        }
+        SessionUpdate::AgentMessageChunk(chunk) => {
+            let Some(text) = content_block_text(&chunk.content) else {
+                return vec![];
+            };
+            let cleaned = strip_protocol_tags(text);
+            if cleaned.is_empty() {
+                vec![]
+            } else {
+                vec![ChatEvent::TextDelta(cleaned)]
+            }
+        }
+        SessionUpdate::ToolCall(ToolCall {
+            tool_call_id,
+            title,
+            ..
+        }) => vec![ChatEvent::ToolCallStarted {
+            id: tool_call_id.0.to_string(),
+            title: title.clone(),
+        }],
+        SessionUpdate::ToolCallUpdate(ToolCallUpdate {
+            tool_call_id,
+            fields,
+            ..
+        }) => {
+            let Some(status) = fields.status else {
+                return vec![];
+            };
+            vec![ChatEvent::ToolCallUpdated {
+                id: tool_call_id.0.to_string(),
+                status: tool_status(status),
+                output: fields.content.as_deref().and_then(tool_output_text),
+            }]
+        }
+        SessionUpdate::AvailableCommandsUpdate(update) => {
+            let commands = update
+                .available_commands
+                .iter()
+                .map(|c| SlashCommand {
+                    name: c.name.clone(),
+                    description: c.description.clone(),
+                    hint: match &c.input {
+                        Some(
+                            agent_client_protocol::schema::v1::AvailableCommandInput::Unstructured(
+                                input,
+                            ),
+                        ) => Some(input.hint.clone()),
+                        _ => None,
+                    },
+                })
+                .collect();
+            vec![ChatEvent::CommandsAvailable(commands)]
+        }
+        SessionUpdate::ConfigOptionUpdate(update) => {
+            models_from_config_options(&update.config_options)
+                .map(|(models, current, config_id)| ChatEvent::ModelsAvailable {
+                    models,
+                    current,
+                    config_id: Some(config_id),
+                })
+                .into_iter()
+                .collect()
+        }
+        _ => vec![],
+    }
 }
 
 /// Remove protocol tags and their contents, leaving all other whitespace
@@ -393,105 +350,6 @@ pub(crate) fn paper_ids_from_context_block(raw: &str) -> Vec<String> {
     ids
 }
 
-pub(crate) fn extract_models_event(models: &serde_json::Value) -> ChatEvent {
-    let available = models
-        .get("availableModels")
-        .and_then(|m| m.as_array())
-        .map(|arr| {
-            arr.iter()
-                .map(|m| AgentModel {
-                    id: m
-                        .get("modelId")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    name: m
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    description: m
-                        .get("description")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let current = models
-        .get("currentModelId")
-        .and_then(|v| v.as_str())
-        .unwrap_or("default")
-        .to_string();
-
-    ChatEvent::ModelsAvailable {
-        models: available,
-        current,
-    }
-}
-
-pub(crate) fn extract_auth_methods(init_result: &serde_json::Value) -> Vec<AgentAuthMethod> {
-    init_result
-        .get("authMethods")
-        .and_then(|m| m.as_array())
-        .map(|arr| {
-            arr.iter()
-                .map(|m| {
-                    let (terminal_command, terminal_args) = m
-                        .get("_meta")
-                        .and_then(|meta| meta.get("terminal-auth"))
-                        .map(|ta| {
-                            let cmd = ta
-                                .get("command")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let args: Vec<String> = ta
-                                .get("args")
-                                .and_then(|v| v.as_array())
-                                .map(|arr| {
-                                    arr.iter()
-                                        .filter_map(|v| v.as_str().map(String::from))
-                                        .collect()
-                                })
-                                .unwrap_or_default();
-                            (Some(cmd), args)
-                        })
-                        .unwrap_or((None, vec![]));
-
-                    AgentAuthMethod {
-                        id: m
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        name: m
-                            .get("name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        description: m
-                            .get("description")
-                            .and_then(|v| v.as_str())
-                            .map(String::from),
-                        terminal_command,
-                        terminal_args,
-                        is_api_key: m
-                            .get("_meta")
-                            .and_then(|meta| meta.get("api-key"))
-                            .is_some(),
-                        api_key_env_var: api_key_env_for_method(
-                            m.get("id").and_then(|v| v.as_str()).unwrap_or(""),
-                        ),
-                    }
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -552,6 +410,18 @@ mod tests {
         assert!(!is_batch_file(Path::new("npm")));
         // A name merely containing "cmd" is not a batch file.
         assert!(!is_batch_file(Path::new("/usr/bin/cmdline")));
+    }
+
+    #[test]
+    fn maps_xai_api_key_env() {
+        assert_eq!(
+            api_key_env_for_method("xai.api_key").as_deref(),
+            Some("XAI_API_KEY")
+        );
+        assert_eq!(
+            api_key_env_for_method("gemini-api-key").as_deref(),
+            Some("GEMINI_API_KEY")
+        );
     }
 }
 

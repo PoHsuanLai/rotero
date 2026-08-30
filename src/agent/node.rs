@@ -4,9 +4,9 @@ const NODE_VERSION: &str = "v22.16.0";
 
 /// Oldest Node.js the ACP agent packages run on.
 ///
-/// The `@google/gemini-cli` and `@zed-industries/codex-acp` packages require an
-/// active LTS. An older interpreter fails at parse time inside the child, whose
-/// stderr is discarded, so the user saw only a generic "Connection closed".
+/// npx-distributed ACP agents require an active LTS. An older interpreter
+/// fails at parse time inside the child, whose stderr is discarded, so the
+/// user saw only a generic "Connection closed".
 const MIN_NODE_MAJOR: u32 = 20;
 
 /// Find a usable node: PATH if it is new enough, then the managed copy,

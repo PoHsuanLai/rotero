@@ -1,7 +1,7 @@
 ---
 layout: docs
 title: AI assistant
-description: Chat with Claude, Gemini, Copilot, or Codex about your library from inside Rotero.
+description: Chat with Claude, Grok, Codex, or any other ACP agent about your library from inside Rotero.
 ---
 
 <script>
@@ -15,19 +15,15 @@ and file things for you. Open it with the **Chat** button in the library header.
 
 ## Providers
 
-Four agents are supported. You bring your own — Rotero connects to the agent
-you already have an account for.
+Rotero does not ship a private list of agents. Settings ▸ AI Agent shows
+whatever the [ACP registry](https://agentclientprotocol.com/get-started/registry)
+currently publishes — Claude, Grok, Codex, and others. You bring your own
+account.
 
-| Provider | Agent |
-| --- | --- |
-| Claude | Anthropic Claude Code |
-| Gemini | Google Gemini CLI |
-| GitHub Copilot | Copilot |
-| Codex | OpenAI Codex |
-
-Rotero talks to all four over ACP, the Agent Client Protocol. If Node.js or the
-agent's package is missing, Rotero downloads Node and installs the package for
-you.
+Rotero talks to the selected agent over ACP, the Agent Client Protocol. If the
+agent is distributed as an npm package and Node.js is missing, Rotero downloads
+Node and runs it with `npx`. Native binaries are downloaded from the registry
+when the agent provides one.
 
 ## The panel
 
@@ -41,7 +37,6 @@ The header shows which provider is connected and a live status:
 | A tool name | Running that tool right now |
 | Sign in required | Authenticate under Settings ▸ AI Agent |
 | Error | The agent failed — the message says why |
-| Not installed | The agent package is not on your machine yet |
 
 Alongside it: **New chat**, **Past chats** (only for providers that support
 listing previous sessions), and a close **x**.

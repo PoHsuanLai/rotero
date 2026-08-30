@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 
-use crate::agent::types::{AGENT_PROVIDERS, AgentStatus, ChatRequest, ChatState};
+use crate::agent::registry::{
+    RegistryAgent, load_cached_registry, load_registry, remap_provider_id,
+};
+use crate::agent::types::{AgentStatus, ChatRequest, ChatState};
 use crate::sync::engine::SyncConfig;
 use crate::ui::chat_panel::AgentChannel;
 use crate::ui::components::settings_field::SettingsField;
@@ -19,19 +22,59 @@ pub fn AgentSection() -> Element {
     let agent_status = chat_state.read().status.clone();
     let auth_methods = chat_state.read().auth_methods.clone();
 
+    let mut agents = use_signal(|| load_cached_registry().map(|r| r.agents).unwrap_or_default());
+    let mut filter = use_signal(String::new);
+    let mut load_error = use_signal(|| None::<String>);
+
+    use_future(move || async move {
+        let had_cache = !agents.peek().is_empty();
+        match tokio::task::spawn_blocking(load_registry).await {
+            Ok(Ok(registry)) => {
+                agents.set(registry.agents);
+                load_error.set(None);
+            }
+            Ok(Err(e)) if !had_cache => load_error.set(Some(e)),
+            Err(e) if !had_cache => load_error.set(Some(e.to_string())),
+            _ => {}
+        }
+    });
+
     let has_unsaved = *pending_provider.read() != saved_provider;
     let auth_methods_for_btn = auth_methods.clone();
     let mut selected_method = use_signal(|| 0usize);
     let mut api_key_input = use_signal(String::new);
+    let query = filter.read().to_lowercase();
+    let visible: Vec<RegistryAgent> = agents
+        .read()
+        .iter()
+        .filter(|a| {
+            query.is_empty()
+                || a.name.to_lowercase().contains(&query)
+                || a.description.to_lowercase().contains(&query)
+                || a.id.to_lowercase().contains(&query)
+        })
+        .cloned()
+        .collect();
 
     rsx! {
         div { class: "settings-section",
             h4 { class: "settings-section-title", "AI Agent" }
 
-            div { class: "agent-provider-grid",
-                for provider in AGENT_PROVIDERS.iter() {
+            input {
+                class: "input input--sm",
+                placeholder: "Search agents…",
+                value: "{filter.read()}",
+                oninput: move |e| filter.set(e.value()),
+            }
+
+            if let Some(err) = load_error.read().as_ref() {
+                p { class: "settings-hint", "Could not load the agent registry: {err}" }
+            }
+
+            div { class: "agent-provider-list",
+                for provider in visible.iter() {
                     {
-                        let pid = provider.id;
+                        let pid = provider.id.clone();
                         let is_pending = *pending_provider.read() == pid;
                         let is_connected = agent_connected && connected_provider == pid;
                         let card_class = match (is_pending, is_connected) {
@@ -45,7 +88,7 @@ pub fn AgentSection() -> Element {
                                 key: "{pid}",
                                 class: "{card_class}",
                                 onclick: move |_| {
-                                    pending_provider.set(pid.to_string());
+                                    pending_provider.set(remap_provider_id(&pid));
                                 },
                                 div { class: "agent-provider-name", "{provider.name}" }
                                 div { class: "agent-provider-desc", "{provider.description}" }
@@ -99,9 +142,6 @@ pub fn AgentSection() -> Element {
                         String::new()
                     };
                     let has_key = !current_key.is_empty();
-                    // Masked by character, not byte: this runs during render, so
-                    // a key containing any multi-byte character used to panic
-                    // here and blank the settings pane.
                     let masked_key = if has_key {
                         rotero_models::mask_secret(&current_key)
                     } else {
@@ -131,15 +171,9 @@ pub fn AgentSection() -> Element {
                                         onclick: move |_| {
                                             let idx = *selected_method.read();
                                             if let Some(method) = auth_methods_for_btn.get(idx) {
-                                                if let Some(command) = &method.terminal_command {
-                                                    let _ = std::process::Command::new(command)
-                                                        .args(&method.terminal_args)
-                                                        .spawn();
-                                                } else {
-                                                    agent_channel.send(ChatRequest::Authenticate {
-                                                        method_id: method.id.clone(),
-                                                    });
-                                                }
+                                                agent_channel.send(ChatRequest::Authenticate {
+                                                    method_id: method.id.clone(),
+                                                });
                                             }
                                         },
                                         if agent_connected { "Switch" } else { "Sign in" }
@@ -200,7 +234,7 @@ pub fn AgentSection() -> Element {
             }
 
             p { class: "settings-hint",
-                "Uses the Agent Client Protocol (ACP). Auth is handled by each provider."
+                "Uses the Agent Client Protocol (ACP). Agents come from the ACP registry; auth is handled by each provider."
             }
         }
     }

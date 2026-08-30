@@ -1,0 +1,66 @@
+{
+  "version": "1.0.0",
+  "agents": [
+    {
+      "id": "claude-acp",
+      "name": "Claude Agent",
+      "version": "0.70.0",
+      "description": "ACP wrapper for Anthropic's Claude",
+      "distribution": {
+        "npx": {
+          "package": "@agentclientprotocol/claude-agent-acp@0.70.0"
+        }
+      }
+    },
+    {
+      "id": "grok-build",
+      "name": "Grok Build",
+      "version": "1.0.13",
+      "description": "xAI's coding agent and CLI",
+      "distribution": {
+        "npx": {
+          "package": "@xai-official/grok@1.0.13",
+          "args": ["agent", "stdio"]
+        }
+      }
+    },
+    {
+      "id": "crow-cli",
+      "name": "crow-cli",
+      "version": "0.1.24",
+      "description": "Minimal ACP Native Coding Agent",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://example.invalid/crow-darwin-aarch64.tar.gz",
+            "cmd": "./crow-cli",
+            "args": ["acp"],
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "linux-x86_64": {
+            "archive": "https://example.invalid/crow-linux-x86_64.tar.gz",
+            "cmd": "./crow-cli",
+            "args": ["acp"]
+          },
+          "windows-x86_64": {
+            "archive": "https://example.invalid/crow-windows-x86_64.zip",
+            "cmd": "./crow-cli.exe",
+            "args": ["acp"]
+          }
+        }
+      }
+    },
+    {
+      "id": "fast-agent",
+      "name": "fast-agent",
+      "version": "0.10.1",
+      "description": "Code and build agents",
+      "distribution": {
+        "uvx": {
+          "package": "fast-agent-acp==0.10.1",
+          "args": ["-x"]
+        }
+      }
+    }
+  ]
+}

@@ -147,12 +147,14 @@ pub fn handle_chat_event(
         ChatEvent::Connected {
             auth_methods,
             provider_id,
+            provider_name,
             supports_list_sessions,
         } => {
             chat_state.with_mut(|s| {
                 s.status = AgentStatus::Connecting;
                 s.auth_methods = auth_methods;
                 s.active_provider_id = provider_id;
+                s.active_provider_name = provider_name;
                 s.supports_list_sessions = supports_list_sessions;
             });
         }
@@ -280,10 +282,15 @@ pub fn handle_chat_event(
                 }
             });
         }
-        ChatEvent::ModelsAvailable { models, current } => {
+        ChatEvent::ModelsAvailable {
+            models,
+            current,
+            config_id,
+        } => {
             chat_state.with_mut(|s| {
                 s.available_models = models;
                 s.current_model = current;
+                s.model_config_id = config_id;
             });
         }
         ChatEvent::CommandsAvailable(commands) => {

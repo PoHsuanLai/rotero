@@ -656,6 +656,15 @@
 
 /* ---- Agent provider cards (settings) ---- */
 
+.agent-provider-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: var(--space-3) 0 var(--space-4);
+    max-height: 22rem;
+    overflow-y: auto;
+}
+
 .agent-provider-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
