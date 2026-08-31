@@ -3,6 +3,7 @@ mod panel;
 mod resize_handle;
 mod resume;
 mod toggle;
+mod tool_call;
 
 use dioxus::prelude::*;
 

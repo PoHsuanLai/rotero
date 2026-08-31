@@ -1,8 +1,7 @@
 use dioxus::prelude::*;
 
-use crate::agent::types::{
-    ChatMessage, ChatRequest, ChatRole, ChatState, MessageContent, ToolStatus,
-};
+use super::tool_call::ToolCallView;
+use crate::agent::types::{ChatMessage, ChatRequest, ChatRole, ChatState, MessageContent};
 use crate::ui::chat_panel::AgentChannel;
 
 #[component]
@@ -31,26 +30,8 @@ pub(crate) fn ChatMessageBubble(message: ChatMessage) -> Element {
                             }
                         }
                     },
-                    MessageContent::ToolUse { id: _, title, status, output } => {
-                        let (icon_class, status_class) = match status {
-                            ToolStatus::Pending | ToolStatus::InProgress =>
-                                ("bi bi-clock", "chat-tool-call--running"),
-                            ToolStatus::Completed =>
-                                ("bi bi-check2", "chat-tool-call--done"),
-                            ToolStatus::Failed =>
-                                ("bi bi-x-lg", "chat-tool-call--failed"),
-                        };
-                        rsx! {
-                            div { key: "c{i}", class: "chat-tool-call {status_class}",
-                                i { class: "{icon_class} chat-tool-icon" }
-                                span { class: "chat-tool-name", "{title}" }
-                            }
-                            if let Some(out) = output {
-                                div { key: "c{i}-out", class: "chat-tool-output",
-                                    pre { "{out}" }
-                                }
-                            }
-                        }
+                    MessageContent::ToolUse(tool) => rsx! {
+                        ToolCallView { key: "{tool.id}", tool: tool.clone() }
                     },
                     MessageContent::Error(err) => rsx! {
                         div { key: "c{i}", class: "chat-error",

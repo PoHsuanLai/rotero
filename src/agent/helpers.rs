@@ -2,14 +2,19 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
 use agent_client_protocol::schema::v1::{
-    AuthMethod, ContentBlock, McpServer, McpServerHttp, McpServerStdio, SessionConfigKind,
-    SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOptions, SessionUpdate,
-    ToolCall, ToolCallContent, ToolCallStatus, ToolCallUpdate,
+    AuthMethod, ContentBlock, EmbeddedResourceResource, McpServer, McpServerHttp, McpServerStdio,
+    SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
+    SessionConfigSelectOptions, SessionUpdate, ToolCall, ToolCallContent,
+    ToolCallLocation as AcpToolCallLocation, ToolCallStatus, ToolCallUpdate,
+    ToolKind as AcpToolKind,
 };
 
 use super::LoopResult;
 use super::install::{find_mcp_binary, find_pdfium_path};
-use super::types::{AgentAuthMethod, AgentModel, ChatEvent, ChatRequest, SlashCommand, ToolStatus};
+use super::types::{
+    AgentAuthMethod, AgentModel, ChatEvent, ChatRequest, SlashCommand, ToolContentBlock, ToolKind,
+    ToolLocation, ToolStatus, ToolUse,
+};
 
 /// Whether `program` is a Windows batch file, which `CreateProcess` refuses to
 /// execute directly. Defined on all platforms so it stays unit-testable;
@@ -186,6 +191,104 @@ fn tool_output_text(content: &[ToolCallContent]) -> Option<String> {
     }
 }
 
+fn raw_json_text(value: &Option<serde_json::Value>) -> Option<String> {
+    value.as_ref().map(|v| {
+        if let Some(s) = v.as_str() {
+            s.to_string()
+        } else {
+            serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
+        }
+    })
+}
+
+fn tool_kind(kind: AcpToolKind) -> ToolKind {
+    match kind {
+        AcpToolKind::Read => ToolKind::Read,
+        AcpToolKind::Edit => ToolKind::Edit,
+        AcpToolKind::Delete => ToolKind::Delete,
+        AcpToolKind::Move => ToolKind::Move,
+        AcpToolKind::Search => ToolKind::Search,
+        AcpToolKind::Execute => ToolKind::Execute,
+        AcpToolKind::Think => ToolKind::Think,
+        AcpToolKind::Fetch => ToolKind::Fetch,
+        AcpToolKind::SwitchMode => ToolKind::SwitchMode,
+        _ => ToolKind::Other,
+    }
+}
+
+fn map_locations(locations: &[AcpToolCallLocation]) -> Vec<ToolLocation> {
+    locations
+        .iter()
+        .map(|loc| ToolLocation {
+            path: loc.path.to_string_lossy().into_owned(),
+            line: loc.line,
+        })
+        .collect()
+}
+
+fn map_content(content: &[ToolCallContent]) -> Vec<ToolContentBlock> {
+    content.iter().filter_map(map_content_item).collect()
+}
+
+fn map_content_item(item: &ToolCallContent) -> Option<ToolContentBlock> {
+    match item {
+        ToolCallContent::Content(c) => match &c.content {
+            ContentBlock::Text(t) => Some(ToolContentBlock::Text(t.text.clone())),
+            ContentBlock::ResourceLink(link) => Some(ToolContentBlock::Resource {
+                title: link
+                    .title
+                    .clone()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| link.name.clone()),
+                uri: link.uri.clone(),
+                mime_type: link.mime_type.clone(),
+                text: link.description.clone(),
+            }),
+            ContentBlock::Resource(embedded) => match &embedded.resource {
+                EmbeddedResourceResource::TextResourceContents(text) => {
+                    Some(ToolContentBlock::Resource {
+                        title: text.uri.clone(),
+                        uri: text.uri.clone(),
+                        mime_type: text.mime_type.clone(),
+                        text: Some(text.text.clone()),
+                    })
+                }
+                EmbeddedResourceResource::BlobResourceContents(blob) => {
+                    Some(ToolContentBlock::Resource {
+                        title: blob.uri.clone(),
+                        uri: blob.uri.clone(),
+                        mime_type: blob.mime_type.clone(),
+                        text: None,
+                    })
+                }
+                _ => None,
+            },
+            _ => None,
+        },
+        ToolCallContent::Diff(diff) => Some(ToolContentBlock::Diff {
+            path: diff.path.to_string_lossy().into_owned(),
+            old_text: diff.old_text.clone(),
+            new_text: diff.new_text.clone(),
+        }),
+        _ => None,
+    }
+}
+
+fn tool_use_from_acp(call: &ToolCall) -> ToolUse {
+    let content = map_content(&call.content);
+    let output = tool_output_text(&call.content).or_else(|| raw_json_text(&call.raw_output));
+    ToolUse {
+        id: call.tool_call_id.0.to_string(),
+        title: call.title.clone(),
+        status: tool_status(call.status),
+        output,
+        kind: tool_kind(call.kind),
+        raw_input: call.raw_input.clone(),
+        locations: map_locations(&call.locations),
+        content,
+    }
+}
+
 pub(crate) fn session_update_to_events(update: &SessionUpdate) -> Vec<ChatEvent> {
     match update {
         SessionUpdate::UserMessageChunk(chunk) => {
@@ -214,26 +317,38 @@ pub(crate) fn session_update_to_events(update: &SessionUpdate) -> Vec<ChatEvent>
                 vec![ChatEvent::TextDelta(cleaned)]
             }
         }
-        SessionUpdate::ToolCall(ToolCall {
-            tool_call_id,
-            title,
-            ..
-        }) => vec![ChatEvent::ToolCallStarted {
-            id: tool_call_id.0.to_string(),
-            title: title.clone(),
-        }],
+        SessionUpdate::ToolCall(call) => {
+            vec![ChatEvent::ToolCallStarted(tool_use_from_acp(call))]
+        }
         SessionUpdate::ToolCallUpdate(ToolCallUpdate {
             tool_call_id,
             fields,
             ..
         }) => {
-            let Some(status) = fields.status else {
+            let output = fields
+                .content
+                .as_deref()
+                .and_then(tool_output_text)
+                .or_else(|| raw_json_text(&fields.raw_output));
+            if fields.status.is_none()
+                && fields.title.is_none()
+                && fields.kind.is_none()
+                && fields.content.is_none()
+                && fields.locations.is_none()
+                && fields.raw_input.is_none()
+                && fields.raw_output.is_none()
+            {
                 return vec![];
-            };
+            }
             vec![ChatEvent::ToolCallUpdated {
                 id: tool_call_id.0.to_string(),
-                status: tool_status(status),
-                output: fields.content.as_deref().and_then(tool_output_text),
+                title: fields.title.clone(),
+                status: fields.status.map(tool_status),
+                output,
+                kind: fields.kind.map(tool_kind),
+                raw_input: fields.raw_input.clone(),
+                locations: fields.locations.as_deref().map(map_locations),
+                content: fields.content.as_deref().map(map_content),
             }]
         }
         SessionUpdate::AvailableCommandsUpdate(update) => {
@@ -422,6 +537,56 @@ mod tests {
             api_key_env_for_method("gemini-api-key").as_deref(),
             Some("GEMINI_API_KEY")
         );
+    }
+
+    #[test]
+    fn tool_call_keeps_kind_and_raw_input() {
+        let call = ToolCall::new("tc-1", "search_papers")
+            .kind(AcpToolKind::Search)
+            .raw_input(serde_json::json!({"query": "attention"}));
+        let events = session_update_to_events(&SessionUpdate::ToolCall(call));
+        match &events[..] {
+            [ChatEvent::ToolCallStarted(tool)] => {
+                assert_eq!(tool.id, "tc-1");
+                assert_eq!(tool.title, "search_papers");
+                assert_eq!(tool.kind, ToolKind::Search);
+                assert_eq!(
+                    tool.raw_input,
+                    Some(serde_json::json!({"query": "attention"}))
+                );
+            }
+            other => panic!("expected ToolCallStarted, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tool_call_update_without_status_still_forwards_content() {
+        use agent_client_protocol::schema::v1::{Diff, ToolCallUpdateFields};
+
+        let update = ToolCallUpdate::new(
+            "tc-1",
+            ToolCallUpdateFields::new().content(vec![Diff::new("/tmp/note.md", "hello").into()]),
+        );
+        let events = session_update_to_events(&SessionUpdate::ToolCallUpdate(update));
+        match &events[..] {
+            [
+                ChatEvent::ToolCallUpdated {
+                    id,
+                    status,
+                    content,
+                    ..
+                },
+            ] => {
+                assert_eq!(id, "tc-1");
+                assert!(status.is_none());
+                assert!(matches!(
+                    content.as_deref(),
+                    Some([ToolContentBlock::Diff { path, new_text, .. }])
+                        if path == "/tmp/note.md" && new_text == "hello"
+                ));
+            }
+            other => panic!("expected ToolCallUpdated, got {other:?}"),
+        }
     }
 }
 
