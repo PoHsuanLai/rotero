@@ -24,12 +24,21 @@ pub fn ChatPanel() -> Element {
             let _ = dioxus::document::eval(
                 r#"
                 (function() {
-                    let el = document.querySelector('.chat-messages');
-                    if (!el || el._autoScroll) return;
-                    el._autoScroll = true;
-                    new MutationObserver(() => {
-                        el.scrollTop = el.scrollHeight;
-                    }).observe(el, { childList: true, subtree: true, characterData: true });
+                    const el = document.querySelector('.chat-messages');
+                    if (!el || el._autoScroll === 2) return;
+                    if (el._autoScrollObs) {
+                        try { el._autoScrollObs.disconnect(); } catch (e) {}
+                    }
+                    el._autoScroll = 2;
+                    const THRESHOLD = 40;
+                    const gap = () => el.scrollHeight - el.scrollTop - el.clientHeight;
+                    let pinned = gap() < THRESHOLD;
+                    el.addEventListener('scroll', () => { pinned = gap() < THRESHOLD; }, { passive: true });
+                    const obs = new MutationObserver(() => {
+                        if (pinned) el.scrollTop = el.scrollHeight;
+                    });
+                    obs.observe(el, { childList: true, subtree: true, characterData: true });
+                    el._autoScrollObs = obs;
                 })()
             "#,
             );

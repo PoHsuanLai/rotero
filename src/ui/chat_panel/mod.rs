@@ -2,6 +2,7 @@ mod message;
 mod panel;
 mod resize_handle;
 mod resume;
+mod rotero_tools;
 mod toggle;
 mod tool_call;
 

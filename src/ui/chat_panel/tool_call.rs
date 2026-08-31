@@ -1,13 +1,19 @@
 use dioxus::prelude::*;
 
+use super::rotero_tools::{
+    ResultKind, RoteroChip, ToolLookups, annotations_from_output, confirmation_line, describe_tool,
+    extracted_text_from_output, graph_summary, looks_like_id, names_from_output, notes_from_output,
+    papers_for_result, relationships_from_output, urls_from_output,
+};
 use crate::agent::types::{ToolContentBlock, ToolKind, ToolStatus, ToolUse};
-use crate::app::chat_papers::{PaperSnippet, papers_from_tool_output};
+use crate::app::chat_papers::PaperSnippet;
 use crate::state::app_state::LibraryState;
 
 #[component]
 pub(crate) fn ToolCallView(tool: ToolUse) -> Element {
     let mut expanded = use_signal(|| false);
     let mut copied = use_signal(|| false);
+    let lib_state = use_context::<Signal<LibraryState>>();
 
     let (status_icon, status_class, status_label) = match tool.status {
         ToolStatus::Pending => ("bi bi-clock", "chat-tool-call--running", "pending"),
@@ -15,9 +21,36 @@ pub(crate) fn ToolCallView(tool: ToolUse) -> Element {
         ToolStatus::Completed => ("bi bi-check2", "chat-tool-call--done", "done"),
         ToolStatus::Failed => ("bi bi-x-lg", "chat-tool-call--failed", "failed"),
     };
-    let kind_icon = kind_icon(tool.kind);
-    let kind_label = kind_label(tool.kind);
-    let summary = input_summary(&tool.title, &tool.raw_input);
+    let rotero = {
+        let lib = lib_state.read();
+        describe_tool(
+            &tool.title,
+            &tool.raw_input,
+            tool.output.as_deref(),
+            &ToolLookups {
+                papers: &lib.papers,
+                collections: &lib.collections,
+                tags: &lib.tags,
+            },
+        )
+    };
+    let icon_class = rotero
+        .as_ref()
+        .map(|r| r.icon)
+        .unwrap_or_else(|| kind_icon(tool.kind));
+    let label_text = rotero
+        .as_ref()
+        .map(|r| r.label.clone())
+        .unwrap_or_else(|| kind_label(tool.kind).to_string());
+    let summary = rotero
+        .as_ref()
+        .map(|r| r.summary.clone())
+        .unwrap_or_else(|| input_summary(&tool.title, &tool.raw_input));
+    let name_class = if rotero.is_some() {
+        "chat-tool-name chat-tool-name--plain"
+    } else {
+        "chat-tool-name"
+    };
     let chevron = if expanded() {
         "bi bi-chevron-down"
     } else {
@@ -57,19 +90,22 @@ pub(crate) fn ToolCallView(tool: ToolUse) -> Element {
     let papers = tool
         .output
         .as_deref()
-        .map(papers_from_tool_output)
+        .map(crate::app::chat_papers::papers_from_tool_output)
         .unwrap_or_default();
     let json_value = tool
         .output
         .as_deref()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
-    let has_typed_body = !diffs.is_empty() || !resources.is_empty() || !papers.is_empty();
+    let rotero_body = rotero.is_some();
+    let has_typed_body =
+        !diffs.is_empty() || !resources.is_empty() || !papers.is_empty() || rotero_body;
     let output_text = tool.output.clone();
     let copy_text = tool.output.clone().or_else(|| {
         json_value
             .as_ref()
             .map(|v| serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string()))
     });
+    let failed = tool.status == ToolStatus::Failed;
 
     rsx! {
         div { class: "chat-tool",
@@ -77,9 +113,11 @@ pub(crate) fn ToolCallView(tool: ToolUse) -> Element {
                 class: "chat-tool-call {status_class} {open_class}",
                 r#type: "button",
                 onclick: move |_| expanded.set(!expanded()),
-                i { class: "{kind_icon} chat-tool-kind-icon", title: "{kind_label}" }
-                span { class: "chat-tool-kind", "{kind_label}" }
-                span { class: "chat-tool-name", "{summary}" }
+                i { class: "{icon_class} chat-tool-kind-icon", title: "{label_text}" }
+                span { class: "chat-tool-kind", "{label_text}" }
+                if !summary.is_empty() {
+                    span { class: "{name_class}", "{summary}" }
+                }
                 span { class: "chat-tool-pill",
                     i { class: "{status_icon}" }
                     "{status_label}"
@@ -109,7 +147,14 @@ pub(crate) fn ToolCallView(tool: ToolUse) -> Element {
                             }
                         }
                     }
-                    if !papers.is_empty() {
+                    if let Some(chip) = rotero.clone() {
+                        RoteroResult {
+                            chip,
+                            output: tool.output.clone(),
+                            papers: papers.clone(),
+                            failed,
+                        }
+                    } else if !papers.is_empty() {
                         div { class: "chat-paper-list",
                             for paper in papers.iter() {
                                 ChatPaperCard { key: "{paper.id.as_deref().unwrap_or(paper.title.as_str())}", paper: paper.clone() }
@@ -155,6 +200,196 @@ pub(crate) fn ToolCallView(tool: ToolUse) -> Element {
             }
         }
     }
+}
+
+#[component]
+fn RoteroResult(
+    chip: RoteroChip,
+    output: Option<String>,
+    papers: Vec<PaperSnippet>,
+    failed: bool,
+) -> Element {
+    if failed {
+        let msg = output
+            .as_deref()
+            .map(redact_ids)
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "Something went wrong.".into());
+        return rsx! {
+            p { class: "chat-tool-confirm chat-tool-confirm--failed", "{msg}" }
+        };
+    }
+
+    match chip.result {
+        ResultKind::Papers => {
+            let cards = if papers.is_empty() {
+                papers_for_result(output.as_deref())
+            } else {
+                papers
+            };
+            if cards.is_empty() {
+                rsx! { p { class: "chat-tool-confirm", "No papers found." } }
+            } else {
+                rsx! {
+                    div { class: "chat-paper-list",
+                        for paper in cards.iter() {
+                            ChatPaperCard {
+                                key: "{paper.id.as_deref().unwrap_or(paper.title.as_str())}",
+                                paper: paper.clone(),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ResultKind::Notes => {
+            let notes = output.as_deref().map(notes_from_output).unwrap_or_default();
+            if notes.is_empty() {
+                rsx! { p { class: "chat-tool-confirm", "No notes." } }
+            } else {
+                rsx! {
+                    div { class: "chat-note-list",
+                        for (i, note) in notes.iter().enumerate() {
+                            div { key: "{i}", class: "chat-note-card",
+                                if !note.title.is_empty() {
+                                    div { class: "chat-paper-title", "{note.title}" }
+                                }
+                                if !note.body.is_empty() {
+                                    p { class: "chat-note-body", "{note.body}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ResultKind::Annotations => {
+            let anns = output
+                .as_deref()
+                .map(annotations_from_output)
+                .unwrap_or_default();
+            if anns.is_empty() {
+                rsx! { p { class: "chat-tool-confirm", "No annotations." } }
+            } else {
+                rsx! {
+                    div { class: "chat-note-list",
+                        for (i, ann) in anns.iter().enumerate() {
+                            div { key: "{i}", class: "chat-note-card",
+                                div { class: "chat-paper-meta",
+                                    span { "Page {ann.page}" }
+                                    span { class: "chat-paper-sep", "\u{00b7}" }
+                                    span { "{ann.kind}" }
+                                }
+                                if let Some(content) = ann.content.as_ref() {
+                                    p { class: "chat-note-body", "{content}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ResultKind::Names => {
+            let names = output.as_deref().map(names_from_output).unwrap_or_default();
+            if names.is_empty() {
+                rsx! { p { class: "chat-tool-confirm", "Nothing listed." } }
+            } else {
+                rsx! {
+                    ul { class: "chat-name-list",
+                        for (i, name) in names.iter().enumerate() {
+                            li { key: "{i}", "{name}" }
+                        }
+                    }
+                }
+            }
+        }
+        ResultKind::Confirmation => {
+            let line = confirmation_line(&chip);
+            rsx! { p { class: "chat-tool-confirm", "{line}" } }
+        }
+        ResultKind::Graph => {
+            let line = output
+                .as_deref()
+                .and_then(|s| graph_summary(Some(s)))
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| {
+                    if chip.summary.is_empty() {
+                        "No connections.".into()
+                    } else {
+                        chip.summary.clone()
+                    }
+                });
+            rsx! { p { class: "chat-tool-confirm", "{line}" } }
+        }
+        ResultKind::Relationships => {
+            let rels = output
+                .as_deref()
+                .map(relationships_from_output)
+                .unwrap_or_default();
+            if rels.is_empty() {
+                rsx! { p { class: "chat-tool-confirm", "No related papers." } }
+            } else {
+                rsx! {
+                    ul { class: "chat-name-list",
+                        for (i, rel) in rels.iter().enumerate() {
+                            li { key: "{i}",
+                                span { class: "chat-paper-title", "{rel.title}" }
+                                if !rel.label.is_empty() {
+                                    span { class: "chat-paper-meta", " · {rel.label}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ResultKind::PdfUrls => {
+            let urls = output.as_deref().map(urls_from_output).unwrap_or_default();
+            if urls.is_empty() {
+                rsx! { p { class: "chat-tool-confirm", "No PDF found." } }
+            } else {
+                rsx! {
+                    ul { class: "chat-name-list",
+                        for (i, url) in urls.iter().enumerate() {
+                            li { key: "{i}", class: "chat-resource-uri", "{url}" }
+                        }
+                    }
+                }
+            }
+        }
+        ResultKind::ExtractedText => {
+            if let Some(extracted) = output.as_deref().and_then(extracted_text_from_output) {
+                let pages = if extracted.total_pages > 0 {
+                    format!(
+                        "Pages {start}–{end} of {total}",
+                        start = extracted.page_start,
+                        end = extracted.page_end.max(extracted.page_start),
+                        total = extracted.total_pages
+                    )
+                } else {
+                    "Extracted text".into()
+                };
+                rsx! {
+                    div { class: "chat-extract",
+                        div { class: "chat-paper-meta", "{pages}" }
+                        pre { class: "chat-extract-text", "{extracted.text}" }
+                    }
+                }
+            } else {
+                rsx! { p { class: "chat-tool-confirm", "No extracted text." } }
+            }
+        }
+    }
+}
+
+fn redact_ids(text: &str) -> String {
+    text.split_whitespace()
+        .map(|tok| {
+            let trimmed = tok.trim_matches(|c: char| !c.is_ascii_hexdigit() && c != '-');
+            if looks_like_id(trimmed) { "…" } else { tok }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[component]
