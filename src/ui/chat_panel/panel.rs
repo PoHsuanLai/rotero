@@ -111,11 +111,15 @@ pub fn ChatPanel() -> Element {
 
     let hidden_count = past_sessions.len().saturating_sub(visible_sessions.len());
 
+    let tool_status = match &status {
+        AgentStatus::ToolCall(name) => Some(super::rotero_tools::humanize_tool_title(name)),
+        _ => None,
+    };
     let status_text = match &status {
         AgentStatus::Idle => "Ready",
         AgentStatus::Connecting => "Connecting...",
         AgentStatus::Streaming => "Thinking...",
-        AgentStatus::ToolCall(name) => name.as_str(),
+        AgentStatus::ToolCall(_) => tool_status.as_deref().unwrap_or("Working"),
         AgentStatus::NeedsAuth => "Sign in required",
         AgentStatus::Error(_) => "Error",
     };

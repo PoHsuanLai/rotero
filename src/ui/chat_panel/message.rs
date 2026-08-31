@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use super::rotero_tools::{humanize_tool_title, permission_prompt};
 use super::tool_call::ToolCallView;
 use crate::agent::types::{ChatMessage, ChatRequest, ChatRole, ChatState, MessageContent};
 use crate::ui::chat_panel::AgentChannel;
@@ -40,11 +41,13 @@ pub(crate) fn ChatMessageBubble(message: ChatMessage) -> Element {
                         }
                     },
                     MessageContent::Permission { request_id, tool_title, options, responded } => {
+                        let chip_title = humanize_tool_title(tool_title);
+                        let prompt = permission_prompt(tool_title);
                         if *responded {
                             rsx! {
                                 div { key: "c{i}", class: "chat-tool-call chat-tool-call--done",
                                     i { class: "bi bi-check2 chat-tool-icon" }
-                                    span { class: "chat-tool-name", "{tool_title}" }
+                                    span { class: "chat-tool-name chat-tool-name--plain", "{chip_title}" }
                                 }
                             }
                         } else {
@@ -52,7 +55,7 @@ pub(crate) fn ChatMessageBubble(message: ChatMessage) -> Element {
                             let opts = options.clone();
                             rsx! {
                                 div { key: "c{i}", class: "chat-permission",
-                                    span { class: "chat-permission-title", "Allow {tool_title}?" }
+                                    span { class: "chat-permission-title", "{prompt}" }
                                     div { class: "chat-permission-buttons",
                                         for (opt_id, label) in opts.iter() {
                                             {

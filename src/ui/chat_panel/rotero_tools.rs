@@ -247,6 +247,74 @@ pub fn descriptor(name: &str) -> Option<ToolMeta> {
     })
 }
 
+/// Chip / responded-permission label. Never contains `mcp__`.
+pub fn humanize_tool_title(title: &str) -> String {
+    let name = bare_tool_name(title);
+    let label = descriptor(name)
+        .map(|m| m.label.to_string())
+        .unwrap_or_else(|| {
+            if name.is_empty() {
+                "a tool".into()
+            } else {
+                name.to_string()
+            }
+        });
+    if label.contains("mcp__") {
+        "a tool".into()
+    } else {
+        label
+    }
+}
+
+/// Present-tense action for the allow prompt, e.g. `open a paper`.
+pub fn permission_action(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "search_papers" => "search your papers",
+        "search_online" => "search online for papers",
+        "find_pdf" => "find a PDF",
+        "get_paper" => "open a paper",
+        "list_papers" => "list your papers",
+        "get_paper_annotations" => "read annotations",
+        "get_paper_notes" => "read notes",
+        "list_collections" => "list collections",
+        "list_tags" => "list tags",
+        "get_papers_in_collection" => "list papers in a collection",
+        "get_papers_by_tag" => "list tagged papers",
+        "extract_pdf_text" => "read a PDF",
+        "add_note" => "add a note",
+        "update_note" => "update a note",
+        "add_tag_to_paper" => "tag a paper",
+        "set_paper_read" => "mark a paper as read",
+        "set_paper_favorite" => "favorite a paper",
+        "add_paper" => "add a paper",
+        "update_paper" => "update a paper",
+        "delete_paper" => "delete a paper",
+        "remove_tag_from_paper" => "remove a tag",
+        "create_collection" => "create a collection",
+        "add_paper_to_collection" => "add a paper to a collection",
+        "remove_paper_from_collection" => "remove a paper from a collection",
+        "delete_collection" => "delete a collection",
+        "rename_collection" => "rename a collection",
+        "rename_tag" => "rename a tag",
+        "delete_tag" => "delete a tag",
+        "delete_note" => "delete a note",
+        "download_pdf" => "download a PDF",
+        "get_paper_relationships" => "find related papers",
+        "get_library_graph" => "build the citation graph",
+        _ => return None,
+    })
+}
+
+/// Allow-prompt copy. Known Rotero tools read as `Allow Rotero to …?`.
+pub fn permission_prompt(title: &str) -> String {
+    let name = bare_tool_name(title);
+    if let Some(action) = permission_action(name) {
+        format!("Allow Rotero to {action}?")
+    } else {
+        format!("Allow {}?", humanize_tool_title(title))
+    }
+}
+
 pub fn describe_tool(
     title: &str,
     raw_input: &Option<serde_json::Value>,
@@ -955,6 +1023,46 @@ mod tests {
         assert!(descriptor("web_search").is_none());
         assert!(descriptor("mcp__rotero__nope").is_none());
         assert!(descriptor(bare_tool_name("mcp__rotero__get_paper")).is_some());
+    }
+
+    #[test]
+    fn permission_titles_never_show_mcp_prefix() {
+        for name in ROTERO_TOOL_NAMES {
+            let raw = format!("mcp__rotero__{name}");
+            let chip = humanize_tool_title(&raw);
+            let prompt = permission_prompt(&raw);
+            assert!(
+                !chip.contains("mcp__"),
+                "chip leaked mcp__ for {raw}: {chip}"
+            );
+            assert!(
+                !prompt.contains("mcp__"),
+                "prompt leaked mcp__ for {raw}: {prompt}"
+            );
+            assert_eq!(chip, descriptor(name).unwrap().label);
+            assert!(
+                permission_action(name).is_some(),
+                "missing permission action for {name}"
+            );
+            assert_eq!(
+                prompt,
+                format!("Allow Rotero to {}?", permission_action(name).unwrap())
+            );
+        }
+        assert_eq!(
+            humanize_tool_title("mcp__rotero__get_paper"),
+            "Opened paper"
+        );
+        assert_eq!(
+            permission_prompt("mcp__rotero__get_paper"),
+            "Allow Rotero to open a paper?"
+        );
+        assert_eq!(humanize_tool_title("mcp__other__web_search"), "web_search");
+        assert_eq!(
+            permission_prompt("mcp__other__web_search"),
+            "Allow web_search?"
+        );
+        assert!(!permission_prompt("mcp__other__web_search").contains("mcp__"));
     }
 
     #[test]
