@@ -1,12 +1,12 @@
 use chrono::{DateTime, Utc};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ChatRole {
     User,
     Assistant,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MessageContent {
     Text(String),
     ToolUse(ToolUse),
@@ -23,7 +23,7 @@ pub enum MessageContent {
 ///
 /// Extra ACP fields (`kind`, `raw_input`, `locations`, typed `content`) are
 /// optional so an older event that only had title + status still renders.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ToolUse {
     pub id: String,
     pub title: String,
@@ -35,7 +35,7 @@ pub struct ToolUse {
     pub content: Vec<ToolContentBlock>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum ToolKind {
     Read,
     Edit,
@@ -50,7 +50,7 @@ pub enum ToolKind {
     Other,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ToolLocation {
     pub path: String,
     pub line: Option<u32>,
@@ -58,7 +58,7 @@ pub struct ToolLocation {
 
 /// Displayable pieces of a tool call, copied out of ACP so the UI crate
 /// does not depend on the protocol types.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ToolContentBlock {
     Text(String),
     Diff {
@@ -74,7 +74,7 @@ pub enum ToolContentBlock {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ToolStatus {
     Pending,
     InProgress,
@@ -82,7 +82,7 @@ pub enum ToolStatus {
     Failed,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ChatMessage {
     pub role: ChatRole,
     pub content: Vec<MessageContent>,

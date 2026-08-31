@@ -127,6 +127,19 @@ CREATE TABLE IF NOT EXISTS chat_session_papers (
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_subject ON chat_sessions (subject_kind, subject_id);
 CREATE INDEX IF NOT EXISTS idx_chat_session_papers_paper ON chat_session_papers (paper_id);
 
+-- Individual messages belonging to a conversation. Local-only, ordered by seq.
+-- content_json holds the serialized message content (text, tool calls, errors).
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id           TEXT PRIMARY KEY,
+    session_id   TEXT NOT NULL REFERENCES chat_sessions(session_id) ON DELETE CASCADE,
+    seq          INTEGER NOT NULL,
+    role         TEXT NOT NULL,
+    content_json TEXT NOT NULL,
+    created_at   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session_seq ON chat_messages (session_id, seq);
+
 CREATE TABLE IF NOT EXISTS annotations (
     id          TEXT PRIMARY KEY,
     paper_id    TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,

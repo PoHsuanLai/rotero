@@ -99,6 +99,30 @@ fn row_to_session(row: &turso::Row) -> ChatSessionRow {
     }
 }
 
+/// One message in a stored conversation transcript.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ChatMessageRecord {
+    pub id: String,
+    pub session_id: String,
+    pub seq: i64,
+    pub role: String,
+    pub content_json: String,
+    pub created_at: String,
+}
+
+const SELECT_MSG_COLS: &str = "id, session_id, seq, role, content_json, created_at";
+
+fn row_to_message(row: &turso::Row) -> ChatMessageRecord {
+    ChatMessageRecord {
+        id: crate::get_text(row, 0),
+        session_id: crate::get_text(row, 1),
+        seq: crate::get_opt_i64(row, 2).unwrap_or(0),
+        role: crate::get_text(row, 3),
+        content_json: crate::get_text(row, 4),
+        created_at: crate::get_text(row, 5),
+    }
+}
+
 impl Database {
     /// The live conversation for a subject, if one exists.
     ///
@@ -363,5 +387,164 @@ impl Database {
             out.push(crate::get_text(&row, 0));
         }
         Ok(out)
+    }
+
+    /// Messages in a conversation, in chronological order.
+    pub async fn chat_messages_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<ChatMessageRecord>, crate::DbError> {
+        let conn = self.conn();
+        let sql = format!(
+            "SELECT {SELECT_MSG_COLS} FROM chat_messages \
+             WHERE session_id = ?1 ORDER BY seq ASC"
+        );
+        let mut rows = conn
+            .query(&sql, [Value::Text(session_id.to_string())])
+            .await?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().await? {
+            out.push(row_to_message(&row));
+        }
+        Ok(out)
+    }
+
+    /// Append or update a single message in a conversation.
+    pub async fn append_chat_message(
+        &self,
+        record: &ChatMessageRecord,
+    ) -> Result<(), crate::DbError> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO chat_messages (id, session_id, seq, role, content_json, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
+             ON CONFLICT(id) DO UPDATE SET \
+                 seq = excluded.seq, \
+                 role = excluded.role, \
+                 content_json = excluded.content_json, \
+                 created_at = excluded.created_at",
+            turso::params::Params::Positional(vec![
+                Value::Text(record.id.clone()),
+                Value::Text(record.session_id.clone()),
+                Value::Integer(record.seq),
+                Value::Text(record.role.clone()),
+                Value::Text(record.content_json.clone()),
+                Value::Text(record.created_at.clone()),
+            ]),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Save multiple messages for a conversation, preserving order.
+    pub async fn save_chat_messages(
+        &self,
+        session_id: &str,
+        records: &[ChatMessageRecord],
+    ) -> Result<(), crate::DbError> {
+        let conn = self.conn();
+        for rec in records {
+            conn.execute(
+                "INSERT INTO chat_messages (id, session_id, seq, role, content_json, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
+                 ON CONFLICT(id) DO UPDATE SET \
+                     seq = excluded.seq, \
+                     role = excluded.role, \
+                     content_json = excluded.content_json, \
+                     created_at = excluded.created_at",
+                turso::params::Params::Positional(vec![
+                    Value::Text(rec.id.clone()),
+                    Value::Text(session_id.to_string()),
+                    Value::Integer(rec.seq),
+                    Value::Text(rec.role.clone()),
+                    Value::Text(rec.content_json.clone()),
+                    Value::Text(rec.created_at.clone()),
+                ]),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Clear all messages for a session.
+    pub async fn clear_chat_messages(&self, session_id: &str) -> Result<(), crate::DbError> {
+        let conn = self.conn();
+        conn.execute(
+            "DELETE FROM chat_messages WHERE session_id = ?1",
+            [Value::Text(session_id.to_string())],
+        )
+        .await?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn test_db() -> Database {
+        let dir = tempfile::tempdir().unwrap();
+        Database::open(dir.path().to_path_buf()).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn chat_messages_round_trip() {
+        let db = test_db().await;
+
+        let session = ChatSessionRow {
+            session_id: "sess-1".into(),
+            provider_id: "claude".into(),
+            subject_kind: "paper".into(),
+            subject_id: Some("p1".into()),
+            summary: Some("Discussion on attention mechanisms".into()),
+            created_at: "2026-08-31T10:00:00Z".into(),
+            last_used_at: "2026-08-31T10:05:00Z".into(),
+            is_dead: false,
+        };
+        db.upsert_chat_session(&session, &[]).await.unwrap();
+
+        let msg1 = ChatMessageRecord {
+            id: "msg-1".into(),
+            session_id: "sess-1".into(),
+            seq: 1,
+            role: "user".into(),
+            content_json: r#"[{"Text":"What is multi-head attention?"}]"#.into(),
+            created_at: "2026-08-31T10:00:05Z".into(),
+        };
+        let msg2 = ChatMessageRecord {
+            id: "msg-2".into(),
+            session_id: "sess-1".into(),
+            seq: 2,
+            role: "assistant".into(),
+            content_json: r#"[{"Text":"Multi-head attention allows the model to jointly attend to information..."}]"#.into(),
+            created_at: "2026-08-31T10:00:15Z".into(),
+        };
+
+        db.append_chat_message(&msg1).await.unwrap();
+        db.append_chat_message(&msg2).await.unwrap();
+
+        let loaded = db.chat_messages_for_session("sess-1").await.unwrap();
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0], msg1);
+        assert_eq!(loaded[1], msg2);
+        assert_eq!(loaded[0].seq, 1);
+        assert_eq!(loaded[1].seq, 2);
+
+        // Update an existing message by ID
+        let mut msg2_updated = msg2.clone();
+        msg2_updated.content_json = r#"[{"Text":"Updated explanation"}]"#.into();
+        db.append_chat_message(&msg2_updated).await.unwrap();
+
+        let reloaded = db.chat_messages_for_session("sess-1").await.unwrap();
+        assert_eq!(reloaded.len(), 2);
+        assert_eq!(
+            reloaded[1].content_json,
+            r#"[{"Text":"Updated explanation"}]"#
+        );
+
+        // Clear messages
+        db.clear_chat_messages("sess-1").await.unwrap();
+        let cleared = db.chat_messages_for_session("sess-1").await.unwrap();
+        assert!(cleared.is_empty());
     }
 }

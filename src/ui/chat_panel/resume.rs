@@ -107,11 +107,48 @@ pub fn switch_to(
     spawn(async move {
         match db.chat_session_for_subject(&subject).await {
             Ok(Some(existing)) => {
-                chat_state.with_mut(|s| s.status = AgentStatus::Connecting);
-                agent_channel.send(ChatRequest::LoadSession {
-                    session_id: existing.session_id,
-                    cwd: String::new(),
+                let records = db
+                    .chat_messages_for_session(&existing.session_id)
+                    .await
+                    .unwrap_or_default();
+                let stored_messages: Vec<crate::agent::types::ChatMessage> = records
+                    .into_iter()
+                    .filter_map(|r| {
+                        let role = if r.role == "user" {
+                            crate::agent::types::ChatRole::User
+                        } else {
+                            crate::agent::types::ChatRole::Assistant
+                        };
+                        let content: Vec<crate::agent::types::MessageContent> =
+                            serde_json::from_str(&r.content_json).ok()?;
+                        let timestamp = chrono::DateTime::parse_from_rfc3339(&r.created_at)
+                            .map(|t| t.with_timezone(&chrono::Utc))
+                            .unwrap_or_else(|_| chrono::Utc::now());
+                        Some(crate::agent::types::ChatMessage {
+                            role,
+                            content,
+                            timestamp,
+                            hidden: false,
+                        })
+                    })
+                    .collect();
+
+                let active_provider = chat_state.read().active_provider_id.clone();
+                let is_same_provider =
+                    !existing.provider_id.is_empty() && existing.provider_id == active_provider;
+
+                chat_state.with_mut(|s| {
+                    s.messages = stored_messages;
+                    s.current_session_id = Some(existing.session_id.clone());
                 });
+
+                if is_same_provider {
+                    chat_state.with_mut(|s| s.status = AgentStatus::Connecting);
+                    agent_channel.send(ChatRequest::LoadSession {
+                        session_id: existing.session_id,
+                        cwd: String::new(),
+                    });
+                }
             }
             // Nothing to resume: the next message starts this subject's
             // conversation, and `pending_subject` already says what it is about.

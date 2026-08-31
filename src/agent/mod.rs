@@ -1,4 +1,4 @@
-mod helpers;
+pub(crate) mod helpers;
 pub(crate) mod install;
 pub(crate) mod launch;
 pub(crate) mod node;

@@ -121,6 +121,10 @@ async fn every_table_either_syncs_or_is_declared_local() {
         // These carry none of the bookkeeping columns and have no `_live` view.
         ("chat_sessions", "agent session ids are machine-local"),
         ("chat_session_papers", "child of chat_sessions"),
+        (
+            "chat_messages",
+            "chat transcript is machine-local; child of local-only chat_sessions",
+        ),
     ];
 
     let dir = tempfile::tempdir().unwrap();

@@ -102,13 +102,16 @@ fn build_paper_context(
     lib_state: &LibraryState,
     tab_mgr: &PdfTabManager,
     subject: Option<&ChatSubject>,
+    prior_messages: &[ChatMessage],
 ) -> Option<String> {
+    let history_block = crate::agent::helpers::format_conversation_history(prior_messages);
+
     // A conversation about several papers has to name them all, or the agent
     // only ever sees whichever one happens to be open.
     if let Some(ChatSubject::Group(ids)) = subject {
         let block = group_context(lib_state, ids);
         return Some(format!(
-            "<rotero-context>\n{SEARCH_GUIDANCE}{block}\n</rotero-context>"
+            "<rotero-context>\n{SEARCH_GUIDANCE}{block}{history_block}\n</rotero-context>"
         ));
     }
 
@@ -136,7 +139,7 @@ fn build_paper_context(
         .unwrap_or_default();
 
     Some(format!(
-        "<rotero-context>\n{SEARCH_GUIDANCE}{paper_block}\n</rotero-context>"
+        "<rotero-context>\n{SEARCH_GUIDANCE}{paper_block}{history_block}\n</rotero-context>"
     ))
 }
 
@@ -183,6 +186,9 @@ fn do_send(
         return;
     }
 
+    // Extract prior messages before the new user message for context replay
+    let prior_messages: Vec<ChatMessage> = chat_state.read().messages.clone();
+
     // The subject is known now but the session id is not, so hold it until
     // `SessionCreated` arrives with something to key it to.
     let subject = current_subject(&lib_state.read(), &tab_mgr.read());
@@ -212,6 +218,16 @@ fn do_send(
     // below, which needs a row to attach to.
     crate::app::chat_handler::record_session(chat_state, db, context_subject.clone());
 
+    let session_id = chat_state.read().current_session_id.clone();
+
+    // Persist the user message to the DB
+    if let Some(session_id) = session_id.clone() {
+        let seq = chat_state.read().messages.len() as i64;
+        if let Some(last_msg) = chat_state.read().messages.last() {
+            crate::app::chat_handler::persist_chat_message(db, &session_id, seq, last_msg);
+        }
+    }
+
     // A cheap label immediately, so a conversation is never nameless: the agent
     // summary is better but costs a round trip, and may not arrive at all.
     let first_message = chat_state
@@ -221,7 +237,6 @@ fn do_send(
         .filter(|m| m.role == ChatRole::User)
         .count()
         == 1;
-    let session_id = chat_state.read().current_session_id.clone();
     if first_message && let Some(session_id) = session_id.clone() {
         let fallback: String = input.chars().take(120).collect();
         let db = db.clone();
@@ -230,8 +245,12 @@ fn do_send(
         });
     }
 
-    let paper_context =
-        build_paper_context(&lib_state.read(), &tab_mgr.read(), context_subject.as_ref());
+    let paper_context = build_paper_context(
+        &lib_state.read(),
+        &tab_mgr.read(),
+        context_subject.as_ref(),
+        &prior_messages,
+    );
 
     agent_channel.send(ChatRequest::SendMessage {
         prompt: input,
@@ -353,8 +372,31 @@ mod tests {
         tabs.open_tab(tab);
 
         let group = ChatSubject::Group(vec!["p1".into(), "p2".into()]);
-        let context = build_paper_context(&lib, &tabs, Some(&group)).unwrap();
+        let context = build_paper_context(&lib, &tabs, Some(&group), &[]).unwrap();
         assert!(context.contains("Paper ID: p2"));
         assert!(context.contains("asking about these papers together"));
+    }
+
+    /// When prior messages exist, the context block contains the formatted conversation history.
+    #[test]
+    fn context_includes_conversation_history_when_present() {
+        let lib = library();
+        let tabs = PdfTabManager::default();
+        let group = ChatSubject::Group(vec!["p1".into()]);
+        let history = vec![
+            ChatMessage::new(
+                ChatRole::User,
+                vec![MessageContent::Text(
+                    "What is the primary contribution?".into(),
+                )],
+            ),
+            ChatMessage::assistant(vec![MessageContent::Text(
+                "The paper proposes a new architecture.".into(),
+            )]),
+        ];
+        let context = build_paper_context(&lib, &tabs, Some(&group), &history).unwrap();
+        assert!(context.contains("<rotero-conversation-history>"));
+        assert!(context.contains("User: What is the primary contribution?"));
+        assert!(context.contains("Assistant: The paper proposes a new architecture."));
     }
 }

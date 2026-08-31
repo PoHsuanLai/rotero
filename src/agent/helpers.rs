@@ -408,6 +408,7 @@ pub(crate) fn strip_protocol_tags(text: &str) -> String {
         "status",
         "summary",
         "rotero-context",
+        "rotero-conversation-history",
     ];
 
     let mut result = text.to_string();
@@ -430,6 +431,62 @@ pub(crate) fn strip_protocol_tags(text: &str) -> String {
     }
 
     result
+}
+
+/// Format prior chat messages into a structured `<rotero-conversation-history>` block
+/// to prime an ACP agent when resuming across providers or on fresh sessions.
+pub(crate) fn format_conversation_history(messages: &[crate::agent::types::ChatMessage]) -> String {
+    let visible_msgs: Vec<_> = messages.iter().filter(|m| !m.hidden).collect();
+    if visible_msgs.is_empty() {
+        return String::new();
+    }
+    // Limit to the most recent 20 messages to avoid token limit overflow while preserving recent context
+    let window_start = visible_msgs.len().saturating_sub(20);
+    let mut lines = Vec::new();
+
+    for msg in &visible_msgs[window_start..] {
+        let role_label = match msg.role {
+            crate::agent::types::ChatRole::User => "User",
+            crate::agent::types::ChatRole::Assistant => "Assistant",
+        };
+        let mut parts = Vec::new();
+        for content in &msg.content {
+            match content {
+                crate::agent::types::MessageContent::Text(t) => {
+                    let cleaned = strip_protocol_tags(t).trim().to_string();
+                    if !cleaned.is_empty() {
+                        parts.push(cleaned);
+                    }
+                }
+                crate::agent::types::MessageContent::ToolUse(tool) => {
+                    if let Some(out) = &tool.output {
+                        let snippet: String = out.chars().take(150).collect();
+                        parts.push(format!("[Tool '{}': {snippet}]", tool.title));
+                    } else {
+                        parts.push(format!("[Tool '{}']", tool.title));
+                    }
+                }
+                crate::agent::types::MessageContent::Error(e) => {
+                    parts.push(format!("[Error: {e}]"));
+                }
+                crate::agent::types::MessageContent::Permission { tool_title, .. } => {
+                    parts.push(format!("[Permitted: {tool_title}]"));
+                }
+            }
+        }
+        if !parts.is_empty() {
+            lines.push(format!("{role_label}: {}", parts.join(" ")));
+        }
+    }
+
+    if lines.is_empty() {
+        return String::new();
+    }
+
+    format!(
+        "\n<rotero-conversation-history>\nPrior conversation history:\n{}\n</rotero-conversation-history>",
+        lines.join("\n")
+    )
 }
 
 /// Paper ids named in a message's `<rotero-context>` blocks, in order.

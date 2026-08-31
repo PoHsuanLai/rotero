@@ -251,7 +251,82 @@ async fn chat_tables_are_not_synced() {
     for table in rotero_db::sync_schema::SYNCED_TABLES {
         assert_ne!(table.name, "chat_sessions");
         assert_ne!(table.name, "chat_session_papers");
+        assert_ne!(table.name, "chat_messages");
     }
+}
+
+/// Transcripts survive and can be retrieved across sessions and providers.
+#[tokio::test]
+async fn transcript_persists_across_sessions_and_providers() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = common::open_test_db(dir.path()).await;
+    let paper = insert(&db, "Deep Residual Learning").await;
+    let subject = ChatSubject::Paper(paper);
+
+    // Initial session with Claude
+    let claude_row = row("sess-claude", &subject);
+    db.upsert_chat_session(&claude_row, &subject.paper_ids())
+        .await
+        .unwrap();
+
+    let msg1 = rotero_db::chat_sessions::ChatMessageRecord {
+        id: "sess-claude:1".into(),
+        session_id: "sess-claude".into(),
+        seq: 1,
+        role: "user".into(),
+        content_json: r#"[{"Text":"Explain residual connections"}]"#.into(),
+        created_at: "2026-08-31T12:00:00Z".into(),
+    };
+    let msg2 = rotero_db::chat_sessions::ChatMessageRecord {
+        id: "sess-claude:2".into(),
+        session_id: "sess-claude".into(),
+        seq: 2,
+        role: "assistant".into(),
+        content_json: r#"[{"Text":"Residual connections allow gradients to flow directly..."}]"#
+            .into(),
+        created_at: "2026-08-31T12:00:10Z".into(),
+    };
+
+    db.append_chat_message(&msg1).await.unwrap();
+    db.append_chat_message(&msg2).await.unwrap();
+
+    // Query conversation for subject
+    let session = db
+        .chat_session_for_subject(&subject)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.session_id, "sess-claude");
+
+    let messages = db
+        .chat_messages_for_session(&session.session_id)
+        .await
+        .unwrap();
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0].role, "user");
+    assert_eq!(messages[1].role, "assistant");
+
+    // Switch provider to Grok: update the session with new provider and append message
+    let mut grok_row = session.clone();
+    grok_row.provider_id = "grok".into();
+    grok_row.last_used_at = "2026-08-31T12:05:00Z".into();
+    db.upsert_chat_session(&grok_row, &subject.paper_ids())
+        .await
+        .unwrap();
+
+    let msg3 = rotero_db::chat_sessions::ChatMessageRecord {
+        id: "sess-claude:3".into(),
+        session_id: "sess-claude".into(),
+        seq: 3,
+        role: "user".into(),
+        content_json: r#"[{"Text":"How does it compare to Highway Networks?"}]"#.into(),
+        created_at: "2026-08-31T12:05:05Z".into(),
+    };
+    db.append_chat_message(&msg3).await.unwrap();
+
+    let updated_messages = db.chat_messages_for_session("sess-claude").await.unwrap();
+    assert_eq!(updated_messages.len(), 3);
+    assert_eq!(updated_messages[2].seq, 3);
 }
 
 /// The bug this guards: the row is created when the agent announces the session
