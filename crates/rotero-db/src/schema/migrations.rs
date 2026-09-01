@@ -5,7 +5,7 @@ use turso::Connection;
 use super::tables::{CREATE_FTS_INDEX, CREATE_LIVE_VIEWS, CREATE_TABLES};
 
 /// Current schema version; incremented with each migration.
-pub const SCHEMA_VERSION: i64 = 18;
+pub const SCHEMA_VERSION: i64 = 19;
 
 /// Why a database could not be prepared for use.
 #[derive(Debug, thiserror::Error)]
@@ -408,6 +408,31 @@ async fn run_migrations(conn: &Connection) -> Result<(), SchemaError> {
     let _ = conn
         .execute("ALTER TABLE papers ADD COLUMN pdf_sha256 TEXT", ())
         .await;
+
+    if current_version < 19 {
+        // Individual messages belonging to a conversation, ordered by seq.
+        // Local-only, not synced.
+        let _ = conn
+            .execute(
+                "CREATE TABLE IF NOT EXISTS chat_messages (
+                    id           TEXT PRIMARY KEY,
+                    session_id   TEXT NOT NULL REFERENCES chat_sessions(session_id) ON DELETE CASCADE,
+                    seq          INTEGER NOT NULL,
+                    role         TEXT NOT NULL,
+                    content_json TEXT NOT NULL,
+                    created_at   TEXT NOT NULL
+                )",
+                (),
+            )
+            .await;
+        let _ = conn
+            .execute(
+                "CREATE INDEX IF NOT EXISTS idx_chat_messages_session_seq \
+                 ON chat_messages (session_id, seq)",
+                (),
+            )
+            .await;
+    }
 
     if current_version < SCHEMA_VERSION {
         conn.execute("UPDATE schema_version SET version = ?1", [SCHEMA_VERSION])

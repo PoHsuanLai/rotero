@@ -127,6 +127,78 @@ pub fn record_session(
     });
 }
 
+/// Persist a single chat message to the database.
+pub fn persist_chat_message(db: &Database, session_id: &str, seq: i64, message: &ChatMessage) {
+    if message.hidden {
+        return;
+    }
+    let role = match message.role {
+        ChatRole::User => "user",
+        ChatRole::Assistant => "assistant",
+    };
+    let content_json = match serde_json::to_string(&message.content) {
+        Ok(j) => j,
+        Err(e) => {
+            tracing::warn!("chat: failed to serialize message content: {e}");
+            return;
+        }
+    };
+    let record = rotero_db::chat_sessions::ChatMessageRecord {
+        id: format!("{session_id}:{seq}"),
+        session_id: session_id.to_string(),
+        seq,
+        role: role.to_string(),
+        content_json,
+        created_at: message.timestamp.to_rfc3339(),
+    };
+    let db = db.clone();
+    spawn(async move {
+        if let Err(e) = db.append_chat_message(&record).await {
+            tracing::debug!("chat: persisting message failed: {e}");
+        }
+    });
+}
+
+/// Persist all visible messages in the transcript for a session.
+pub fn persist_chat_transcript(db: &Database, session_id: &str, messages: &[ChatMessage]) {
+    let mut records = Vec::new();
+    for (i, msg) in messages.iter().enumerate() {
+        if msg.hidden {
+            continue;
+        }
+        let seq = (i + 1) as i64;
+        let role = match msg.role {
+            ChatRole::User => "user",
+            ChatRole::Assistant => "assistant",
+        };
+        let content_json = match serde_json::to_string(&msg.content) {
+            Ok(j) => j,
+            Err(e) => {
+                tracing::warn!("chat: failed to serialize message content: {e}");
+                continue;
+            }
+        };
+        records.push(rotero_db::chat_sessions::ChatMessageRecord {
+            id: format!("{session_id}:{seq}"),
+            session_id: session_id.to_string(),
+            seq,
+            role: role.to_string(),
+            content_json,
+            created_at: msg.timestamp.to_rfc3339(),
+        });
+    }
+    if records.is_empty() {
+        return;
+    }
+    let db = db.clone();
+    let session_id = session_id.to_string();
+    spawn(async move {
+        if let Err(e) = db.save_chat_messages(&session_id, &records).await {
+            tracing::debug!("chat: persisting transcript failed: {e}");
+        }
+    });
+}
+
 pub fn handle_chat_event(
     chat_state: &mut Signal<ChatState>,
     lib_state: &Signal<LibraryState>,
@@ -184,6 +256,12 @@ pub fn handle_chat_event(
                         vec![MessageContent::Text(text)],
                     ));
                 });
+                if let Some(session_id) = chat_state.read().current_session_id.clone() {
+                    let seq = chat_state.read().messages.len() as i64;
+                    if let Some(last) = chat_state.read().messages.last() {
+                        persist_chat_message(db, &session_id, seq, last);
+                    }
+                }
             }
         }
         ChatEvent::TextDelta(text) => {
@@ -286,8 +364,10 @@ pub fn handle_chat_event(
             if let Some(session_id) = chat_state.read().current_session_id.clone() {
                 let db = db.clone();
                 let now = chrono::Utc::now().to_rfc3339();
+                let messages = chat_state.read().messages.clone();
                 spawn(async move {
                     let _ = db.touch_chat_session(&session_id, &now).await;
+                    persist_chat_transcript(&db, &session_id, &messages);
                 });
             }
             chat_state.with_mut(|s| {
@@ -335,12 +415,9 @@ pub fn handle_chat_event(
             });
         }
         ChatEvent::SessionLoadFailed { session_id } => {
-            // Nothing to tell the user: they asked for this subject's
-            // conversation and they get one, it just starts empty.
+            // Retain stored messages so user can continue conversation across providers
             chat_state.with_mut(|s| {
                 s.status = AgentStatus::Idle;
-                s.messages.clear();
-                s.current_session_id = None;
             });
             let db = db.clone();
             spawn(async move {
