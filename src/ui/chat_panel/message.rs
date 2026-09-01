@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 
-use crate::agent::types::{
-    ChatMessage, ChatRequest, ChatRole, ChatState, MessageContent, ToolStatus,
-};
+use super::rotero_tools::{humanize_tool_title, permission_prompt};
+use super::tool_call::ToolCallView;
+use crate::agent::types::{ChatMessage, ChatRequest, ChatRole, ChatState, MessageContent};
 use crate::ui::chat_panel::AgentChannel;
 
 #[component]
@@ -31,26 +31,8 @@ pub(crate) fn ChatMessageBubble(message: ChatMessage) -> Element {
                             }
                         }
                     },
-                    MessageContent::ToolUse { id: _, title, status, output } => {
-                        let (icon_class, status_class) = match status {
-                            ToolStatus::Pending | ToolStatus::InProgress =>
-                                ("bi bi-clock", "chat-tool-call--running"),
-                            ToolStatus::Completed =>
-                                ("bi bi-check2", "chat-tool-call--done"),
-                            ToolStatus::Failed =>
-                                ("bi bi-x-lg", "chat-tool-call--failed"),
-                        };
-                        rsx! {
-                            div { key: "c{i}", class: "chat-tool-call {status_class}",
-                                i { class: "{icon_class} chat-tool-icon" }
-                                span { class: "chat-tool-name", "{title}" }
-                            }
-                            if let Some(out) = output {
-                                div { key: "c{i}-out", class: "chat-tool-output",
-                                    pre { "{out}" }
-                                }
-                            }
-                        }
+                    MessageContent::ToolUse(tool) => rsx! {
+                        ToolCallView { key: "{tool.id}", tool: tool.clone() }
                     },
                     MessageContent::Error(err) => rsx! {
                         div { key: "c{i}", class: "chat-error",
@@ -59,11 +41,13 @@ pub(crate) fn ChatMessageBubble(message: ChatMessage) -> Element {
                         }
                     },
                     MessageContent::Permission { request_id, tool_title, options, responded } => {
+                        let chip_title = humanize_tool_title(tool_title);
+                        let prompt = permission_prompt(tool_title);
                         if *responded {
                             rsx! {
                                 div { key: "c{i}", class: "chat-tool-call chat-tool-call--done",
                                     i { class: "bi bi-check2 chat-tool-icon" }
-                                    span { class: "chat-tool-name", "{tool_title}" }
+                                    span { class: "chat-tool-name chat-tool-name--plain", "{chip_title}" }
                                 }
                             }
                         } else {
@@ -71,7 +55,7 @@ pub(crate) fn ChatMessageBubble(message: ChatMessage) -> Element {
                             let opts = options.clone();
                             rsx! {
                                 div { key: "c{i}", class: "chat-permission",
-                                    span { class: "chat-permission-title", "Allow {tool_title}?" }
+                                    span { class: "chat-permission-title", "{prompt}" }
                                     div { class: "chat-permission-buttons",
                                         for (opt_id, label) in opts.iter() {
                                             {

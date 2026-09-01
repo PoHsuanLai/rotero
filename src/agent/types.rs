@@ -9,18 +9,68 @@ pub enum ChatRole {
 #[derive(Debug, Clone, PartialEq)]
 pub enum MessageContent {
     Text(String),
-    ToolUse {
-        id: String,
-        title: String,
-        status: ToolStatus,
-        output: Option<String>,
-    },
+    ToolUse(ToolUse),
     Error(String),
     Permission {
         request_id: serde_json::Value,
         tool_title: String,
         options: Vec<(String, String)>, // (optionId, label)
         responded: bool,
+    },
+}
+
+/// One agent tool call, as shown in the transcript.
+///
+/// Extra ACP fields (`kind`, `raw_input`, `locations`, typed `content`) are
+/// optional so an older event that only had title + status still renders.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolUse {
+    pub id: String,
+    pub title: String,
+    pub status: ToolStatus,
+    pub output: Option<String>,
+    pub kind: ToolKind,
+    pub raw_input: Option<serde_json::Value>,
+    pub locations: Vec<ToolLocation>,
+    pub content: Vec<ToolContentBlock>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ToolKind {
+    Read,
+    Edit,
+    Delete,
+    Move,
+    Search,
+    Execute,
+    Think,
+    Fetch,
+    SwitchMode,
+    #[default]
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolLocation {
+    pub path: String,
+    pub line: Option<u32>,
+}
+
+/// Displayable pieces of a tool call, copied out of ACP so the UI crate
+/// does not depend on the protocol types.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ToolContentBlock {
+    Text(String),
+    Diff {
+        path: String,
+        old_text: Option<String>,
+        new_text: String,
+    },
+    Resource {
+        title: String,
+        uri: String,
+        mime_type: Option<String>,
+        text: Option<String>,
     },
 }
 
@@ -212,10 +262,7 @@ pub enum ChatEvent {
         context_paper_ids: Vec<String>,
     },
     TextDelta(String),
-    ToolCallStarted {
-        id: String,
-        title: String,
-    },
+    ToolCallStarted(ToolUse),
     PermissionRequest {
         request_id: serde_json::Value,
         tool_title: String,
@@ -223,8 +270,13 @@ pub enum ChatEvent {
     },
     ToolCallUpdated {
         id: String,
-        status: ToolStatus,
+        title: Option<String>,
+        status: Option<ToolStatus>,
         output: Option<String>,
+        kind: Option<ToolKind>,
+        raw_input: Option<serde_json::Value>,
+        locations: Option<Vec<ToolLocation>>,
+        content: Option<Vec<ToolContentBlock>>,
     },
     TurnCompleted,
     CommandsAvailable(Vec<SlashCommand>),

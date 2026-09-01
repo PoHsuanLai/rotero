@@ -4,7 +4,7 @@ use rotero_db::chat_sessions::ChatSessionRow;
 
 use super::chat_papers::paper_ids_from_tool_output;
 use crate::agent::types::{
-    AgentStatus, ChatEvent, ChatMessage, ChatRole, ChatState, MessageContent,
+    AgentStatus, ChatEvent, ChatMessage, ChatRole, ChatState, MessageContent, ToolUse,
 };
 use crate::state::app_state::LibraryState;
 
@@ -203,26 +203,30 @@ pub fn handle_chat_event(
                     .push(ChatMessage::assistant(vec![MessageContent::Text(text)]));
             });
         }
-        ChatEvent::ToolCallStarted { id, title } => {
+        ChatEvent::ToolCallStarted(tool) => {
             chat_state.with_mut(|s| {
-                s.status = AgentStatus::ToolCall(title.clone());
+                s.status = AgentStatus::ToolCall(tool.title.clone());
                 if s.messages.last().map(|m| &m.role) != Some(&ChatRole::Assistant) {
                     s.messages.push(ChatMessage::assistant(vec![]));
                 }
                 if let Some(last) = s.messages.last_mut() {
-                    last.content.push(MessageContent::ToolUse {
-                        id,
-                        title,
-                        status: crate::agent::types::ToolStatus::InProgress,
-                        output: None,
-                    });
+                    last.content.push(MessageContent::ToolUse(tool));
                 }
             });
         }
-        ChatEvent::ToolCallUpdated { id, status, output } => {
+        ChatEvent::ToolCallUpdated {
+            id,
+            title,
+            status,
+            output,
+            kind,
+            raw_input,
+            locations,
+            content,
+        } => {
             // Only once the call has finished: an in-progress update repeats,
             // and the papers it names are not settled until it completes.
-            if status == crate::agent::types::ToolStatus::Completed
+            if status == Some(crate::agent::types::ToolStatus::Completed)
                 && let Some(text) = output.as_deref()
             {
                 // Papers the agent read while answering, not what the
@@ -238,18 +242,39 @@ pub fn handle_chat_event(
             }
             chat_state.with_mut(|s| {
                 if let Some(last) = s.messages.last_mut() {
-                    for content in &mut last.content {
-                        if let MessageContent::ToolUse {
+                    for block in &mut last.content {
+                        if let MessageContent::ToolUse(ToolUse {
                             id: tool_id,
+                            title: tool_title,
                             status: tool_status,
                             output: tool_output,
-                            ..
-                        } = content
+                            kind: tool_kind,
+                            raw_input: tool_input,
+                            locations: tool_locations,
+                            content: tool_content,
+                        }) = block
                             && *tool_id == id
                         {
-                            *tool_status = status.clone();
+                            if let Some(title) = title {
+                                *tool_title = title;
+                            }
+                            if let Some(status) = status {
+                                *tool_status = status;
+                            }
                             if output.is_some() {
-                                *tool_output = output.clone();
+                                *tool_output = output;
+                            }
+                            if let Some(kind) = kind {
+                                *tool_kind = kind;
+                            }
+                            if raw_input.is_some() {
+                                *tool_input = raw_input;
+                            }
+                            if let Some(locations) = locations {
+                                *tool_locations = locations;
+                            }
+                            if let Some(content) = content {
+                                *tool_content = content;
                             }
                             break;
                         }
@@ -269,14 +294,14 @@ pub fn handle_chat_event(
                 s.status = AgentStatus::Idle;
                 for msg in &mut s.messages {
                     for content in &mut msg.content {
-                        if let MessageContent::ToolUse { status, .. } = content
+                        if let MessageContent::ToolUse(tool) = content
                             && matches!(
-                                status,
+                                tool.status,
                                 crate::agent::types::ToolStatus::Pending
                                     | crate::agent::types::ToolStatus::InProgress
                             )
                         {
-                            *status = crate::agent::types::ToolStatus::Completed;
+                            tool.status = crate::agent::types::ToolStatus::Completed;
                         }
                     }
                 }

@@ -5,6 +5,8 @@
 //! stripped for display), and the results of the rotero MCP tools it calls.
 //! This module reads the second.
 
+use rotero_models::Paper;
+
 /// Library paper ids appearing in an MCP tool result.
 ///
 /// Tool results are pretty-printed JSON from the rotero MCP server, so a paper
@@ -53,10 +55,62 @@ fn push_unique(ids: &mut Vec<String>, id: &str) {
     }
 }
 
+/// Title/authors/year extracted from the same MCP JSON `paper_ids_from_tool_output` walks.
+///
+/// Used by the chat tool-call chip so a search result can render as a paper
+/// card without a second library round-trip. Ids are still best-effort: the
+/// paper may not be in the library yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaperSnippet {
+    pub id: Option<String>,
+    pub title: String,
+    pub authors: String,
+    pub year: Option<i32>,
+}
+
+pub fn papers_from_tool_output(output: &str) -> Vec<PaperSnippet> {
+    let mut papers = Vec::new();
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(output) {
+        collect_papers(&value, &mut papers);
+    }
+    papers
+}
+
+fn collect_papers(value: &serde_json::Value, papers: &mut Vec<PaperSnippet>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            let looks_like_paper = map.contains_key("title") && map.contains_key("creators");
+            if looks_like_paper && let Ok(paper) = serde_json::from_value::<Paper>(value.clone()) {
+                let snippet = PaperSnippet {
+                    id: paper.id.clone(),
+                    authors: paper.formatted_authors(),
+                    year: paper.year,
+                    title: paper.title,
+                };
+                let seen = snippet
+                    .id
+                    .as_ref()
+                    .is_some_and(|id| papers.iter().any(|p| p.id.as_deref() == Some(id)));
+                if !seen {
+                    papers.push(snippet);
+                }
+            }
+            for nested in map.values() {
+                collect_papers(nested, papers);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_papers(item, papers);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rotero_models::Paper;
 
     fn paper(id: &str, title: &str) -> Paper {
         Paper {
@@ -144,5 +198,21 @@ mod tests {
         assert!(paper_ids_from_tool_output("").is_empty());
         assert!(paper_ids_from_tool_output("No paper found with ID abc").is_empty());
         assert!(paper_ids_from_tool_output(r#"[{"id": "trunc"#).is_empty());
+    }
+
+    #[test]
+    fn papers_from_tool_output_keeps_title_authors_year() {
+        let mut p = paper(
+            "11111111-1111-7111-8111-111111111111",
+            "Attention Is All You Need",
+        );
+        p.year = Some(2017);
+        p.creators = vec![rotero_models::Creator::author("Ashish", "Vaswani")];
+        let json = serde_json::to_string_pretty(&vec![p]).unwrap();
+        let cards = papers_from_tool_output(&json);
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].title, "Attention Is All You Need");
+        assert_eq!(cards[0].authors, "Ashish Vaswani");
+        assert_eq!(cards[0].year, Some(2017));
     }
 }
