@@ -47,6 +47,20 @@ impl Pair {
         self.engine_a.export_changes(&self.a).await;
         self.engine_b.import_changes(&self.b).await;
     }
+
+    /// Exchange in both directions until both libraries agree.
+    ///
+    /// Three rounds rather than one: a merge can itself produce rows that need
+    /// publishing, so a device may have something to say only after it has
+    /// heard from the other.
+    async fn converge(&self) {
+        for _ in 0..3 {
+            self.engine_a.export_changes(&self.a).await;
+            self.engine_b.export_changes(&self.b).await;
+            self.engine_a.import_changes(&self.a).await;
+            self.engine_b.import_changes(&self.b).await;
+        }
+    }
 }
 
 async fn insert_collection(db: &Database, name: &str) -> String {
@@ -295,4 +309,163 @@ async fn deleting_a_tag_removes_its_associations_on_both_devices() {
         p.b.list_papers().await.unwrap().len() == 1,
         "the paper itself must survive its tag being deleted"
     );
+}
+
+/// Two devices editing *different* columns of one paper must both keep their
+/// edit.
+///
+/// Row-level LWW gated the whole row on a single clock, so whichever write
+/// carried the later stamp discarded the other's column outright — the user saw
+/// their title revert, or their PDF detach, with nothing logged anywhere.
+///
+/// This is not a contrived race. `papers` is written by background tasks on
+/// their own schedule — citation-count fetches, PDF metadata extraction,
+/// enrichment — each of which stamps the whole row. So the edit that vanishes is
+/// often nobody's deliberate action. The schema already reasons about exactly
+/// this hazard where it excludes `fulltext` from sync ("syncing it would let a
+/// background extraction on one device overwrite a real metadata edit from
+/// another"); excluding one column dodged one instance of it.
+///
+/// Neither write touches the other's column, so there is no conflict to
+/// resolve. Both must survive, on both devices.
+#[tokio::test]
+async fn concurrent_edits_to_different_columns_both_survive() {
+    let p = Pair::new().await;
+
+    let paper =
+        p.a.insert_paper(&rotero_models::Paper {
+            title: "Original".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    p.converge().await;
+
+    // A renames the paper; B attaches a PDF to it. Different columns, no overlap.
+    p.a.update_paper_title(&paper, "Renamed on A")
+        .await
+        .unwrap();
+    p.b.update_pdf_path(&paper, "2024/Attached on B.pdf", Some(&"c".repeat(64)))
+        .await
+        .unwrap();
+
+    p.converge().await;
+
+    for (name, db) in [("A", &p.a), ("B", &p.b)] {
+        let row = db
+            .get_papers_by_ids(std::slice::from_ref(&paper))
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert_eq!(
+            row.title, "Renamed on A",
+            "device {name} lost the title edit"
+        );
+        assert_eq!(
+            row.links.pdf_path.as_deref(),
+            Some("2024/Attached on B.pdf"),
+            "device {name} lost the PDF attachment"
+        );
+    }
+}
+
+/// Two devices editing the *same* column still resolve by clock.
+///
+/// Per-column clocks must not weaken same-column LWW into a merge that keeps
+/// both values or picks arbitrarily. Exactly one write wins, the later one, and
+/// both devices agree on which.
+#[tokio::test]
+async fn the_same_column_edited_on_both_devices_still_resolves_by_clock() {
+    let p = Pair::new().await;
+
+    let paper =
+        p.a.insert_paper(&rotero_models::Paper {
+            title: "Original".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    p.converge().await;
+
+    p.a.update_paper_title(&paper, "From A").await.unwrap();
+    // Ordered rather than raced: B writes second, so B must win on both devices.
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    p.b.update_paper_title(&paper, "From B").await.unwrap();
+
+    p.converge().await;
+
+    for (name, db) in [("A", &p.a), ("B", &p.b)] {
+        let row = db
+            .get_papers_by_ids(std::slice::from_ref(&paper))
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert_eq!(
+            row.title, "From B",
+            "device {name} must take the later write, not merge or pick arbitrarily"
+        );
+    }
+}
+
+/// A losing tombstone must not overwrite a live row's columns with its NOT NULL
+/// placeholders.
+///
+/// A tombstone carries no payload, so `not_null_skeleton` fabricates values
+/// (`title = ''`) purely to satisfy the constraints when a deletion arrives for
+/// a row this device has never seen. On a row that ends up *dead* those
+/// placeholders are harmless and expected — the protocol deliberately does not
+/// transmit a dead row's payload, so every device stores placeholders there.
+///
+/// The hazard is a tombstone that **loses**: the row stays live, and its columns
+/// must keep their real values. Under row-level LWW the outer `WHERE` on
+/// `DO UPDATE` provided that for free — a losing row changed nothing at all.
+/// Per-column clocks remove that gate, so each placeholder becomes a candidate
+/// to overwrite a live column on its own clock. If `''` ever won `title` *and*
+/// wrote the accompanying clock, the real title would be unrecoverable: the
+/// clocks would then say the empty string is authoritative.
+#[tokio::test]
+async fn a_losing_tombstone_does_not_overwrite_a_live_rows_columns() {
+    let p = Pair::new().await;
+
+    let paper =
+        p.a.insert_paper(&rotero_models::Paper {
+            title: "Real title".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    p.converge().await;
+
+    // B deletes the paper and publishes the tombstone...
+    p.b.delete_paper(&paper).await.unwrap();
+    p.engine_b.export_changes(&p.b).await;
+
+    // ...but A edits it afterwards, so A's row outranks that tombstone.
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    p.a.update_paper_title(&paper, "Edited after the delete")
+        .await
+        .unwrap();
+
+    p.converge().await;
+
+    // The later edit wins, so the paper is live everywhere...
+    for (name, db) in [("A", &p.a), ("B", &p.b)] {
+        let row = db
+            .get_papers_by_ids(std::slice::from_ref(&paper))
+            .await
+            .unwrap()
+            .pop();
+        let row = row.unwrap_or_else(|| {
+            panic!("device {name} lost a paper whose edit outranks the deletion")
+        });
+        // ...carrying the real title, never the tombstone's placeholder.
+        assert_eq!(
+            row.title, "Edited after the delete",
+            "device {name} let a losing tombstone's NOT NULL placeholder \
+             overwrite a live column — that value is unrecoverable once its \
+             clock is written"
+        );
+    }
 }

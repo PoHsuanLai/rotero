@@ -168,3 +168,102 @@ async fn a_view_hides_soft_deleted_rows() {
         .unwrap();
     assert_eq!(live().await, 1, "and must hide a row once it is tombstoned");
 }
+
+/// Per-column LWW: a `CASE` expression inside `DO UPDATE SET`.
+///
+/// Row-level LWW gates the whole row on one `WHERE`, so a peer row that loses
+/// discards every column — including ones it changed and this device did not.
+/// Per-column clocks move the decision into each assignment, which needs
+/// `excluded` to be readable inside a `CASE` on the right-hand side of a `SET`.
+///
+/// Pinned separately from the plain conditional upsert above because it is a
+/// distinct capability: the merge for `papers` is generated around it, and if
+/// turso ever evaluates `excluded` differently inside a `CASE` the result is
+/// silently wrong column values rather than an error.
+#[tokio::test]
+async fn case_expressions_can_read_excluded_inside_do_update_set() {
+    let c = memory_conn().await;
+    c.execute(
+        "CREATE TABLE t (id TEXT PRIMARY KEY, \
+         a TEXT NOT NULL, a_ua INTEGER NOT NULL DEFAULT 0, \
+         b TEXT NOT NULL, b_ua INTEGER NOT NULL DEFAULT 0)",
+        (),
+    )
+    .await
+    .unwrap();
+    c.execute(
+        "INSERT INTO t VALUES ('r', 'a-local', 100, 'b-local', 100)",
+        (),
+    )
+    .await
+    .unwrap();
+
+    // Column `a` arrives newer, column `b` arrives older. Each must be judged
+    // on its own clock, in one statement.
+    let upsert = "INSERT INTO t (id, a, a_ua, b, b_ua) VALUES (?1, ?2, ?3, ?4, ?5) \
+         ON CONFLICT(id) DO UPDATE SET \
+            a = CASE WHEN excluded.a_ua > t.a_ua THEN excluded.a ELSE t.a END, \
+            a_ua = MAX(t.a_ua, excluded.a_ua), \
+            b = CASE WHEN excluded.b_ua > t.b_ua THEN excluded.b ELSE t.b END, \
+            b_ua = MAX(t.b_ua, excluded.b_ua)";
+
+    c.execute(
+        upsert,
+        turso::params::Params::Positional(vec![
+            Value::Text("r".into()),
+            Value::Text("a-peer".into()),
+            Value::Integer(200),
+            Value::Text("b-peer".into()),
+            Value::Integer(50),
+        ]),
+    )
+    .await
+    .unwrap();
+
+    let mut rows = c
+        .query("SELECT a, a_ua, b, b_ua FROM t WHERE id = 'r'", ())
+        .await
+        .unwrap();
+    let row = rows.next().await.unwrap().unwrap();
+    let text = |i: usize| row.get_value(i).unwrap().as_text().cloned().unwrap();
+    let int = |i: usize| *row.get_value(i).unwrap().as_integer().unwrap();
+
+    assert_eq!(text(0), "a-peer", "the newer column must be taken");
+    assert_eq!(int(1), 200, "and its clock with it");
+    assert_eq!(text(2), "b-local", "the older column must be kept");
+    assert_eq!(
+        int(3),
+        100,
+        "and its clock must not move backwards to the peer's"
+    );
+}
+
+/// Scalar `MAX` with a NULL argument returns NULL, not the non-NULL value.
+///
+/// The per-column merge advances a clock with `MAX(local, incoming)`. If either
+/// side can be NULL — a column added by a later schema version, or a row the
+/// backfill missed — that expression yields NULL and the clock is destroyed
+/// rather than advanced, after which every future comparison against it fails.
+///
+/// This pins the hazard so the design's answer to it (`NOT NULL DEFAULT 0` on
+/// every clock column) is a deliberate response to observed behaviour rather
+/// than an assumption.
+#[tokio::test]
+async fn scalar_max_with_a_null_argument_is_null() {
+    let c = memory_conn().await;
+    let mut rows = c
+        .query("SELECT MAX(NULL, 5), MAX(COALESCE(NULL, 0), 5)", ())
+        .await
+        .unwrap();
+    let row = rows.next().await.unwrap().unwrap();
+
+    assert!(
+        row.get_value(0).unwrap().as_integer().is_none(),
+        "MAX(NULL, 5) must be NULL — this is why clock columns are NOT NULL"
+    );
+    assert_eq!(
+        row.get_value(1).unwrap().as_integer().copied(),
+        Some(5),
+        "COALESCE is the guard if a nullable clock ever appears"
+    );
+}

@@ -147,8 +147,33 @@ impl Database {
         )
         .await?;
 
-        self.touch("papers", crate::clock::Pk::Single(&uuid))
-            .await?;
+        self.touch_columns(
+            "papers",
+            crate::clock::Pk::Single(&uuid),
+            &[
+                "title",
+                "authors",
+                "year",
+                "doi",
+                "abstract_text",
+                "journal",
+                "volume",
+                "issue",
+                "pages",
+                "publisher",
+                "url",
+                "pdf_path",
+                "pdf_sha256",
+                "date_added",
+                "date_modified",
+                "is_favorite",
+                "is_read",
+                "extra_meta",
+                "citation_count",
+                "item_type",
+            ],
+        )
+        .await?;
 
         Ok(uuid)
     }
@@ -264,7 +289,8 @@ impl Database {
             [Value::Integer(favorite as i64), Value::Text(id.to_string())],
         )
         .await?;
-        self.touch("papers", crate::clock::Pk::Single(id)).await?;
+        self.touch_columns("papers", crate::clock::Pk::Single(id), &["is_favorite"])
+            .await?;
         Ok(())
     }
 
@@ -276,7 +302,8 @@ impl Database {
             [Value::Integer(read as i64), Value::Text(id.to_string())],
         )
         .await?;
-        self.touch("papers", crate::clock::Pk::Single(id)).await?;
+        self.touch_columns("papers", crate::clock::Pk::Single(id), &["is_read"])
+            .await?;
         Ok(())
     }
 
@@ -334,7 +361,26 @@ impl Database {
             ]),
         )
         .await?;
-        self.touch("papers", crate::clock::Pk::Single(id)).await?;
+        self.touch_columns(
+            "papers",
+            crate::clock::Pk::Single(id),
+            &[
+                "title",
+                "authors",
+                "year",
+                "doi",
+                "abstract_text",
+                "journal",
+                "volume",
+                "issue",
+                "pages",
+                "publisher",
+                "url",
+                "date_modified",
+                "item_type",
+            ],
+        )
+        .await?;
         Ok(())
     }
 
@@ -355,7 +401,12 @@ impl Database {
             ]),
         )
         .await?;
-        self.touch("papers", crate::clock::Pk::Single(id)).await?;
+        self.touch_columns(
+            "papers",
+            crate::clock::Pk::Single(id),
+            &["title", "date_modified"],
+        )
+        .await?;
         Ok(())
     }
 
@@ -383,7 +434,12 @@ impl Database {
             ]),
         )
         .await?;
-        self.touch("papers", crate::clock::Pk::Single(id)).await?;
+        self.touch_columns(
+            "papers",
+            crate::clock::Pk::Single(id),
+            &["pdf_path", "pdf_sha256", "date_modified"],
+        )
+        .await?;
         Ok(())
     }
 
@@ -507,7 +563,8 @@ impl Database {
             [Value::Text(now), Value::Text(id.to_string())],
         )
         .await?;
-        self.touch("papers", crate::clock::Pk::Single(id)).await?;
+        self.touch_columns("papers", crate::clock::Pk::Single(id), &["date_modified"])
+            .await?;
         Ok(())
     }
 
@@ -760,7 +817,8 @@ impl Database {
             [Value::Integer(count), Value::Text(id.to_string())],
         )
         .await?;
-        self.touch("papers", crate::clock::Pk::Single(id)).await?;
+        self.touch_columns("papers", crate::clock::Pk::Single(id), &["citation_count"])
+            .await?;
         Ok(())
     }
 
@@ -775,7 +833,8 @@ impl Database {
             ]),
         )
         .await?;
-        self.touch("papers", crate::clock::Pk::Single(id)).await?;
+        self.touch_columns("papers", crate::clock::Pk::Single(id), &[])
+            .await?;
         Ok(())
     }
 

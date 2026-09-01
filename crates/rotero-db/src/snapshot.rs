@@ -173,15 +173,20 @@ impl Database {
                 key.push(text_at(&row, i));
             }
 
+            // Payload columns, then the per-column clocks that describe them.
+            // Both come out of `all_columns()` in the order `select_snapshot_rows`
+            // asked for, so the offsets cannot drift from the SELECT.
             let mut values = BTreeMap::new();
-            for (offset, name) in table.columns.iter().enumerate() {
+            let clock_cols = table.clock_columns();
+            let payload = table.columns.iter().chain(clock_cols.iter());
+            for (offset, name) in payload.enumerate() {
                 let v = row
                     .get_value(key_len + offset)
                     .map_err(crate::DbError::from)?;
                 values.insert((*name).to_string(), to_json(&v));
             }
 
-            let sync_base = key_len + table.columns.len();
+            let sync_base = key_len + table.columns.len() + clock_cols.len();
             let ua = int_at(&row, sync_base);
             let ub = text_at(&row, sync_base + 1);
             let d = int_at(&row, sync_base + 2) != 0;
@@ -240,21 +245,52 @@ impl Database {
             Vec::new()
         };
 
-        let mut generated_cols: Vec<&str> = payload_cols.clone();
-        generated_cols.extend(skeleton.iter().map(|(c, _)| *c));
-        let sql = crate::sync_sql::merge_row(table.name, &key_cols, &generated_cols);
-
-        let mut params: Vec<Value> = row.k.iter().map(|k| Value::Text(k.clone())).collect();
         let empty = BTreeMap::new();
         let values = row.v.as_ref().unwrap_or(&empty);
-        for c in &payload_cols {
-            params.push(from_json(
-                values.get(*c).unwrap_or(&serde_json::Value::Null),
-            ));
-        }
-        for (_, v) in &skeleton {
-            params.push(v.clone());
-        }
+
+        let (sql, mut params) = if table.per_column {
+            // Skeleton columns are inserted but never graded — see
+            // `merge_row_per_column`. Judging a fabricated placeholder would let
+            // an empty string win a live column and write its clock, after which
+            // the real value is unrecoverable.
+            let skeleton_cols: Vec<&str> = skeleton.iter().map(|(c, _)| *c).collect();
+            let sql = crate::sync_sql::merge_row_per_column(
+                table.name,
+                &key_cols,
+                &payload_cols,
+                &skeleton_cols,
+            );
+
+            let mut params: Vec<Value> = row.k.iter().map(|k| Value::Text(k.clone())).collect();
+            for c in &payload_cols {
+                params.push(from_json(
+                    values.get(*c).unwrap_or(&serde_json::Value::Null),
+                ));
+                let (at, by) = column_clock(values, c, row);
+                params.push(Value::Integer(at));
+                params.push(Value::Text(by));
+            }
+            for (_, v) in &skeleton {
+                params.push(v.clone());
+            }
+            (sql, params)
+        } else {
+            let mut generated_cols: Vec<&str> = payload_cols.clone();
+            generated_cols.extend(skeleton.iter().map(|(c, _)| *c));
+            let sql = crate::sync_sql::merge_row(table.name, &key_cols, &generated_cols);
+
+            let mut params: Vec<Value> = row.k.iter().map(|k| Value::Text(k.clone())).collect();
+            for c in &payload_cols {
+                params.push(from_json(
+                    values.get(*c).unwrap_or(&serde_json::Value::Null),
+                ));
+            }
+            for (_, v) in &skeleton {
+                params.push(v.clone());
+            }
+            (sql, params)
+        };
+
         params.push(Value::Integer(row.ua));
         params.push(Value::Text(row.ub.clone()));
         params.push(Value::Integer(row.d as i64));
@@ -325,6 +361,36 @@ pub fn checksum(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     format!("{:x}", hasher.finalize())
+}
+
+/// One column's clock, falling back to the row's when the peer sent none.
+///
+/// A device running an older schema publishes no per-column clocks. Reading a
+/// missing one as zero would make every column of that peer's rows lose every
+/// comparison — a total, silent sync failure between the two versions, which is
+/// the worst outcome this design can produce.
+///
+/// Falling back to the row clock says exactly what row-level LWW meant: every
+/// column was written when the row was. So an older peer degrades to the
+/// previous behaviour, per column, correctly. The same path covers a column
+/// added by a later schema version that this peer does not have yet.
+fn column_clock(
+    values: &BTreeMap<String, serde_json::Value>,
+    column: &str,
+    row: &SnapshotRow,
+) -> (i64, String) {
+    let at = values
+        .get(&format!("{column}_ua"))
+        .and_then(serde_json::Value::as_i64);
+    let by = values
+        .get(&format!("{column}_ub"))
+        .and_then(serde_json::Value::as_str);
+    match (at, by) {
+        (Some(at), Some(by)) => (at, by.to_string()),
+        // Partial clocks are treated as absent rather than half-trusted: a
+        // timestamp without the device id cannot be tiebroken.
+        _ => (row.ua, row.ub.clone()),
+    }
 }
 
 fn text_at(row: &turso::Row, idx: usize) -> String {

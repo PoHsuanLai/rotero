@@ -625,7 +625,14 @@ pub async fn canonical(db: &Database) -> Canonical {
         let mut rows = db.conn().query(&sql, ()).await.unwrap();
 
         let key_len = table.pk.columns().len();
-        let payload_len = table.columns.len();
+        // The per-column clocks sit between the payload and the row's own
+        // bookkeeping in `all_columns()`, so the bookkeeping offset has to
+        // account for them. Reading `key_len + payload_len` — as this did
+        // before `papers` gained per-column clocks — lands on a column clock
+        // and reports it as `updated_at`, which looks exactly like an
+        // unstamped row.
+        let clock_cols = table.clock_columns();
+        let payload_len = table.columns.len() + clock_cols.len();
 
         while let Some(row) = rows.next().await.unwrap() {
             let mut key = Vec::with_capacity(key_len);
@@ -633,8 +640,12 @@ pub async fn canonical(db: &Database) -> Canonical {
                 key.push(value_string(&row, i));
             }
 
+            // Payload and clocks both go into `values`, so convergence requires
+            // devices to agree on a column's provenance and not merely on what
+            // the user can see. Two devices holding the same title under
+            // different clocks diverge on the next edit.
             let mut values = BTreeMap::new();
-            for (offset, name) in table.columns.iter().enumerate() {
+            for (offset, name) in table.columns.iter().chain(clock_cols.iter()).enumerate() {
                 values.insert((*name).to_string(), value_string(&row, key_len + offset));
             }
 
