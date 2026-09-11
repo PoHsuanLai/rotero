@@ -75,17 +75,17 @@ pub enum RenderRequest {
     ClearCache,
 }
 
-/// Publishes why PDFium could not be loaded, or `None` while it is fine.
+/// Publishes why the PDF engine could not start, or `None` while it is fine.
 ///
 /// Set from the render thread before it starts draining, so the startup
 /// preflight can report the real reason instead of the user meeting a dead PDF
 /// pane with the explanation buried in a log file.
 pub static PDF_ENGINE_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-/// Resolves once the render thread has finished trying to bind PDFium.
+/// Resolves once the render thread has finished starting the PDF engine.
 ///
 /// Lets the preflight read [`PDF_ENGINE_ERROR`] at a defined point rather than
-/// racing the bind — the thread starts after the window launches, so a bare read
+/// racing startup — the thread starts after the window launches, so a bare read
 /// at startup would usually run first and find nothing.
 pub static PDF_ENGINE_READY: std::sync::OnceLock<()> = std::sync::OnceLock::new();
 
@@ -136,23 +136,8 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
     let (tx, rx) = mpsc::channel::<RenderRequest>();
 
     std::thread::spawn(move || {
-        #[cfg(feature = "pdfium-static")]
-        let engine_result = rotero_pdf::PdfEngine::new_static();
-        #[cfg(not(feature = "pdfium-static"))]
-        let engine_result = rotero_pdf::PdfEngine::new(None);
-        let mut engine = match engine_result {
-            Ok(e) => e,
-            Err(e) => {
-                tracing::error!("Failed to bind PDFium: {e}");
-                // The resolver's message names every path it tried, which is the
-                // information needed to fix a broken install.
-                let message = format!("PDF engine unavailable: {e}");
-                let _ = PDF_ENGINE_ERROR.set(message.clone());
-                let _ = PDF_ENGINE_READY.set(());
-                drain_with_error(rx, message);
-                return;
-            }
-        };
+        // pdfrum is pure Rust — no native library bind step.
+        let mut engine = rotero_pdf::PdfEngine::new();
         let _ = PDF_ENGINE_READY.set(());
 
         while let Ok(req) = rx.recv() {
@@ -197,12 +182,10 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     reply,
                 } => {
                     let result = (|| {
-                        let text_pages = rotero_pdf::text_extract::extract_pages_text(
-                            engine.pdfium(),
-                            &pdf_path,
-                            &page_dims,
-                        )
-                        .map_err(|e| e.to_string())?;
+                        let doc = engine.document(&pdf_path).map_err(|e| e.to_string())?;
+                        let text_pages =
+                            rotero_pdf::text_extract::extract_pages_text(&doc, &page_dims)
+                                .map_err(|e| e.to_string())?;
                         Ok(text_pages
                             .into_iter()
                             .map(|t| (t.page_index, t))
@@ -243,18 +226,11 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     reply,
                 } => {
                     let result = (|| {
+                        let doc = engine.document(&pdf_path).map_err(|e| e.to_string())?;
                         let indices: Vec<u32> = (0..page_count).collect();
-                        let raw_text = rotero_pdf::text_extract::extract_raw_text(
-                            engine.pdfium(),
-                            &pdf_path,
-                            &indices,
-                        )
-                        .map_err(|e| e.to_string())?;
-                        let doc_meta = rotero_pdf::text_extract::extract_doc_metadata(
-                            engine.pdfium(),
-                            &pdf_path,
-                        )
-                        .map_err(|e| e.to_string())?;
+                        let raw_text = rotero_pdf::text_extract::extract_raw_text(&doc, &indices)
+                            .map_err(|e| e.to_string())?;
+                        let doc_meta = rotero_pdf::text_extract::extract_doc_metadata(&doc);
                         Ok((raw_text, doc_meta))
                     })();
                     let _ = reply.send(result);

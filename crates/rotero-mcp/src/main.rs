@@ -54,17 +54,9 @@ async fn main() -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
 
-    // Check if pdfium is available (probe only, engine created per-call on blocking thread)
-    let pdf_available = match rotero_pdf::PdfEngine::new(None) {
-        Ok(_) => {
-            tracing::info!("PDF engine available");
-            true
-        }
-        Err(e) => {
-            tracing::warn!("PDF engine not available: {e}. PDF text extraction will be disabled.");
-            false
-        }
-    };
+    // pdfrum is pure Rust — the PDF engine is always available.
+    tracing::info!("PDF engine available (pdfrum)");
+    let pdf_available = true;
 
     let server = server::RoteroMcp::new(db, pdf_available);
 

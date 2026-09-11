@@ -1,13 +1,11 @@
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use image::codecs::png::PngEncoder;
-use pdfium_render::prelude::*;
-use thiserror::Error;
+use std::sync::Arc;
 
-fn encode_png(image: &image::DynamicImage, buf: &mut Vec<u8>) -> Result<(), image::ImageError> {
-    buf.clear();
-    let encoder = PngEncoder::new(buf);
-    image.write_with_encoder(encoder)
-}
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use pdfrum::{
+    Dest, Document, LinkTarget as PdfrumLinkTarget, Name, Object, RenderOptions, RenderSession,
+    Subtype, VelloCpuBackend,
+};
+use thiserror::Error;
 
 fn file_mtime(path: &str) -> u64 {
     std::fs::metadata(path)
@@ -21,25 +19,32 @@ fn file_mtime(path: &str) -> u64 {
 /// Errors that can occur during PDF operations (loading, rendering, encoding, annotation writing).
 #[derive(Error, Debug)]
 pub enum PdfError {
-    #[error("Failed to bind PDFium library: {0}")]
-    BindError(String),
     #[error("Failed to load PDF: {0}")]
-    LoadError(#[from] PdfiumError),
+    LoadError(#[from] pdfrum::Error),
     #[error("Page {0} out of range (total: {1})")]
     PageOutOfRange(u32, u32),
     #[error("Failed to render page: {0}")]
     RenderError(String),
     #[error("Failed to encode image: {0}")]
-    ImageError(#[from] image::ImageError),
+    ImageError(String),
     #[error("Failed to write annotations: {0}")]
     WriteError(String),
 }
 
-/// Caches the most recently used PDF file bytes to avoid redundant disk I/O
-/// across repeated operations on the same document.
+struct CachedDoc {
+    path: String,
+    mtime: u64,
+    doc: Arc<Document>,
+}
+
+/// Document-centric PDF engine with path+mtime cache.
+///
+/// Built around `pdfrum::Document` (pure Rust, `Send + Sync`). The cache holds
+/// an `Arc<Document>` so a later multi-threaded render pool can share documents
+/// while giving each worker its own [`RenderSession`].
 pub struct PdfEngine {
-    pdfium: Pdfium,
-    cached_bytes: Option<(String, u64, Vec<u8>)>,
+    cached: Option<CachedDoc>,
+    session: RenderSession,
 }
 
 /// Basic information about a loaded PDF document.
@@ -65,129 +70,74 @@ pub struct RenderedPage {
 }
 
 impl PdfEngine {
-    /// Returns a reference to the underlying pdfium instance.
-    pub fn pdfium(&self) -> &Pdfium {
-        &self.pdfium
-    }
-
-    /// Creates a new engine by binding to a statically linked PDFium library.
-    #[cfg(feature = "static")]
-    pub fn new_static() -> Result<Self, PdfError> {
-        let bindings = Pdfium::bind_to_statically_linked_library()
-            .map_err(|e| PdfError::BindError(e.to_string()))?;
-        Ok(Self {
-            pdfium: Pdfium::new(bindings),
-            cached_bytes: None,
-        })
-    }
-
-    /// Directories to search for the PDFium shared library, in order.
-    ///
-    /// The executable's own directory and, on macOS, the bundle's `Frameworks/`
-    /// come before the system search. A shipped bundle carries PDFium next to
-    /// the binary, and `bind_to_system_library` cannot find it there: it passes
-    /// a bare filename to `dlopen`, which consults only the system search path —
-    /// `@rpath` does not apply to a bare-name `dlopen`, so an `install_name_tool
-    /// -add_rpath` on the executable has no effect on it either.
-    #[cfg(not(feature = "static"))]
-    fn candidate_dirs(lib_path: Option<&str>) -> Vec<String> {
-        let mut dirs = Vec::new();
-
-        if let Some(path) = lib_path {
-            dirs.push(path.to_string());
-        }
-
-        // Empty is unset: `std::env::var` returns `Ok("")` for `FOO=`, and taking
-        // that branch would bind against `/libpdfium.dylib`.
-        if let Ok(dir) = std::env::var("PDFIUM_DYNAMIC_LIB_PATH")
-            && !dir.is_empty()
-        {
-            dirs.push(dir);
-        }
-
-        if let Ok(exe) = std::env::current_exe()
-            && let Some(exe_dir) = exe.parent()
-        {
-            dirs.push(exe_dir.to_string_lossy().into_owned());
-
-            // Contents/MacOS/rotero -> Contents/Frameworks, the conventional
-            // place for a bundled dylib.
-            #[cfg(target_os = "macos")]
-            if let Some(contents) = exe_dir.parent() {
-                dirs.push(contents.join("Frameworks").to_string_lossy().into_owned());
-            }
-        }
-
-        dirs
-    }
-
-    /// Bind to PDFium, searching an explicit path, `PDFIUM_DYNAMIC_LIB_PATH`, the
-    /// executable's directory, and finally the system library path.
-    ///
-    /// On failure the error lists every location tried: "not found" is otherwise
-    /// indistinguishable from "found but unloadable", and the difference decides
-    /// whether the fix is packaging or the binary itself.
-    #[cfg(not(feature = "static"))]
-    pub fn new(lib_path: Option<&str>) -> Result<Self, PdfError> {
-        let mut attempts: Vec<String> = Vec::new();
-
-        for dir in Self::candidate_dirs(lib_path) {
-            let candidate = Pdfium::pdfium_platform_library_name_at_path(&dir);
-            match Pdfium::bind_to_library(&candidate) {
-                Ok(bindings) => {
-                    return Ok(Self {
-                        pdfium: Pdfium::new(bindings),
-                        cached_bytes: None,
-                    });
-                }
-                Err(e) => attempts.push(format!("{}: {e}", candidate.display())),
-            }
-        }
-
-        match Pdfium::bind_to_system_library() {
-            Ok(bindings) => Ok(Self {
-                pdfium: Pdfium::new(bindings),
-                cached_bytes: None,
-            }),
-            Err(e) => {
-                attempts.push(format!("system library: {e}"));
-                Err(PdfError::BindError(format!(
-                    "could not load PDFium; tried {}",
-                    attempts.join("; ")
-                )))
-            }
+    /// Creates a new engine. Unlike the former PDFium binding, this cannot fail:
+    /// pdfrum is pure Rust and needs no native library.
+    pub fn new() -> Self {
+        Self {
+            cached: None,
+            session: RenderSession::new(),
         }
     }
 
-    fn get_pdf_bytes(&mut self, pdf_path: &str) -> Result<Vec<u8>, PdfError> {
+    /// Opens (or reuses a cached) document for `pdf_path`, keyed by path + mtime.
+    pub fn document(&mut self, pdf_path: &str) -> Result<Arc<Document>, PdfError> {
         let mtime = file_mtime(pdf_path);
-        if let Some((ref cached_path, cached_mtime, ref bytes)) = self.cached_bytes
-            && cached_path == pdf_path
-            && cached_mtime == mtime
-        {
-            return Ok(bytes.clone());
+        let reuse = self
+            .cached
+            .as_ref()
+            .is_some_and(|c| c.path == pdf_path && c.mtime == mtime);
+        if !reuse {
+            let doc = Document::open(pdf_path)?;
+            self.cached = Some(CachedDoc {
+                path: pdf_path.to_string(),
+                mtime,
+                doc: Arc::new(doc),
+            });
         }
-        let bytes = std::fs::read(pdf_path)
-            .map_err(|e| PdfError::RenderError(format!("Failed to read {pdf_path}: {e}")))?;
-        self.cached_bytes = Some((pdf_path.to_string(), mtime, bytes));
-        Ok(self.cached_bytes.as_ref().unwrap().2.clone())
-    }
-
-    fn open_document(
-        &mut self,
-        pdf_path: &str,
-    ) -> Result<pdfium_render::prelude::PdfDocument<'_>, PdfError> {
-        let bytes = self.get_pdf_bytes(pdf_path)?;
-        Ok(self.pdfium.load_pdf_from_byte_vec(bytes, None)?)
+        Ok(Arc::clone(
+            &self.cached.as_ref().expect("just inserted").doc,
+        ))
     }
 
     /// Loads a PDF and returns its path and page count without rendering.
     pub fn load_document(&mut self, pdf_path: &str) -> Result<PdfDocumentInfo, PdfError> {
-        let document = self.open_document(pdf_path)?;
+        let doc = self.document(pdf_path)?;
         Ok(PdfDocumentInfo {
             path: pdf_path.to_string(),
-            page_count: document.pages().len() as u32,
+            page_count: doc.page_count(),
         })
+    }
+
+    fn encode_rendered(page_index: u32, pixmap: pdfrum::Pixmap) -> Result<RenderedPage, PdfError> {
+        let width = pixmap.width();
+        let height = pixmap.height();
+        let png = pixmap
+            .encode_png()
+            .map_err(|e| PdfError::ImageError(e.to_string()))?;
+        Ok(RenderedPage {
+            page_index,
+            base64_data: BASE64.encode(&png),
+            mime: "image/png",
+            width,
+            height,
+        })
+    }
+
+    fn render_page_inner(
+        &mut self,
+        doc: &Document,
+        page_index: u32,
+        opts: &RenderOptions,
+    ) -> Result<RenderedPage, PdfError> {
+        let page_count = doc.page_count();
+        if page_index >= page_count {
+            return Err(PdfError::PageOutOfRange(page_index, page_count));
+        }
+        let page = doc.page(page_index)?;
+        let pixmap = page
+            .render_on(VelloCpuBackend, opts, &mut self.session)
+            .map_err(|e| PdfError::RenderError(e.to_string()))?;
+        Self::encode_rendered(page_index, pixmap)
     }
 
     /// `scale`: zoom level (1.0 = 72 DPI, 2.0 = 144 DPI, etc.)
@@ -197,45 +147,9 @@ impl PdfEngine {
         page_index: u32,
         scale: f32,
     ) -> Result<RenderedPage, PdfError> {
-        let document = self.open_document(pdf_path)?;
-        let page_count = document.pages().len() as u32;
-
-        if page_index >= page_count {
-            return Err(PdfError::PageOutOfRange(page_index, page_count));
-        }
-
-        let page = document
-            .pages()
-            .get(page_index as u16)
-            .map_err(|e| PdfError::RenderError(e.to_string()))?;
-
-        let width = (page.width().value * scale) as i32;
-        let height = (page.height().value * scale) as i32;
-
-        let render_config = PdfRenderConfig::new()
-            .set_target_width(width.max(1))
-            .set_maximum_height(height.max(1));
-
-        let bitmap = page
-            .render_with_config(&render_config)
-            .map_err(|e| PdfError::RenderError(e.to_string()))?;
-
-        let image = bitmap.as_image();
-        let img_width = image.width();
-        let img_height = image.height();
-
-        let mut img_bytes: Vec<u8> = Vec::with_capacity(256 * 1024);
-        encode_png(&image, &mut img_bytes)?;
-
-        let base64_data = BASE64.encode(&img_bytes);
-
-        Ok(RenderedPage {
-            page_index,
-            base64_data,
-            mime: "image/png",
-            width: img_width,
-            height: img_height,
-        })
+        let doc = self.document(pdf_path)?;
+        let opts = RenderOptions::scaled(f64::from(scale));
+        self.render_page_inner(&doc, page_index, &opts)
     }
 
     /// Renders a contiguous range of pages starting at `start` as base64 PNGs.
@@ -246,98 +160,33 @@ impl PdfEngine {
         count: u32,
         scale: f32,
     ) -> Result<Vec<RenderedPage>, PdfError> {
-        let document = self.open_document(pdf_path)?;
-        let page_count = document.pages().len() as u32;
+        let doc = self.document(pdf_path)?;
+        let page_count = doc.page_count();
         let end = (start + count).min(page_count);
-
+        let opts = RenderOptions::scaled(f64::from(scale));
         let mut pages = Vec::with_capacity((end - start) as usize);
-        let mut img_bytes: Vec<u8> = Vec::with_capacity(256 * 1024);
         for i in start..end {
-            let page = document
-                .pages()
-                .get(i as u16)
-                .map_err(|e| PdfError::RenderError(e.to_string()))?;
-
-            let width = (page.width().value * scale) as i32;
-            let height = (page.height().value * scale) as i32;
-
-            let render_config = PdfRenderConfig::new()
-                .set_target_width(width.max(1))
-                .set_maximum_height(height.max(1));
-
-            let bitmap = page
-                .render_with_config(&render_config)
-                .map_err(|e| PdfError::RenderError(e.to_string()))?;
-
-            let image = bitmap.as_image();
-            let img_width = image.width();
-            let img_height = image.height();
-
-            encode_png(&image, &mut img_bytes)?;
-
-            let base64_data = BASE64.encode(&img_bytes);
-
-            pages.push(RenderedPage {
-                page_index: i,
-                base64_data,
-                mime: "image/png",
-                width: img_width,
-                height: img_height,
-            });
+            pages.push(self.render_page_inner(&doc, i, &opts)?);
         }
-
         Ok(pages)
     }
 
     /// Opens a document once and renders its first `batch_size` pages, returning
-    /// the total page count alongside the rendered pages. Equivalent to
-    /// `load_document` followed by `render_pages(.., 0, batch_size, ..)` but parses
-    /// the PDF a single time instead of twice.
+    /// the total page count alongside the rendered pages.
     pub fn open_and_render_initial(
         &mut self,
         pdf_path: &str,
         scale: f32,
         batch_size: u32,
     ) -> Result<(u32, Vec<RenderedPage>), PdfError> {
-        let document = self.open_document(pdf_path)?;
-        let page_count = document.pages().len() as u32;
+        let doc = self.document(pdf_path)?;
+        let page_count = doc.page_count();
         let end = batch_size.min(page_count);
-
+        let opts = RenderOptions::scaled(f64::from(scale));
         let mut pages = Vec::with_capacity(end as usize);
-        let mut img_bytes: Vec<u8> = Vec::with_capacity(256 * 1024);
         for i in 0..end {
-            let page = document
-                .pages()
-                .get(i as u16)
-                .map_err(|e| PdfError::RenderError(e.to_string()))?;
-
-            let width = (page.width().value * scale) as i32;
-            let height = (page.height().value * scale) as i32;
-
-            let render_config = PdfRenderConfig::new()
-                .set_target_width(width.max(1))
-                .set_maximum_height(height.max(1));
-
-            let bitmap = page
-                .render_with_config(&render_config)
-                .map_err(|e| PdfError::RenderError(e.to_string()))?;
-
-            let image = bitmap.as_image();
-            let img_width = image.width();
-            let img_height = image.height();
-
-            encode_png(&image, &mut img_bytes)?;
-            let base64_data = BASE64.encode(&img_bytes);
-
-            pages.push(RenderedPage {
-                page_index: i,
-                base64_data,
-                mime: "image/png",
-                width: img_width,
-                height: img_height,
-            });
+            pages.push(self.render_page_inner(&doc, i, &opts)?);
         }
-
         Ok((page_count, pages))
     }
 
@@ -349,45 +198,18 @@ impl PdfEngine {
         count: u32,
         max_width: u32,
     ) -> Result<Vec<RenderedPage>, PdfError> {
-        let document = self.open_document(pdf_path)?;
-        let page_count = document.pages().len() as u32;
+        let doc = self.document(pdf_path)?;
+        let page_count = doc.page_count();
         let end = (start + count).min(page_count);
         let mut thumbs = Vec::with_capacity((end - start) as usize);
-        let mut img_bytes: Vec<u8> = Vec::with_capacity(64 * 1024);
 
         for i in start..end {
-            let page = document
-                .pages()
-                .get(i as u16)
+            let page = doc.page(i)?;
+            let opts = RenderOptions::fit(page.width(), page.height(), max_width, u32::MAX);
+            let pixmap = page
+                .render_on(VelloCpuBackend, &opts, &mut self.session)
                 .map_err(|e| PdfError::RenderError(e.to_string()))?;
-
-            let aspect = page.height().value / page.width().value;
-            let target_width = max_width as i32;
-            let target_height = (max_width as f32 * aspect) as i32;
-
-            let render_config = PdfRenderConfig::new()
-                .set_target_width(target_width.max(1))
-                .set_maximum_height(target_height.max(1));
-
-            let bitmap = page
-                .render_with_config(&render_config)
-                .map_err(|e| PdfError::RenderError(e.to_string()))?;
-
-            let image = bitmap.as_image();
-            let img_width = image.width();
-            let img_height = image.height();
-
-            encode_png(&image, &mut img_bytes)?;
-
-            let base64_data = BASE64.encode(&img_bytes);
-
-            thumbs.push(RenderedPage {
-                page_index: i,
-                base64_data,
-                mime: "image/png",
-                width: img_width,
-                height: img_height,
-            });
+            thumbs.push(Self::encode_rendered(i, pixmap)?);
         }
 
         Ok(thumbs)
@@ -395,98 +217,61 @@ impl PdfEngine {
 
     /// Extracts the document outline (bookmarks / table of contents).
     pub fn extract_outline(&mut self, pdf_path: &str) -> Result<Vec<BookmarkEntry>, PdfError> {
-        let document = self.open_document(pdf_path)?;
-        let bookmarks = document.bookmarks();
-        let mut entries = Vec::new();
-
-        fn collect_bookmarks(
-            iter: &pdfium_render::prelude::PdfBookmarks,
-            entries: &mut Vec<BookmarkEntry>,
-            level: u32,
-        ) {
-            for bookmark in iter.iter() {
-                let title = bookmark.title().unwrap_or_default();
-                let page_index = bookmark
-                    .destination()
-                    .and_then(|d| d.page_index().ok())
-                    .map(|i| i as u32);
-
-                entries.push(BookmarkEntry {
-                    title,
-                    page_index,
-                    level,
-                });
-            }
+        let doc = self.document(pdf_path)?;
+        let outline = doc.outline();
+        let mut entries = Vec::with_capacity(outline.len());
+        for bookmark in &outline {
+            entries.push(BookmarkEntry {
+                title: bookmark.title(),
+                page_index: bookmark.page_index().map(|i| i.get()),
+                level: bookmark.depth() as u32,
+            });
         }
-
-        collect_bookmarks(bookmarks, &mut entries, 0);
         Ok(entries)
     }
 
     /// Returns (width_pts, height_pts) for all pages without rendering.
     pub fn get_page_dimensions(&mut self, pdf_path: &str) -> Result<Vec<(f32, f32)>, PdfError> {
-        let document = self.open_document(pdf_path)?;
-        let page_count = document.pages().len() as u32;
-        let mut dims = Vec::with_capacity(page_count as usize);
-
-        for i in 0..page_count {
-            let page = document
-                .pages()
-                .get(i as u16)
-                .map_err(|e| PdfError::RenderError(e.to_string()))?;
-            dims.push((page.width().value, page.height().value));
+        let doc = self.document(pdf_path)?;
+        let mut dims = Vec::with_capacity(doc.page_count() as usize);
+        for page in doc.pages() {
+            dims.push((page.width() as f32, page.height() as f32));
         }
-
         Ok(dims)
     }
 
-    /// Drops the cached PDF file bytes to free memory.
+    /// Drops the cached document to free memory.
     pub fn clear_byte_cache(&mut self) {
-        self.cached_bytes = None;
+        self.cached = None;
+        self.session = RenderSession::new();
     }
 
-    /// Reads all supported annotations (highlights, notes, areas, underlines, ink, free text) from the PDF.
+    /// Reads all supported annotations from the PDF.
     pub fn extract_annotations(
         &mut self,
         pdf_path: &str,
     ) -> Result<Vec<ExtractedAnnotation>, PdfError> {
-        let document = self.open_document(pdf_path)?;
-        let page_count = document.pages().len() as u32;
+        let doc = self.document(pdf_path)?;
         let mut result = Vec::new();
 
-        for i in 0..page_count {
-            let page = document
-                .pages()
-                .get(i as u16)
-                .map_err(|e| PdfError::RenderError(e.to_string()))?;
+        for page in doc.pages() {
+            let i = page.index().get();
+            let pw = page.width() as f32;
+            let ph = page.height() as f32;
 
-            let pw = page.width().value;
-            let ph = page.height().value;
-
-            for ann in page.annotations().iter() {
-                use pdfium_render::prelude::PdfPageAnnotationCommon;
-
-                let ann_type = match ann.annotation_type() {
-                    PdfPageAnnotationType::Highlight => rotero_models::AnnotationType::Highlight,
-                    PdfPageAnnotationType::Text => rotero_models::AnnotationType::Note,
-                    PdfPageAnnotationType::Square => rotero_models::AnnotationType::Area,
-                    PdfPageAnnotationType::Underline => rotero_models::AnnotationType::Underline,
-                    PdfPageAnnotationType::Ink => rotero_models::AnnotationType::Ink,
-                    PdfPageAnnotationType::FreeText => rotero_models::AnnotationType::Text,
+            for ann in page.annotations() {
+                let ann_type = match ann.subtype() {
+                    Subtype::Highlight => rotero_models::AnnotationType::Highlight,
+                    Subtype::Text => rotero_models::AnnotationType::Note,
+                    Subtype::Square => rotero_models::AnnotationType::Area,
+                    Subtype::Underline => rotero_models::AnnotationType::Underline,
+                    Subtype::Ink => rotero_models::AnnotationType::Ink,
+                    Subtype::FreeText => rotero_models::AnnotationType::Text,
                     _ => continue,
                 };
 
-                let bounds = match ann.bounds() {
-                    Ok(r) => r,
-                    Err(_) => continue,
-                };
-
-                let color = ann
-                    .stroke_color()
-                    .or_else(|_| ann.fill_color())
-                    .map(|c| format!("#{:02x}{:02x}{:02x}", c.red(), c.green(), c.blue()))
-                    .unwrap_or_else(|_| "#ffff00".to_string());
-
+                let bounds = ann.rect();
+                let color = annot_color_hex(ann.dict());
                 let content = ann.contents();
 
                 result.push(ExtractedAnnotation {
@@ -495,10 +280,10 @@ impl PdfEngine {
                     color,
                     content,
                     rect_pts: [
-                        bounds.left().value,
-                        bounds.bottom().value,
-                        bounds.right().value,
-                        bounds.top().value,
+                        bounds.x0 as f32,
+                        bounds.y0 as f32,
+                        bounds.x1 as f32,
+                        bounds.y1 as f32,
                     ],
                     page_width_pts: pw,
                     page_height_pts: ph,
@@ -510,135 +295,116 @@ impl PdfEngine {
     }
 
     /// Reads all links from the PDF — both intra-document jumps and external URIs.
-    ///
-    /// Academic PDFs embed intra-document links on in-text citation markers,
-    /// figure/table/section cross-references, and TOC entries, and external URI
-    /// links on DOIs and web references. Links whose action can't be resolved to
-    /// either an in-document page or a URI are skipped.
     pub fn extract_links(&mut self, pdf_path: &str) -> Result<Vec<ExtractedLink>, PdfError> {
-        use pdfium_render::prelude::{PdfDestination, PdfDestinationViewSettings, PdfLink};
-
-        let document = self.open_document(pdf_path)?;
-        let page_count = document.pages().len() as u32;
+        let doc = self.document(pdf_path)?;
         let mut result = Vec::new();
 
-        // Page heights (PDF points), indexed by page, so a link can record the
-        // height of its *target* page (needed to turn a target y into a fraction
-        // when the source and target pages differ in size).
-        let page_heights: Vec<f32> = (0..page_count)
-            .map(|p| {
-                document
-                    .pages()
-                    .get(p as u16)
-                    .map(|pg| pg.height().value)
-                    .unwrap_or(0.0)
-            })
-            .collect();
+        let page_heights: Vec<f32> = doc.pages().map(|p| p.height() as f32).collect();
 
-        /// Reads `(page, y)` from a resolved destination.
-        fn target_of(dest: &PdfDestination) -> Option<(u32, Option<f32>)> {
-            let target_page = dest.page_index().ok()? as u32;
-            // Pull the top y coordinate when the view settings expose one.
-            let target_y = match dest.view_settings().ok() {
-                Some(PdfDestinationViewSettings::SpecificCoordinatesAndZoom(_, y, _)) => {
-                    y.map(|p| p.value)
-                }
-                Some(PdfDestinationViewSettings::FitPageHorizontallyToWindow(y))
-                | Some(PdfDestinationViewSettings::FitBoundsHorizontallyToWindow(y)) => {
-                    y.map(|p| p.value)
-                }
-                _ => None,
-            };
-            Some((target_page, target_y))
-        }
+        for page in doc.pages() {
+            let i = page.index().get();
+            let pw = page.width() as f32;
+            let ph = page.height() as f32;
+            let resolver = doc.parser();
 
-        // Turns a raw target `(page, y-in-points)` into a `LinkTarget::Internal`.
-        let internal = |page: u32, y_pts: Option<f32>| {
-            let y_frac = y_pts.and_then(|y| {
-                let th = page_heights.get(page as usize).copied().unwrap_or(0.0);
-                (th > 0.0).then(|| ((th - y) / th).clamp(0.0, 1.0))
-            });
-            LinkTarget::Internal { page, y_frac }
-        };
+            // Zip resolved page_links (page/URI) with raw Link dicts (for Dest Y).
+            let raw_links = page.links();
+            let page_links = page.page_links();
 
-        // Resolves a link to its target. Internal destinations win; otherwise a
-        // URI action becomes an external link. Each borrowed destination/action
-        // is consumed where it is owned so it never outlives its source.
-        let resolve = |link: &PdfLink| -> Option<LinkTarget> {
-            if let Some(dest) = link.destination() {
-                let (p, y) = target_of(&dest)?;
-                return Some(internal(p, y));
-            }
-            let action = link.action()?;
-            if let Some(local) = action.as_local_destination_action()
-                && let Ok(dest) = local.destination()
-            {
-                let (p, y) = target_of(&dest)?;
-                return Some(internal(p, y));
-            }
-            if let Some(uri) = action.as_uri_action()
-                && let Ok(url) = uri.uri()
-                && !url.is_empty()
-            {
-                return Some(LinkTarget::External { uri: url });
-            }
-            None
-        };
+            for (plink, raw) in page_links.into_iter().zip(raw_links) {
+                let rect = plink.rect.abs();
+                let target = match plink.target {
+                    PdfrumLinkTarget::Uri(uri) if !uri.is_empty() => LinkTarget::External { uri },
+                    PdfrumLinkTarget::Page(page_idx) => {
+                        let target_page = page_idx.get();
+                        let y_pts = dest_y_pts(&raw, resolver);
+                        let y_frac = y_pts.and_then(|y| {
+                            let th = page_heights
+                                .get(target_page as usize)
+                                .copied()
+                                .unwrap_or(0.0);
+                            (th > 0.0).then(|| ((th - y) / th).clamp(0.0, 1.0))
+                        });
+                        LinkTarget::Internal {
+                            page: target_page,
+                            y_frac,
+                        }
+                    }
+                    PdfrumLinkTarget::Other | PdfrumLinkTarget::Uri(_) | _ => continue,
+                };
 
-        for i in 0..page_count {
-            let page = document
-                .pages()
-                .get(i as u16)
-                .map_err(|e| PdfError::RenderError(e.to_string()))?;
-
-            let pw = page.width().value;
-            let ph = page.height().value;
-
-            let push_link = |rect: &pdfium_render::prelude::PdfRect,
-                             target: LinkTarget,
-                             out: &mut Vec<ExtractedLink>| {
-                out.push(ExtractedLink {
+                result.push(ExtractedLink {
                     page: i,
                     rect_pts: [
-                        rect.left().value,
-                        rect.bottom().value,
-                        rect.right().value,
-                        rect.top().value,
+                        rect.x0 as f32,
+                        rect.y0 as f32,
+                        rect.x1 as f32,
+                        rect.y1 as f32,
                     ],
                     page_width_pts: pw,
                     page_height_pts: ph,
                     target,
                 });
-            };
-
-            // Primary source: page-level links.
-            let mut had_page_link = false;
-            for link in page.links().iter() {
-                if let (Ok(rect), Some(target)) = (link.rect(), resolve(&link)) {
-                    push_link(&rect, target, &mut result);
-                    had_page_link = true;
-                }
-            }
-
-            // Fallback: some PDFs store links only as Link annotations. Use them
-            // only when the page yielded no page-level links, to avoid duplicates.
-            if !had_page_link {
-                for ann in page.annotations().iter() {
-                    if ann.annotation_type() != PdfPageAnnotationType::Link {
-                        continue;
-                    }
-                    let Some(link_ann) = ann.as_link_annotation() else {
-                        continue;
-                    };
-                    let Ok(link) = link_ann.link() else { continue };
-                    if let (Ok(rect), Some(target)) = (link.rect(), resolve(&link)) {
-                        push_link(&rect, target, &mut result);
-                    }
-                }
             }
         }
 
         Ok(result)
+    }
+}
+
+impl Default for PdfEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn annot_color_hex(dict: &pdfrum::Dict) -> String {
+    let Some(Object::Array(arr)) = dict.raw(&Name::from("C")) else {
+        return "#ffff00".to_string();
+    };
+    match arr.len() {
+        1 => {
+            let g = (arr.number_at_or_zero(0) * 255.0).clamp(0.0, 255.0) as u8;
+            format!("#{g:02x}{g:02x}{g:02x}")
+        }
+        3 => {
+            let r = (arr.number_at_or_zero(0) * 255.0).clamp(0.0, 255.0) as u8;
+            let g = (arr.number_at_or_zero(1) * 255.0).clamp(0.0, 255.0) as u8;
+            let b = (arr.number_at_or_zero(2) * 255.0).clamp(0.0, 255.0) as u8;
+            format!("#{r:02x}{g:02x}{b:02x}")
+        }
+        4 => {
+            // DeviceCMYK → RGB (multiplicative, matching pdfrum annot_rgb_bytes)
+            let c = arr.number_at_or_zero(0);
+            let m = arr.number_at_or_zero(1);
+            let y = arr.number_at_or_zero(2);
+            let k = arr.number_at_or_zero(3);
+            let r = ((1.0 - c) * (1.0 - k) * 255.0).clamp(0.0, 255.0) as u8;
+            let g = ((1.0 - m) * (1.0 - k) * 255.0).clamp(0.0, 255.0) as u8;
+            let b = ((1.0 - y) * (1.0 - k) * 255.0).clamp(0.0, 255.0) as u8;
+            format!("#{r:02x}{g:02x}{b:02x}")
+        }
+        _ => "#ffff00".to_string(),
+    }
+}
+
+/// Pulls the destination Y (PDF points, bottom-up) from a link's `/Dest` or
+/// action `/D` array when present.
+fn dest_y_pts(link: &pdfrum::Link, resolver: &impl pdfrum::Resolve) -> Option<f32> {
+    let array = link.dict.array(&Name::from("Dest"), resolver).or_else(|| {
+        let action = link.dict.dict(&Name::from("A"), resolver)?;
+        action.array(&Name::from("D"), resolver)
+    })?;
+    let dest = Dest { array: Some(array) };
+    if let Some(xyz) = dest.xyz(resolver) {
+        return xyz.y;
+    }
+    // FitH / FitBH: a single top parameter; XYZ-like fallbacks use index 1.
+    let params = dest.params_all();
+    match params.len() {
+        1 => Some(params[0]),
+        n if n >= 2 => Some(params[1]),
+        _ => None,
     }
 }
 

@@ -9,7 +9,7 @@ use crate::db::Database;
 #[derive(Clone)]
 pub struct RoteroMcp {
     db: Database,
-    /// Whether pdfium is available (checked at startup).
+    /// Whether the PDF engine is available (checked at startup).
     #[allow(dead_code)] // stored for future use gating PDF tools
     pdf_available: bool,
 }

@@ -16,7 +16,7 @@ pub fn detect_font_weight(name: &str) -> &'static str {
     }
 }
 
-/// Returns `"italic"` or `"normal"` based on the font name or the pdfium italic flag.
+/// Returns `"italic"` or `"normal"` based on the font name or an italic flag.
 pub fn detect_font_style(name: &str, is_italic_flag: bool) -> &'static str {
     if is_italic_flag {
         return "italic";
