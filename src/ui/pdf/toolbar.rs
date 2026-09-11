@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::app::RenderChannel;
+use crate::app::PdfDocs;
 use crate::state::app_state::{AnnotationMode, PdfTabManager, TabId, ViewerToolState};
 use rotero_db::Database;
 
@@ -8,7 +8,7 @@ use rotero_db::Database;
 pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let mut tools = use_context::<Signal<ViewerToolState>>();
-    let render_ch = use_context::<RenderChannel>();
+    let docs = use_context::<PdfDocs>();
     let _config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let db = use_context::<Database>();
     let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
@@ -161,11 +161,11 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
             button {
                 class: "btn btn--ghost",
                 onclick: move |_| {
-                    let render_tx = render_ch.sender();
+                    let docs = docs.get();
                     tabs.with_mut(|m| m.tab_mut().nav.show_thumbnails = !m.tab().nav.show_thumbnails);
                     if tabs.read().tab().render.thumbnails.is_empty() {
                         spawn(async move {
-                            let _ = crate::state::commands::load_thumbnails(&render_tx, &mut tabs, tab_id, 0, 50).await;
+                            let _ = crate::state::commands::load_thumbnails(&docs, &mut tabs, tab_id, 0, 50).await;
                         });
                     }
                 },
@@ -174,11 +174,11 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
             button {
                 class: "btn btn--ghost",
                 onclick: move |_| {
-                    let render_tx = render_ch.sender();
+                    let docs = docs.get();
                     tabs.with_mut(|m| m.tab_mut().nav.show_outline = !m.tab().nav.show_outline);
                     if tabs.read().tab().nav.outline.is_empty() {
                         spawn(async move {
-                            let _ = crate::state::commands::load_outline(&render_tx, &mut tabs, tab_id).await;
+                            let _ = crate::state::commands::load_outline(&docs, &mut tabs, tab_id).await;
                         });
                     }
                 },
@@ -233,20 +233,12 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                         let file = super::super::save_file(&["pdf"], "Export PDF with Annotations", &default_name);
 
                         if let Some(output_path) = file {
-                            let render_tx = render_ch.sender();
+                            let docs = docs.get();
                             spawn(async move {
-                                let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-                                if render_tx.send(crate::state::commands::RenderRequest::GetPageDimensions {
-                                    pdf_path: pdf_path.clone(),
-                                    reply: reply_tx,
-                                }).is_err() {
-                                    tracing::error!("Failed to send GetPageDimensions request");
-                                    return;
-                                }
-                                let dims = match reply_rx.await {
-                                    Ok(Ok(d)) => d,
-                                    _ => {
-                                        tracing::error!("Failed to get page dimensions");
+                                let dims = match docs.page_dimensions(pdf_path.clone()).await {
+                                    Ok(d) => d,
+                                    Err(e) => {
+                                        tracing::error!("Failed to get page dimensions: {e}");
                                         return;
                                     }
                                 };

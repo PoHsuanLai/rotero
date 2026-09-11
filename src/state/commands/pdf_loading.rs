@@ -2,7 +2,7 @@ use tokio::sync::oneshot;
 
 use dioxus::prelude::*;
 
-use super::{RenderRequest, recv_reply};
+use super::PdfDocs;
 use crate::state::app_state::{PdfTabManager, RenderedPageData, TabId};
 
 /// Max full-resolution pages kept resident per tab. Full pages are far larger
@@ -61,19 +61,18 @@ async fn save_fulltext_to_db(tabs: &Signal<PdfTabManager>, tab_id: TabId, paper_
 
 /// Open a PDF into its tab, always leaving the tab in a settled state.
 ///
-/// Wraps [`open_pdf_inner`] so that however it exits — including the `?` on
-/// `recv_reply` when the render channel drops — the
-/// spinner stops and the reason is recorded. Previously those paths skipped both
-/// `is_loading = false` sites, and neither retry condition could fire
-/// afterwards, so the tab said "Loading PDF…" until it was closed.
+/// Wraps [`open_pdf_inner`] so that however it exits — including a failed
+/// render — the spinner stops and the reason is recorded. Previously those
+/// paths skipped both `is_loading = false` sites, and neither retry condition
+/// could fire afterwards, so the tab said "Loading PDF…" until it was closed.
 pub async fn open_pdf(
-    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
+    docs: &PdfDocs,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     data_dir: &std::path::Path,
     dpr: f32,
 ) -> Result<(), String> {
-    let result = open_pdf_inner(render_tx, tabs, tab_id, data_dir, dpr).await;
+    let result = open_pdf_inner(docs, tabs, tab_id, data_dir, dpr).await;
 
     if let Err(ref e) = result {
         tracing::error!("Failed to open PDF in tab {tab_id:?}: {e}");
@@ -89,7 +88,7 @@ pub async fn open_pdf(
 }
 
 async fn open_pdf_inner(
-    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
+    docs: &PdfDocs,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     data_dir: &std::path::Path,
@@ -113,10 +112,10 @@ async fn open_pdf_inner(
     // background so hotspots are ready shortly after the page renders. Independent
     // of the render/text path below, and covers both cache-hit and fresh opens.
     {
-        let render_tx_links = render_tx.clone();
+        let docs_links = docs.clone();
         let mut tabs_links = *tabs;
         spawn(async move {
-            let _ = super::load_links(&render_tx_links, &mut tabs_links, tab_id).await;
+            let _ = super::load_links(&docs_links, &mut tabs_links, tab_id).await;
         });
     }
 
@@ -176,7 +175,7 @@ async fn open_pdf_inner(
         let need_text = text_page_count < meta.page_count;
 
         if need_render || need_text {
-            let render_tx_bg = render_tx.clone();
+            let docs_bg = docs.clone();
             let data_dir_bg = data_dir.to_path_buf();
             let mut tabs_bg = *tabs;
             let paper_id_bg = paper_id.clone();
@@ -185,14 +184,13 @@ async fn open_pdf_inner(
                 // Ensure the initial window (around page 0) is rendered. Remaining
                 // pages render lazily on scroll rather than all up front.
                 if need_render {
-                    ensure_window_rendered(&render_tx_bg, &mut tabs_bg, tab_id, 0, &data_dir_bg)
-                        .await;
+                    ensure_window_rendered(&docs_bg, &mut tabs_bg, tab_id, 0, &data_dir_bg).await;
                 }
                 // Text is needed for the WHOLE document (search + fulltext), extracted
                 // without rendering images. Also refresh the on-disk text cache.
                 if need_text {
                     extract_remaining_text(
-                        &render_tx_bg,
+                        &docs_bg,
                         &mut tabs_bg,
                         tab_id,
                         &path_bg,
@@ -223,16 +221,9 @@ async fn open_pdf_inner(
         }
         return Ok(());
     }
-    let (reply_tx, reply_rx) = oneshot::channel();
-    render_tx
-        .send(RenderRequest::OpenPdf {
-            pdf_path: path.clone(),
-            zoom: render_scale,
-            batch_size,
-            reply: reply_tx,
-        })
-        .map_err(|e| e.to_string())?;
-    let (page_count, pages) = recv_reply(reply_rx).await?;
+    let (page_count, pages) = docs
+        .open_and_render_initial(path.clone(), render_scale, batch_size)
+        .await?;
     let cache_pages = pages.clone();
     let cache_dir = data_dir.to_path_buf();
     let cache_path = path.clone();
@@ -269,18 +260,12 @@ async fn open_pdf_inner(
             })
             .unwrap_or_default()
     };
-    let render_tx2 = render_tx.clone();
+    let docs2 = docs.clone();
     let data_dir2 = data_dir.to_path_buf();
     let path2 = path.clone();
     let mut tabs2 = *tabs;
     spawn(async move {
-        let (text_tx, text_rx) = oneshot::channel();
-        let _ = render_tx2.send(RenderRequest::ExtractText {
-            pdf_path: path2.clone(),
-            page_dims,
-            reply: text_tx,
-        });
-        if let Ok(text_data) = recv_reply(text_rx).await {
+        if let Ok(text_data) = docs2.extract_text(path2.clone(), page_dims).await {
             let cache_dir = data_dir2.clone();
             let cache_path = path2.clone();
             let text_clone = text_data.clone();
@@ -302,14 +287,13 @@ async fn open_pdf_inner(
     // dimensions (not rendered images). Extract text for all remaining pages using
     // dimensions computed from the point-size of each page, without rendering them.
     if batch_size < page_count {
-        let render_tx_bg = render_tx.clone();
+        let docs_bg = docs.clone();
         let mut tabs_bg = *tabs;
         let paper_id_bg = paper_id.clone();
         let path_bg = path.clone();
         let data_dir_bg = data_dir.to_path_buf();
         spawn(async move {
-            extract_remaining_text(&render_tx_bg, &mut tabs_bg, tab_id, &path_bg, render_scale)
-                .await;
+            extract_remaining_text(&docs_bg, &mut tabs_bg, tab_id, &path_bg, render_scale).await;
             // The initial `save_text` above only wrote the first batch. Rewrite the
             // on-disk text cache with text for the WHOLE document so the cached
             // `text.json` (read by search and the MCP text tool) isn't truncated.
@@ -347,12 +331,12 @@ async fn open_pdf_inner(
     Ok(())
 }
 
-/// Fetches every page's point size via one cheap `GetPageDimensions` pass (no
+/// Fetches every page's point size via one cheap `page_dimensions` pass (no
 /// rendering), converts to pixel dims at `render_scale`, stores them on the tab
 /// (`render.page_dims`) for placeholder sizing, and returns them. Idempotent: if
 /// dims are already populated, returns the cached copy without re-parsing.
 pub async fn populate_page_dims(
-    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
+    docs: &PdfDocs,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     pdf_path: &str,
@@ -368,17 +352,7 @@ pub async fn populate_page_dims(
             return t.render.page_dims.clone();
         }
     }
-    let (dim_tx, dim_rx) = oneshot::channel();
-    if render_tx
-        .send(RenderRequest::GetPageDimensions {
-            pdf_path: pdf_path.to_string(),
-            reply: dim_tx,
-        })
-        .is_err()
-    {
-        return Vec::new();
-    }
-    let Ok(point_dims) = recv_reply(dim_rx).await else {
+    let Ok(point_dims) = docs.page_dimensions(pdf_path.to_string()).await else {
         return Vec::new();
     };
     let pixel_dims: Vec<(u32, u32)> = point_dims
@@ -403,14 +377,14 @@ pub async fn populate_page_dims(
 /// render would produce, so text-layer coordinates line up). Does NOT render page
 /// images — keeps search/fulltext whole-document while images stay windowed.
 async fn extract_remaining_text(
-    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
+    docs: &PdfDocs,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     pdf_path: &str,
     render_scale: f32,
 ) {
     // Populate per-page pixel dims (also used for placeholder sizing) and get them back.
-    let pixel_dims = populate_page_dims(render_tx, tabs, tab_id, pdf_path, render_scale).await;
+    let pixel_dims = populate_page_dims(docs, tabs, tab_id, pdf_path, render_scale).await;
     if pixel_dims.is_empty() {
         return;
     }
@@ -432,18 +406,7 @@ async fn extract_remaining_text(
     if page_dims.is_empty() {
         return;
     }
-    let (text_tx, text_rx) = oneshot::channel();
-    if render_tx
-        .send(RenderRequest::ExtractText {
-            pdf_path: pdf_path.to_string(),
-            page_dims,
-            reply: text_tx,
-        })
-        .is_err()
-    {
-        return;
-    }
-    if let Ok(text_data) = recv_reply(text_rx).await {
+    if let Ok(text_data) = docs.extract_text(pdf_path.to_string(), page_dims).await {
         tabs.with_mut(|mgr| {
             if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                 tab.render.text_data.extend(text_data);
@@ -456,7 +419,7 @@ async fn extract_remaining_text(
 /// rendering any missing pages. Eviction of pages outside the window happens inside
 /// `render_more_pages`. Called from the viewer's scroll handler as `center` changes.
 pub async fn ensure_window_rendered(
-    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
+    docs: &PdfDocs,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     center: u32,
@@ -503,7 +466,7 @@ pub async fn ensure_window_rendered(
     // reserve scroll height — otherwise the container is only as tall as the few
     // rendered pages and scrolling can never reach (or trigger) the rest.
     if !dims_ready {
-        let _ = populate_page_dims(render_tx, tabs, tab_id, &pdf_path, render_scale).await;
+        let _ = populate_page_dims(docs, tabs, tab_id, &pdf_path, render_scale).await;
     }
     // Record the new center so eviction keeps the right window.
     tabs.with_mut(|mgr| {
@@ -527,7 +490,7 @@ pub async fn ensure_window_rendered(
             idx += 1;
         }
         let count = idx - run_start;
-        if render_more_pages(render_tx, tabs, tab_id, run_start, count, data_dir)
+        if render_more_pages(docs, tabs, tab_id, run_start, count, data_dir)
             .await
             .is_err()
         {
@@ -537,7 +500,7 @@ pub async fn ensure_window_rendered(
 }
 
 pub async fn render_more_pages(
-    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
+    docs: &PdfDocs,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     start: u32,
@@ -553,17 +516,9 @@ pub async fn render_more_pages(
             .ok_or("Tab not found")?;
         (tab.pdf_path.clone(), tab.view.render_zoom)
     };
-    let (reply_tx, reply_rx) = oneshot::channel();
-    render_tx
-        .send(RenderRequest::RenderMorePages {
-            pdf_path: pdf_path.clone(),
-            start,
-            count,
-            zoom: render_scale,
-            reply: reply_tx,
-        })
-        .map_err(|e| e.to_string())?;
-    let pages = recv_reply(reply_rx).await?;
+    let pages = docs
+        .render_pages(pdf_path.clone(), start, count, render_scale)
+        .await?;
     let page_dims: Vec<(u32, u32, u32)> = pages
         .iter()
         .map(|p| (p.page_index, p.width, p.height))
@@ -589,16 +544,10 @@ pub async fn render_more_pages(
             evict_pages_outside_window(&mut tab.render.rendered_pages, tab.view.current_page);
         }
     });
-    let render_tx2 = render_tx.clone();
+    let docs2 = docs.clone();
     let mut tabs2 = *tabs;
     spawn(async move {
-        let (text_tx, text_rx) = oneshot::channel();
-        let _ = render_tx2.send(RenderRequest::ExtractText {
-            pdf_path,
-            page_dims,
-            reply: text_tx,
-        });
-        if let Ok(text_data) = recv_reply(text_rx).await {
+        if let Ok(text_data) = docs2.extract_text(pdf_path, page_dims).await {
             tabs2.with_mut(|mgr| {
                 if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                     tab.render.text_data.extend(text_data);

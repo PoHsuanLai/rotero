@@ -20,7 +20,7 @@ struct AnnotationGeometry {
 }
 
 /// `page_dimensions` provides (width_pts, height_pts) per 0-indexed page,
-/// as returned by `PdfEngine::get_page_dimensions()`.
+/// as returned by [`page_dimensions`].
 pub fn write_annotations(
     input_path: &Path,
     output_path: &Path,
@@ -335,17 +335,15 @@ mod tests {
             sample_annotation(0, AnnotationType::Text, "#333333", Some("free text"), geom),
         ];
 
-        // tracemonkey is US Letter-ish; use the engine's own page size.
-        let engine = crate::PdfEngine::new();
-        let dims = engine
-            .get_page_dimensions(input.to_str().unwrap())
-            .expect("dims");
+        // tracemonkey is US Letter-ish; use the document's own page size.
+        let cache = crate::DocCache::new();
+        let doc = cache.open(input.to_str().unwrap()).expect("open");
+        let dims = crate::page_dimensions(&doc);
 
         write_annotations(&input, &output, &annotations, &dims).expect("write");
 
-        let extracted = engine
-            .extract_annotations(output.to_str().unwrap())
-            .expect("extract");
+        let out = cache.open(output.to_str().unwrap()).expect("reopen out");
+        let extracted = crate::extract_annotations(&out);
         assert_eq!(extracted.len(), 6);
         assert_eq!(extracted[0].ann_type, AnnotationType::Highlight);
         assert_eq!(extracted[0].color, "#ffff00");
@@ -396,15 +394,12 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let output = dir.path().join("with-highlight.pdf");
 
-        let engine = crate::PdfEngine::new();
-        let before = engine
-            .extract_links(input.to_str().unwrap())
-            .expect("links before");
+        let cache = crate::DocCache::new();
+        let doc = cache.open(input.to_str().unwrap()).expect("open");
+        let before = crate::extract_links(&doc).expect("links before");
         assert!(!before.is_empty());
 
-        let dims = engine
-            .get_page_dimensions(input.to_str().unwrap())
-            .expect("dims");
+        let dims = crate::page_dimensions(&doc);
         let ann = sample_annotation(
             0,
             AnnotationType::Highlight,
@@ -417,14 +412,11 @@ mod tests {
         );
         write_annotations(&input, &output, &[ann], &dims).expect("write");
 
-        let after = engine
-            .extract_links(output.to_str().unwrap())
-            .expect("links after");
+        let out = cache.open(output.to_str().unwrap()).expect("reopen out");
+        let after = crate::extract_links(&out).expect("links after");
         assert_eq!(after.len(), before.len());
 
-        let extracted = engine
-            .extract_annotations(output.to_str().unwrap())
-            .expect("extract");
+        let extracted = crate::extract_annotations(&out);
         assert!(
             extracted
                 .iter()
@@ -437,10 +429,9 @@ mod tests {
         let input = fixture("tracemonkey.pdf");
         let dir = tempfile::tempdir().expect("tempdir");
         let output = dir.path().join("skip.pdf");
-        let engine = crate::PdfEngine::new();
-        let dims = engine
-            .get_page_dimensions(input.to_str().unwrap())
-            .expect("dims");
+        let cache = crate::DocCache::new();
+        let doc = cache.open(input.to_str().unwrap()).expect("open");
+        let dims = crate::page_dimensions(&doc);
 
         let ann = sample_annotation(
             999,
@@ -453,9 +444,8 @@ mod tests {
             }),
         );
         write_annotations(&input, &output, &[ann], &dims).expect("write");
-        let extracted = engine
-            .extract_annotations(output.to_str().unwrap())
-            .expect("extract");
+        let out = cache.open(output.to_str().unwrap()).expect("reopen out");
+        let extracted = crate::extract_annotations(&out);
         assert!(extracted.is_empty());
     }
 }

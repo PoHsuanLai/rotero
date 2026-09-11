@@ -4,9 +4,7 @@
 //! (by DOI/arXiv/URL), and records the resulting directed `citing → cited` edges
 //! in `paper_citations`. Runs once per install, guarded by an `app_flags` row.
 
-use tokio::sync::oneshot;
-
-use super::{RenderRequest, recv_reply};
+use super::PdfDocs;
 use rotero_db::Database;
 
 /// `app_flags` key marking the initial scan complete.
@@ -17,10 +15,7 @@ const SCAN_FLAG: &str = "citations_scanned";
 /// Best-effort and idempotent: individual paper failures are skipped, and the
 /// completion flag is only set after a full pass so an interrupted run retries
 /// next launch. Returns the number of citation edges inserted.
-pub async fn scan_citations_if_needed(
-    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
-    db: &Database,
-) -> usize {
+pub async fn scan_citations_if_needed(docs: &PdfDocs, db: &Database) -> usize {
     if matches!(db.get_app_flag(SCAN_FLAG).await, Ok(Some(_))) {
         return 0;
     }
@@ -38,18 +33,10 @@ pub async fn scan_citations_if_needed(
             continue;
         }
 
-        // Extract this PDF's links via the shared PdfEngine (render pool).
-        let (reply_tx, reply_rx) = oneshot::channel();
-        if render_tx
-            .send(RenderRequest::ExtractLinks {
-                pdf_path: full.to_string_lossy().to_string(),
-                reply: reply_tx,
-            })
-            .is_err()
-        {
-            break; // render thread gone
-        }
-        let Ok(links) = recv_reply(reply_rx).await else {
+        let Ok(links) = docs
+            .extract_links(full.to_string_lossy().to_string())
+            .await
+        else {
             continue;
         };
 

@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 
 use super::EditableFocused;
 
-use crate::app::{DevicePixelRatio, RenderChannel, ShowSettings};
+use crate::app::{DevicePixelRatio, PdfDocs, ShowSettings};
 use crate::state::app_state::{
     AnnotationMode, LibraryState, LibraryView, PdfTab, PdfTabManager, ViewerToolState,
 };
@@ -738,7 +738,7 @@ fn action_focus_library_search(mut lib_state: Signal<LibraryState>) {
 fn action_close_tab(
     mut tabs: Signal<PdfTabManager>,
     mut lib_state: Signal<LibraryState>,
-    render_ch: RenderChannel,
+    docs: PdfDocs,
     config: Signal<SyncConfig>,
     dpr_sig: Signal<DevicePixelRatio>,
 ) {
@@ -749,9 +749,7 @@ fn action_close_tab(
     if tabs.read().tabs.is_empty() {
         lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
         // No PDFs open — drop the shared document cache.
-        let _ = render_ch
-            .sender()
-            .send(crate::state::commands::RenderRequest::ClearCache);
+        docs.clear();
     } else {
         let needs = tabs
             .read()
@@ -760,12 +758,12 @@ fn action_close_tab(
             .unwrap_or(false);
         let new_id = tabs.read().active_tab_id;
         if needs && let Some(new_id) = new_id {
-            let render_tx = render_ch.sender();
+            let docs = docs.get();
             let cfg_dir = config.read().effective_library_path();
             tabs.with_mut(|m| m.tab_mut().is_loading = true);
             spawn(async move {
                 let _ = crate::state::commands::open_pdf(
-                    &render_tx,
+                    &docs,
                     &mut tabs,
                     new_id,
                     &cfg_dir,
@@ -1035,7 +1033,7 @@ pub struct KeyCtx {
     pub show_settings: Signal<ShowSettings>,
     pub lib_state: Signal<LibraryState>,
     pub tabs: Signal<PdfTabManager>,
-    pub render_ch: RenderChannel,
+    pub docs: PdfDocs,
     pub config: Signal<SyncConfig>,
     pub new_coll_editing: Signal<Option<Option<String>>>,
     pub undo_stack: Signal<UndoStack>,
@@ -1055,7 +1053,7 @@ impl KeyCtx {
                 show_settings: use_context::<Signal<ShowSettings>>(),
                 lib_state: use_context::<Signal<LibraryState>>(),
                 tabs: use_context::<Signal<PdfTabManager>>(),
-                render_ch: use_context::<RenderChannel>(),
+                docs: use_context::<PdfDocs>(),
                 config: use_context::<Signal<SyncConfig>>(),
                 new_coll_editing: use_context::<Signal<Option<Option<String>>>>(),
                 undo_stack: use_context::<Signal<UndoStack>>(),
@@ -1084,7 +1082,7 @@ fn dispatch(cmd: Command, ctx: &KeyCtx, db: &Database) {
         show_settings,
         lib_state,
         tabs,
-        render_ch,
+        docs,
         config,
         new_coll_editing,
         undo_stack,
@@ -1100,7 +1098,7 @@ fn dispatch(cmd: Command, ctx: &KeyCtx, db: &Database) {
         Command::ExportBibtex => action_export_bibtex(lib_state),
         Command::Find => action_find(lib_state, tabs),
         Command::FocusLibrarySearch => action_focus_library_search(lib_state),
-        Command::CloseTab => action_close_tab(tabs, lib_state, render_ch, config, dpr_sig),
+        Command::CloseTab => action_close_tab(tabs, lib_state, docs, config, dpr_sig),
         Command::NewCollection => action_new_collection(lib_state, new_coll_editing),
         Command::ShowLibrary => action_show_library(lib_state),
         Command::PrevTab => action_prev_tab(tabs, lib_state),
