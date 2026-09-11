@@ -6,6 +6,8 @@
 use std::path::Path;
 
 use pdfrum::{AnnotSpec, Color, Document, Point, Quad, Rect, SaveOptions};
+
+use crate::DocCache;
 use rotero_models::{Annotation, AnnotationType};
 
 use crate::PdfError;
@@ -26,6 +28,7 @@ pub fn write_annotations(
     output_path: &Path,
     annotations: &[Annotation],
     page_dimensions: &[(f32, f32)],
+    cache: Option<&DocCache>,
 ) -> Result<(), PdfError> {
     let doc = Document::open(input_path)
         .map_err(|e| PdfError::WriteError(format!("Failed to load PDF: {e}")))?;
@@ -50,12 +53,13 @@ pub fn write_annotations(
         let rect = pixel_rect_to_pdf_rect(&geom, pw_pts, ph_pts);
         let color = hex_to_color(&ann.color);
         let contents = ann.content.clone().filter(|s| !s.is_empty());
+        let markup_quads = markup_quads(&ann.geometry, &geom, rect, pw_pts, ph_pts);
 
         let spec = match ann.ann_type {
             AnnotationType::Highlight => AnnotSpec::Highlight {
                 rect,
                 color,
-                quads: vec![Quad::from_rect(rect)],
+                quads: markup_quads,
                 contents,
             },
             AnnotationType::Note => AnnotSpec::Text {
@@ -71,7 +75,7 @@ pub fn write_annotations(
             AnnotationType::Underline => AnnotSpec::Underline {
                 rect,
                 color,
-                quads: vec![Quad::from_rect(rect)],
+                quads: markup_quads,
                 contents,
             },
             AnnotationType::Ink => AnnotSpec::Ink {
@@ -92,8 +96,18 @@ pub fn write_annotations(
             .map_err(|e| PdfError::WriteError(format!("Failed to add annotation: {e}")))?;
     }
 
-    edit.save(output_path, &SaveOptions::default())
+    let options = SaveOptions::builder().incremental().build();
+    edit.save(output_path, &options)
         .map_err(|e| PdfError::WriteError(format!("Failed to save PDF: {e}")))?;
+
+    if let Some(cache) = cache {
+        if let Some(p) = input_path.to_str() {
+            cache.evict(p);
+        }
+        if let Some(p) = output_path.to_str() {
+            cache.evict(p);
+        }
+    }
 
     Ok(())
 }
@@ -130,6 +144,89 @@ fn pixel_rect_to_pdf_rect(
     let y0 = f64::from(page_height_pts - ((geom.y + geom.height) * scale_y));
 
     Rect::new(x0, y0, x1, y1)
+}
+
+/// Pixel-space rect fields → PDF [`Rect`] using the annotation's page size.
+fn pixel_xywh_to_pdf_rect(
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    page_geom: &AnnotationGeometry,
+    page_width_pts: f32,
+    page_height_pts: f32,
+) -> Rect {
+    let scale_x = page_width_pts / page_geom.page_width;
+    let scale_y = page_height_pts / page_geom.page_height;
+    let x0 = f64::from(x * scale_x);
+    let x1 = f64::from((x + width) * scale_x);
+    let y1 = f64::from(page_height_pts - (y * scale_y));
+    let y0 = f64::from(page_height_pts - ((y + height) * scale_y));
+    Rect::new(x0, y0, x1, y1)
+}
+
+/// Build `/QuadPoints` for Highlight/Underline from geometry JSON.
+///
+/// Prefers `geometry.rects` or `geometry.quads` (arrays of `{x,y,width,height}`
+/// or `[x,y,w,h]` in the same pixel space as the annotation rect). Falls back
+/// to a single [`Quad::from_rect`] when none are present.
+fn markup_quads(
+    geom_json: &serde_json::Value,
+    page_geom: &AnnotationGeometry,
+    fallback_rect: Rect,
+    page_width_pts: f32,
+    page_height_pts: f32,
+) -> Vec<Quad> {
+    let quads = parse_pixel_rects(geom_json, "rects")
+        .or_else(|| parse_pixel_rects(geom_json, "quads"))
+        .unwrap_or_default();
+    if quads.is_empty() {
+        return vec![Quad::from_rect(fallback_rect)];
+    }
+    quads
+        .into_iter()
+        .map(|(x, y, w, h)| {
+            Quad::from_rect(pixel_xywh_to_pdf_rect(
+                x,
+                y,
+                w,
+                h,
+                page_geom,
+                page_width_pts,
+                page_height_pts,
+            ))
+        })
+        .collect()
+}
+
+fn parse_pixel_rects(
+    geom_json: &serde_json::Value,
+    key: &str,
+) -> Option<Vec<(f32, f32, f32, f32)>> {
+    let arr = geom_json.get(key)?.as_array()?;
+    let mut out = Vec::with_capacity(arr.len());
+    for item in arr {
+        if let Some(obj) = item.as_object() {
+            let x = obj.get("x")?.as_f64()? as f32;
+            let y = obj.get("y")?.as_f64()? as f32;
+            let w = obj.get("width")?.as_f64()? as f32;
+            let h = obj.get("height")?.as_f64()? as f32;
+            if w > 0.0 && h > 0.0 {
+                out.push((x, y, w, h));
+            }
+        } else if let Some(nums) = item.as_array()
+            && nums.len() >= 4
+        {
+            let x = nums[0].as_f64()? as f32;
+            let y = nums[1].as_f64()? as f32;
+            let w = nums[2].as_f64()? as f32;
+            let h = nums[3].as_f64()? as f32;
+            if w > 0.0 && h > 0.0 {
+                out.push((x, y, w, h));
+            }
+        }
+    }
+    (!out.is_empty()).then_some(out)
 }
 
 /// Convert a pixel-space point (top-left origin) to PDF page space.
@@ -340,7 +437,7 @@ mod tests {
         let doc = cache.open(input.to_str().unwrap()).expect("open");
         let dims = crate::page_dimensions(&doc);
 
-        write_annotations(&input, &output, &annotations, &dims).expect("write");
+        write_annotations(&input, &output, &annotations, &dims, Some(&cache)).expect("write");
 
         let out = cache.open(output.to_str().unwrap()).expect("reopen out");
         let extracted = crate::extract_annotations(&out);
@@ -410,7 +507,7 @@ mod tests {
                 "page_width": dims[0].0, "page_height": dims[0].1,
             }),
         );
-        write_annotations(&input, &output, &[ann], &dims).expect("write");
+        write_annotations(&input, &output, &[ann], &dims, Some(&cache)).expect("write");
 
         let out = cache.open(output.to_str().unwrap()).expect("reopen out");
         let after = crate::extract_links(&out).expect("links after");
@@ -422,6 +519,35 @@ mod tests {
                 .iter()
                 .any(|a| a.ann_type == AnnotationType::Highlight)
         );
+    }
+
+    #[test]
+    fn write_annotations_uses_geometry_rects_as_quads() {
+        let input = fixture("tracemonkey.pdf");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let output = dir.path().join("multi-quad.pdf");
+        let cache = crate::DocCache::new();
+        let doc = cache.open(input.to_str().unwrap()).expect("open");
+        let dims = crate::page_dimensions(&doc);
+
+        let geom = json!({
+            "x": 20.0, "y": 30.0, "width": 120.0, "height": 40.0,
+            "page_width": 612.0, "page_height": 792.0,
+            "rects": [
+                {"x": 20.0, "y": 30.0, "width": 60.0, "height": 14.0},
+                {"x": 20.0, "y": 50.0, "width": 90.0, "height": 14.0},
+            ],
+        });
+        let ann = sample_annotation(0, AnnotationType::Highlight, "#ffff00", None, geom);
+        write_annotations(&input, &output, &[ann], &dims, Some(&cache)).expect("write");
+
+        let out = Document::open(&output).expect("reopen");
+        let page = out.page(0).expect("page");
+        let highlight = page
+            .annotations()
+            .find(|a| a.subtype() == Subtype::Highlight)
+            .expect("highlight");
+        assert_eq!(highlight.quad_points().len(), 2);
     }
 
     #[test]
@@ -443,7 +569,7 @@ mod tests {
                 "page_width": 100.0, "page_height": 100.0,
             }),
         );
-        write_annotations(&input, &output, &[ann], &dims).expect("write");
+        write_annotations(&input, &output, &[ann], &dims, Some(&cache)).expect("write");
         let out = cache.open(output.to_str().unwrap()).expect("reopen out");
         let extracted = crate::extract_annotations(&out);
         assert!(extracted.is_empty());

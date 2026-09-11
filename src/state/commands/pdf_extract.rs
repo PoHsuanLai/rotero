@@ -12,9 +12,7 @@ pub async fn extract_and_fetch_metadata(
     lib_state: &mut Signal<LibraryState>,
 ) {
     tracing::info!(%paper_id, pdf_path, auto_fetch, "extract_and_fetch_metadata: start");
-    let Ok((raw_pages, doc_meta)) = docs
-        .extract_metadata_text(pdf_path.to_string(), 2)
-        .await
+    let Ok((raw_pages, doc_meta)) = docs.extract_metadata_text(pdf_path.to_string(), 2).await
     else {
         tracing::warn!("extract_and_fetch_metadata: PDF text extract failed");
         return;

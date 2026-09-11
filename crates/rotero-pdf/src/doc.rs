@@ -265,7 +265,30 @@ pub fn extract_annotations(doc: &Document) -> Vec<ExtractedAnnotation> {
                 _ => continue,
             };
 
-            let bounds = ann.rect();
+            // Prefer /QuadPoints for text-markup subtypes; fall back to /Rect.
+            let bounds = match ann_type {
+                rotero_models::AnnotationType::Highlight
+                | rotero_models::AnnotationType::Underline => {
+                    let quads: Vec<_> = ann.quad_points().collect();
+                    if quads.is_empty() {
+                        ann.rect()
+                    } else {
+                        let mut x0 = f64::INFINITY;
+                        let mut y0 = f64::INFINITY;
+                        let mut x1 = f64::NEG_INFINITY;
+                        let mut y1 = f64::NEG_INFINITY;
+                        for q in quads {
+                            let q = q.abs();
+                            x0 = x0.min(q.x0);
+                            y0 = y0.min(q.y0);
+                            x1 = x1.max(q.x1);
+                            y1 = y1.max(q.y1);
+                        }
+                        pdfrum::Rect::new(x0, y0, x1, y1)
+                    }
+                }
+                _ => ann.rect(),
+            };
             let color = annot_color_hex(ann.dict());
             let content = ann.contents();
 
@@ -378,16 +401,11 @@ fn annot_color_hex(dict: &pdfrum::Dict) -> String {
 /// Pulls the destination Y (PDF points, bottom-up) from a link's `/Dest` or
 /// action `/D` array when present.
 fn dest_y_pts(link: &pdfrum::Link, resolver: &impl pdfrum::Resolve) -> Option<f32> {
-    let array = link
-        .dict
-        .array(&Name::from("Dest"), resolver)
-        .or_else(|| {
-            let action = link.dict.dict(&Name::from("A"), resolver)?;
-            action.array(&Name::from("D"), resolver)
-        })?;
-    let dest = Dest {
-        array: Some(array),
-    };
+    let array = link.dict.array(&Name::from("Dest"), resolver).or_else(|| {
+        let action = link.dict.dict(&Name::from("A"), resolver)?;
+        action.array(&Name::from("D"), resolver)
+    })?;
+    let dest = Dest { array: Some(array) };
     if let Some(xyz) = dest.xyz(resolver) {
         return xyz.y;
     }

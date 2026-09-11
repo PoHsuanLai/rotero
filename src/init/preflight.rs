@@ -84,4 +84,3 @@ pub async fn check_database(db: &rotero_db::Database) {
     tracing::error!("Database health check failed: {detail}");
     record(|p| p.db = Some(detail));
 }
-

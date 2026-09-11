@@ -18,7 +18,8 @@ pub use doc::{
     open_and_render_initial, outline, page_dimensions, render_pages, render_thumbnails,
 };
 pub use text_extract::{
-    PageTextData, PdfDocMetadata, SearchMatch, TextSegment, group_into_lines, text_block_at,
+    PageTextData, PdfDocMetadata, SearchMatch, TextSegment, group_into_lines, search_in_document,
+    text_block_at,
 };
 
 /// Re-export so app code can create per-call render sessions without depending on pdfrum directly.

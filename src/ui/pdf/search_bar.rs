@@ -25,12 +25,34 @@ pub(crate) fn PdfSearchBar(tab_id: TabId) -> Element {
                 onfocusout: crate::ui::keybindings::editable_focus_out,
                 oninput: move |evt| {
                     let new_query = evt.value();
-                    tabs.with_mut(|m| {
-                        let t = m.tab_mut();
+                    let (pdf_path, page_dims) = {
+                        let mut guard = tabs.write();
+                        let t = guard.tab_mut();
                         t.search.query = new_query.clone();
-                        let text_data: Vec<_> = t.render.text_data.values().cloned().collect();
-                        t.search.matches = rotero_pdf::text_extract::search_in_text_data(&text_data, &new_query);
                         t.search.current_index = 0;
+                        if new_query.is_empty() {
+                            t.search.matches.clear();
+                        }
+                        (t.pdf_path.clone(), t.render.page_dims.clone())
+                    };
+                    if new_query.is_empty() {
+                        return;
+                    }
+                    let docs = docs.get();
+                    spawn(async move {
+                        match docs.search(pdf_path, new_query.clone(), page_dims).await {
+                            Ok(hits) => {
+                                tabs.with_mut(|m| {
+                                    let t = m.tab_mut();
+                                    // Drop stale results if the query changed while searching.
+                                    if t.search.query == new_query {
+                                        t.search.matches = hits;
+                                        t.search.current_index = 0;
+                                    }
+                                });
+                            }
+                            Err(e) => tracing::warn!("PDF search failed: {e}"),
+                        }
                     });
                 },
                 onkeydown: move |evt| {

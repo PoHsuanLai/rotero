@@ -189,14 +189,8 @@ async fn open_pdf_inner(
                 // Text is needed for the WHOLE document (search + fulltext), extracted
                 // without rendering images. Also refresh the on-disk text cache.
                 if need_text {
-                    extract_remaining_text(
-                        &docs_bg,
-                        &mut tabs_bg,
-                        tab_id,
-                        &path_bg,
-                        render_scale,
-                    )
-                    .await;
+                    extract_remaining_text(&docs_bg, &mut tabs_bg, tab_id, &path_bg, render_scale)
+                        .await;
                     let all_text: std::collections::HashMap<u32, rotero_pdf::PageTextData> = {
                         let mgr = tabs_bg.read();
                         mgr.tabs

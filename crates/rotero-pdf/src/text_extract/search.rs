@@ -1,5 +1,10 @@
-//! Text search within extracted text data.
+//! Text search within PDF pages.
+//!
+//! Find UI search runs against `pdfrum::TextPage::find_with`. Line grouping and
+//! `text_block_at` remain for the text layer / citation helpers that still work
+//! from extracted segments.
 
+use pdfrum::{CharIndex, Document, FindOptions, TextIndex};
 use serde::{Deserialize, Serialize};
 
 use super::{PageTextData, TextSegment};
@@ -157,7 +162,119 @@ pub fn text_block_at(segments: &[TextSegment], start_y: f64, max_lines: usize) -
     out.join("\n").trim().to_string()
 }
 
-/// Concatenates same-line segments so multi-word queries match across word boundaries.
+/// Case-insensitive options matching the previous segment-search behaviour.
+fn default_find_options() -> FindOptions {
+    FindOptions {
+        match_case: false,
+        match_whole_word: false,
+        consecutive: false,
+    }
+}
+
+/// Map a [`TextIndex`] hit range onto a half-open [`CharIndex`] range for
+/// [`pdfrum::TextPage::rects`].
+fn text_range_to_char_range(
+    map: &pdfrum::IndexMap,
+    range: &std::ops::Range<TextIndex>,
+) -> Option<std::ops::Range<CharIndex>> {
+    if range.start >= range.end {
+        return None;
+    }
+    let start = map.char_index(range.start)?;
+    // Exclusive end: last included text index maps to a char; rects want one past.
+    let last = TextIndex::new(range.end.get().saturating_sub(1));
+    let last_char = map.char_index(last)?;
+    let end = CharIndex::new(last_char.get() + 1);
+    Some(start..end)
+}
+
+/// Convert PDF page-space rects (origin bottom-left) into pixel-space
+/// `(x, y, width, height)` boxes (origin top-left).
+fn pdf_rects_to_pixel_bounds(
+    rects: &[pdfrum::Rect],
+    page_height_pts: f64,
+    scale_x: f64,
+    scale_y: f64,
+) -> Vec<(f64, f64, f64, f64)> {
+    rects
+        .iter()
+        .map(|r| {
+            let r = r.abs();
+            let x = r.x0 * scale_x;
+            let y = (page_height_pts - r.y1) * scale_y;
+            let width = r.width() * scale_x;
+            let height = r.height().abs() * scale_y;
+            (x, y, width, height)
+        })
+        .filter(|(_, _, w, h)| *w > 0.0 && *h > 0.0)
+        .collect()
+}
+
+/// Search every page via [`pdfrum::TextPage::find_with`], mapping hits into
+/// pixel-space [`SearchMatch`]es.
+///
+/// `page_pixel_dims[i]` is `(width_px, height_px)` for page `i` (the rendered
+/// image size). Pages missing an entry are searched at 1 PDF point = 1 pixel.
+///
+/// Matching is case-insensitive, matching the previous Find UI behaviour.
+pub fn search_in_document(
+    doc: &Document,
+    query: &str,
+    page_pixel_dims: &[(u32, u32)],
+) -> Vec<SearchMatch> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+
+    let options = default_find_options();
+    let mut matches = Vec::new();
+    let page_count = doc.page_count();
+
+    for page_index in 0..page_count {
+        let Ok(page) = doc.page(page_index) else {
+            continue;
+        };
+        let page_width_pts = page.width();
+        let page_height_pts = page.height();
+        let (img_w, img_h) = page_pixel_dims
+            .get(page_index as usize)
+            .copied()
+            .unwrap_or((page_width_pts as u32, page_height_pts as u32));
+        if img_w == 0 || img_h == 0 || page_width_pts <= 0.0 || page_height_pts <= 0.0 {
+            continue;
+        }
+        let scale_x = f64::from(img_w) / page_width_pts;
+        let scale_y = f64::from(img_h) / page_height_pts;
+
+        let text = page.text();
+        for range in text.find_with(query, options) {
+            let matched_text: String = text.search_text[range.start.get()..range.end.get()]
+                .iter()
+                .collect();
+            let Some(char_range) = text_range_to_char_range(&text.runs, &range) else {
+                continue;
+            };
+            let pdf_rects = text.rects(char_range);
+            let bounds = pdf_rects_to_pixel_bounds(&pdf_rects, page_height_pts, scale_x, scale_y);
+            if bounds.is_empty() {
+                continue;
+            }
+            matches.push(SearchMatch {
+                page_index,
+                bounds,
+                matched_text,
+            });
+        }
+    }
+
+    matches
+}
+
+/// Segment-only search retained for callers that only have [`PageTextData`].
+///
+/// Prefer [`search_in_document`] for Find UI — it uses pdfrum's text index and
+/// geometry. This path concatenates same-line segments so multi-word queries
+/// still match across word boundaries when only the text layer is available.
 pub fn search_in_text_data(text_data: &[PageTextData], query: &str) -> Vec<SearchMatch> {
     if query.is_empty() {
         return Vec::new();
@@ -217,6 +334,7 @@ pub fn search_in_text_data(text_data: &[PageTextData], query: &str) -> Vec<Searc
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     /// One word-segment at (x, y) with a fixed height/width; other font fields
     /// are irrelevant to line grouping.
@@ -232,6 +350,12 @@ mod tests {
             font_weight: "normal".into(),
             font_style: "normal".into(),
         }
+    }
+
+    fn fixture(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/pdfs")
+            .join(name)
     }
 
     #[test]
@@ -275,5 +399,51 @@ mod tests {
         let segs = vec![seg("top", 0.0, 10.0)];
         assert_eq!(text_block_at(&segs, 500.0, 10), "");
         assert_eq!(text_block_at(&[], 0.0, 10), "");
+    }
+
+    #[test]
+    fn search_in_document_finds_hits_with_pixel_geometry() {
+        let path = fixture("basicapi.pdf");
+        let doc = Document::open(&path).expect("open fixture");
+        // Use 1:1 pts→px so bounds sit in page space numerically.
+        let dims: Vec<(u32, u32)> = (0..doc.page_count())
+            .map(|i| {
+                let page = doc.page(i).expect("page");
+                (page.width() as u32, page.height() as u32)
+            })
+            .collect();
+
+        let hits = search_in_document(&doc, "Chapter", &dims);
+        assert!(!hits.is_empty(), "expected at least one hit for 'Chapter'");
+        let first = &hits[0];
+        assert_eq!(first.page_index, 0);
+        assert!(
+            first.matched_text.to_lowercase().contains("chapter"),
+            "matched_text={:?}",
+            first.matched_text
+        );
+        assert!(!first.bounds.is_empty());
+        for &(x, y, w, h) in &first.bounds {
+            assert!(w > 0.0 && h > 0.0, "degenerate bound ({x},{y},{w},{h})");
+            assert!(x >= 0.0 && y >= 0.0, "negative origin ({x},{y})");
+        }
+    }
+
+    #[test]
+    fn search_in_document_is_case_insensitive() {
+        let path = fixture("basicapi.pdf");
+        let doc = Document::open(&path).expect("open fixture");
+        let dims = [(595u32, 842u32)];
+        let lower = search_in_document(&doc, "paragraph", &dims);
+        let upper = search_in_document(&doc, "PARAGRAPH", &dims);
+        assert_eq!(lower.len(), upper.len());
+        assert!(!lower.is_empty());
+    }
+
+    #[test]
+    fn search_in_document_empty_query_returns_nothing() {
+        let path = fixture("basicapi.pdf");
+        let doc = Document::open(&path).expect("open fixture");
+        assert!(search_in_document(&doc, "", &[(100, 100)]).is_empty());
     }
 }

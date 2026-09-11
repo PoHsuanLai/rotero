@@ -17,8 +17,8 @@ pub use pdf_loading::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use rotero_pdf::RenderSession;
 use rotero_pdf::PageTextData;
+use rotero_pdf::RenderSession;
 
 use super::app_state::RenderedPageData;
 
@@ -114,9 +114,8 @@ impl PdfDocs {
         self.run(move |cache| {
             let doc = cache.open(&pdf_path).map_err(|e| e.to_string())?;
             let mut session = RenderSession::new();
-            let rendered =
-                rotero_pdf::render_thumbnails(&doc, start, count, 120, &mut session)
-                    .map_err(|e| e.to_string())?;
+            let rendered = rotero_pdf::render_thumbnails(&doc, start, count, 120, &mut session)
+                .map_err(|e| e.to_string())?;
             Ok(rendered.into_iter().map(|r| r.into()).collect())
         })
         .await
@@ -132,10 +131,7 @@ impl PdfDocs {
             let doc = cache.open(&pdf_path).map_err(|e| e.to_string())?;
             let text_pages = rotero_pdf::text_extract::extract_pages_text(&doc, &page_dims)
                 .map_err(|e| e.to_string())?;
-            Ok(text_pages
-                .into_iter()
-                .map(|t| (t.page_index, t))
-                .collect())
+            Ok(text_pages.into_iter().map(|t| (t.page_index, t)).collect())
         })
         .await
     }
@@ -174,6 +170,24 @@ impl PdfDocs {
                 .map_err(|e| e.to_string())?;
             let doc_meta = rotero_pdf::text_extract::extract_doc_metadata(&doc);
             Ok((raw_text, doc_meta))
+        })
+        .await
+    }
+
+    /// Full-text search via pdfrum `TextPage::find_with`, returning pixel-space matches.
+    pub async fn search(
+        &self,
+        pdf_path: String,
+        query: String,
+        page_pixel_dims: Vec<(u32, u32)>,
+    ) -> Result<Vec<rotero_pdf::SearchMatch>, String> {
+        self.run(move |cache| {
+            let doc = cache.open(&pdf_path).map_err(|e| e.to_string())?;
+            Ok(rotero_pdf::search_in_document(
+                &doc,
+                &query,
+                &page_pixel_dims,
+            ))
         })
         .await
     }
