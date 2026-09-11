@@ -1,8 +1,8 @@
 //! PDF rendering, annotation writing, and text extraction for the Rotero paper reader.
 //!
-//! Built on `pdfrum` for rendering/text extraction and `lopdf` for writing annotations.
+//! Built on `pdfrum` for rendering, text extraction, and annotation writing.
 
-/// Annotation writing to PDF files via lopdf.
+/// Annotation writing to PDF files via pdfrum `DocEdit`.
 pub mod annotations;
 /// PDF rendering engine, document loading, and annotation extraction via pdfrum.
 pub mod renderer;
