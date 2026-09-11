@@ -1,1 +1,267 @@
-SEE_FILE
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The rotero-translate coverage tests read the vendored Zotero
+          # translator sources (git submodules) at runtime.
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev libxdo-dev
+      - uses: taiki-e/install-action@nextest
+      - run: cargo nextest run --workspace
+
+  build-macos:
+    name: Build macOS
+    needs: [test]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Fetch a prebuilt `dx` rather than compiling it. `cargo install
+      # dioxus-cli` took ~9 minutes per job — longer than building the app
+      # itself — and repeated in all three build jobs.
+      - uses: cargo-bins/cargo-binstall@b629f84e79e8fbc4f76616a8efd340f3ea605cab # v1.21.1
+      - name: Install Dioxus CLI
+        # binstall asks the GitHub API whether a prebuilt `dx` exists for this
+        # target. Unauthenticated, that request shares a per-IP rate limit with
+        # every other runner, and binstall reads the resulting 403 as "no
+        # prebuilt binary available" rather than as a failure -- so it silently
+        # falls back to `cargo install`, which currently cannot compile
+        # dioxus-cli at all (git2 dropped `Cred::credential_helper`). The token
+        # lifts the rate limit, so the artifact that has been published all
+        # along is actually found.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: cargo binstall dioxus-cli --version 0.7.10 -y --force
+
+      - name: Bundle app
+        run: dx bundle --release
+
+      - name: Prepare and sign app bundle
+        run: |
+          APP_PATH="target/dx/rotero/release/macos/Rotero.app"
+          PLIST="$APP_PATH/Contents/Info.plist"
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          # Copy app icon
+          cp assets/icon.icns "$APP_PATH/Contents/Resources/icon.icns"
+
+          # Patch Info.plist: Retina support, version from tag
+          /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$PLIST"
+
+          # Strip quarantine and ad-hoc codesign
+          xattr -cr "$APP_PATH"
+          codesign --force --deep --sign - "$APP_PATH"
+
+      # Launch the signed bundle and assert it actually works before it becomes a
+      # release asset: the database initializes and passes its health check, the
+      # connector binds, and a saved paper persists. Every other
+      # check in this pipeline passed while shipping a build where none of that
+      # was true.
+      - name: Smoke the bundle
+        run: ./scripts/smoke-bundle.sh target/dx/rotero/release/macos/Rotero.app
+
+      - name: Create zip for auto-update
+        run: |
+          APP_PATH="target/dx/rotero/release/macos/Rotero.app"
+          ZIP_NAME="Rotero-${{ github.ref_name }}-macos-arm64.zip"
+          ditto -c -k --keepParent "$APP_PATH" "$ZIP_NAME"
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+
+      - name: Create DMG with drag-to-install
+        run: |
+          npm install -g create-dmg
+          APP_PATH="target/dx/rotero/release/macos/Rotero.app"
+          DMG_NAME="Rotero-${{ github.ref_name }}-macos-arm64.dmg"
+
+          # create-dmg automatically adds an Applications symlink and
+          # sets up the drag-to-install layout
+          create-dmg "$APP_PATH" --dmg-title="Rotero" || true
+          # create-dmg names the output based on the app, rename it
+          mv Rotero*.dmg "$DMG_NAME"
+          echo "DMG_NAME=$DMG_NAME" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: |
+            ${{ env.DMG_NAME }}
+            ${{ env.ZIP_NAME }}
+
+  # The archive names below are a contract with `update_asset_suffix()` in
+  # src/updates.rs — the in-app updater matches on these suffixes. Renaming an
+  # artifact without updating that function silently disables updates for that
+  # platform.
+  build-windows:
+    name: Build Windows
+    needs: [test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Fetch a prebuilt `dx` rather than compiling it. `cargo install
+      # dioxus-cli` took ~9 minutes per job — longer than building the app
+      # itself — and repeated in all three build jobs.
+      - uses: cargo-bins/cargo-binstall@b629f84e79e8fbc4f76616a8efd340f3ea605cab # v1.21.1
+      - name: Install Dioxus CLI
+        # binstall asks the GitHub API whether a prebuilt `dx` exists for this
+        # target. Unauthenticated, that request shares a per-IP rate limit with
+        # every other runner, and binstall reads the resulting 403 as "no
+        # prebuilt binary available" rather than as a failure -- so it silently
+        # falls back to `cargo install`, which currently cannot compile
+        # dioxus-cli at all (git2 dropped `Cred::credential_helper`). The token
+        # lifts the rate limit, so the artifact that has been published all
+        # along is actually found.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: cargo binstall dioxus-cli --version 0.7.10 -y --force
+
+      - name: Build
+        shell: bash
+        run: dx bundle --release --package-types msi
+
+      - name: Stage the portable zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The updater replaces the bare executable, so ship a zip containing
+          # it alongside the MSI.
+          EXE=$(find target/dx/rotero/release -name 'rotero.exe' | head -1)
+          test -n "$EXE" || { echo "rotero.exe not found"; exit 1; }
+          STAGE=$(mktemp -d)
+          cp "$EXE" "$STAGE/"
+          ZIP_NAME="Rotero-${{ github.ref_name }}-windows-x64.zip"
+          (cd "$STAGE" && 7z a -tzip "$OLDPWD/$ZIP_NAME" .)
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+          # dx puts installers under bundle/<platform>/, not release/.
+          MSI=$(find target/dx -name '*.msi' | head -1)
+          test -n "$MSI" || { echo "MSI not found"; exit 1; }
+          cp "$MSI" "Rotero-${{ github.ref_name }}-windows-x64.msi"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: |
+            Rotero-*-windows-x64.zip
+            Rotero-*-windows-x64.msi
+          if-no-files-found: error
+
+  build-linux:
+    name: Build Linux
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev libxdo-dev
+
+      # Fetch a prebuilt `dx` rather than compiling it. `cargo install
+      # dioxus-cli` took ~9 minutes per job — longer than building the app
+      # itself — and repeated in all three build jobs.
+      - uses: cargo-bins/cargo-binstall@b629f84e79e8fbc4f76616a8efd340f3ea605cab # v1.21.1
+      - name: Install Dioxus CLI
+        # binstall asks the GitHub API whether a prebuilt `dx` exists for this
+        # target. Unauthenticated, that request shares a per-IP rate limit with
+        # every other runner, and binstall reads the resulting 403 as "no
+        # prebuilt binary available" rather than as a failure -- so it silently
+        # falls back to `cargo install`, which currently cannot compile
+        # dioxus-cli at all (git2 dropped `Cred::credential_helper`). The token
+        # lifts the rate limit, so the artifact that has been published all
+        # along is actually found.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: cargo binstall dioxus-cli --version 0.7.10 -y --force
+
+      - name: Build
+        run: dx bundle --release --package-types deb
+
+      - name: Stage the portable tarball
+        run: |
+          set -euo pipefail
+          BIN=$(find target/dx/rotero/release -type f -name 'rotero' -perm -u+x | head -1)
+          test -n "$BIN" || { echo "rotero binary not found"; exit 1; }
+          STAGE=$(mktemp -d)
+          cp "$BIN" "$STAGE/"
+          TAR_NAME="Rotero-${{ github.ref_name }}-linux-x64.tar.gz"
+          tar -czf "$TAR_NAME" -C "$STAGE" .
+          echo "TAR_NAME=$TAR_NAME" >> "$GITHUB_ENV"
+          # dx puts installers under bundle/<platform>/, not release/.
+          DEB=$(find target/dx -name '*.deb' | head -1)
+          test -n "$DEB" || { echo "deb not found"; exit 1; }
+          cp "$DEB" "Rotero-${{ github.ref_name }}-linux-x64.deb"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: |
+            Rotero-*-linux-x64.tar.gz
+            Rotero-*-linux-x64.deb
+          if-no-files-found: error
+
+  build-extension:
+    name: Package Browser Extension
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create extension zip
+        run: |
+          cd extension
+          zip -r "../Rotero-Extension-${{ github.ref_name }}.zip" . -x ".*"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-extension
+          path: Rotero-Extension-${{ github.ref_name }}.zip
+
+  release:
+    name: Create Release
+    needs: [build-macos, build-windows, build-linux, build-extension]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            Rotero-*.dmg
+            Rotero-*-macos-*.zip
+            Rotero-*-windows-x64.zip
+            Rotero-*-windows-x64.msi
+            Rotero-*-linux-x64.tar.gz
+            Rotero-*-linux-x64.deb
+            Rotero-Extension-*.zip
