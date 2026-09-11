@@ -16,7 +16,7 @@ use std::sync::{OnceLock, RwLock};
 pub struct Preflight {
     /// The library database could not be opened, or is structurally unsound.
     pub db: Option<String>,
-    /// PDF rendering is unavailable; the engine could not be bound.
+    /// PDF rendering is unavailable (reserved; pdfrum has no bind step).
     pub pdf_engine: Option<String>,
     /// The browser connector could not bind its port.
     pub connector_port: Option<String>,
@@ -88,29 +88,13 @@ pub async fn check_database(db: &rotero_db::Database) {
     record(|p| p.db = Some(detail));
 }
 
-/// Report a PDF engine that failed to bind.
+/// PDF engine startup check.
 ///
-/// `pdf_engine` was the one field here with no writer at all, so the banner
-/// added to surface startup failures could not surface the one that leaves the
-/// reader unusable — the user got a working-looking app and a dead PDF pane.
-///
-/// Waits for the render thread to publish its outcome rather than reading
-/// immediately: the thread is spawned as the window mounts, so an eager read
-/// would nearly always run first and see nothing.
+/// With pdfrum there is no native-library bind step, so this is a no-op.
+/// Per-document open/render failures still return through the oneshot replies
+/// on each `RenderRequest`. The `Preflight::pdf_engine` field remains if a
+/// future probe wants to record a hard failure.
 #[cfg(feature = "desktop")]
 pub async fn check_pdf_engine() {
-    use crate::state::commands::{PDF_ENGINE_ERROR, PDF_ENGINE_READY};
-
-    // Binding is a `dlopen`, so this settles in milliseconds. The cap only
-    // stops a wedged loader from leaving the check pending forever.
-    for _ in 0..100 {
-        if PDF_ENGINE_READY.get().is_some() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-
-    if let Some(e) = PDF_ENGINE_ERROR.get() {
-        record(|p| p.pdf_engine = Some(e.clone()));
-    }
+    // Intentionally empty.
 }

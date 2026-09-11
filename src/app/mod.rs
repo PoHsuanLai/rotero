@@ -125,11 +125,10 @@ pub fn App() -> Element {
     });
 
     use_context_provider(|| RenderChannel {
-        inner: Signal::new(commands::spawn_render_thread()),
+        inner: Signal::new(commands::spawn_render_pool()),
     });
 
-    // Report a PDF engine that could not bind. Has to happen here rather than in
-    // `main`, because the render thread starts with the window.
+    // pdfrum needs no bind; kept so Preflight::pdf_engine stays wired if needed.
     #[cfg(feature = "desktop")]
     use_future(|| async {
         crate::init::preflight::check_pdf_engine().await;

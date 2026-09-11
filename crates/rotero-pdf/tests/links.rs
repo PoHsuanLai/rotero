@@ -12,7 +12,7 @@ fn engine() -> PdfEngine {
 
 #[test]
 fn extracts_internal_links_with_resolved_targets() {
-    let mut engine = engine();
+    let engine = engine();
     let links = engine
         .extract_links(&fixture("basicapi.pdf"))
         .expect("extract links");
@@ -34,7 +34,7 @@ fn extracts_internal_links_with_resolved_targets() {
 
 #[test]
 fn extracts_external_uri_links() {
-    let mut engine = engine();
+    let engine = engine();
     let links = engine
         .extract_links(&fixture("basicapi.pdf"))
         .expect("extract links");
@@ -54,7 +54,7 @@ fn extracts_external_uri_links() {
 
 #[test]
 fn link_free_pdf_yields_no_links() {
-    let mut engine = engine();
+    let engine = engine();
     // tracemonkey.pdf carries no link annotations — extraction must be empty,
     // not error.
     let links = engine

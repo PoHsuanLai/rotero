@@ -16,6 +16,7 @@ pub use pdf_loading::*;
 
 use std::collections::HashMap;
 use std::sync::mpsc;
+use std::sync::Arc;
 
 use rotero_pdf::PageTextData;
 use tokio::sync::oneshot;
@@ -70,194 +71,184 @@ pub enum RenderRequest {
         pdf_path: String,
         reply: oneshot::Sender<Result<Vec<rotero_pdf::ExtractedLink>, String>>,
     },
-    /// Drops the engine's cached PDF file bytes. Sent when the last PDF tab
-    /// closes so a large document's raw bytes aren't pinned indefinitely.
+    /// Drops the shared engine's cached `Arc<Document>`. Sent when the last PDF
+    /// tab closes so a large document isn't pinned indefinitely. In-flight
+    /// workers keep their own `Arc` until they finish.
     ClearCache,
 }
 
-/// Publishes why the PDF engine could not start, or `None` while it is fine.
-///
-/// Set from the render thread before it starts draining, so the startup
-/// preflight can report the real reason instead of the user meeting a dead PDF
-/// pane with the explanation buried in a log file.
-pub static PDF_ENGINE_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+/// Max concurrent blocking PDF workers (render / extract).
+fn render_concurrency() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get().clamp(2, 8))
+        .unwrap_or(4)
+}
 
-/// Resolves once the render thread has finished starting the PDF engine.
-///
-/// Lets the preflight read [`PDF_ENGINE_ERROR`] at a defined point rather than
-/// racing startup — the thread starts after the window launches, so a bare read
-/// at startup would usually run first and find nothing.
-pub static PDF_ENGINE_READY: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-
-/// Reply to every request with the same error, forever.
-///
-/// Returning from the thread instead would drop the receiver, and every later
-/// `send` would fail with "sending on a closed channel" — which is what the ~20
-/// call sites in `src/ui/pdf/` used to surface. Staying alive means each one
-/// gets the actual reason, and none of them need to change.
-fn drain_with_error(rx: mpsc::Receiver<RenderRequest>, message: String) {
-    while let Ok(req) = rx.recv() {
-        // Each reply channel carries a different success type, so the error has
-        // to be built per arm rather than shared.
-        match req {
-            RenderRequest::OpenPdf { reply, .. } => {
-                let _ = reply.send(Err(message.clone()));
-            }
-            RenderRequest::RenderMorePages { reply, .. } => {
-                let _ = reply.send(Err(message.clone()));
-            }
-            RenderRequest::ExtractText { reply, .. } => {
-                let _ = reply.send(Err(message.clone()));
-            }
-            RenderRequest::RenderThumbnails { reply, .. } => {
-                let _ = reply.send(Err(message.clone()));
-            }
-            RenderRequest::ExtractOutline { reply, .. } => {
-                let _ = reply.send(Err(message.clone()));
-            }
-            RenderRequest::GetPageDimensions { reply, .. } => {
-                let _ = reply.send(Err(message.clone()));
-            }
-            RenderRequest::ExtractMetadataText { reply, .. } => {
-                let _ = reply.send(Err(message.clone()));
-            }
-            RenderRequest::ExtractAnnotations { reply, .. } => {
-                let _ = reply.send(Err(message.clone()));
-            }
-            RenderRequest::ExtractLinks { reply, .. } => {
-                let _ = reply.send(Err(message.clone()));
-            }
-            RenderRequest::ClearCache => {}
+fn handle_render_request(engine: &rotero_pdf::PdfEngine, req: RenderRequest) {
+    match req {
+        RenderRequest::OpenPdf {
+            pdf_path,
+            zoom,
+            batch_size,
+            reply,
+        } => {
+            let result = (|| {
+                let (page_count, rendered) = engine
+                    .open_and_render_initial(&pdf_path, zoom, batch_size)
+                    .map_err(|e| e.to_string())?;
+                let pages: Vec<RenderedPageData> = rendered.into_iter().map(|r| r.into()).collect();
+                Ok((page_count, pages))
+            })();
+            let _ = reply.send(result);
+        }
+        RenderRequest::RenderMorePages {
+            pdf_path,
+            start,
+            count,
+            zoom,
+            reply,
+        } => {
+            let result = (|| {
+                let rendered = engine
+                    .render_pages(&pdf_path, start, count, zoom)
+                    .map_err(|e| e.to_string())?;
+                Ok(rendered
+                    .into_iter()
+                    .map(|r| r.into())
+                    .collect::<Vec<RenderedPageData>>())
+            })();
+            let _ = reply.send(result);
+        }
+        RenderRequest::ExtractText {
+            pdf_path,
+            page_dims,
+            reply,
+        } => {
+            let result = (|| {
+                let doc = engine.document(&pdf_path).map_err(|e| e.to_string())?;
+                let text_pages =
+                    rotero_pdf::text_extract::extract_pages_text(&doc, &page_dims)
+                        .map_err(|e| e.to_string())?;
+                Ok(text_pages
+                    .into_iter()
+                    .map(|t| (t.page_index, t))
+                    .collect::<HashMap<u32, PageTextData>>())
+            })();
+            let _ = reply.send(result);
+        }
+        RenderRequest::RenderThumbnails {
+            pdf_path,
+            start,
+            count,
+            reply,
+        } => {
+            let result = (|| {
+                let rendered = engine
+                    .render_thumbnails_range(&pdf_path, start, count, 120)
+                    .map_err(|e| e.to_string())?;
+                Ok(rendered
+                    .into_iter()
+                    .map(|r| r.into())
+                    .collect::<Vec<RenderedPageData>>())
+            })();
+            let _ = reply.send(result);
+        }
+        RenderRequest::ExtractOutline { pdf_path, reply } => {
+            let result = engine.extract_outline(&pdf_path).map_err(|e| e.to_string());
+            let _ = reply.send(result);
+        }
+        RenderRequest::GetPageDimensions { pdf_path, reply } => {
+            let result = engine
+                .get_page_dimensions(&pdf_path)
+                .map_err(|e| e.to_string());
+            let _ = reply.send(result);
+        }
+        RenderRequest::ExtractMetadataText {
+            pdf_path,
+            page_count,
+            reply,
+        } => {
+            let result = (|| {
+                let doc = engine.document(&pdf_path).map_err(|e| e.to_string())?;
+                let indices: Vec<u32> = (0..page_count).collect();
+                let raw_text = rotero_pdf::text_extract::extract_raw_text(&doc, &indices)
+                    .map_err(|e| e.to_string())?;
+                let doc_meta = rotero_pdf::text_extract::extract_doc_metadata(&doc);
+                Ok((raw_text, doc_meta))
+            })();
+            let _ = reply.send(result);
+        }
+        RenderRequest::ExtractAnnotations { pdf_path, reply } => {
+            let result = engine
+                .extract_annotations(&pdf_path)
+                .map_err(|e| e.to_string());
+            let _ = reply.send(result);
+        }
+        RenderRequest::ExtractLinks { pdf_path, reply } => {
+            let result = engine.extract_links(&pdf_path).map_err(|e| e.to_string());
+            let _ = reply.send(result);
+        }
+        RenderRequest::ClearCache => {
+            // Normally handled on the dispatcher; safe if a worker ever sees it.
+            engine.clear_cache();
         }
     }
 }
 
-pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
+/// Spawns the PDF render pool and returns a channel façade for UI call sites.
+///
+/// pdfrum documents are `Send + Sync`, so work runs on `tokio::task::spawn_blocking`
+/// workers capped by a semaphore. Each blocking job uses the shared
+/// [`rotero_pdf::PdfEngine`] cache (`Arc<Document>`) and creates its own
+/// `RenderSession`. The `RenderRequest` / oneshot reply pattern is unchanged.
+pub fn spawn_render_pool() -> mpsc::Sender<RenderRequest> {
     let (tx, rx) = mpsc::channel::<RenderRequest>();
 
-    std::thread::spawn(move || {
-        // pdfrum is pure Rust — no native library bind step.
-        let mut engine = rotero_pdf::PdfEngine::new();
-        let _ = PDF_ENGINE_READY.set(());
+    std::thread::Builder::new()
+        .name("pdf-render-dispatch".into())
+        .spawn(move || {
+            let engine = Arc::new(rotero_pdf::PdfEngine::new());
+            let concurrency = render_concurrency();
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .thread_name("pdf-render-rt")
+                .enable_all()
+                .build()
+                .expect("pdf render tokio runtime");
+            let sem = Arc::new(tokio::sync::Semaphore::new(concurrency));
 
-        while let Ok(req) = rx.recv() {
-            match req {
-                RenderRequest::OpenPdf {
-                    pdf_path,
-                    zoom,
-                    batch_size,
-                    reply,
-                } => {
-                    let result = (|| {
-                        let (page_count, rendered) = engine
-                            .open_and_render_initial(&pdf_path, zoom, batch_size)
-                            .map_err(|e| e.to_string())?;
-                        let pages: Vec<RenderedPageData> =
-                            rendered.into_iter().map(|r| r.into()).collect();
-                        Ok((page_count, pages))
-                    })();
-                    let _ = reply.send(result);
-                }
-                RenderRequest::RenderMorePages {
-                    pdf_path,
-                    start,
-                    count,
-                    zoom,
-                    reply,
-                } => {
-                    let result = (|| {
-                        let rendered = engine
-                            .render_pages(&pdf_path, start, count, zoom)
-                            .map_err(|e| e.to_string())?;
-                        Ok(rendered
-                            .into_iter()
-                            .map(|r| r.into())
-                            .collect::<Vec<RenderedPageData>>())
-                    })();
-                    let _ = reply.send(result);
-                }
-                RenderRequest::ExtractText {
-                    pdf_path,
-                    page_dims,
-                    reply,
-                } => {
-                    let result = (|| {
-                        let doc = engine.document(&pdf_path).map_err(|e| e.to_string())?;
-                        let text_pages = rotero_pdf::text_extract::extract_pages_text(
-                            &doc,
-                            &page_dims,
-                        )
-                        .map_err(|e| e.to_string())?;
-                        Ok(text_pages
-                            .into_iter()
-                            .map(|t| (t.page_index, t))
-                            .collect::<HashMap<u32, PageTextData>>())
-                    })();
-                    let _ = reply.send(result);
-                }
-                RenderRequest::RenderThumbnails {
-                    pdf_path,
-                    start,
-                    count,
-                    reply,
-                } => {
-                    let result = (|| {
-                        let rendered = engine
-                            .render_thumbnails_range(&pdf_path, start, count, 120)
-                            .map_err(|e| e.to_string())?;
-                        Ok(rendered
-                            .into_iter()
-                            .map(|r| r.into())
-                            .collect::<Vec<RenderedPageData>>())
-                    })();
-                    let _ = reply.send(result);
-                }
-                RenderRequest::ExtractOutline { pdf_path, reply } => {
-                    let result = engine.extract_outline(&pdf_path).map_err(|e| e.to_string());
-                    let _ = reply.send(result);
-                }
-                RenderRequest::GetPageDimensions { pdf_path, reply } => {
-                    let result = engine
-                        .get_page_dimensions(&pdf_path)
-                        .map_err(|e| e.to_string());
-                    let _ = reply.send(result);
-                }
-                RenderRequest::ExtractMetadataText {
-                    pdf_path,
-                    page_count,
-                    reply,
-                } => {
-                    let result = (|| {
-                        let doc = engine.document(&pdf_path).map_err(|e| e.to_string())?;
-                        let indices: Vec<u32> = (0..page_count).collect();
-                        let raw_text = rotero_pdf::text_extract::extract_raw_text(
-                            &doc,
-                            &indices,
-                        )
-                        .map_err(|e| e.to_string())?;
-                        let doc_meta = rotero_pdf::text_extract::extract_doc_metadata(&doc);
-                        Ok((raw_text, doc_meta))
-                    })();
-                    let _ = reply.send(result);
-                }
-                RenderRequest::ExtractAnnotations { pdf_path, reply } => {
-                    let result = engine
-                        .extract_annotations(&pdf_path)
-                        .map_err(|e| e.to_string());
-                    let _ = reply.send(result);
-                }
-                RenderRequest::ExtractLinks { pdf_path, reply } => {
-                    let result = engine.extract_links(&pdf_path).map_err(|e| e.to_string());
-                    let _ = reply.send(result);
-                }
-                RenderRequest::ClearCache => {
-                    engine.clear_byte_cache();
+            while let Ok(req) = rx.recv() {
+                match req {
+                    RenderRequest::ClearCache => {
+                        engine.clear_cache();
+                    }
+                    req => {
+                        let engine = Arc::clone(&engine);
+                        let sem = Arc::clone(&sem);
+                        rt.spawn(async move {
+                            let Ok(_permit) = sem.acquire().await else {
+                                return;
+                            };
+                            let result = tokio::task::spawn_blocking(move || {
+                                handle_render_request(&engine, req);
+                            })
+                            .await;
+                            if let Err(e) = result {
+                                tracing::error!("pdf render worker join error: {e}");
+                            }
+                        });
+                    }
                 }
             }
-        }
-    });
+        })
+        .expect("spawn pdf render dispatcher");
 
     tx
+}
+
+/// Backward-compatible alias for [`spawn_render_pool`].
+pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
+    spawn_render_pool()
 }
 
 pub(crate) async fn recv_reply<T: Send + 'static>(

@@ -38,7 +38,7 @@ pub async fn scan_citations_if_needed(
             continue;
         }
 
-        // Extract this PDF's links via the render thread's shared PdfEngine.
+        // Extract this PDF's links via the shared PdfEngine (render pool).
         let (reply_tx, reply_rx) = oneshot::channel();
         if render_tx
             .send(RenderRequest::ExtractLinks {

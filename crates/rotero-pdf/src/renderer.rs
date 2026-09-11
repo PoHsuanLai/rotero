@@ -37,14 +37,13 @@ struct CachedDoc {
     doc: Arc<Document>,
 }
 
-/// Document-centric PDF engine with path+mtime cache.
+/// Document-centric PDF engine with a path+mtime cache shared across threads.
 ///
 /// Built around `pdfrum::Document` (pure Rust, `Send + Sync`). The cache holds
-/// an `Arc<Document>` so a later multi-threaded render pool can share documents
-/// while giving each worker its own [`RenderSession`].
+/// an `Arc<Document>` behind a mutex so a render pool can share one engine;
+/// each render call creates its own [`RenderSession`] (sessions are `&mut`-only).
 pub struct PdfEngine {
-    cached: Option<CachedDoc>,
-    session: RenderSession,
+    cached: std::sync::Mutex<Option<CachedDoc>>,
 }
 
 /// Basic information about a loaded PDF document.
@@ -74,31 +73,30 @@ impl PdfEngine {
     /// pdfrum is pure Rust and needs no native library.
     pub fn new() -> Self {
         Self {
-            cached: None,
-            session: RenderSession::new(),
+            cached: std::sync::Mutex::new(None),
         }
     }
 
     /// Opens (or reuses a cached) document for `pdf_path`, keyed by path + mtime.
-    pub fn document(&mut self, pdf_path: &str) -> Result<Arc<Document>, PdfError> {
+    pub fn document(&self, pdf_path: &str) -> Result<Arc<Document>, PdfError> {
         let mtime = file_mtime(pdf_path);
-        let reuse = self
-            .cached
+        let mut guard = self.cached.lock().unwrap_or_else(|e| e.into_inner());
+        let reuse = guard
             .as_ref()
             .is_some_and(|c| c.path == pdf_path && c.mtime == mtime);
         if !reuse {
             let doc = Document::open(pdf_path)?;
-            self.cached = Some(CachedDoc {
+            *guard = Some(CachedDoc {
                 path: pdf_path.to_string(),
                 mtime,
                 doc: Arc::new(doc),
             });
         }
-        Ok(Arc::clone(&self.cached.as_ref().expect("just inserted").doc))
+        Ok(Arc::clone(&guard.as_ref().expect("just inserted").doc))
     }
 
     /// Loads a PDF and returns its path and page count without rendering.
-    pub fn load_document(&mut self, pdf_path: &str) -> Result<PdfDocumentInfo, PdfError> {
+    pub fn load_document(&self, pdf_path: &str) -> Result<PdfDocumentInfo, PdfError> {
         let doc = self.document(pdf_path)?;
         Ok(PdfDocumentInfo {
             path: pdf_path.to_string(),
@@ -125,7 +123,7 @@ impl PdfEngine {
     }
 
     fn render_page_inner(
-        &mut self,
+        session: &mut RenderSession,
         doc: &Document,
         page_index: u32,
         opts: &RenderOptions,
@@ -136,26 +134,27 @@ impl PdfEngine {
         }
         let page = doc.page(page_index)?;
         let pixmap = page
-            .render_on(VelloCpuBackend, opts, &mut self.session)
+            .render_on(VelloCpuBackend, opts, session)
             .map_err(|e| PdfError::RenderError(e.to_string()))?;
         Self::encode_rendered(page_index, pixmap)
     }
 
     /// `scale`: zoom level (1.0 = 72 DPI, 2.0 = 144 DPI, etc.)
     pub fn render_page(
-        &mut self,
+        &self,
         pdf_path: &str,
         page_index: u32,
         scale: f32,
     ) -> Result<RenderedPage, PdfError> {
         let doc = self.document(pdf_path)?;
         let opts = RenderOptions::scaled(f64::from(scale));
-        self.render_page_inner(&doc, page_index, &opts)
+        let mut session = RenderSession::new();
+        Self::render_page_inner(&mut session, &doc, page_index, &opts)
     }
 
     /// Renders a contiguous range of pages starting at `start` as base64 PNGs.
     pub fn render_pages(
-        &mut self,
+        &self,
         pdf_path: &str,
         start: u32,
         count: u32,
@@ -165,9 +164,10 @@ impl PdfEngine {
         let page_count = doc.page_count();
         let end = (start + count).min(page_count);
         let opts = RenderOptions::scaled(f64::from(scale));
+        let mut session = RenderSession::new();
         let mut pages = Vec::with_capacity((end - start) as usize);
         for i in start..end {
-            pages.push(self.render_page_inner(&doc, i, &opts)?);
+            pages.push(Self::render_page_inner(&mut session, &doc, i, &opts)?);
         }
         Ok(pages)
     }
@@ -175,7 +175,7 @@ impl PdfEngine {
     /// Opens a document once and renders its first `batch_size` pages, returning
     /// the total page count alongside the rendered pages.
     pub fn open_and_render_initial(
-        &mut self,
+        &self,
         pdf_path: &str,
         scale: f32,
         batch_size: u32,
@@ -184,16 +184,17 @@ impl PdfEngine {
         let page_count = doc.page_count();
         let end = batch_size.min(page_count);
         let opts = RenderOptions::scaled(f64::from(scale));
+        let mut session = RenderSession::new();
         let mut pages = Vec::with_capacity(end as usize);
         for i in 0..end {
-            pages.push(self.render_page_inner(&doc, i, &opts)?);
+            pages.push(Self::render_page_inner(&mut session, &doc, i, &opts)?);
         }
         Ok((page_count, pages))
     }
 
     /// Renders a range of pages as thumbnails constrained to `max_width` pixels.
     pub fn render_thumbnails_range(
-        &mut self,
+        &self,
         pdf_path: &str,
         start: u32,
         count: u32,
@@ -202,13 +203,14 @@ impl PdfEngine {
         let doc = self.document(pdf_path)?;
         let page_count = doc.page_count();
         let end = (start + count).min(page_count);
+        let mut session = RenderSession::new();
         let mut thumbs = Vec::with_capacity((end - start) as usize);
 
         for i in start..end {
             let page = doc.page(i)?;
             let opts = RenderOptions::fit(page.width(), page.height(), max_width, u32::MAX);
             let pixmap = page
-                .render_on(VelloCpuBackend, &opts, &mut self.session)
+                .render_on(VelloCpuBackend, &opts, &mut session)
                 .map_err(|e| PdfError::RenderError(e.to_string()))?;
             thumbs.push(Self::encode_rendered(i, pixmap)?);
         }
@@ -217,7 +219,7 @@ impl PdfEngine {
     }
 
     /// Extracts the document outline (bookmarks / table of contents).
-    pub fn extract_outline(&mut self, pdf_path: &str) -> Result<Vec<BookmarkEntry>, PdfError> {
+    pub fn extract_outline(&self, pdf_path: &str) -> Result<Vec<BookmarkEntry>, PdfError> {
         let doc = self.document(pdf_path)?;
         let outline = doc.outline();
         let mut entries = Vec::with_capacity(outline.len());
@@ -232,7 +234,7 @@ impl PdfEngine {
     }
 
     /// Returns (width_pts, height_pts) for all pages without rendering.
-    pub fn get_page_dimensions(&mut self, pdf_path: &str) -> Result<Vec<(f32, f32)>, PdfError> {
+    pub fn get_page_dimensions(&self, pdf_path: &str) -> Result<Vec<(f32, f32)>, PdfError> {
         let doc = self.document(pdf_path)?;
         let mut dims = Vec::with_capacity(doc.page_count() as usize);
         for page in doc.pages() {
@@ -241,15 +243,18 @@ impl PdfEngine {
         Ok(dims)
     }
 
-    /// Drops the cached document to free memory.
-    pub fn clear_byte_cache(&mut self) {
-        self.cached = None;
-        self.session = RenderSession::new();
+    /// Drops the cached document so its memory can be reclaimed.
+    ///
+    /// In-flight workers that already hold an `Arc<Document>` keep it until they
+    /// finish; subsequent requests reopen from disk.
+    pub fn clear_cache(&self) {
+        let mut guard = self.cached.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = None;
     }
 
     /// Reads all supported annotations from the PDF.
     pub fn extract_annotations(
-        &mut self,
+        &self,
         pdf_path: &str,
     ) -> Result<Vec<ExtractedAnnotation>, PdfError> {
         let doc = self.document(pdf_path)?;
@@ -296,7 +301,7 @@ impl PdfEngine {
     }
 
     /// Reads all links from the PDF — both intra-document jumps and external URIs.
-    pub fn extract_links(&mut self, pdf_path: &str) -> Result<Vec<ExtractedLink>, PdfError> {
+    pub fn extract_links(&self, pdf_path: &str) -> Result<Vec<ExtractedLink>, PdfError> {
         let doc = self.document(pdf_path)?;
         let mut result = Vec::new();
 

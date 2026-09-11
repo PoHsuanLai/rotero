@@ -748,7 +748,7 @@ fn action_close_tab(
     tabs.with_mut(|m| m.close_tab(tab_id));
     if tabs.read().tabs.is_empty() {
         lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
-        // No PDFs open — free the engine's cached file bytes.
+        // No PDFs open — drop the shared document cache.
         let _ = render_ch
             .sender()
             .send(crate::state::commands::RenderRequest::ClearCache);
