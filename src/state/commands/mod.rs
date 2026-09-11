@@ -183,11 +183,9 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                 } => {
                     let result = (|| {
                         let doc = engine.document(&pdf_path).map_err(|e| e.to_string())?;
-                        let text_pages = rotero_pdf::text_extract::extract_pages_text(
-                            &doc,
-                            &page_dims,
-                        )
-                        .map_err(|e| e.to_string())?;
+                        let text_pages =
+                            rotero_pdf::text_extract::extract_pages_text(&doc, &page_dims)
+                                .map_err(|e| e.to_string())?;
                         Ok(text_pages
                             .into_iter()
                             .map(|t| (t.page_index, t))
@@ -230,11 +228,8 @@ pub fn spawn_render_thread() -> mpsc::Sender<RenderRequest> {
                     let result = (|| {
                         let doc = engine.document(&pdf_path).map_err(|e| e.to_string())?;
                         let indices: Vec<u32> = (0..page_count).collect();
-                        let raw_text = rotero_pdf::text_extract::extract_raw_text(
-                            &doc,
-                            &indices,
-                        )
-                        .map_err(|e| e.to_string())?;
+                        let raw_text = rotero_pdf::text_extract::extract_raw_text(&doc, &indices)
+                            .map_err(|e| e.to_string())?;
                         let doc_meta = rotero_pdf::text_extract::extract_doc_metadata(&doc);
                         Ok((raw_text, doc_meta))
                     })();

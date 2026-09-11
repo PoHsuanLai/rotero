@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use pdfrum::{
-    Dest, Document, LinkTarget as PdfrumLinkTarget, Name, Object, RenderOptions,
-    RenderSession, Subtype, VelloCpuBackend,
+    Dest, Document, LinkTarget as PdfrumLinkTarget, Name, Object, RenderOptions, RenderSession,
+    Subtype, VelloCpuBackend,
 };
 use thiserror::Error;
 
@@ -94,7 +94,9 @@ impl PdfEngine {
                 doc: Arc::new(doc),
             });
         }
-        Ok(Arc::clone(&self.cached.as_ref().expect("just inserted").doc))
+        Ok(Arc::clone(
+            &self.cached.as_ref().expect("just inserted").doc,
+        ))
     }
 
     /// Loads a PDF and returns its path and page count without rendering.
@@ -106,10 +108,7 @@ impl PdfEngine {
         })
     }
 
-    fn encode_rendered(
-        page_index: u32,
-        pixmap: pdfrum::Pixmap,
-    ) -> Result<RenderedPage, PdfError> {
+    fn encode_rendered(page_index: u32, pixmap: pdfrum::Pixmap) -> Result<RenderedPage, PdfError> {
         let width = pixmap.width();
         let height = pixmap.height();
         let png = pixmap
@@ -392,16 +391,11 @@ fn annot_color_hex(dict: &pdfrum::Dict) -> String {
 /// Pulls the destination Y (PDF points, bottom-up) from a link's `/Dest` or
 /// action `/D` array when present.
 fn dest_y_pts(link: &pdfrum::Link, resolver: &impl pdfrum::Resolve) -> Option<f32> {
-    let array = link
-        .dict
-        .array(&Name::from("Dest"), resolver)
-        .or_else(|| {
-            let action = link.dict.dict(&Name::from("A"), resolver)?;
-            action.array(&Name::from("D"), resolver)
-        })?;
-    let dest = Dest {
-        array: Some(array),
-    };
+    let array = link.dict.array(&Name::from("Dest"), resolver).or_else(|| {
+        let action = link.dict.dict(&Name::from("A"), resolver)?;
+        action.array(&Name::from("D"), resolver)
+    })?;
+    let dest = Dest { array: Some(array) };
     if let Some(xyz) = dest.xyz(resolver) {
         return xyz.y;
     }
