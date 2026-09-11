@@ -250,7 +250,7 @@ run-ios device="iPhone 17 Pro": setup-pdfium-ios
 # Bundle iOS app for device (static PDFium linking — required for real devices)
 build-ios: setup-pdfium-ios
     PDFIUM_STATIC_LIB_PATH="{{justfile_directory()}}/lib/ios-device" \
-    dx bundle --platform ios --features "mobile,pdfium-static" --no-default-features
+    dx bundle --platform ios --features "mobile" --no-default-features
 
 # Capture the user guide screenshots (macOS only; pass shot ids to redo a subset)
 docs-screenshots *SHOTS: setup-pdfium
