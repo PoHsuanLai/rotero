@@ -69,7 +69,7 @@ pub struct RenderedPage {
 }
 
 impl PdfEngine {
-    /// Creates a new engine. Unlike the former PDFium binding, this cannot fail:
+    /// Creates a new engine.
     /// pdfrum is pure Rust and needs no native library.
     pub fn new() -> Self {
         Self {

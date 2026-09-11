@@ -267,7 +267,7 @@ async fn run_migrations(conn: &Connection) -> Result<(), SchemaError> {
     if current_version < 13 {
         // Citation-relationship storage + one-time-task bookkeeping. The tables
         // are created here for existing DBs (CREATE_TABLES handles fresh ones).
-        // Population happens in the app layer on startup (needs pdfium), guarded
+        // Population happens in the app layer on startup (needs the PDF engine), guarded
         // by an `app_flags` row.
         let _ = conn
             .execute(

@@ -10,7 +10,7 @@ use agent_client_protocol::schema::v1::{
 };
 
 use super::LoopResult;
-use super::install::{find_mcp_binary, find_pdfium_path};
+use super::install::find_mcp_binary;
 use super::types::{
     AgentAuthMethod, AgentModel, ChatEvent, ChatRequest, SlashCommand, ToolContentBlock, ToolKind,
     ToolLocation, ToolStatus, ToolUse,
@@ -48,20 +48,10 @@ pub(crate) fn build_mcp_servers() -> Vec<McpServer> {
     }
 
     let mcp_binary = find_mcp_binary();
-    let pdfium_path = find_pdfium_path();
 
     if let Some(mcp_bin) = mcp_binary {
         tracing::info!("MCP: using stdio binary at {}", mcp_bin.display());
-        let env = match pdfium_path {
-            Some(p) => vec![agent_client_protocol::schema::v1::EnvVariable::new(
-                "PDFIUM_DYNAMIC_LIB_PATH",
-                p.to_string_lossy().into_owned(),
-            )],
-            None => vec![],
-        };
-        vec![McpServer::Stdio(
-            McpServerStdio::new("rotero", mcp_bin).env(env),
-        )]
+        vec![McpServer::Stdio(McpServerStdio::new("rotero", mcp_bin))]
     } else {
         tracing::warn!("MCP: no server available — agent won't have library tools");
         vec![]

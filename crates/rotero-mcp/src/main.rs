@@ -54,11 +54,7 @@ async fn main() -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
 
-    // pdfrum is pure Rust — the PDF engine is always available.
-    tracing::info!("PDF engine available (pdfrum)");
-    let pdf_available = true;
-
-    let server = server::RoteroMcp::new(db, pdf_available);
+    let server = server::RoteroMcp::new(db);
 
     tracing::info!("Starting Rotero MCP server");
 

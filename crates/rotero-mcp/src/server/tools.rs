@@ -1035,7 +1035,7 @@ impl ServerHandler for RoteroMcp {
 }
 
 impl RoteroMcp {
-    pub fn new(db: crate::db::Database, pdf_available: bool) -> Self {
-        Self { db, pdf_available }
+    pub fn new(db: crate::db::Database) -> Self {
+        Self { db }
     }
 }

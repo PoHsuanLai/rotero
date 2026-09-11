@@ -194,18 +194,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      # Without PDFium present every rotero-pdf test skips itself and the job
-      # still goes green, so the PDF layer was effectively untested in CI.
-      - name: Cache PDFium
-        uses: actions/cache@v4
-        with:
-          path: lib
-          # The download URL lives in the justfile, so its hash alone tracks a
-          # version change; a stale binary cannot outlive an edit to the recipe.
-          key: pdfium-macos-${{ hashFiles('justfile') }}
-      - uses: taiki-e/install-action@just
-      - name: Download PDFium
-        run: just setup-pdfium
       - uses: taiki-e/install-action@nextest
       # `clippy --all-targets` and the test build cannot share artifacts —
       # clippy stops at metadata while tests need real codegen. Same ordering as
@@ -213,8 +201,6 @@ jobs:
       - run: cargo nextest run --workspace --no-run
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
-        env:
-          PDFIUM_DYNAMIC_LIB_PATH: ${{ github.workspace }}/lib
         run: cargo nextest run --workspace
 
   # Builds the real bundle and runs it. Every check above passed while the
@@ -256,21 +242,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cargo binstall dioxus-cli --version 0.7.10 -y --force
-      - name: Cache PDFium
-        uses: actions/cache@v4
-        with:
-          path: lib
-          key: pdfium-macos-${{ hashFiles('justfile') }}
       - uses: taiki-e/install-action@just
-      - name: Download PDFium
-        run: just setup-pdfium
       - name: Bundle
-        run: PDFIUM_DYNAMIC_LIB_PATH="$PWD/lib" dx bundle --release
-      # Mirrors release.yml: PDFium ships beside the executable, where the
-      # runtime resolver looks for it.
-      - name: Stage PDFium into the bundle
-        run: |
-          APP_PATH="target/dx/rotero/release/macos/Rotero.app"
-          cp lib/libpdfium.dylib "$APP_PATH/Contents/MacOS/"
+        run: dx bundle --release
       - name: Smoke the bundle
         run: ./scripts/smoke-bundle.sh target/dx/rotero/release/macos/Rotero.app
