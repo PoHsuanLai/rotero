@@ -33,10 +33,7 @@ pub async fn scan_citations_if_needed(docs: &PdfDocs, db: &Database) -> usize {
             continue;
         }
 
-        let Ok(links) = docs
-            .extract_links(full.to_string_lossy().to_string())
-            .await
-        else {
+        let Ok(links) = docs.extract_links(full.to_string_lossy().to_string()).await else {
             continue;
         };
 

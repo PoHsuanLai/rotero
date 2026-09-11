@@ -101,10 +101,7 @@ pub async fn precache_pdf(
         return;
     }
     let path = pdf_path.to_string();
-    let Ok((page_count, pages)) = docs
-        .open_and_render_initial(path.clone(), zoom, 5)
-        .await
-    else {
+    let Ok((page_count, pages)) = docs.open_and_render_initial(path.clone(), zoom, 5).await else {
         return;
     };
     let batch_size = 5u32;
@@ -124,10 +121,7 @@ pub async fn precache_pdf(
     let mut start = batch_size.min(page_count);
     while start < page_count {
         let count = batch_size.min(page_count - start);
-        let Ok(more_pages) = docs
-            .render_pages(path.clone(), start, count, zoom)
-            .await
-        else {
+        let Ok(more_pages) = docs.render_pages(path.clone(), start, count, zoom).await else {
             break;
         };
         let more_dir = data_dir.to_path_buf();

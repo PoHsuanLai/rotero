@@ -135,7 +135,6 @@ pub fn App() -> Element {
         inner: Signal::new(commands::PdfDocs::new()),
     });
 
-
     let _chat_state: Signal<ChatState> = use_context_provider(|| Signal::new(ChatState::default()));
     let (agent_tx, agent_rx) = use_hook(|| {
         let (req_tx, evt_rx) = crate::agent::spawn_agent_thread();

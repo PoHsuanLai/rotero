@@ -247,6 +247,7 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                                     &output_path,
                                     &annotations,
                                     &dims,
+                                    None,
                                 ) {
                                     Ok(()) => tracing::info!("Exported annotated PDF to {:?}", output_path),
                                     Err(e) => tracing::error!("Failed to export annotated PDF: {e}"),
