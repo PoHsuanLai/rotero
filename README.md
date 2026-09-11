@@ -118,7 +118,7 @@ Cargo workspace with 9 library crates + the app:
 |---|---|---|
 | `rotero-models` | Shared data types | serde |
 | `rotero-db` | SQLite CRUD, schema, migrations | turso |
-| `rotero-pdf` | PDF rendering, annotation writing, link extraction | pdfrum, lopdf |
+| `rotero-pdf` | PDF rendering, annotation writing, link extraction | pdfrum |
 | `rotero-search` | Metadata API clients (arXiv, CrossRef, OpenAlex, S2, Unpaywall) | reqwest |
 | `rotero-bib` | BibTeX/RIS/NBIB/CSL + citation generation | biblatex, hayagriva |
 | `rotero-connector` | Browser extension + Word add-in HTTP server | axum |
