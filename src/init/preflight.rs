@@ -16,8 +16,6 @@ use std::sync::{OnceLock, RwLock};
 pub struct Preflight {
     /// The library database could not be opened, or is structurally unsound.
     pub db: Option<String>,
-    /// PDF rendering is unavailable (reserved; pdfrum has no bind step).
-    pub pdf_engine: Option<String>,
     /// The browser connector could not bind its port.
     pub connector_port: Option<String>,
     /// The MCP server could not bind its port.
@@ -38,7 +36,6 @@ impl Preflight {
     pub fn issues(&self) -> Vec<(&'static str, &str)> {
         [
             ("Library", self.db.as_deref()),
-            ("PDF engine", self.pdf_engine.as_deref()),
             ("Browser connector", self.connector_port.as_deref()),
             ("MCP server", self.mcp_port.as_deref()),
             ("Sync", self.sync_folder.as_deref()),
@@ -88,13 +85,3 @@ pub async fn check_database(db: &rotero_db::Database) {
     record(|p| p.db = Some(detail));
 }
 
-/// PDF engine startup check.
-///
-/// With pdfrum there is no native-library bind step, so this is a no-op.
-/// Per-document open/render failures still return through the oneshot replies
-/// on each `RenderRequest`. The `Preflight::pdf_engine` field remains if a
-/// future probe wants to record a hard failure.
-#[cfg(feature = "desktop")]
-pub async fn check_pdf_engine() {
-    // Intentionally empty.
-}

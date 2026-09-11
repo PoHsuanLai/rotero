@@ -57,7 +57,6 @@ APP_BUNDLE="$BUNDLE_DIR/Rotero.app"
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 cp "$ROOT/target/debug/rotero" "$APP_BUNDLE/Contents/MacOS/Rotero"
-cp "$ROOT/lib/libpdfium.dylib" "$APP_BUNDLE/Contents/MacOS/" 2>/dev/null || true
 cat >"$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -78,7 +77,6 @@ echo "==> Launching against the fixture"
 # Bigger than the app's 1200x800 default: at that size the sidebar labels and
 # the detail panel crop, which reads as a cramped app in a screenshot. Sized to
 # sit inside a 1920x1080 logical screen with room for the menu bar.
-PDFIUM_DYNAMIC_LIB_PATH="$ROOT/lib" \
 ROTERO_DATA_DIR="$FIXTURE" \
 ROTERO_SHOT_SCRIPT="$SCRIPT_FILE" \
 ROTERO_WINDOW_SIZE="${ROTERO_SHOT_WINDOW:-1760x1040}" \

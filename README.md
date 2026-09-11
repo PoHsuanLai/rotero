@@ -63,8 +63,6 @@ Download the latest release from the [Releases page](https://github.com/PoHsuanL
 - **Windows** — `Rotero-*-windows-x64.msi` (installer) or `.zip` (portable)
 - **Linux** — `Rotero-*-linux-x64.deb` or `.tar.gz` (portable)
 
-The portable archives contain the executable plus the PDFium library it loads at runtime; keep the two together.
-
 > **macOS note:** On first launch, macOS may show "Apple could not verify “Rotero” is free of malware that may harm your Mac or compromise your privacy." This is because the app is not notarized with an Apple Developer account. To open it: go to System Settings → Privacy & Security → scroll down to "Rotero was blocked to protect your Mac." -> click "Open Anyway". You only need to do this once.
 
 > **Windows note:** The build is unsigned, so SmartScreen will warn on first launch. Choose "More info" → "Run anyway".
@@ -76,7 +74,7 @@ Requires [Rust](https://rustup.rs/) and [just](https://github.com/casey/just).
 ```sh
 git clone https://github.com/PoHsuanLai/rotero.git
 cd rotero
-just run    # downloads PDFium, builds, runs
+just run    # builds and runs with hot reload
 ```
 
 Other commands: `just check`, `just lint`, `just build-release`, `just run-release`, `just clean`
@@ -120,7 +118,7 @@ Cargo workspace with 9 library crates + the app:
 |---|---|---|
 | `rotero-models` | Shared data types | serde |
 | `rotero-db` | SQLite CRUD, schema, migrations | turso |
-| `rotero-pdf` | PDF rendering, annotation writing, link extraction | pdfium-render, lopdf |
+| `rotero-pdf` | PDF rendering, annotation writing, link extraction | pdfrum, lopdf |
 | `rotero-search` | Metadata API clients (arXiv, CrossRef, OpenAlex, S2, Unpaywall) | reqwest |
 | `rotero-bib` | BibTeX/RIS/NBIB/CSL + citation generation | biblatex, hayagriva |
 | `rotero-connector` | Browser extension + Word add-in HTTP server | axum |

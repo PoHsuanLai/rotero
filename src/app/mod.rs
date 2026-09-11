@@ -128,11 +128,6 @@ pub fn App() -> Element {
         inner: Signal::new(commands::spawn_render_pool()),
     });
 
-    // pdfrum needs no bind; kept so Preflight::pdf_engine stays wired if needed.
-    #[cfg(feature = "desktop")]
-    use_future(|| async {
-        crate::init::preflight::check_pdf_engine().await;
-    });
 
     let _chat_state: Signal<ChatState> = use_context_provider(|| Signal::new(ChatState::default()));
     let (agent_tx, agent_rx) = use_hook(|| {

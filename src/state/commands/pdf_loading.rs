@@ -62,7 +62,7 @@ async fn save_fulltext_to_db(tabs: &Signal<PdfTabManager>, tab_id: TabId, paper_
 /// Open a PDF into its tab, always leaving the tab in a settled state.
 ///
 /// Wraps [`open_pdf_inner`] so that however it exits — including the `?` on
-/// `recv_reply`, which is what fires when the PDF engine is unavailable — the
+/// `recv_reply` when the render channel drops — the
 /// spinner stops and the reason is recorded. Previously those paths skipped both
 /// `is_loading = false` sites, and neither retry condition could fire
 /// afterwards, so the tab said "Loading PDF…" until it was closed.
