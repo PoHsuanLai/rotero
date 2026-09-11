@@ -2,14 +2,14 @@ use dioxus::prelude::*;
 
 use super::super::chat_panel::ChatToggleButton;
 use super::super::components::context_menu::{ContextMenu, ContextMenuItem, ContextMenuSeparator};
-use crate::app::RenderChannel;
+use crate::app::PdfDocs;
 use crate::state::app_state::{LibraryState, LibraryView, PdfTabManager, TabId};
 
 #[component]
 pub fn PdfTabBar() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let mut lib_state = use_context::<Signal<LibraryState>>();
-    let render_ch = use_context::<RenderChannel>();
+    let docs = use_context::<PdfDocs>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
 
@@ -80,13 +80,13 @@ pub fn PdfTabBar() -> Element {
                                 }
 
                                 spawn(async move {
-                                    let render_tx = render_ch.sender();
+                                    let docs = docs.get();
                                     let cfg_dir = config.read().effective_library_path();
 
                                     let needs = tabs.read().active_tab().map(|t| t.needs_render()).unwrap_or(false);
                                     if needs {
                                         tabs.with_mut(|m| m.tab_mut().is_loading = true);
-                                        let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, tab_id, &cfg_dir, dpr_sig.read().0).await;
+                                        let _ = crate::state::commands::open_pdf(&docs, &mut tabs, tab_id, &cfg_dir, dpr_sig.read().0).await;
                                     }
 
                                     // Pages render in a sliding window, so before restoring
@@ -94,7 +94,7 @@ pub fn PdfTabBar() -> Element {
                                     // user was last on; otherwise that region is blank.
                                     let last_page = tabs.read().active_tab().map(|t| t.view.current_page).unwrap_or(0);
                                     if last_page > 0 {
-                                        crate::state::commands::ensure_window_rendered(&render_tx, &mut tabs, tab_id, last_page, &cfg_dir).await;
+                                        crate::state::commands::ensure_window_rendered(&docs, &mut tabs, tab_id, last_page, &cfg_dir).await;
                                         // Scroll to the page element (robust to variable page heights
                                         // and to Dioxus not having flushed the just-rendered page yet).
                                         let _ = document::eval(&super::scroll_to_page_js(last_page, "start"));
@@ -117,17 +117,17 @@ pub fn PdfTabBar() -> Element {
                                     tabs.with_mut(|m| m.close_tab(tab_id));
                                     if tabs.read().tabs.is_empty() {
                                         lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
-                                        // No PDFs open — free the engine's cached file bytes.
-                                        let _ = render_ch.sender().send(crate::state::commands::RenderRequest::ClearCache);
+                                        // No PDFs open — free the cached document(s).
+                                        docs.clear();
                                     } else {
                                         let needs = tabs.read().active_tab().map(|t| t.needs_render()).unwrap_or(false);
                                         if needs {
                                             let new_id = tabs.read().active_tab_id.unwrap();
-                                            let render_tx = render_ch.sender();
+                                            let docs = docs.get();
                                             let cfg_dir = config.read().effective_library_path();
                                             tabs.with_mut(|m| m.tab_mut().is_loading = true);
                                             spawn(async move {
-                                                let _ = crate::state::commands::open_pdf(&render_tx, &mut tabs, new_id, &cfg_dir, dpr_sig.read().0).await;
+                                                let _ = crate::state::commands::open_pdf(&docs, &mut tabs, new_id, &cfg_dir, dpr_sig.read().0).await;
                                             });
                                         }
                                     }
@@ -164,7 +164,7 @@ pub fn PdfTabBar() -> Element {
                                     tabs.with_mut(|m| m.close_tab(ctx_tab_id));
                                     if tabs.read().tabs.is_empty() {
                                         lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
-                                        let _ = render_ch.sender().send(crate::state::commands::RenderRequest::ClearCache);
+                                        docs.clear();
                                     }
                                     tab_ctx.set(None);
                                 },

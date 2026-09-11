@@ -6,7 +6,7 @@ use super::navigation::{OutlinePanel, ThumbnailSidebar};
 use super::page_overlay::PdfPageWithOverlay;
 use super::search_bar::PdfSearchBar;
 use super::toolbar::PdfToolbar;
-use crate::app::RenderChannel;
+use crate::app::PdfDocs;
 use crate::state::app_state::{PdfTabManager, ViewerToolState};
 use rotero_db::Database;
 
@@ -14,7 +14,7 @@ use rotero_db::Database;
 pub fn PdfViewer() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let tools = use_context::<Signal<ViewerToolState>>();
-    let render_ch = use_context::<RenderChannel>();
+    let docs = use_context::<PdfDocs>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let db = use_context::<Database>();
     let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
@@ -46,12 +46,12 @@ pub fn PdfViewer() -> Element {
         let Some(tid) = tabs.read().active_tab_id else {
             return;
         };
-        let render_tx = render_ch.sender();
+        let docs = docs.get();
         let data_dir = config.read().effective_library_path();
         let dpr = dpr_sig.read().0;
         let db = db.clone();
         spawn(async move {
-            if crate::state::commands::open_pdf(&render_tx, &mut tabs, tid, &data_dir, dpr)
+            if crate::state::commands::open_pdf(&docs, &mut tabs, tid, &data_dir, dpr)
                 .await
                 .is_ok()
             {
@@ -71,15 +71,7 @@ pub fn PdfViewer() -> Element {
                         .map(|p| (p.page_index, (p.width, p.height)))
                         .collect();
 
-                    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-                    if render_tx
-                        .send(crate::state::commands::RenderRequest::ExtractAnnotations {
-                            pdf_path,
-                            reply: reply_tx,
-                        })
-                        .is_ok()
-                        && let Ok(Ok(extracted)) = reply_rx.await
-                    {
+                    if let Ok(extracted) = docs.extract_annotations(pdf_path).await {
                         let now = chrono::Utc::now();
                         for ext in extracted {
                             // Deduplicate: skip if a DB annotation exists on same page with same type and similar position
@@ -245,7 +237,7 @@ pub fn PdfViewer() -> Element {
                             return;
                         }
                         window_loading.set(true);
-                        let render_tx = render_ch.sender();
+                        let docs = docs.get();
                         let data_dir = config.read().effective_library_path();
                         spawn(async move {
                             // Find the page wrapper whose vertical midpoint is nearest
@@ -275,7 +267,7 @@ pub fn PdfViewer() -> Element {
                                 && idx >= 0
                             {
                                 crate::state::commands::ensure_window_rendered(
-                                    &render_tx,
+                                    &docs,
                                     &mut tabs,
                                     tab_id,
                                     idx as u32,

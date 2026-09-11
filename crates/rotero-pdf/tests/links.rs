@@ -1,21 +1,16 @@
 //! Link extraction — intra-document jumps and external URIs.
 
-use rotero_pdf::{LinkTarget, PdfEngine};
+use rotero_pdf::{DocCache, LinkTarget, extract_links};
 
 fn fixture(name: &str) -> String {
     format!("{}/tests/fixtures/pdfs/{name}", env!("CARGO_MANIFEST_DIR"))
 }
 
-fn engine() -> PdfEngine {
-    PdfEngine::new()
-}
-
 #[test]
 fn extracts_internal_links_with_resolved_targets() {
-    let engine = engine();
-    let links = engine
-        .extract_links(&fixture("basicapi.pdf"))
-        .expect("extract links");
+    let cache = DocCache::new();
+    let doc = cache.open(&fixture("basicapi.pdf")).expect("open");
+    let links = extract_links(&doc).expect("extract links");
 
     assert!(!links.is_empty(), "expected internal links, got none");
     for l in &links {
@@ -34,10 +29,9 @@ fn extracts_internal_links_with_resolved_targets() {
 
 #[test]
 fn extracts_external_uri_links() {
-    let engine = engine();
-    let links = engine
-        .extract_links(&fixture("basicapi.pdf"))
-        .expect("extract links");
+    let cache = DocCache::new();
+    let doc = cache.open(&fixture("basicapi.pdf")).expect("open");
+    let links = extract_links(&doc).expect("extract links");
 
     let external: Vec<&str> = links
         .iter()
@@ -54,11 +48,10 @@ fn extracts_external_uri_links() {
 
 #[test]
 fn link_free_pdf_yields_no_links() {
-    let engine = engine();
+    let cache = DocCache::new();
     // tracemonkey.pdf carries no link annotations — extraction must be empty,
     // not error.
-    let links = engine
-        .extract_links(&fixture("tracemonkey.pdf"))
-        .expect("extract links");
+    let doc = cache.open(&fixture("tracemonkey.pdf")).expect("open");
+    let links = extract_links(&doc).expect("extract links");
     assert!(links.is_empty());
 }

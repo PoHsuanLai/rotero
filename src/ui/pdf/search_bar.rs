@@ -5,7 +5,7 @@ use crate::state::app_state::{PdfTabManager, TabId};
 #[component]
 pub(crate) fn PdfSearchBar(tab_id: TabId) -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
-    let render_ch = use_context::<crate::app::RenderChannel>();
+    let docs = use_context::<crate::app::PdfDocs>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let mgr = tabs.read();
     let tab = mgr.tab();
@@ -45,12 +45,12 @@ pub(crate) fn PdfSearchBar(tab_id: TabId) -> Element {
                         if let Some(m) = mgr.tab().search.matches.get(mgr.tab().search.current_index) {
                             let page_idx = m.page_index;
                             drop(mgr);
-                            let render_tx = render_ch.sender();
+                            let docs = docs.get();
                             let data_dir = config.read().effective_library_path();
                             spawn(async move {
                                 // Match may be on a page outside the current render window.
                                 crate::state::commands::ensure_window_rendered(
-                                    &render_tx, &mut tabs, tab_id, page_idx, &data_dir,
+                                    &docs, &mut tabs, tab_id, page_idx, &data_dir,
                                 ).await;
                                 let _ = document::eval(&super::scroll_to_page_js(page_idx, "center"));
                             });

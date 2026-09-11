@@ -17,7 +17,7 @@ pub fn LibraryPanel() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let mut filtered_ids_signal = use_context_provider(|| Signal::new(Vec::<String>::new()));
     let db = use_context::<Database>();
-    let render_ch = use_context::<crate::app::RenderChannel>();
+    let docs = use_context::<crate::app::PdfDocs>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
     // Derive just the view — only re-runs when view actually changes, not on every lib_state mutation
@@ -317,7 +317,7 @@ pub fn LibraryPanel() -> Element {
                                             }
                                         };
                                         let full_path = db.resolve_pdf_path(&rel_path).to_string_lossy().to_string();
-                                        let render_tx = render_ch.sender();
+                                        let docs_pre = docs.get();
                                         let cfg = config.read();
                                         let data_dir = cfg.effective_library_path();
                                         let zoom = cfg.pdf.default_zoom * dpr_sig.read().0;
@@ -325,16 +325,16 @@ pub fn LibraryPanel() -> Element {
                                         let db_for_cache = db.clone();
                                         let auto_fetch = config.read().auto_fetch_metadata;
                                         let meta_full_path = full_path.clone();
-                                        let meta_render_tx = render_ch.sender();
+                                        let docs_meta = docs.get();
                                         let meta_db = db.clone();
                                         let paper_id2 = paper_id.clone();
                                         spawn(async move {
-                                            crate::state::commands::precache_pdf(&render_tx, &full_path, &data_dir, zoom, paper_id, Some(&db_for_cache)).await;
+                                            crate::state::commands::precache_pdf(&docs_pre, &full_path, &data_dir, zoom, paper_id, Some(&db_for_cache)).await;
                                         });
                                         if let Some(pid) = paper_id2 {
                                             spawn(async move {
                                                 crate::state::commands::extract_and_fetch_metadata(
-                                                    &meta_render_tx, &meta_db, &pid, &meta_full_path, auto_fetch, &mut lib_state,
+                                                    &docs_meta, &meta_db, &pid, &meta_full_path, auto_fetch, &mut lib_state,
                                                 ).await;
                                             });
                                         }

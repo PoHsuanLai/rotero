@@ -1,12 +1,10 @@
-use tokio::sync::oneshot;
-
 use dioxus::prelude::*;
 
-use super::{RenderRequest, recv_reply};
+use super::PdfDocs;
 use crate::state::app_state::LibraryState;
 
 pub async fn extract_and_fetch_metadata(
-    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
+    docs: &PdfDocs,
     db: &rotero_db::Database,
     paper_id: &str,
     pdf_path: &str,
@@ -14,20 +12,11 @@ pub async fn extract_and_fetch_metadata(
     lib_state: &mut Signal<LibraryState>,
 ) {
     tracing::info!(%paper_id, pdf_path, auto_fetch, "extract_and_fetch_metadata: start");
-    let (reply_tx, reply_rx) = oneshot::channel();
-    if render_tx
-        .send(RenderRequest::ExtractMetadataText {
-            pdf_path: pdf_path.to_string(),
-            page_count: 2,
-            reply: reply_tx,
-        })
-        .is_err()
-    {
-        tracing::warn!("extract_and_fetch_metadata: failed to send render request");
-        return;
-    }
-    let Ok((raw_pages, doc_meta)) = recv_reply(reply_rx).await else {
-        tracing::warn!("extract_and_fetch_metadata: render thread reply failed");
+    let Ok((raw_pages, doc_meta)) = docs
+        .extract_metadata_text(pdf_path.to_string(), 2)
+        .await
+    else {
+        tracing::warn!("extract_and_fetch_metadata: PDF text extract failed");
         return;
     };
     tracing::info!(pages = raw_pages.len(), total_chars = raw_pages.iter().map(|(_, t)| t.len()).sum::<usize>(), doc_title = ?doc_meta.title, doc_author = ?doc_meta.author, "extract_and_fetch_metadata: text extracted");

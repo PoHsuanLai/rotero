@@ -1,12 +1,12 @@
 use dioxus::prelude::*;
 
-use crate::app::RenderChannel;
+use crate::app::PdfDocs;
 use crate::state::app_state::PdfTabManager;
 
 #[component]
 pub(crate) fn ThumbnailSidebar() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
-    let render_ch = use_context::<RenderChannel>();
+    let docs = use_context::<PdfDocs>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let mut is_loading_thumbs = use_signal(|| false);
 
@@ -32,9 +32,9 @@ pub(crate) fn ThumbnailSidebar() -> Element {
                     let ratio = eval.recv::<f64>().await.unwrap_or(0.0);
                     let center = (ratio * page_count as f64) as u32;
                     let start = center.saturating_sub(25);
-                    let render_tx = render_ch.sender();
+                    let docs = docs.get();
                     let _ = crate::state::commands::load_thumbnails(
-                        &render_tx, &mut tabs, tab_id, start, 50,
+                        &docs, &mut tabs, tab_id, start, 50,
                     ).await;
                     is_loading_thumbs.set(false);
                 });
@@ -52,13 +52,13 @@ pub(crate) fn ThumbnailSidebar() -> Element {
                             div {
                                 key: "thumb-{page_idx}", class: "thumbnail-item",
                                 onclick: move |_| {
-                                    let render_tx = render_ch.sender();
+                                    let docs = docs.get();
                                     let data_dir = config.read().effective_library_path();
                                     spawn(async move {
                                         // Ensure the target page is rendered (it may be
                                         // outside the current window) before scrolling to it.
                                         crate::state::commands::ensure_window_rendered(
-                                            &render_tx, &mut tabs, tab_id, page_idx, &data_dir,
+                                            &docs, &mut tabs, tab_id, page_idx, &data_dir,
                                         ).await;
                                         let _ = document::eval(&super::scroll_to_page_js(page_idx, "start"));
                                     });
@@ -86,7 +86,7 @@ pub(crate) fn ThumbnailSidebar() -> Element {
 #[component]
 pub(crate) fn OutlinePanel() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
-    let render_ch = use_context::<RenderChannel>();
+    let docs = use_context::<PdfDocs>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let tab_id = tabs.read().tab().id;
     let outline = tabs.read().tab().nav.outline.clone();
@@ -105,11 +105,11 @@ pub(crate) fn OutlinePanel() -> Element {
                                 key: "outline-{idx}", class: "outline-entry", style: "padding-left: {indent}px;",
                                 onclick: move |_| {
                                     if let Some(pi) = page_idx {
-                                        let render_tx = render_ch.sender();
+                                        let docs = docs.get();
                                         let data_dir = config.read().effective_library_path();
                                         spawn(async move {
                                             crate::state::commands::ensure_window_rendered(
-                                                &render_tx, &mut tabs, tab_id, pi, &data_dir,
+                                                &docs, &mut tabs, tab_id, pi, &data_dir,
                                             ).await;
                                             let _ = document::eval(&super::scroll_to_page_js(pi, "start"));
                                         });
