@@ -1,1 +1,249 @@
-SEE_FILE
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev
+      - run: cargo check --workspace
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev
+      # `-D warnings`, not `-W`: with warn-level lints a clippy finding printed
+      # and the job still passed, so this gate never actually gated anything.
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The rotero-translate coverage tests read the vendored Zotero
+          # translator sources (git submodules) at runtime.
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev libxdo-dev
+      - uses: taiki-e/install-action@nextest
+      - run: cargo nextest run --workspace
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci
+        working-directory: website
+      # Builds with the deployed base path, so a link missing its `base`
+      # prefix fails here rather than only in production.
+      - name: Build the site
+        run: npm run build
+        working-directory: website
+        env:
+          BASE_PATH: /rotero
+      # Report-only for now: this measures how much of the app the guide
+      # covers, and should not block a PR that adds a feature ahead of its
+      # documentation. Turn into a threshold gate once it has settled.
+      - name: Check user guide coverage
+        run: node website/tooling/coverage/check.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docs-coverage
+          path: website/tooling/coverage/report.md
+
+  website:
+    name: Website
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci
+        working-directory: website
+      - run: npm run build
+        working-directory: website
+        env:
+          BASE_PATH: /rotero
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/build
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  check-ios:
+    name: Check iOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --target aarch64-apple-ios --features mobile --no-default-features
+
+  # Windows and macOS aren't covered by the Linux jobs above, and the platform
+  # split in the agent/updater code only shows up when it's actually compiled
+  # for those targets.
+  check-windows:
+    name: Check Windows
+    runs-on: windows-latest
+    env:
+      # Windows runners are the slowest here, and linking dominates. `-C
+      # debuginfo=0` drops PDB generation, which CI never reads.
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The rotero-translate coverage tests read the vendored Zotero
+          # translator sources (git submodules) at runtime.
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # A failed run still leaves a usable dependency cache; without this
+          # the next run recompiles the whole tree again.
+          cache-on-failure: true
+      - uses: taiki-e/install-action@nextest
+      # `clippy --all-targets` and the test build cannot share artifacts —
+      # clippy stops at metadata while tests need real codegen, so running
+      # both builds the workspace twice. Building the tests first means the
+      # run below reuses what it produced.
+      - run: cargo nextest run --workspace --no-run
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo nextest run --workspace
+
+  # macOS is the primary platform and used to be the only one that never ran the
+  # tests — the bug that broke every shipped build landed here.
+  test-macos:
+    name: Test macOS
+    runs-on: macos-latest
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The rotero-translate coverage tests read the vendored Zotero
+          # translator sources (git submodules) at runtime.
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - uses: taiki-e/install-action@nextest
+      # `clippy --all-targets` and the test build cannot share artifacts —
+      # clippy stops at metadata while tests need real codegen. Same ordering as
+      # the Windows job so the workspace is not built twice.
+      - run: cargo nextest run --workspace --no-run
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo nextest run --workspace
+
+  # Builds the real bundle and runs it. Every check above passed while the
+  # shipped artifact was broken, because nothing here had ever launched one:
+  # the app's startup path was not the path the tests exercised.
+  #
+  # Costs a full bundle build (~12 min), so it does not run on every PR — but it
+  # is the only job that exercises a real artifact, which is the thing every
+  # other job was green about while every shipped build was broken. It runs on
+  # master, and on any PR that touches the app or how it is packaged.
+  #
+  # `refs/tags` is deliberately not listed: this workflow has no tag trigger, so
+  # such a condition would never fire. The release workflow runs the same script
+  # on its own artifact before uploading it.
+  bundle-smoke:
+    name: Bundle smoke (macOS)
+    runs-on: macos-latest
+    if: |
+      github.ref == 'refs/heads/master' ||
+      contains(github.event.pull_request.labels.*.name, 'bundle-smoke')
+    env:
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - uses: cargo-bins/cargo-binstall@b629f84e79e8fbc4f76616a8efd340f3ea605cab # v1.21.1
+      - name: Install Dioxus CLI
+        # binstall asks the GitHub API whether a prebuilt `dx` exists for this
+        # target. Unauthenticated, that request shares a per-IP rate limit with
+        # every other runner, and binstall reads the resulting 403 as "no
+        # prebuilt binary available" rather than as a failure -- so it silently
+        # falls back to `cargo install`, which currently cannot compile
+        # dioxus-cli at all (git2 dropped `Cred::credential_helper`). The token
+        # lifts the rate limit, so the artifact that has been published all
+        # along is actually found.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: cargo binstall dioxus-cli --version 0.7.10 -y --force
+      - uses: taiki-e/install-action@just
+      - name: Bundle
+        run: dx bundle --release
+      - name: Smoke the bundle
+        run: ./scripts/smoke-bundle.sh target/dx/rotero/release/macos/Rotero.app
