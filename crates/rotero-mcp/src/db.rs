@@ -208,6 +208,17 @@ impl Database {
         Ok(())
     }
 
+    /// Insert a highlight/note annotation into the library DB.
+    pub async fn insert_annotation(&self, ann: &Annotation) -> Result<String, turso::Error> {
+        let id = self
+            .as_rotero_db()
+            .insert_annotation(ann)
+            .await
+            .map_err(to_turso)?;
+        self.notify();
+        Ok(id)
+    }
+
     /// List all annotations (highlights, underlines, etc.) for a paper.
     pub async fn list_annotations_for_paper(
         &self,
