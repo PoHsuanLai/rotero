@@ -378,6 +378,68 @@ impl RoteroMcp {
         json_result(&hits)
     }
 
+    #[tool(
+        description = "List embedded figures/images in a paper's PDF. Optionally restrict to one 1-based page. Skips mask images in the summary counts but still lists them with is_mask=true."
+    )]
+    async fn list_figures(
+        &self,
+        Parameters(params): Parameters<ListFiguresParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let (_paper, doc) = self.open_paper_pdf(&params.paper_id).await?;
+        let total = doc.page_count();
+        let pages: Vec<u32> = if let Some(p) = params.page {
+            let idx = p.saturating_sub(1);
+            if idx >= total {
+                return Err(err(format!("page {p} out of range (1..={total})")));
+            }
+            vec![idx]
+        } else {
+            (0..total).collect()
+        };
+        let mut figures = Vec::new();
+        for idx in pages {
+            let list = rotero_pdf::list_page_images(&doc, idx).map_err(super::pdf::pdf_err)?;
+            for f in list {
+                figures.push(serde_json::json!({
+                    "page": f.page_index + 1,
+                    "image_index": f.image_index,
+                    "width": f.width,
+                    "height": f.height,
+                    "is_mask": f.is_mask,
+                }));
+            }
+        }
+        json_result(&figures)
+    }
+
+    #[tool(
+        description = "Extract one figure from a paper's PDF as a PNG image content block (plus JSON metadata)."
+    )]
+    async fn get_figure(
+        &self,
+        Parameters(params): Parameters<GetFigureParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let (_paper, doc) = self.open_paper_pdf(&params.paper_id).await?;
+        let page_idx = params.page.saturating_sub(1);
+        let fig = rotero_pdf::extract_page_image_png(&doc, page_idx, params.image_index)
+            .map_err(super::pdf::pdf_err)?;
+        let b64 = fig
+            .png_base64
+            .ok_or_else(|| err("PNG extract returned no data"))?;
+        let meta = serde_json::json!({
+            "page": fig.page_index + 1,
+            "image_index": fig.image_index,
+            "width": fig.width,
+            "height": fig.height,
+            "is_mask": fig.is_mask,
+        });
+        let meta_text = serde_json::to_string_pretty(&meta).map_err(err)?;
+        Ok(CallToolResult::success(vec![
+            Content::text(meta_text),
+            Content::image(b64, "image/png"),
+        ]))
+    }
+
     #[tool(description = "Add a note to a paper")]
     async fn add_note(
         &self,

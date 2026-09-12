@@ -364,3 +364,22 @@ pub(super) struct FindHit {
     /// Pixel-space rects `(x, y, width, height)`.
     pub rects: Vec<[f64; 4]>,
 }
+
+/// Parameters for `list_figures`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListFiguresParams {
+    pub paper_id: String,
+    /// Optional 1-based page; when omitted, scans all pages (may be slow).
+    #[serde(default)]
+    pub page: Option<u32>,
+}
+
+/// Parameters for `get_figure`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetFigureParams {
+    pub paper_id: String,
+    /// 1-based page number.
+    pub page: u32,
+    /// Index into that page's image list (from `list_figures`).
+    pub image_index: u32,
+}
