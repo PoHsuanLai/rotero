@@ -293,3 +293,54 @@ pub(super) struct LibraryStats {
     pub unread_count: u32,
     pub favorites_count: u32,
 }
+
+/// Parameters for `read_markdown` — pdfrum markdown for a page range.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ReadMarkdownParams {
+    /// Paper ID whose PDF to read.
+    pub paper_id: String,
+    /// First page (1-based, inclusive). Defaults to 1.
+    #[serde(default)]
+    pub page_start: Option<u32>,
+    /// Last page (1-based, inclusive). Defaults to page_start + 9.
+    #[serde(default)]
+    pub page_end: Option<u32>,
+}
+
+/// Parameters for `read_pages` — layout/plain text by page range.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ReadPagesParams {
+    /// Paper ID whose PDF to read.
+    pub paper_id: String,
+    /// First page (1-based, inclusive). Defaults to 1.
+    #[serde(default)]
+    pub page_start: Option<u32>,
+    /// Last page (1-based, inclusive). Defaults to page_start + 9.
+    #[serde(default)]
+    pub page_end: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct ReadPagesResult {
+    pub pages: Vec<ReadPageEntry>,
+    pub page_start: u32,
+    pub page_end: u32,
+    pub total_pages: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct ReadPageEntry {
+    /// 1-based page number.
+    pub page: u32,
+    /// Printed page label when the PDF defines one.
+    pub page_label: Option<String>,
+    pub text: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct ReadMarkdownResult {
+    pub markdown: String,
+    pub page_start: u32,
+    pub page_end: u32,
+    pub total_pages: u32,
+}

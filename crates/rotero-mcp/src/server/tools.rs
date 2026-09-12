@@ -292,6 +292,63 @@ impl RoteroMcp {
         ))
     }
 
+    #[tool(
+        description = "Read a paper's PDF as Markdown (pdfrum structure-aware extract) for a page range. Prefer this over extract_pdf_text when you need headings/lists. Pages are 1-based."
+    )]
+    async fn read_markdown(
+        &self,
+        Parameters(params): Parameters<ReadMarkdownParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let (_paper, doc) = self.open_paper_pdf(&params.paper_id).await?;
+        let total_pages = doc.page_count();
+        let (page_start, page_end) =
+            super::pdf::clamp_page_range(params.page_start, params.page_end, total_pages, 10)?;
+        let mut parts = Vec::new();
+        for page_1based in page_start..=page_end {
+            let idx = page_1based - 1;
+            let md = rotero_pdf::page_markdown(&doc, idx).map_err(super::pdf::pdf_err)?;
+            if !md.trim().is_empty() {
+                parts.push(format!("<!-- page {page_1based} -->\n{md}"));
+            }
+        }
+        json_result(&ReadMarkdownResult {
+            markdown: parts.join("\n\n"),
+            page_start,
+            page_end,
+            total_pages,
+        })
+    }
+
+    #[tool(
+        description = "Read plain/layout text from a paper's PDF by page range (live pdfrum TextPage). Pages are 1-based. Returns per-page text and optional page labels."
+    )]
+    async fn read_pages(
+        &self,
+        Parameters(params): Parameters<ReadPagesParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let (_paper, doc) = self.open_paper_pdf(&params.paper_id).await?;
+        let total_pages = doc.page_count();
+        let (page_start, page_end) =
+            super::pdf::clamp_page_range(params.page_start, params.page_end, total_pages, 10)?;
+        let indices: Vec<u32> = (page_start - 1..page_end).collect();
+        let raw = rotero_pdf::extract_raw_text(&doc, &indices).map_err(super::pdf::pdf_err)?;
+        let labels = rotero_pdf::page_labels(&doc);
+        let pages: Vec<ReadPageEntry> = raw
+            .into_iter()
+            .map(|(idx, text)| ReadPageEntry {
+                page: idx + 1,
+                page_label: labels.get(idx as usize).and_then(|l| l.clone()),
+                text,
+            })
+            .collect();
+        json_result(&ReadPagesResult {
+            pages,
+            page_start,
+            page_end,
+            total_pages,
+        })
+    }
+
     #[tool(description = "Add a note to a paper")]
     async fn add_note(
         &self,
