@@ -350,6 +350,8 @@ pub fn extract_annotations(doc: &Document) -> Vec<ExtractedAnnotation> {
                 Subtype::Text => rotero_models::AnnotationType::Note,
                 Subtype::Square => rotero_models::AnnotationType::Area,
                 Subtype::Underline => rotero_models::AnnotationType::Underline,
+                Subtype::StrikeOut => rotero_models::AnnotationType::StrikeOut,
+                Subtype::Squiggly => rotero_models::AnnotationType::Squiggly,
                 Subtype::Ink => rotero_models::AnnotationType::Ink,
                 Subtype::FreeText => rotero_models::AnnotationType::Text,
                 _ => continue,
@@ -360,7 +362,9 @@ pub fn extract_annotations(doc: &Document) -> Vec<ExtractedAnnotation> {
             // populate geometry.rects (same shape create/write already uses).
             let (bounds, rects_pts) = match ann_type {
                 rotero_models::AnnotationType::Highlight
-                | rotero_models::AnnotationType::Underline => {
+                | rotero_models::AnnotationType::Underline
+                | rotero_models::AnnotationType::StrikeOut
+                | rotero_models::AnnotationType::Squiggly => {
                     let quads: Vec<_> = ann.quad_points().collect();
                     if quads.is_empty() {
                         (ann.rect(), Vec::new())
@@ -668,7 +672,7 @@ pub struct ExtractedAnnotation {
     pub content: Option<String>,
     /// [x1 (left), y1 (bottom), x2 (right), y2 (top)] union bounds in PDF points.
     pub rect_pts: [f32; 4],
-    /// Per-quad `[x0, y0, x1, y1]` in PDF points for multi-quad Highlight/Underline.
+    /// Per-quad `[x0, y0, x1, y1]` in PDF points for multi-quad text markup.
     /// Empty when the annot has no `/QuadPoints`, a single quad, or a non-markup type —
     /// import then uses [`Self::rect_pts`] alone.
     pub rects_pts: Vec<[f32; 4]>,

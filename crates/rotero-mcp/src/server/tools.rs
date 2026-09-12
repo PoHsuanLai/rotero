@@ -501,7 +501,7 @@ impl RoteroMcp {
     }
 
     #[tool(
-        description = "Create a Highlight or Note annotation on a paper. Stores it in the library DB and, by default, writes it into the PDF via AnnotSpec (/AP). Geometry is pixel-space (x,y,width,height) with page_width/page_height; defaults to a small rect when omitted."
+        description = "Create a Highlight, Note, Underline, StrikeOut, or Squiggly annotation on a paper. Stores it in the library DB and, by default, writes it into the PDF via AnnotSpec (/AP). Geometry is pixel-space (x,y,width,height) with page_width/page_height; defaults to a small rect when omitted."
     )]
     async fn annotate(
         &self,
@@ -513,9 +513,14 @@ impl RoteroMcp {
         let ann_type = match params.ann_type.to_ascii_lowercase().as_str() {
             "highlight" => AnnotationType::Highlight,
             "note" => AnnotationType::Note,
+            "underline" => AnnotationType::Underline,
+            "strikeout" | "strike_out" | "strike-out" => AnnotationType::StrikeOut,
+            "squiggly" => AnnotationType::Squiggly,
             other => {
                 return Err(rmcp::ErrorData::invalid_params(
-                    format!("ann_type must be highlight or note, got {other}"),
+                    format!(
+                        "ann_type must be highlight, note, underline, strikeout, or squiggly, got {other}"
+                    ),
                     None,
                 ));
             }

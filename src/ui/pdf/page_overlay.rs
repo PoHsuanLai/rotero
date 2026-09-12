@@ -184,7 +184,10 @@ pub(crate) fn PdfPageWithOverlay(
     drop(t);
 
     let cursor = match mode {
-        AnnotationMode::Highlight | AnnotationMode::Underline => "crosshair",
+        AnnotationMode::Highlight
+        | AnnotationMode::Underline
+        | AnnotationMode::StrikeOut
+        | AnnotationMode::Squiggly => "crosshair",
         AnnotationMode::Note => "cell",
         AnnotationMode::Ink => "crosshair",
         AnnotationMode::Text => "text",
@@ -219,6 +222,8 @@ pub(crate) fn PdfPageWithOverlay(
         let selecting_text = mode == AnnotationMode::None;
         let markup_mode = mode == AnnotationMode::Highlight
             || mode == AnnotationMode::Underline
+            || mode == AnnotationMode::StrikeOut
+            || mode == AnnotationMode::Squiggly
             || selecting_text;
         if markup_mode {
             if let (Some(start), Some(current)) = (drag_start(), drag_current()) {
@@ -532,7 +537,13 @@ pub(crate) fn PdfPageWithOverlay(
                         onmousedown: move |evt| {
                             if evt.trigger_button() != Some(dioxus::html::input_data::MouseButton::Primary) { return; }
                             tools.with_mut(|t| t.text_selection = None);
-                            if mode == AnnotationMode::Highlight || mode == AnnotationMode::Underline {
+                            if matches!(
+                                mode,
+                                AnnotationMode::Highlight
+                                    | AnnotationMode::Underline
+                                    | AnnotationMode::StrikeOut
+                                    | AnnotationMode::Squiggly
+                            ) {
                                 let coords = evt.element_coordinates();
                                 drag_start.set(Some((coords.x, coords.y)));
                                 drag_current.set(Some((coords.x, coords.y)));
@@ -548,7 +559,14 @@ pub(crate) fn PdfPageWithOverlay(
                             }
                         },
                         onmousemove: move |evt| {
-                            if (mode == AnnotationMode::Highlight || mode == AnnotationMode::Underline) && drag_start().is_some() {
+                            if matches!(
+                                mode,
+                                AnnotationMode::Highlight
+                                    | AnnotationMode::Underline
+                                    | AnnotationMode::StrikeOut
+                                    | AnnotationMode::Squiggly
+                            ) && drag_start().is_some()
+                            {
                                 let coords = evt.element_coordinates();
                                 drag_current.set(Some((coords.x, coords.y)));
                             }
@@ -566,8 +584,17 @@ pub(crate) fn PdfPageWithOverlay(
                             let x = coords.x;
                             let y = coords.y;
                             let (ann_type, geometry, selected_content) = match mode {
-                                AnnotationMode::Highlight | AnnotationMode::Underline => {
-                                    let at = if mode == AnnotationMode::Highlight { AnnotationType::Highlight } else { AnnotationType::Underline };
+                                AnnotationMode::Highlight
+                                | AnnotationMode::Underline
+                                | AnnotationMode::StrikeOut
+                                | AnnotationMode::Squiggly => {
+                                    let at = match mode {
+                                        AnnotationMode::Highlight => AnnotationType::Highlight,
+                                        AnnotationMode::Underline => AnnotationType::Underline,
+                                        AnnotationMode::StrikeOut => AnnotationType::StrikeOut,
+                                        AnnotationMode::Squiggly => AnnotationType::Squiggly,
+                                        _ => unreachable!(),
+                                    };
                                     if let Some(start) = drag_start() {
                                         let rx = start.0.min(x); let ry = start.1.min(y);
                                         let rw = (start.0 - x).abs(); let rh = (start.1 - y).abs();
