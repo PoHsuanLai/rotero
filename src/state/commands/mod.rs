@@ -214,6 +214,24 @@ impl PdfDocs {
         )
     }
 
+    /// Word or line selection under a pixel click (double / triple click).
+    #[allow(clippy::too_many_arguments)]
+    pub fn selection_at_point(
+        &self,
+        pdf_path: &str,
+        page_index: u32,
+        img_width: u32,
+        img_height: u32,
+        pixel_x: f64,
+        pixel_y: f64,
+        mode: rotero_pdf::ClickSelectMode,
+    ) -> Option<rotero_pdf::SelectionMarkup> {
+        let doc = self.cache.open(pdf_path).ok()?;
+        rotero_pdf::selection_at_point(
+            &doc, page_index, img_width, img_height, pixel_x, pixel_y, mode,
+        )
+    }
+
     /// Extracts supported annotations from the PDF.
     pub async fn extract_annotations(
         &self,

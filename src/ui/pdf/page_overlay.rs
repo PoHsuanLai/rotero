@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 
+use super::super::components::context_menu::{ContextMenu, ContextMenuItem};
 use super::annotation_render::render_annotation;
 use super::{AnnCtxState, hex_to_rgba};
 use crate::app::PdfDocs;
@@ -10,6 +11,7 @@ use crate::state::app_state::{
 };
 use rotero_db::Database;
 use rotero_models::{Annotation, AnnotationType};
+use rotero_pdf::ClickSelectMode;
 
 /// Build Highlight/Underline geometry from char-level [`SelectionMarkup`], or
 /// fall back to the raw drag rect when no text was hit.
@@ -89,6 +91,27 @@ pub(crate) fn copy_pdf_text_selection(tools: &Signal<ViewerToolState>) -> bool {
     }
 }
 
+/// Consecutive primary clicks within this window count as double / triple.
+const CLICK_STREAK_MS: u128 = 450;
+/// Max pixel distance between streak clicks.
+const CLICK_STREAK_PX: f64 = 8.0;
+
+fn click_streak(prev: &mut Option<(std::time::Instant, f64, f64, u8)>, x: f64, y: f64) -> u8 {
+    let now = std::time::Instant::now();
+    let count = match *prev {
+        Some((t, px, py, n))
+            if now.duration_since(t).as_millis() <= CLICK_STREAK_MS
+                && (x - px).abs() <= CLICK_STREAK_PX
+                && (y - py).abs() <= CLICK_STREAK_PX =>
+        {
+            n.saturating_add(1).min(3)
+        }
+        _ => 1,
+    };
+    *prev = Some((now, x, y, count));
+    count
+}
+
 #[component]
 pub(crate) fn PdfPageWithOverlay(
     page_index: u32,
@@ -142,6 +165,12 @@ pub(crate) fn PdfPageWithOverlay(
     let mut drag_start = use_signal(|| None::<(f64, f64)>);
     let mut drag_current = use_signal(|| None::<(f64, f64)>);
     let mut ink_points = use_signal(Vec::<f64>::new);
+    // Double / triple-click streak (Instant + last pixel + count).
+    let mut click_streak_state = use_signal(|| None::<(std::time::Instant, f64, f64, u8)>);
+    // Skip the tiny-drag mouseup clear after a multi-click select.
+    let mut multi_click_select = use_signal(|| false);
+    // Right-click Copy menu: viewport (x, y) when open.
+    let mut sel_ctx = use_signal(|| None::<(f64, f64)>);
 
     let selection_color = {
         let hex = &config.read().pdf.selection_color;
@@ -245,8 +274,10 @@ pub(crate) fn PdfPageWithOverlay(
 
     // Separate clones for mutually exclusive overlays (both closures type-checked).
     let docs_select = docs.clone();
+    let docs_select_up = docs.clone();
     let docs_annot = docs.clone();
     let path_select = pdf_path_for_cache.clone();
+    let path_select_up = pdf_path_for_cache.clone();
     let path_annot = pdf_path_for_cache.clone();
 
     rsx! {
@@ -349,16 +380,73 @@ pub(crate) fn PdfPageWithOverlay(
             }
 
             // Native text selection: overlay under links/annotations so those
-            // stay clickable; drag uses pdfrum `selection_markup`.
+            // stay clickable; drag uses pdfrum `selection_markup`. Double-click
+            // selects a word, triple-click a line (via word/char bounds).
+            // Multi-page drag selection is out of scope — starting a drag on
+            // another page clears the prior selection (per-page overlays).
             if mode == AnnotationMode::None {
                 div {
                     class: "text-select-overlay",
                     onmousedown: move |evt| {
-                        if evt.trigger_button() != Some(dioxus::html::input_data::MouseButton::Primary) {
+                        let btn = evt.trigger_button();
+                        if btn == Some(dioxus::html::input_data::MouseButton::Secondary) {
+                            evt.prevent_default();
+                            let c = evt.client_coordinates();
+                            // Only offer Copy when there is an active selection
+                            // on this page.
+                            let has = tools.read().text_selection.as_ref()
+                                .is_some_and(|s| s.page_index == page_index && !s.text.trim().is_empty());
+                            if has {
+                                sel_ctx.set(Some((c.x, c.y)));
+                            }
                             return;
                         }
-                        tools.with_mut(|t| t.text_selection = None);
+                        if btn != Some(dioxus::html::input_data::MouseButton::Primary) {
+                            return;
+                        }
+                        sel_ctx.set(None);
                         let coords = evt.element_coordinates();
+                        let mut streak = 1u8;
+                        click_streak_state.with_mut(|prev| {
+                            streak = click_streak(prev, coords.x, coords.y);
+                        });
+                        if streak >= 2 {
+                            let mode = if streak >= 3 {
+                                ClickSelectMode::Line
+                            } else {
+                                ClickSelectMode::Word
+                            };
+                            multi_click_select.set(true);
+                            drag_start.set(None);
+                            drag_current.set(None);
+                            if let Some(m) = docs_select.selection_at_point(
+                                &path_select,
+                                page_index,
+                                width,
+                                height,
+                                coords.x,
+                                coords.y,
+                                mode,
+                            ) {
+                                let text = m.text;
+                                if text.trim().is_empty() {
+                                    tools.with_mut(|t| t.text_selection = None);
+                                } else {
+                                    tools.with_mut(|t| {
+                                        t.text_selection = Some(PdfTextSelection {
+                                            page_index,
+                                            line_rects: m.line_rects,
+                                            text,
+                                        });
+                                    });
+                                }
+                            } else {
+                                tools.with_mut(|t| t.text_selection = None);
+                            }
+                            return;
+                        }
+                        multi_click_select.set(false);
+                        tools.with_mut(|t| t.text_selection = None);
                         drag_start.set(Some((coords.x, coords.y)));
                         drag_current.set(Some((coords.x, coords.y)));
                     },
@@ -372,6 +460,12 @@ pub(crate) fn PdfPageWithOverlay(
                         if evt.trigger_button() != Some(dioxus::html::input_data::MouseButton::Primary) {
                             return;
                         }
+                        if multi_click_select() {
+                            multi_click_select.set(false);
+                            drag_start.set(None);
+                            drag_current.set(None);
+                            return;
+                        }
                         let coords = evt.element_coordinates();
                         if let Some(start) = drag_start() {
                             let rx = start.0.min(coords.x);
@@ -383,8 +477,8 @@ pub(crate) fn PdfPageWithOverlay(
                             if rw < 3.0 && rh < 3.0 {
                                 return;
                             }
-                            if let Some(m) = docs_select.selection_markup(
-                                &path_select,
+                            if let Some(m) = docs_select_up.selection_markup(
+                                &path_select_up,
                                 page_index,
                                 width,
                                 height,
@@ -410,6 +504,25 @@ pub(crate) fn PdfPageWithOverlay(
                             }
                         }
                     },
+                    oncontextmenu: move |evt| {
+                        evt.prevent_default();
+                    },
+                }
+            }
+
+            if let Some((cx, cy)) = sel_ctx() {
+                ContextMenu {
+                    x: cx,
+                    y: cy,
+                    on_close: move |_| sel_ctx.set(None),
+                    ContextMenuItem {
+                        label: "Copy".to_string(),
+                        icon: Some("bi-clipboard".to_string()),
+                        on_click: move |_| {
+                            let _ = copy_pdf_text_selection(&tools);
+                            sel_ctx.set(None);
+                        },
+                    }
                 }
             }
 
