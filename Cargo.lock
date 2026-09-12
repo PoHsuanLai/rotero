@@ -5573,6 +5573,7 @@ dependencies = [
  "pdfrum-filters",
  "pdfrum-font",
  "pdfrum-form",
+ "pdfrum-markdown",
  "pdfrum-object",
  "pdfrum-page",
  "pdfrum-parser",
@@ -5699,6 +5700,19 @@ dependencies = [
  "pdfrum-object",
  "pdfrum-page",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "pdfrum-markdown"
+version = "0.2.0"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=ae748c58965ad0c594895f870c558221a7e8d5b4#ae748c58965ad0c594895f870c558221a7e8d5b4"
+dependencies = [
+ "kurbo",
+ "pdfrum-common",
+ "pdfrum-doc",
+ "pdfrum-object",
+ "pdfrum-page",
+ "pdfrum-text",
 ]
 
 [[package]]

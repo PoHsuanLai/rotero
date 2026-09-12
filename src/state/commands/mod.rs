@@ -180,6 +180,24 @@ impl PdfDocs {
         .await
     }
 
+    /// Markdown for one page (pdfrum structure/typography extract).
+    pub async fn page_markdown(&self, pdf_path: String, page_index: u32) -> Result<String, String> {
+        self.run(move |cache| {
+            let doc = cache.open(&pdf_path).map_err(|e| e.to_string())?;
+            rotero_pdf::page_markdown(&doc, page_index).map_err(|e| e.to_string())
+        })
+        .await
+    }
+
+    /// Whole-document Markdown.
+    pub async fn document_markdown(&self, pdf_path: String) -> Result<String, String> {
+        self.run(move |cache| {
+            let doc = cache.open(&pdf_path).map_err(|e| e.to_string())?;
+            Ok(rotero_pdf::document_markdown(&doc))
+        })
+        .await
+    }
+
     /// Returns (width_pts, height_pts) for every page.
     pub async fn page_dimensions(&self, pdf_path: String) -> Result<Vec<(f32, f32)>, String> {
         self.run(move |cache| {
