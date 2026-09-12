@@ -1294,9 +1294,7 @@ impl ServerHandler for RoteroMcp {
         )
         .with_server_info(Implementation::new("rotero-mcp", env!("CARGO_PKG_VERSION")))
         .with_instructions(
-            "Rotero paper library MCP server. Search, add, update, and delete papers. \
-             Manage collections and tags. Read annotations and notes, extract PDF text, \
-             and organize your academic paper library.",
+            "Rotero paper library MCP server. Prefer read_markdown/read_pages/find_in_paper/quote_at/text_in_rect for PDF grounding; annotate for highlights/notes; paper:// resources for page markdown and annots; list_cited/list_citing for citation neighbours. Search, add, update, and delete papers. Manage collections and tags. Read annotations and notes, and organize your academic paper library.",
         )
     }
 
@@ -1354,11 +1352,7 @@ impl ServerHandler for RoteroMcp {
             // paper://{id}/annots.json | outline.json | page/{n}.md
             if let Some((id, path)) = rest.split_once('/') {
                 if path == "annots.json" {
-                    let anns = self
-                        .db
-                        .list_annotations_for_paper(id)
-                        .await
-                        .map_err(err)?;
+                    let anns = self.db.list_annotations_for_paper(id).await.map_err(err)?;
                     let json = serde_json::to_string_pretty(&anns).map_err(err)?;
                     return Ok(ReadResourceResult::new(vec![ResourceContents::text(
                         json, uri,
@@ -1389,10 +1383,7 @@ impl ServerHandler for RoteroMcp {
                     && let Some(n_str) = page_part.strip_suffix(".md")
                 {
                     let n: u32 = n_str.parse().map_err(|_| {
-                        rmcp::ErrorData::invalid_params(
-                            format!("bad page number in {uri}"),
-                            None,
-                        )
+                        rmcp::ErrorData::invalid_params(format!("bad page number in {uri}"), None)
                     })?;
                     let (_paper, doc) = self.open_paper_pdf(id).await?;
                     let idx = n.saturating_sub(1);
@@ -1434,6 +1425,37 @@ impl ServerHandler for RoteroMcp {
                     Some(vec![
                         rmcp::model::PromptArgument::new("topic")
                             .with_description("Topic to review")
+                            .with_required(true),
+                    ]),
+                ),
+                Prompt::new(
+                    "review-paper",
+                    Some(
+                        "Critical review of a paper using markdown extract, outline, and annotations",
+                    ),
+                    Some(vec![
+                        rmcp::model::PromptArgument::new("paper_id")
+                            .with_description("Paper ID to review")
+                            .with_required(true),
+                    ]),
+                ),
+                Prompt::new(
+                    "extract-methods",
+                    Some("Extract methods/experimental details from a paper via markdown + find"),
+                    Some(vec![
+                        rmcp::model::PromptArgument::new("paper_id")
+                            .with_description("Paper ID")
+                            .with_required(true),
+                    ]),
+                ),
+                Prompt::new(
+                    "find-related-unread",
+                    Some(
+                        "Suggest related unread papers from citation and library graph neighbours",
+                    ),
+                    Some(vec![
+                        rmcp::model::PromptArgument::new("paper_id")
+                            .with_description("Seed paper ID")
                             .with_required(true),
                     ]),
                 ),
@@ -1535,6 +1557,236 @@ impl ServerHandler for RoteroMcp {
                     prompt,
                 )])
                 .with_description("Literature review"))
+            }
+            "review-paper" => {
+                let paper_id = request
+                    .arguments
+                    .as_ref()
+                    .and_then(|args| args.get("paper_id"))
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        rmcp::ErrorData::invalid_params("Missing paper_id argument", None)
+                    })?;
+                let paper = self
+                    .db
+                    .get_paper_by_id(paper_id)
+                    .await
+                    .map_err(err)?
+                    .ok_or_else(|| err(format!("No paper found with ID {paper_id}")))?;
+                let anns = self
+                    .db
+                    .list_annotations_for_paper(paper_id)
+                    .await
+                    .map_err(err)?;
+                let mut md_preview = String::new();
+                let mut outline_preview = String::new();
+                if let Ok((_p, doc)) = self.open_paper_pdf(paper_id).await {
+                    let total = doc.page_count().min(5);
+                    for i in 0..total {
+                        if let Ok(md) = rotero_pdf::page_markdown(&doc, i) {
+                            md_preview.push_str(&format!(
+                                "\n### Page {}\n{}\n",
+                                i + 1,
+                                md.chars().take(2000).collect::<String>()
+                            ));
+                        }
+                    }
+                    for e in rotero_pdf::outline(&doc).into_iter().take(40) {
+                        outline_preview.push_str(&format!(
+                            "{}- {} (p{})\n",
+                            "  ".repeat(e.level as usize),
+                            e.title,
+                            e.page_index.map(|p| p + 1).unwrap_or(0)
+                        ));
+                    }
+                }
+                let mut prompt = format!(
+                    "Write a critical review of this paper. Use the outline, markdown excerpts, and annotations.\n\nTitle: {}\nAuthors: {}\nYear: {}\n\n",
+                    paper.title,
+                    paper.author_names().join(", "),
+                    paper.year.map(|y| y.to_string()).unwrap_or_default(),
+                );
+                if !outline_preview.is_empty() {
+                    prompt.push_str("## Outline\n");
+                    prompt.push_str(&outline_preview);
+                    prompt.push('\n');
+                }
+                if !md_preview.is_empty() {
+                    prompt.push_str("## Markdown excerpts (first pages)\n");
+                    prompt.push_str(&md_preview);
+                }
+                if !anns.is_empty() {
+                    prompt.push_str("\n## Existing annotations\n");
+                    for ann in &anns {
+                        if let Some(c) = &ann.content {
+                            prompt.push_str(&format!("- [p{}] {}\n", ann.page + 1, c));
+                        }
+                    }
+                }
+                prompt.push_str(
+                    "\nCover: contribution, methods, strengths, limitations, and open questions.\n",
+                );
+                Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+                    PromptMessageRole::User,
+                    prompt,
+                )])
+                .with_description("Critical paper review"))
+            }
+            "extract-methods" => {
+                let paper_id = request
+                    .arguments
+                    .as_ref()
+                    .and_then(|args| args.get("paper_id"))
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        rmcp::ErrorData::invalid_params("Missing paper_id argument", None)
+                    })?;
+                let paper = self
+                    .db
+                    .get_paper_by_id(paper_id)
+                    .await
+                    .map_err(err)?
+                    .ok_or_else(|| err(format!("No paper found with ID {paper_id}")))?;
+                let mut methods_hits = Vec::new();
+                let mut md_chunks = Vec::new();
+                if let Ok((_p, doc)) = self.open_paper_pdf(paper_id).await {
+                    for q in ["method", "experiment", "algorithm", "procedure", "dataset"] {
+                        for m in rotero_pdf::search_in_document(&doc, q, &[])
+                            .into_iter()
+                            .take(8)
+                        {
+                            methods_hits.push(format!(
+                                "- p{} [{}]: {}",
+                                m.page_index + 1,
+                                q,
+                                m.matched_text
+                            ));
+                        }
+                    }
+                    let total = doc.page_count().min(8);
+                    for i in 0..total {
+                        if let Ok(md) = rotero_pdf::page_markdown(&doc, i) {
+                            let lower = md.to_ascii_lowercase();
+                            if lower.contains("method")
+                                || lower.contains("experiment")
+                                || lower.contains("algorithm")
+                            {
+                                md_chunks.push(format!(
+                                    "### Page {}\n{}\n",
+                                    i + 1,
+                                    md.chars().take(2500).collect::<String>()
+                                ));
+                            }
+                        }
+                    }
+                }
+                let mut prompt = format!(
+                    "Extract and structure the methods from:\n\nTitle: {}\nAuthors: {}\n\n",
+                    paper.title,
+                    paper.author_names().join(", "),
+                );
+                if !methods_hits.is_empty() {
+                    prompt.push_str("## Keyword hits\n");
+                    prompt.push_str(&methods_hits.join("\n"));
+                    prompt.push_str("\n\n");
+                }
+                if !md_chunks.is_empty() {
+                    prompt.push_str("## Relevant markdown pages\n");
+                    prompt.push_str(&md_chunks.join("\n"));
+                }
+                prompt.push_str(
+                    "\nProduce: overview, inputs/data, algorithm/procedure steps, evaluation metrics, and implementation notes.\n",
+                );
+                Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+                    PromptMessageRole::User,
+                    prompt,
+                )])
+                .with_description("Extract methods"))
+            }
+            "find-related-unread" => {
+                let paper_id = request
+                    .arguments
+                    .as_ref()
+                    .and_then(|args| args.get("paper_id"))
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        rmcp::ErrorData::invalid_params("Missing paper_id argument", None)
+                    })?;
+                let paper = self
+                    .db
+                    .get_paper_by_id(paper_id)
+                    .await
+                    .map_err(err)?
+                    .ok_or_else(|| err(format!("No paper found with ID {paper_id}")))?;
+                let mut neighbor_ids = std::collections::HashSet::new();
+                for id in self.db.list_cited_by_paper(paper_id).await.map_err(err)? {
+                    neighbor_ids.insert(id);
+                }
+                for id in self.db.list_citing_paper(paper_id).await.map_err(err)? {
+                    neighbor_ids.insert(id);
+                }
+                // Also pull relationship graph neighbours (tags/authors/etc.)
+                let papers = self.db.list_all_papers().await.map_err(err)?;
+                let tags = self.db.list_tags().await.map_err(err)?;
+                let paper_tags = self.db.list_all_paper_tags().await.map_err(err)?;
+                let paper_colls = self.db.list_all_paper_collections().await.map_err(err)?;
+                let citations = self.db.list_all_citations().await.map_err(err)?;
+                let filter = rotero_graph::data::GraphFilter {
+                    show_citation_edges: true,
+                    ..Default::default()
+                };
+                let edges = rotero_graph::edges::compute_edges(
+                    &papers,
+                    &tags,
+                    rotero_graph::data::Relations {
+                        paper_tags: &paper_tags,
+                        paper_collections: &paper_colls,
+                        citations: &citations,
+                        conversations: &[],
+                    },
+                    &filter,
+                );
+                for e in &edges {
+                    if e.source == paper_id {
+                        neighbor_ids.insert(e.target.clone());
+                    } else if e.target == paper_id {
+                        neighbor_ids.insert(e.source.clone());
+                    }
+                }
+                let mut unread = Vec::new();
+                for id in neighbor_ids {
+                    if let Some(p) = self.db.get_paper_by_id(&id).await.map_err(err)? {
+                        if !p.status.is_read {
+                            unread.push(p);
+                        }
+                    }
+                }
+                unread.sort_by(|a, b| a.title.cmp(&b.title));
+                let mut prompt = format!(
+                    "From my library, suggest which unread related papers to read next after:\n                     **{}** ({})\n\nUnread related candidates:\n",
+                    paper.title,
+                    paper.year.map(|y| y.to_string()).unwrap_or_default(),
+                );
+                if unread.is_empty() {
+                    prompt.push_str("(none found — broaden via search_papers / search_online)\n");
+                } else {
+                    for p in unread.iter().take(25) {
+                        prompt.push_str(&format!(
+                            "- [{}] {} — {}\n",
+                            p.id.as_deref().unwrap_or("?"),
+                            p.title,
+                            p.author_names().join(", ")
+                        ));
+                    }
+                }
+                prompt.push_str(
+                    "\nRank them for follow-up reading and say why each matters relative to the seed paper.\n",
+                );
+                Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+                    PromptMessageRole::User,
+                    prompt,
+                )])
+                .with_description("Find related unread"))
             }
             _ => Err(rmcp::ErrorData::invalid_params(
                 format!("Unknown prompt: {}", request.name),
