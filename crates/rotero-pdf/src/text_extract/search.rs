@@ -331,6 +331,101 @@ pub fn search_in_text_data(text_data: &[PageTextData], query: &str) -> Vec<Searc
     matches
 }
 
+/// Pixel-space result of intersecting a drag/selection rect with page text.
+///
+/// `line_rects` are Acrobat/Zotero-style: one axis-aligned box per visual line
+/// of selected text (top-left origin, same space as [`TextSegment`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SelectionMarkup {
+    /// One rect `(x, y, width, height)` per selected visual line.
+    pub line_rects: Vec<(f64, f64, f64, f64)>,
+    /// Union of [`Self::line_rects`].
+    pub bounds: (f64, f64, f64, f64),
+    /// Selected text, lines joined by `\n`.
+    pub text: String,
+}
+
+/// Intersect a selection rectangle with `segments` and build line-grouped markup.
+///
+/// Returns [`None`] when no segment overlaps the selection. Overlapping segments
+/// on the same visual line (via [`group_into_lines`]) are unioned into one quad;
+/// the horizontal extent is clipped to the selection, while each line keeps the
+/// full text height of its overlapping segments.
+pub fn selection_markup(
+    segments: &[TextSegment],
+    sel_x: f64,
+    sel_y: f64,
+    sel_w: f64,
+    sel_h: f64,
+) -> Option<SelectionMarkup> {
+    if segments.is_empty() || sel_w <= 0.0 || sel_h <= 0.0 {
+        return None;
+    }
+    let sel_x1 = sel_x + sel_w;
+    let sel_y1 = sel_y + sel_h;
+
+    let mut line_rects = Vec::new();
+    let mut text_lines = Vec::new();
+
+    for line in group_into_lines(segments) {
+        let mut min_x = f64::MAX;
+        let mut min_y = f64::MAX;
+        let mut max_x = f64::MIN;
+        let mut max_y = f64::MIN;
+        let mut line_text = String::new();
+
+        for &idx in &line {
+            let seg = &segments[idx];
+            let sx1 = seg.x + seg.width;
+            let sy1 = seg.y + seg.height;
+            // Any AABB overlap counts as selected.
+            if sx1 <= sel_x || seg.x >= sel_x1 || sy1 <= sel_y || seg.y >= sel_y1 {
+                continue;
+            }
+            // Clip horizontally to the selection; keep full glyph height.
+            let ix0 = seg.x.max(sel_x);
+            let ix1 = sx1.min(sel_x1);
+            if ix1 <= ix0 {
+                continue;
+            }
+            min_x = min_x.min(ix0);
+            max_x = max_x.max(ix1);
+            min_y = min_y.min(seg.y);
+            max_y = max_y.max(sy1);
+            if !line_text.is_empty() {
+                line_text.push(' ');
+            }
+            line_text.push_str(seg.text.trim_end());
+        }
+
+        if min_x < max_x && min_y < max_y {
+            line_rects.push((min_x, min_y, max_x - min_x, max_y - min_y));
+            text_lines.push(line_text);
+        }
+    }
+
+    if line_rects.is_empty() {
+        return None;
+    }
+
+    let mut bx0 = f64::MAX;
+    let mut by0 = f64::MAX;
+    let mut bx1 = f64::MIN;
+    let mut by1 = f64::MIN;
+    for &(x, y, w, h) in &line_rects {
+        bx0 = bx0.min(x);
+        by0 = by0.min(y);
+        bx1 = bx1.max(x + w);
+        by1 = by1.max(y + h);
+    }
+
+    Some(SelectionMarkup {
+        line_rects,
+        bounds: (bx0, by0, bx1 - bx0, by1 - by0),
+        text: text_lines.join("\n"),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,5 +540,56 @@ mod tests {
         let path = fixture("basicapi.pdf");
         let doc = Document::open(&path).expect("open fixture");
         assert!(search_in_document(&doc, "", &[(100, 100)]).is_empty());
+    }
+
+    #[test]
+    fn selection_markup_groups_overlapping_segments_per_line() {
+        // Two lines of words; selection covers both partially in x.
+        let segs = vec![
+            seg("Hello", 10.0, 10.0),
+            seg("world", 40.0, 10.0),
+            seg("foo", 10.0, 30.0),
+            seg("bar", 40.0, 30.0),
+        ];
+        // Selection covers x=15..55, y=5..45 → both lines, clipped words.
+        let m = selection_markup(&segs, 15.0, 5.0, 40.0, 40.0).expect("markup");
+        assert_eq!(m.line_rects.len(), 2);
+        // Line 1: Hello clipped from 15, world full until 55 → 15..55
+        let (x0, y0, w0, h0) = m.line_rects[0];
+        assert!((x0 - 15.0).abs() < 1e-9, "{x0}");
+        assert!((y0 - 10.0).abs() < 1e-9);
+        assert!((w0 - 40.0).abs() < 1e-9, "{w0}");
+        assert!((h0 - 10.0).abs() < 1e-9);
+        let (x1, y1, w1, _) = m.line_rects[1];
+        assert!((x1 - 15.0).abs() < 1e-9);
+        assert!((y1 - 30.0).abs() < 1e-9);
+        assert!((w1 - 40.0).abs() < 1e-9);
+        assert!(m.text.contains("Hello"));
+        assert!(m.text.contains("foo"));
+        let (bx, by, bw, bh) = m.bounds;
+        assert!((bx - 15.0).abs() < 1e-9);
+        assert!((by - 10.0).abs() < 1e-9);
+        assert!((bw - 40.0).abs() < 1e-9);
+        assert!((bh - 30.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn selection_markup_returns_none_without_overlap() {
+        let segs = vec![seg("Hello", 10.0, 10.0)];
+        assert!(selection_markup(&segs, 200.0, 200.0, 50.0, 50.0).is_none());
+        assert!(selection_markup(&[], 0.0, 0.0, 10.0, 10.0).is_none());
+    }
+
+    #[test]
+    fn selection_markup_single_line_partial_word() {
+        let segs = vec![seg("Hello", 10.0, 10.0), seg("world", 40.0, 10.0)];
+        // Only overlaps "world"
+        let m = selection_markup(&segs, 45.0, 8.0, 20.0, 14.0).expect("markup");
+        assert_eq!(m.line_rects.len(), 1);
+        let (x, _, w, _) = m.line_rects[0];
+        assert!((x - 45.0).abs() < 1e-9);
+        assert!((w - 15.0).abs() < 1e-9); // world goes to 60, sel to 65 → 45..60
+        assert!(m.text.contains("world"));
+        assert!(!m.text.contains("Hello"));
     }
 }
