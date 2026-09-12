@@ -9,7 +9,7 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let mut tools = use_context::<Signal<ViewerToolState>>();
     let docs = use_context::<PdfDocs>();
-    let _config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+    let mut config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let db = use_context::<Database>();
     let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
     let zoom_percent = (zoom * 100.0 / 1.5) as u32;
@@ -19,6 +19,7 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
     let current_color = t.annotation_color.clone();
     let show_panel = t.show_annotation_panel;
     drop(t);
+    let annot_author = config.read().pdf.annot_author.clone();
 
     let can_undo = undo_stack.read().can_undo();
     let can_redo = undo_stack.read().can_redo();
@@ -151,6 +152,23 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                             }
                         }
                     }
+                }
+            }
+
+            div { class: "toolbar-author",
+                span { class: "toolbar-author-label", "Author" }
+                input {
+                    r#type: "text",
+                    class: "input toolbar-author-input",
+                    value: "{annot_author}",
+                    placeholder: "Annotator name",
+                    title: "Written as PDF /T when exporting annotations",
+                    onfocusin: crate::ui::keybindings::editable_focus_in,
+                    onfocusout: crate::ui::keybindings::editable_focus_out,
+                    onchange: move |evt| {
+                        let author = evt.value();
+                        crate::ui::helpers::save_config(&mut config, |c| c.pdf.annot_author = author);
+                    },
                 }
             }
 
@@ -348,6 +366,8 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
 
                         if let Some(output_path) = file {
                             let docs = docs.get();
+                            let author = config.read().pdf.annot_author.clone();
+                            let author = (!author.trim().is_empty()).then_some(author);
                             spawn(async move {
                                 let dims = match docs.page_dimensions(pdf_path.clone()).await {
                                     Ok(d) => d,
@@ -363,7 +383,7 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                                     &dims,
                                     None,
                                     true, // flatten appearances into page content
-                                    None, // author /T — app has no profile name yet
+                                    author.as_deref(),
                                 ) {
                                     Ok(()) => tracing::info!("Exported annotated PDF to {:?}", output_path),
                                     Err(e) => tracing::error!("Failed to export annotated PDF: {e}"),

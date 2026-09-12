@@ -39,6 +39,7 @@ pub fn PdfViewerSection() -> Element {
     let current_batch = config.read().pdf.page_batch_size;
     let current_resident = config.read().max_resident_tabs;
     let current_color = config.read().pdf.selection_color.clone();
+    let current_author = config.read().pdf.annot_author.clone();
 
     let zoom_opts: Vec<(String, String)> = ZOOM_OPTIONS
         .iter()
@@ -119,6 +120,21 @@ pub fn PdfViewerSection() -> Element {
                             save_config(&mut config, |c| c.max_resident_tabs = v);
                             tabs.with_mut(|m| m.set_max_resident(v));
                         }
+                    },
+                }
+            }
+
+            SettingsField { label: "Annotation author",
+                input {
+                    r#type: "text",
+                    class: "input settings-input",
+                    value: "{current_author}",
+                    placeholder: "Name for /T on exported annots",
+                    onfocusin: crate::ui::keybindings::editable_focus_in,
+                    onfocusout: crate::ui::keybindings::editable_focus_out,
+                    onchange: move |evt| {
+                        let author = evt.value();
+                        save_config(&mut config, |c| c.pdf.annot_author = author);
                     },
                 }
             }

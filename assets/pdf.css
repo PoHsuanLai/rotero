@@ -139,6 +139,25 @@
   align-items: center;
 }
 
+.toolbar-author {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.toolbar-author-label {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.toolbar-author-input {
+  width: 7.5rem;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  font-size: var(--text-xs);
+}
+
 .color-swatch {
   width: 20px;
   height: 20px;
