@@ -8,6 +8,57 @@ use crate::state::app_state::{AnnotationMode, PdfTabManager, TabId, ViewerToolSt
 use rotero_db::Database;
 use rotero_models::{Annotation, AnnotationType};
 
+/// Build Highlight/Underline geometry from a drag rect, snapping to text-layer
+/// line quads when segments overlap the selection.
+fn markup_geometry_from_drag(
+    segments: &[rotero_pdf::TextSegment],
+    rx: f64,
+    ry: f64,
+    rw: f64,
+    rh: f64,
+    page_width: u32,
+    page_height: u32,
+) -> (serde_json::Value, Option<String>) {
+    if let Some(m) = rotero_pdf::selection_markup(segments, rx, ry, rw, rh) {
+        let (bx, by, bw, bh) = m.bounds;
+        let rects: Vec<serde_json::Value> = m
+            .line_rects
+            .iter()
+            .map(|(x, y, w, h)| serde_json::json!({ "x": x, "y": y, "width": w, "height": h }))
+            .collect();
+        let geometry = serde_json::json!({
+            "x": bx,
+            "y": by,
+            "width": bw,
+            "height": bh,
+            "page_width": page_width,
+            "page_height": page_height,
+            "rects": rects,
+        });
+        let content = {
+            let t = m.text.trim();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
+        };
+        (geometry, content)
+    } else {
+        (
+            serde_json::json!({
+                "x": rx,
+                "y": ry,
+                "width": rw,
+                "height": rh,
+                "page_width": page_width,
+                "page_height": page_height,
+            }),
+            None,
+        )
+    }
+}
+
 #[component]
 pub(crate) fn PdfPageWithOverlay(
     page_index: u32,
@@ -381,19 +432,32 @@ pub(crate) fn PdfPageWithOverlay(
                     let mut drag_start = use_signal(|| None::<(f64, f64)>);
                     let mut drag_current = use_signal(|| None::<(f64, f64)>);
                     let mut ink_points = use_signal(Vec::<f64>::new);
-                    let drag_rect = if mode == AnnotationMode::Highlight || mode == AnnotationMode::Underline {
+                    let drag_preview_rects: Vec<(f64, f64, f64, f64)> = if mode == AnnotationMode::Highlight || mode == AnnotationMode::Underline {
                         if let (Some(start), Some(current)) = (drag_start(), drag_current()) {
                             let x = start.0.min(current.0);
                             let y = start.1.min(current.1);
                             let w = (start.0 - current.0).abs();
                             let h = (start.1 - current.1).abs();
-                            if w > 2.0 || h > 2.0 { Some((x, y, w, h)) } else { None }
-                        } else { None }
-                    } else { None };
+                            if w > 2.0 || h > 2.0 {
+                                if let Some(m) = rotero_pdf::selection_markup(&text_segments, x, y, w, h) {
+                                    m.line_rects
+                                } else {
+                                    vec![(x, y, w, h)]
+                                }
+                            } else {
+                                Vec::new()
+                            }
+                        } else {
+                            Vec::new()
+                        }
+                    } else {
+                        Vec::new()
+                    };
 
                     rsx! {
-                        if let Some((rx, ry, rw, rh)) = drag_rect {
+                        for (pi, (rx, ry, rw, rh)) in drag_preview_rects.iter().enumerate() {
                             div {
+                                key: "drag-preview-{page_index}-{pi}",
                                 style: "position: absolute; left: {rx}px; top: {ry}px; width: {rw}px; height: {rh}px; background: {color}; opacity: 0.3; pointer-events: none; z-index: 5; border-radius: 2px;",
                             }
                         }
@@ -434,7 +498,7 @@ pub(crate) fn PdfPageWithOverlay(
                                 let coords = evt.element_coordinates();
                                 let x = coords.x;
                                 let y = coords.y;
-                                let (ann_type, geometry) = match mode {
+                                let (ann_type, geometry, selected_content) = match mode {
                                     AnnotationMode::Highlight | AnnotationMode::Underline => {
                                         let at = if mode == AnnotationMode::Highlight { AnnotationType::Highlight } else { AnnotationType::Underline };
                                         if let Some(start) = drag_start() {
@@ -443,17 +507,17 @@ pub(crate) fn PdfPageWithOverlay(
                                             if rw < 5.0 && rh < 5.0 {
                                                 drag_start.set(None); drag_current.set(None); return;
                                             }
-                                            (at, serde_json::json!({
-                                                "x": rx, "y": ry, "width": rw, "height": rh,
-                                                "page_width": width, "page_height": height,
-                                            }))
+                                            let (geometry, content) = markup_geometry_from_drag(
+                                                &text_segments, rx, ry, rw, rh, width, height,
+                                            );
+                                            (at, geometry, content)
                                         } else { return; }
                                     }
                                     AnnotationMode::Note => {
                                         (AnnotationType::Note, serde_json::json!({
                                             "x": x, "y": y, "width": 24.0, "height": 24.0,
                                             "page_width": width, "page_height": height,
-                                        }))
+                                        }), Some(String::new()))
                                     }
                                     AnnotationMode::Ink => {
                                         let pts = ink_points.read().clone();
@@ -476,13 +540,13 @@ pub(crate) fn PdfPageWithOverlay(
                                             "width": max_x - min_x, "height": max_y - min_y,
                                             "page_width": width, "page_height": height,
                                             "points": [pts],
-                                        }))
+                                        }), None)
                                     }
                                     AnnotationMode::Text => {
                                         (AnnotationType::Text, serde_json::json!({
                                             "x": x, "y": y, "width": 150.0, "height": 20.0,
                                             "page_width": width, "page_height": height,
-                                        }))
+                                        }), Some(String::new()))
                                     }
                                     AnnotationMode::None => return,
                                 };
@@ -491,7 +555,7 @@ pub(crate) fn PdfPageWithOverlay(
                                 let ann = Annotation {
                                     id: None, paper_id: paper_id.clone(), page: page_index as i32, ann_type,
                                     color: color.clone(),
-                                    content: if matches!(ann_type, AnnotationType::Note | AnnotationType::Text) { Some(String::new()) } else { None },
+                                    content: selected_content,
                                     geometry, created_at: now, modified_at: now,
                                 };
                                 let db = db.clone();

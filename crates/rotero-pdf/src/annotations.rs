@@ -574,4 +574,100 @@ mod tests {
         let extracted = crate::extract_annotations(&out);
         assert!(extracted.is_empty());
     }
+
+    #[test]
+    fn write_annotations_underline_uses_geometry_rects_as_quads() {
+        let input = fixture("tracemonkey.pdf");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let output = dir.path().join("multi-quad-ul.pdf");
+        let cache = crate::DocCache::new();
+        let doc = cache.open(input.to_str().unwrap()).expect("open");
+        let dims = crate::page_dimensions(&doc);
+
+        let geom = json!({
+            "x": 20.0, "y": 30.0, "width": 120.0, "height": 40.0,
+            "page_width": 612.0, "page_height": 792.0,
+            "rects": [
+                {"x": 20.0, "y": 30.0, "width": 60.0, "height": 14.0},
+                {"x": 20.0, "y": 50.0, "width": 90.0, "height": 14.0},
+            ],
+        });
+        let ann = sample_annotation(0, AnnotationType::Underline, "#0066ff", None, geom);
+        write_annotations(&input, &output, &[ann], &dims, Some(&cache)).expect("write");
+
+        let out = Document::open(&output).expect("reopen");
+        let page = out.page(0).expect("page");
+        let underline = page
+            .annotations()
+            .find(|a| a.subtype() == Subtype::Underline)
+            .expect("underline");
+        assert_eq!(underline.quad_points().len(), 2);
+    }
+
+    #[test]
+    fn selection_markup_line_rects_round_trip_to_quad_points() {
+        use crate::text_extract::{TextSegment, selection_markup};
+
+        let segments = vec![
+            TextSegment {
+                text: "Alpha".into(),
+                x: 20.0,
+                y: 30.0,
+                width: 40.0,
+                height: 12.0,
+                font_size: 12.0,
+                font_family: "serif".into(),
+                font_weight: "normal".into(),
+                font_style: "normal".into(),
+            },
+            TextSegment {
+                text: "Beta".into(),
+                x: 20.0,
+                y: 50.0,
+                width: 35.0,
+                height: 12.0,
+                font_size: 12.0,
+                font_family: "serif".into(),
+                font_weight: "normal".into(),
+                font_style: "normal".into(),
+            },
+        ];
+        let markup = selection_markup(&segments, 10.0, 20.0, 80.0, 50.0).expect("markup");
+        assert_eq!(markup.line_rects.len(), 2);
+
+        let (bx, by, bw, bh) = markup.bounds;
+        let rects: Vec<serde_json::Value> = markup
+            .line_rects
+            .iter()
+            .map(|(x, y, w, h)| json!({ "x": x, "y": y, "width": w, "height": h }))
+            .collect();
+        let geom = json!({
+            "x": bx, "y": by, "width": bw, "height": bh,
+            "page_width": 612.0, "page_height": 792.0,
+            "rects": rects,
+        });
+
+        let input = fixture("tracemonkey.pdf");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let output = dir.path().join("selection-quads.pdf");
+        let cache = crate::DocCache::new();
+        let doc = cache.open(input.to_str().unwrap()).expect("open");
+        let dims = crate::page_dimensions(&doc);
+        let ann = sample_annotation(
+            0,
+            AnnotationType::Highlight,
+            "#ffff00",
+            Some(&markup.text),
+            geom,
+        );
+        write_annotations(&input, &output, &[ann], &dims, Some(&cache)).expect("write");
+
+        let out = Document::open(&output).expect("reopen");
+        let page = out.page(0).expect("page");
+        let highlight = page
+            .annotations()
+            .find(|a| a.subtype() == Subtype::Highlight)
+            .expect("highlight");
+        assert_eq!(highlight.quad_points().len(), 2);
+    }
 }
