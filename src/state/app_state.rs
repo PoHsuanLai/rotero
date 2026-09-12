@@ -385,6 +385,8 @@ pub enum AnnotationMode {
     Highlight,
     Note,
     Underline,
+    StrikeOut,
+    Squiggly,
     Ink,
     Text,
 }

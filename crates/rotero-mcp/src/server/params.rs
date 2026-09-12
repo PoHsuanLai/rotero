@@ -396,13 +396,13 @@ pub struct GetLinksParams {
     pub paper_id: String,
 }
 
-/// Parameters for `annotate` — create a Highlight or Note.
+/// Parameters for `annotate` — create a Highlight, Note, Underline, StrikeOut, or Squiggly.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct AnnotateParams {
     pub paper_id: String,
     /// 1-based page number.
     pub page: u32,
-    /// `highlight` or `note` (sticky).
+    /// `highlight`, `note`, `underline`, `strikeout`, or `squiggly`.
     pub ann_type: String,
     /// Hex color, e.g. `#FFE600`. Defaults by type.
     #[serde(default)]

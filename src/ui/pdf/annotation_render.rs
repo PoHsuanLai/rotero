@@ -28,7 +28,7 @@ fn ink_path_data(points: &[serde_json::Value], x: f64, y: f64) -> String {
     d
 }
 
-/// Pixel-space rects for Highlight/Underline when `geometry.rects` / `geometry.quads`
+/// Pixel-space rects for text-markup when `geometry.rects` / `geometry.quads`
 /// is present; otherwise a single outer box from x/y/width/height.
 fn markup_display_rects(geometry: &serde_json::Value) -> Vec<(f64, f64, f64, f64)> {
     for key in ["rects", "quads"] {
@@ -193,6 +193,95 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
                                 key: "ann-{ann_id}-u-{ri}",
                                 style: "position: absolute; left: {rx}px; top: {ry}px; width: {rw}px; height: {rh}px; border-bottom: 2px solid {color}; pointer-events: auto; z-index: 3;",
                                 oncontextmenu: on_context,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        AnnotationType::StrikeOut => {
+            let rects = markup_display_rects(&ann.geometry);
+            rsx! {
+                for (ri, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
+                    {
+                        let on_context = {
+                            let ann_id = ann_id.clone();
+                            let color_for_ctx = color.clone();
+                            let content = content.clone();
+                            move |evt: Event<MouseData>| {
+                                evt.prevent_default();
+                                ann_ctx.set(Some(AnnotationContextInfo {
+                                    annotation_id: ann_id.clone(),
+                                    ann_type,
+                                    page,
+                                    color: color_for_ctx.clone(),
+                                    content: content.clone(),
+                                    x: evt.client_coordinates().x,
+                                    y: evt.client_coordinates().y,
+                                }));
+                            }
+                        };
+                        let mid = ry + rh / 2.0;
+                        rsx! {
+                            div {
+                                key: "ann-{ann_id}-so-{ri}",
+                                style: "position: absolute; left: {rx}px; top: {mid}px; width: {rw}px; height: 0px; border-top: 2px solid {color}; pointer-events: auto; z-index: 3;",
+                                oncontextmenu: on_context,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        AnnotationType::Squiggly => {
+            let rects = markup_display_rects(&ann.geometry);
+            rsx! {
+                for (ri, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
+                    {
+                        let on_context = {
+                            let ann_id = ann_id.clone();
+                            let color_for_ctx = color.clone();
+                            let content = content.clone();
+                            move |evt: Event<MouseData>| {
+                                evt.prevent_default();
+                                ann_ctx.set(Some(AnnotationContextInfo {
+                                    annotation_id: ann_id.clone(),
+                                    ann_type,
+                                    page,
+                                    color: color_for_ctx.clone(),
+                                    content: content.clone(),
+                                    x: evt.client_coordinates().x,
+                                    y: evt.client_coordinates().y,
+                                }));
+                            }
+                        };
+                        // Zigzag along the bottom edge of the quad.
+                        let amp = (rh * 0.2).clamp(2.0, 4.0);
+                        let step = (amp * 2.0).max(4.0);
+                        let mut d = String::new();
+                        let mut x = 0.0_f64;
+                        let base = rh - amp;
+                        let mut up = true;
+                        d.push_str(&format!("M0,{base:.1}"));
+                        while x < rw {
+                            x = (x + step).min(rw);
+                            let y = if up { base - amp } else { base + amp };
+                            up = !up;
+                            d.push_str(&format!(" L{x:.1},{y:.1}"));
+                        }
+                        rsx! {
+                            svg {
+                                key: "ann-{ann_id}-sq-{ri}",
+                                style: "position: absolute; left: {rx}px; top: {ry}px; width: {rw}px; height: {rh}px; pointer-events: auto; z-index: 3; overflow: visible;",
+                                oncontextmenu: on_context,
+                                path {
+                                    d: "{d}",
+                                    stroke: "{color}",
+                                    stroke_width: "2",
+                                    fill: "none",
+                                    stroke_linecap: "round",
+                                    stroke_linejoin: "round",
+                                }
                             }
                         }
                     }

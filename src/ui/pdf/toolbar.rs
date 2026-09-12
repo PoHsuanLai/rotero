@@ -33,6 +33,8 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
     };
     let highlight_class = btn(AnnotationMode::Highlight);
     let underline_class = btn(AnnotationMode::Underline);
+    let strikeout_class = btn(AnnotationMode::StrikeOut);
+    let squiggly_class = btn(AnnotationMode::Squiggly);
     let note_class = btn(AnnotationMode::Note);
     let ink_class = btn(AnnotationMode::Ink);
     let text_class = btn(AnnotationMode::Text);
@@ -67,6 +69,30 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                         });
                     },
                     span { class: "bi bi-type-underline" }
+                }
+            }
+            div { class: "toolbar-tooltip", "data-tooltip": "Strike Out",
+                button {
+                    class: "{strikeout_class}",
+                    onclick: move |_| {
+                        tools.with_mut(|t| {
+                            t.text_selection = None;
+                            t.annotation_mode = if t.annotation_mode == AnnotationMode::StrikeOut { AnnotationMode::None } else { AnnotationMode::StrikeOut };
+                        });
+                    },
+                    span { class: "bi bi-type-strikethrough" }
+                }
+            }
+            div { class: "toolbar-tooltip", "data-tooltip": "Squiggly",
+                button {
+                    class: "{squiggly_class}",
+                    onclick: move |_| {
+                        tools.with_mut(|t| {
+                            t.text_selection = None;
+                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Squiggly { AnnotationMode::None } else { AnnotationMode::Squiggly };
+                        });
+                    },
+                    span { class: "bi bi-vector-pen" }
                 }
             }
             div { class: "toolbar-tooltip", "data-tooltip": "Sticky Note",

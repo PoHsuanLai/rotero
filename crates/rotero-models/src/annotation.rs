@@ -8,6 +8,8 @@ pub enum AnnotationType {
     Note,
     Area,
     Underline,
+    StrikeOut,
+    Squiggly,
     Ink,
     Text,
 }

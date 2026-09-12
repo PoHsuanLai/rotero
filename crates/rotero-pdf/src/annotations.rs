@@ -1,6 +1,6 @@
 //! Annotation writing to PDF files via pdfrum's typed `DocEdit` API.
 //!
-//! Converts in-app annotations (highlights, notes, areas, underlines, ink, free text)
+//! Converts in-app annotations (highlights, notes, areas, underlines, strikeouts, squigglies, ink, free text)
 //! into PDF annotation dictionaries and writes them into the document.
 
 use std::path::Path;
@@ -81,6 +81,18 @@ pub fn write_annotations(
                 contents,
             },
             AnnotationType::Underline => AnnotSpec::Underline {
+                rect,
+                color,
+                quads: markup_quads,
+                contents,
+            },
+            AnnotationType::StrikeOut => AnnotSpec::StrikeOut {
+                rect,
+                color,
+                quads: markup_quads,
+                contents,
+            },
+            AnnotationType::Squiggly => AnnotSpec::Squiggly {
                 rect,
                 color,
                 quads: markup_quads,
@@ -191,7 +203,7 @@ fn pixel_xywh_to_pdf_rect(
     Rect::new(x0, y0, x1, y1)
 }
 
-/// Build `/QuadPoints` for Highlight/Underline from geometry JSON.
+/// Build `/QuadPoints` for text-markup annots from geometry JSON.
 ///
 /// Prefers `geometry.rects` or `geometry.quads` (arrays of `{x,y,width,height}`
 /// or `[x,y,w,h]` in the same pixel space as the annotation rect). Falls back
@@ -454,6 +466,8 @@ mod tests {
             ),
             sample_annotation(0, AnnotationType::Area, "#00aa44", None, geom.clone()),
             sample_annotation(0, AnnotationType::Underline, "#0066ff", None, geom.clone()),
+            sample_annotation(0, AnnotationType::StrikeOut, "#cc0000", None, geom.clone()),
+            sample_annotation(0, AnnotationType::Squiggly, "#00aa00", None, geom.clone()),
             sample_annotation(0, AnnotationType::Ink, "#000000", None, ink_geom),
             sample_annotation(0, AnnotationType::Text, "#333333", Some("free text"), geom),
         ];
@@ -476,7 +490,7 @@ mod tests {
 
         let out = cache.open(output.to_str().unwrap()).expect("reopen out");
         let extracted = crate::extract_annotations(&out);
-        assert_eq!(extracted.len(), 6);
+        assert_eq!(extracted.len(), 8);
         assert_eq!(extracted[0].ann_type, AnnotationType::Highlight);
         assert_eq!(extracted[0].color, "#ffff00");
         assert_eq!(extracted[0].content.as_deref(), Some("hi"));
@@ -484,14 +498,16 @@ mod tests {
         assert_eq!(extracted[1].content.as_deref(), Some("note"));
         assert_eq!(extracted[2].ann_type, AnnotationType::Area);
         assert_eq!(extracted[3].ann_type, AnnotationType::Underline);
-        assert_eq!(extracted[4].ann_type, AnnotationType::Ink);
-        assert_eq!(extracted[5].ann_type, AnnotationType::Text);
-        assert_eq!(extracted[5].content.as_deref(), Some("free text"));
+        assert_eq!(extracted[4].ann_type, AnnotationType::StrikeOut);
+        assert_eq!(extracted[5].ann_type, AnnotationType::Squiggly);
+        assert_eq!(extracted[6].ann_type, AnnotationType::Ink);
+        assert_eq!(extracted[7].ann_type, AnnotationType::Text);
+        assert_eq!(extracted[7].content.as_deref(), Some("free text"));
 
         let doc = Document::open(&output).expect("reopen");
         let page = doc.page(0).expect("page");
         let annots: Vec<_> = page.annotations().collect();
-        assert_eq!(annots.len(), 6);
+        assert_eq!(annots.len(), 8);
 
         let highlight = annots
             .iter()
@@ -737,5 +753,42 @@ mod tests {
         // Union bounds should cover both quads.
         assert!(hi.rect_pts[0] <= hi.rects_pts[0][0] + 0.5);
         assert!(hi.rect_pts[2] + 0.5 >= hi.rects_pts.iter().map(|r| r[2]).fold(f32::MIN, f32::max));
+    }
+
+    #[test]
+    fn write_annotations_strikeout_and_squiggly_use_geometry_rects_as_quads() {
+        let input = fixture("tracemonkey.pdf");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache = crate::DocCache::new();
+        let doc = cache.open(input.to_str().unwrap()).expect("open");
+        let dims = crate::page_dimensions(&doc);
+
+        let geom = json!({
+            "x": 20.0, "y": 30.0, "width": 120.0, "height": 40.0,
+            "page_width": 612.0, "page_height": 792.0,
+            "rects": [
+                {"x": 20.0, "y": 30.0, "width": 60.0, "height": 14.0},
+                {"x": 20.0, "y": 50.0, "width": 90.0, "height": 14.0},
+            ],
+        });
+        for (ann_type, subtype, name) in [
+            (AnnotationType::StrikeOut, Subtype::StrikeOut, "so.pdf"),
+            (AnnotationType::Squiggly, Subtype::Squiggly, "sq.pdf"),
+        ] {
+            let output = dir.path().join(name);
+            let ann = sample_annotation(0, ann_type, "#cc0000", None, geom.clone());
+            write_annotations(&input, &output, &[ann], &dims, Some(&cache), false, None)
+                .expect("write");
+            let out = Document::open(&output).expect("reopen");
+            let page = out.page(0).expect("page");
+            let markup = page
+                .annotations()
+                .find(|a| a.subtype() == subtype)
+                .expect("markup");
+            assert_eq!(markup.quad_points().len(), 2);
+            let extracted = crate::extract_annotations(&out);
+            assert_eq!(extracted[0].ann_type, ann_type);
+            assert_eq!(extracted[0].rects_pts.len(), 2);
+        }
     }
 }

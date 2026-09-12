@@ -52,6 +52,8 @@ pub(crate) fn AnnotationPanel(tab_id: TabId) -> Element {
                                                     rotero_models::AnnotationType::Note => "Note",
                                                     rotero_models::AnnotationType::Area => "Area",
                                                     rotero_models::AnnotationType::Underline => "Underline",
+                                                    rotero_models::AnnotationType::StrikeOut => "StrikeOut",
+                                                    rotero_models::AnnotationType::Squiggly => "Squiggly",
                                                     rotero_models::AnnotationType::Ink => "Ink",
                                                     rotero_models::AnnotationType::Text => "Text",
                                                 };
@@ -95,6 +97,8 @@ pub(crate) fn AnnotationPanel(tab_id: TabId) -> Element {
                                 AnnotationType::Note => "Note",
                                 AnnotationType::Area => "Area",
                                 AnnotationType::Underline => "Underline",
+                                AnnotationType::StrikeOut => "StrikeOut",
+                                AnnotationType::Squiggly => "Squiggly",
                                 AnnotationType::Ink => "Ink",
                                 AnnotationType::Text => "Text",
                             };
