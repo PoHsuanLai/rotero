@@ -255,29 +255,35 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
                                 }));
                             }
                         };
-                        // Zigzag along the bottom edge of the quad.
-                        let amp = (rh * 0.2).clamp(2.0, 4.0);
-                        let step = (amp * 2.0).max(4.0);
+                        // Match pdfrum `/AP`: zigzag along the baseline only
+                        // (not through the glyph body). A short strip under the
+                        // quad keeps amp from eating half the line height.
+                        let amp = 2.0_f64;
+                        let step = 3.0_f64;
+                        let strip_h = (amp * 2.0 + 2.0).min(rh.max(amp * 2.0 + 2.0));
+                        let top = ry + rh - strip_h;
                         let mut d = String::new();
                         let mut x = 0.0_f64;
-                        let base = rh - amp;
+                        // SVG y grows downward; zig between top of strip and bottom.
+                        let y_hi = 1.0;
+                        let y_lo = strip_h - 1.0;
                         let mut up = true;
-                        d.push_str(&format!("M0,{base:.1}"));
+                        d.push_str(&format!("M0,{y_hi:.1}"));
                         while x < rw {
                             x = (x + step).min(rw);
-                            let y = if up { base - amp } else { base + amp };
+                            let y = if up { y_lo } else { y_hi };
                             up = !up;
                             d.push_str(&format!(" L{x:.1},{y:.1}"));
                         }
                         rsx! {
                             svg {
                                 key: "ann-{ann_id}-sq-{ri}",
-                                style: "position: absolute; left: {rx}px; top: {ry}px; width: {rw}px; height: {rh}px; pointer-events: auto; z-index: 3; overflow: visible;",
+                                style: "position: absolute; left: {rx}px; top: {top}px; width: {rw}px; height: {strip_h}px; pointer-events: auto; z-index: 3; overflow: visible;",
                                 oncontextmenu: on_context,
                                 path {
                                     d: "{d}",
                                     stroke: "{color}",
-                                    stroke_width: "2",
+                                    stroke_width: "1.5",
                                     fill: "none",
                                     stroke_linecap: "round",
                                     stroke_linejoin: "round",
