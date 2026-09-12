@@ -344,3 +344,23 @@ pub(super) struct ReadMarkdownResult {
     pub page_end: u32,
     pub total_pages: u32,
 }
+
+/// Parameters for `find_in_paper` — TextPage::find_with search.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct FindInPaperParams {
+    pub paper_id: String,
+    /// Case-insensitive substring to find.
+    pub query: String,
+    /// Max hits to return (default 50, cap 200).
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct FindHit {
+    /// 1-based page number.
+    pub page: u32,
+    pub matched_text: String,
+    /// Pixel-space rects `(x, y, width, height)`.
+    pub rects: Vec<[f64; 4]>,
+}
