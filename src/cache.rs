@@ -32,6 +32,9 @@ pub struct CacheMeta {
     /// MIME type of cached images (e.g. "image/jpeg" or "image/png").
     #[serde(default = "default_mime")]
     pub mime: String,
+    /// Whether pages were rendered with the dark colour scheme.
+    #[serde(default)]
+    pub dark: bool,
 }
 
 fn default_mime() -> String {
@@ -127,6 +130,16 @@ pub fn load_cached(
     pdf_path: &str,
     zoom: f32,
 ) -> Option<(CacheMeta, Vec<RenderedPageData>)> {
+    load_cached_with(data_dir, pdf_path, zoom, false)
+}
+
+/// Like [`load_cached`], requiring the cache's dark flag to match.
+pub fn load_cached_with(
+    data_dir: &Path,
+    pdf_path: &str,
+    zoom: f32,
+    dark: bool,
+) -> Option<(CacheMeta, Vec<RenderedPageData>)> {
     let dir = cache_dir(data_dir, pdf_path);
     let meta_path = dir.join("meta.json");
     let meta_str = fs::read_to_string(&meta_path).ok()?;
@@ -134,7 +147,7 @@ pub fn load_cached(
 
     // Validate: same zoom, PDF not modified since cache
     let current_mtime = pdf_mtime(pdf_path);
-    if (meta.zoom - zoom).abs() > 0.01 || meta.pdf_mtime != current_mtime {
+    if (meta.zoom - zoom).abs() > 0.01 || meta.pdf_mtime != current_mtime || meta.dark != dark {
         return None;
     }
 
@@ -209,6 +222,18 @@ pub fn save_pages(
     page_count: u32,
     pages: &[RenderedPageData],
 ) {
+    save_pages_with(data_dir, pdf_path, zoom, page_count, pages, false);
+}
+
+/// Like [`save_pages`], recording whether the dark colour scheme was used.
+pub fn save_pages_with(
+    data_dir: &Path,
+    pdf_path: &str,
+    zoom: f32,
+    page_count: u32,
+    pages: &[RenderedPageData],
+    dark: bool,
+) {
     let dir = cache_dir(data_dir, pdf_path);
     let pages_dir = dir.join("pages");
     let _ = fs::create_dir_all(&pages_dir);
@@ -268,6 +293,7 @@ pub fn save_pages(
         page_dims,
         text_version: TEXT_VERSION,
         mime: mime.to_string(),
+        dark,
     };
     if let Ok(json) = serde_json::to_string(&meta) {
         let _ = fs::write(dir.join("meta.json"), json);

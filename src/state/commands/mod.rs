@@ -91,13 +91,27 @@ impl PdfDocs {
         batch_size: u32,
         password: Option<String>,
     ) -> Result<(u32, Vec<RenderedPageData>), String> {
+        self.open_and_render_initial_with_theme(pdf_path, zoom, batch_size, password, false)
+            .await
+    }
+
+    /// Open and render with optional dark / night-mode colour scheme.
+    pub async fn open_and_render_initial_with_theme(
+        &self,
+        pdf_path: String,
+        zoom: f32,
+        batch_size: u32,
+        password: Option<String>,
+        dark: bool,
+    ) -> Result<(u32, Vec<RenderedPageData>), String> {
         self.run(move |cache| {
-            let (page_count, rendered) = rotero_pdf::open_and_render_initial_with(
+            let (page_count, rendered) = rotero_pdf::open_and_render_initial_with_theme(
                 cache,
                 &pdf_path,
                 zoom,
                 batch_size,
                 password.as_deref(),
+                dark,
             )
             .map_err(|e| match e {
                 rotero_pdf::PdfError::WrongPassword => "password-required".to_string(),
@@ -117,11 +131,25 @@ impl PdfDocs {
         count: u32,
         zoom: f32,
     ) -> Result<Vec<RenderedPageData>, String> {
+        self.render_pages_with(pdf_path, start, count, zoom, false)
+            .await
+    }
+
+    /// Render pages with optional dark / night-mode colour scheme.
+    pub async fn render_pages_with(
+        &self,
+        pdf_path: String,
+        start: u32,
+        count: u32,
+        zoom: f32,
+        dark: bool,
+    ) -> Result<Vec<RenderedPageData>, String> {
         self.run(move |cache| {
             let doc = cache.open(&pdf_path).map_err(|e| e.to_string())?;
             let mut session = RenderSession::new();
-            let rendered = rotero_pdf::render_pages(&doc, start, count, zoom, &mut session)
-                .map_err(|e| e.to_string())?;
+            let rendered =
+                rotero_pdf::render_pages_with(&doc, start, count, zoom, dark, &mut session)
+                    .map_err(|e| e.to_string())?;
             Ok(rendered.into_iter().map(|r| r.into()).collect())
         })
         .await
@@ -190,6 +218,7 @@ impl PdfDocs {
     }
 
     /// Whole-document Markdown.
+    #[allow(dead_code)] // used by MCP / future callers
     pub async fn document_markdown(&self, pdf_path: String) -> Result<String, String> {
         self.run(move |cache| {
             let doc = cache.open(&pdf_path).map_err(|e| e.to_string())?;

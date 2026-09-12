@@ -86,7 +86,7 @@ pub fn PdfTabBar() -> Element {
                                     let needs = tabs.read().active_tab().map(|t| t.needs_render()).unwrap_or(false);
                                     if needs {
                                         tabs.with_mut(|m| m.tab_mut().is_loading = true);
-                                        let _ = crate::state::commands::open_pdf(&docs, &mut tabs, tab_id, &cfg_dir, dpr_sig.read().0).await;
+                                        let _ = crate::state::commands::open_pdf_with_theme(&docs, &mut tabs, tab_id, &cfg_dir, dpr_sig.read().0, config.read().ui.dark_mode).await;
                                     }
 
                                     // Pages render in a sliding window, so before restoring
@@ -127,7 +127,7 @@ pub fn PdfTabBar() -> Element {
                                             let cfg_dir = config.read().effective_library_path();
                                             tabs.with_mut(|m| m.tab_mut().is_loading = true);
                                             spawn(async move {
-                                                let _ = crate::state::commands::open_pdf(&docs, &mut tabs, new_id, &cfg_dir, dpr_sig.read().0).await;
+                                                let _ = crate::state::commands::open_pdf_with_theme(&docs, &mut tabs, new_id, &cfg_dir, dpr_sig.read().0, config.read().ui.dark_mode).await;
                                             });
                                         }
                                     }

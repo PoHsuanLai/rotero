@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use pdfrum::{
-    Dest, Document, LinkTarget as PdfrumLinkTarget, Name, Object, RenderOptions, RenderSession,
-    Subtype, VelloCpuBackend,
+    Argb, ColorMode, ColorScheme, Dest, Document, LinkTarget as PdfrumLinkTarget, Name, Object,
+    RenderOptions, RenderSession, Subtype, VelloCpuBackend,
 };
 use thiserror::Error;
 
@@ -188,6 +188,21 @@ pub fn load_document(doc: &Document, pdf_path: &str) -> PdfDocumentInfo {
     }
 }
 
+/// Build render options for `scale`, optionally applying a dark / night-mode
+/// colour scheme (forced light ink on a dark page background).
+pub fn render_options_for(scale: f32, dark: bool) -> RenderOptions {
+    let mut opts = RenderOptions::builder().scale(f64::from(scale));
+    if dark {
+        // Light strokes/fills on a near-black page — images stay untouched.
+        let ink = Argb::opaque(220, 220, 220);
+        let scheme = ColorScheme::new(ink, ink, Argb::WHITE, Argb::WHITE);
+        opts = opts
+            .color_mode(ColorMode::Forced(scheme))
+            .background(pdfrum::Color::from_rgb8(24, 24, 28));
+    }
+    opts.build()
+}
+
 /// Renders a contiguous range of pages starting at `start` as base64 PNGs.
 ///
 /// `scale`: zoom level (1.0 = 72 DPI, 2.0 = 144 DPI, etc.)
@@ -198,9 +213,21 @@ pub fn render_pages(
     scale: f32,
     session: &mut RenderSession,
 ) -> Result<Vec<RenderedPage>, PdfError> {
+    render_pages_with(doc, start, count, scale, false, session)
+}
+
+/// Like [`render_pages`], with optional dark / night-mode colour scheme.
+pub fn render_pages_with(
+    doc: &Document,
+    start: u32,
+    count: u32,
+    scale: f32,
+    dark: bool,
+    session: &mut RenderSession,
+) -> Result<Vec<RenderedPage>, PdfError> {
     let page_count = doc.page_count();
     let end = (start + count).min(page_count);
-    let opts = RenderOptions::scaled(f64::from(scale));
+    let opts = render_options_for(scale, dark);
     let mut pages = Vec::with_capacity((end - start) as usize);
     for i in start..end {
         pages.push(render_page_inner(session, doc, i, &opts)?);
@@ -226,10 +253,22 @@ pub fn open_and_render_initial_with(
     batch_size: u32,
     password: Option<&str>,
 ) -> Result<(u32, Vec<RenderedPage>), PdfError> {
+    open_and_render_initial_with_theme(cache, pdf_path, scale, batch_size, password, false)
+}
+
+/// Like [`open_and_render_initial_with`], with dark / night-mode rendering.
+pub fn open_and_render_initial_with_theme(
+    cache: &DocCache,
+    pdf_path: &str,
+    scale: f32,
+    batch_size: u32,
+    password: Option<&str>,
+    dark: bool,
+) -> Result<(u32, Vec<RenderedPage>), PdfError> {
     let doc = cache.open_with(pdf_path, password)?;
     let page_count = doc.page_count();
     let mut session = RenderSession::new();
-    let pages = render_pages(&doc, 0, batch_size, scale, &mut session)?;
+    let pages = render_pages_with(&doc, 0, batch_size, scale, dark, &mut session)?;
     Ok((page_count, pages))
 }
 

@@ -52,11 +52,14 @@ pub fn PdfViewer() -> Element {
         let docs = docs.get();
         let data_dir = config.read().effective_library_path();
         let dpr = dpr_sig.read().0;
+        let dark = config.read().ui.dark_mode;
         let db = db.clone();
         spawn(async move {
-            if crate::state::commands::open_pdf(&docs, &mut tabs, tid, &data_dir, dpr)
-                .await
-                .is_ok()
+            if crate::state::commands::open_pdf_with_theme(
+                &docs, &mut tabs, tid, &data_dir, dpr, dark,
+            )
+            .await
+            .is_ok()
             {
                 let paper_id = tabs.read().active_tab().and_then(|t| t.paper_id.clone());
                 if let Some(ref pid) = paper_id {
