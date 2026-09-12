@@ -353,9 +353,10 @@ pub struct SelectionMarkup {
 /// overlays and annotation writes), resolve a [`CharIndex`] range with
 /// [`TextPage::index_at`] at the diagonally opposite corners (tolerance so a
 /// drag that misses glyph centres still snaps), then take
-/// [`TextPage::rects`] for that range as the line quads. If either corner
-/// misses, fall back to the first/last character whose box intersects the
-/// selection. Returns [`None`] when no characters are hit.
+/// [`TextPage::rects_loose`] for that range as the line quads (font em-box,
+/// Acrobat-style markup geometry). If either corner misses, fall back to the
+/// first/last character whose box intersects the selection. Returns [`None`]
+/// when no characters are hit.
 #[allow(clippy::too_many_arguments)] // page + pixel size + selection AABB
 pub fn selection_markup(
     doc: &Document,
@@ -441,7 +442,7 @@ pub fn selection_markup_from_text(
         return None;
     }
 
-    let pdf_rects = text.rects(from..to);
+    let pdf_rects = text.rects_loose(from..to);
     let line_rects = pdf_rects_to_pixel_bounds(&pdf_rects, page_height_pts, scale_x, scale_y);
     if line_rects.is_empty() {
         return None;
@@ -575,7 +576,7 @@ fn markup_from_char_range(
     from: CharIndex,
     to: CharIndex,
 ) -> Option<SelectionMarkup> {
-    let pdf_rects = text.rects(from..to);
+    let pdf_rects = text.rects_loose(from..to);
     let line_rects = pdf_rects_to_pixel_bounds(&pdf_rects, page_height_pts, scale_x, scale_y);
     if line_rects.is_empty() {
         return None;
@@ -788,15 +789,16 @@ mod tests {
     }
 
     #[test]
-    fn selection_markup_single_line_tight_quad() {
+    fn selection_markup_single_line_loose_quad() {
         let path = fixture("basicapi.pdf");
         let doc = Document::open(&path).expect("open");
         let page = doc.page(0).expect("page");
         let text = page.text();
         // Pick a short char run on the first text object and build a drag that
-        // covers just those glyphs (PDF space → pixel at 1:1).
+        // covers just those glyphs (PDF space → pixel at 1:1). Markup quads use
+        // loose em-boxes, so expected geometry comes from rects_loose.
         assert!(text.char_count() > 8, "fixture should have text");
-        let boxes = text.rects(CharIndex::new(0)..CharIndex::new(5));
+        let boxes = text.rects_loose(CharIndex::new(0)..CharIndex::new(5));
         assert!(!boxes.is_empty());
         let r = boxes[0].abs();
         let ph = page.height();
@@ -818,13 +820,21 @@ mod tests {
         assert_eq!(
             m.line_rects.len(),
             1,
-            "expected one tight quad: {:?}",
+            "expected one loose em-box quad: {:?}",
             m.line_rects
         );
         let (x, y, w, h) = m.line_rects[0];
         assert!((x - sel_x).abs() < 2.0, "x={x} sel_x={sel_x}");
         assert!((y - sel_y).abs() < 2.0, "y={y} sel_y={sel_y}");
         assert!(w > 0.0 && h > 0.0);
+        // Loose markup height is at least the tight ink height for the same run.
+        let tight = text.rects(CharIndex::new(0)..CharIndex::new(5));
+        assert!(!tight.is_empty());
+        assert!(
+            h + 0.5 >= tight[0].abs().height().abs(),
+            "loose h={h} should cover tight ink {}",
+            tight[0].abs().height()
+        );
     }
 
     #[test]

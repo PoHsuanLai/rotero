@@ -255,18 +255,17 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
                                 }));
                             }
                         };
-                        // Zigzag fully below the text quad so descenders (p/g/y)
-                        // stay clear. Pixel quads hug ink bounds; sitting inside
-                        // the bottom `strip_h` still clipped glyphs.
+                        // Markup quads are loose em-boxes (`rects_loose`), so the
+                        // bottom edge is the font descent line — same place
+                        // pdfrum's Squiggly `/AP` zigzags. Draw inside that
+                        // descent band (no magic gap below the quad).
                         let amp = 2.0_f64;
                         let step = 3.0_f64;
                         let strip_h = amp * 2.0 + 2.0;
-                        // Clear ink-tight descenders; 1px still clipped p/g/y.
-                        let gap = 3.0_f64;
-                        let top = ry + rh + gap;
+                        let top = ry + rh - strip_h;
                         let mut d = String::new();
                         let mut x = 0.0_f64;
-                        // SVG y grows downward; zig between top of strip and bottom.
+                        // SVG y grows downward; zig near the bottom of the strip.
                         let y_hi = 1.0;
                         let y_lo = strip_h - 1.0;
                         let mut up = true;
