@@ -103,10 +103,26 @@ pub fn PdfViewer() -> Element {
                             let w = (ext.rect_pts[2] - ext.rect_pts[0]) * sx;
                             let h = (ext.rect_pts[3] - ext.rect_pts[1]) * sy;
 
-                            let geometry = serde_json::json!({
+                            let mut geometry = serde_json::json!({
                                 "x": x, "y": y, "width": w, "height": h,
                                 "page_width": rw, "page_height": rh,
                             });
+                            if !ext.rects_pts.is_empty() {
+                                let rects: Vec<serde_json::Value> = ext
+                                    .rects_pts
+                                    .iter()
+                                    .map(|r| {
+                                        let rx = r[0] * sx;
+                                        let ry = (ext.page_height_pts - r[3]) * sy;
+                                        let rect_w = (r[2] - r[0]) * sx;
+                                        let rect_h = (r[3] - r[1]) * sy;
+                                        serde_json::json!({
+                                            "x": rx, "y": ry, "width": rect_w, "height": rect_h,
+                                        })
+                                    })
+                                    .collect();
+                                geometry["rects"] = serde_json::Value::Array(rects);
+                            }
 
                             let ann = rotero_models::Annotation {
                                 id: None,

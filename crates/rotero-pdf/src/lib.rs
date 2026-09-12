@@ -19,7 +19,7 @@ pub use doc::{
 };
 pub use text_extract::{
     PageTextData, PdfDocMetadata, SearchMatch, SelectionMarkup, TextSegment, group_into_lines,
-    search_in_document, selection_markup, text_block_at,
+    search_in_document, selection_markup, selection_markup_from_text, text_block_at,
 };
 
 /// Re-export so app code can create per-call render sessions without depending on pdfrum directly.
