@@ -255,10 +255,11 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
                                 }));
                             }
                         };
-                        // Loose em-box bottom ≈ font descent line. pdfrum's
-                        // Squiggly `/AP` zigzags only DELTA=2pt up from that
-                        // edge — a tall strip here ate into the glyph body.
-                        // Scale amp with the em-box (~2pt when rh≈16px).
+                        // Loose em-box bottom ≈ font descent line. Match
+                        // pdfrum Squiggly `/AP` (DELTA≈2pt up from bottom).
+                        // Must set viewBox: without it WebView uses the SVG
+                        // default 300×150 viewport, so y≈rh maps near the top
+                        // of the CSS box and the zig reads as mid-glyph.
                         let amp = (rh * (2.0 / 16.0)).clamp(1.5, 5.0);
                         let step = amp.max(2.0);
                         let mut d = String::new();
@@ -273,9 +274,11 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
                             up = !up;
                             d.push_str(&format!(" L{x:.1},{y:.1}"));
                         }
+                        let view_box = format!("0 0 {rw:.3} {rh:.3}");
                         rsx! {
                             svg {
                                 key: "ann-{ann_id}-sq-{ri}",
+                                view_box: "{view_box}",
                                 style: "position: absolute; left: {rx}px; top: {ry}px; width: {rw}px; height: {rh}px; pointer-events: auto; z-index: 3; overflow: visible;",
                                 oncontextmenu: on_context,
                                 path {
