@@ -612,6 +612,85 @@ impl RoteroMcp {
         }))
     }
 
+    #[tool(
+        description = "Grounded quote at a page point: returns selected word or line text plus pixel quads (page + rects)."
+    )]
+    async fn quote_at(
+        &self,
+        Parameters(params): Parameters<QuoteAtParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let (_paper, doc) = self.open_paper_pdf(&params.paper_id).await?;
+        let page_idx = params.page.saturating_sub(1);
+        let page = doc
+            .page(page_idx)
+            .map_err(|e| err(format!("page open: {e}")))?;
+        let pw = params.page_width.unwrap_or(page.width() as u32);
+        let ph = params.page_height.unwrap_or(page.height() as u32);
+        let mode = match params
+            .mode
+            .as_deref()
+            .unwrap_or("word")
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "line" => rotero_pdf::ClickSelectMode::Line,
+            _ => rotero_pdf::ClickSelectMode::Word,
+        };
+        let Some(sel) =
+            rotero_pdf::selection_at_point(&doc, page_idx, pw, ph, params.x, params.y, mode)
+        else {
+            return json_result(&serde_json::json!({
+                "page": params.page,
+                "text": null,
+                "rects": [],
+            }));
+        };
+        json_result(&serde_json::json!({
+            "page": params.page,
+            "text": sel.text,
+            "bounds": sel.bounds,
+            "rects": sel.line_rects.iter().map(|(x,y,w,h)| [x,y,w,h]).collect::<Vec<_>>(),
+        }))
+    }
+
+    #[tool(
+        description = "Extract text intersecting a pixel-space rectangle on a page, with per-line quads for grounded citation."
+    )]
+    async fn text_in_rect(
+        &self,
+        Parameters(params): Parameters<TextInRectParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let (_paper, doc) = self.open_paper_pdf(&params.paper_id).await?;
+        let page_idx = params.page.saturating_sub(1);
+        let page = doc
+            .page(page_idx)
+            .map_err(|e| err(format!("page open: {e}")))?;
+        let pw = params.page_width.unwrap_or(page.width() as u32);
+        let ph = params.page_height.unwrap_or(page.height() as u32);
+        let Some(sel) = rotero_pdf::selection_markup(
+            &doc,
+            page_idx,
+            pw,
+            ph,
+            params.x,
+            params.y,
+            params.width,
+            params.height,
+        ) else {
+            return json_result(&serde_json::json!({
+                "page": params.page,
+                "text": null,
+                "rects": [],
+            }));
+        };
+        json_result(&serde_json::json!({
+            "page": params.page,
+            "text": sel.text,
+            "bounds": sel.bounds,
+            "rects": sel.line_rects.iter().map(|(x,y,w,h)| [x,y,w,h]).collect::<Vec<_>>(),
+        }))
+    }
+
     #[tool(description = "Add a note to a paper")]
     async fn add_note(
         &self,

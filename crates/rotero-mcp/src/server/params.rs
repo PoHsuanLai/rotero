@@ -428,3 +428,37 @@ pub struct AnnotateParams {
     #[serde(default)]
     pub write_pdf: Option<bool>,
 }
+
+/// Parameters for `quote_at` — text under a point (word/line).
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct QuoteAtParams {
+    pub paper_id: String,
+    /// 1-based page.
+    pub page: u32,
+    /// Pixel X (top-left origin). Uses page_width/page_height scale; defaults assume 1pt=1px.
+    pub x: f64,
+    pub y: f64,
+    /// `word` (default) or `line`.
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub page_width: Option<u32>,
+    #[serde(default)]
+    pub page_height: Option<u32>,
+}
+
+/// Parameters for `text_in_rect` — grounded quote from a selection rect.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct TextInRectParams {
+    pub paper_id: String,
+    /// 1-based page.
+    pub page: u32,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    #[serde(default)]
+    pub page_width: Option<u32>,
+    #[serde(default)]
+    pub page_height: Option<u32>,
+}
