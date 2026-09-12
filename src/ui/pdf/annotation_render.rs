@@ -255,36 +255,33 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
                                 }));
                             }
                         };
-                        // Markup quads are loose em-boxes (`rects_loose`), so the
-                        // bottom edge is the font descent line — same place
-                        // pdfrum's Squiggly `/AP` zigzags. Draw inside that
-                        // descent band (no magic gap below the quad).
-                        let amp = 2.0_f64;
-                        let step = 3.0_f64;
-                        let strip_h = amp * 2.0 + 2.0;
-                        let top = ry + rh - strip_h;
+                        // Loose em-box bottom ≈ font descent line. pdfrum's
+                        // Squiggly `/AP` zigzags only DELTA=2pt up from that
+                        // edge — a tall strip here ate into the glyph body.
+                        // Scale amp with the em-box (~2pt when rh≈16px).
+                        let amp = (rh * (2.0 / 16.0)).clamp(1.5, 5.0);
+                        let step = amp.max(2.0);
                         let mut d = String::new();
                         let mut x = 0.0_f64;
-                        // SVG y grows downward; zig near the bottom of the strip.
-                        let y_hi = 1.0;
-                        let y_lo = strip_h - 1.0;
+                        let y_bot = rh - 0.5;
+                        let y_top = (rh - amp).max(0.5);
                         let mut up = true;
-                        d.push_str(&format!("M0,{y_hi:.1}"));
+                        d.push_str(&format!("M0,{y_bot:.1}"));
                         while x < rw {
                             x = (x + step).min(rw);
-                            let y = if up { y_lo } else { y_hi };
+                            let y = if up { y_top } else { y_bot };
                             up = !up;
                             d.push_str(&format!(" L{x:.1},{y:.1}"));
                         }
                         rsx! {
                             svg {
                                 key: "ann-{ann_id}-sq-{ri}",
-                                style: "position: absolute; left: {rx}px; top: {top}px; width: {rw}px; height: {strip_h}px; pointer-events: auto; z-index: 3; overflow: visible;",
+                                style: "position: absolute; left: {rx}px; top: {ry}px; width: {rw}px; height: {rh}px; pointer-events: auto; z-index: 3; overflow: visible;",
                                 oncontextmenu: on_context,
                                 path {
                                     d: "{d}",
                                     stroke: "{color}",
-                                    stroke_width: "1.5",
+                                    stroke_width: "1.25",
                                     fill: "none",
                                     stroke_linecap: "round",
                                     stroke_linejoin: "round",
