@@ -336,6 +336,7 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                                     &annotations,
                                     &dims,
                                     None,
+                                    true, // flatten appearances into page content
                                 ) {
                                     Ok(()) => tracing::info!("Exported annotated PDF to {:?}", output_path),
                                     Err(e) => tracing::error!("Failed to export annotated PDF: {e}"),
@@ -343,7 +344,7 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                             });
                         }
                     },
-                    "Export PDF"
+                    "Export PDF (flattened)"
                 }
             }
 

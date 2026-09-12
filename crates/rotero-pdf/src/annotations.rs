@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use pdfrum::{AnnotSpec, Color, Document, Point, Quad, Rect, SaveOptions};
+use pdfrum::{AnnotSpec, Color, Document, FlattenMode, Point, Quad, Rect, SaveOptions};
 
 use crate::DocCache;
 use rotero_models::{Annotation, AnnotationType};
@@ -21,14 +21,18 @@ struct AnnotationGeometry {
     page_height: f32,
 }
 
+/// Write annotations into a PDF.
+///
 /// `page_dimensions` provides (width_pts, height_pts) per 0-indexed page,
-/// as returned by [`page_dimensions`].
+/// as returned by [`page_dimensions`]. When `flatten` is true, bake appearances
+/// into page content via [`pdfrum::DocEdit::flatten`] before saving.
 pub fn write_annotations(
     input_path: &Path,
     output_path: &Path,
     annotations: &[Annotation],
     page_dimensions: &[(f32, f32)],
     cache: Option<&DocCache>,
+    flatten: bool,
 ) -> Result<(), PdfError> {
     let doc = Document::open(input_path)
         .map_err(|e| PdfError::WriteError(format!("Failed to load PDF: {e}")))?;
@@ -94,6 +98,13 @@ pub fn write_annotations(
 
         edit.add_annotation(page, spec)
             .map_err(|e| PdfError::WriteError(format!("Failed to add annotation: {e}")))?;
+    }
+
+    if flatten {
+        for page in 0..page_count {
+            edit.flatten(page, FlattenMode::Print)
+                .map_err(|e| PdfError::WriteError(format!("Failed to flatten page {page}: {e}")))?;
+        }
     }
 
     let options = SaveOptions::builder().incremental().build();
@@ -437,7 +448,8 @@ mod tests {
         let doc = cache.open(input.to_str().unwrap()).expect("open");
         let dims = crate::page_dimensions(&doc);
 
-        write_annotations(&input, &output, &annotations, &dims, Some(&cache)).expect("write");
+        write_annotations(&input, &output, &annotations, &dims, Some(&cache), false)
+            .expect("write");
 
         let out = cache.open(output.to_str().unwrap()).expect("reopen out");
         let extracted = crate::extract_annotations(&out);
@@ -507,7 +519,7 @@ mod tests {
                 "page_width": dims[0].0, "page_height": dims[0].1,
             }),
         );
-        write_annotations(&input, &output, &[ann], &dims, Some(&cache)).expect("write");
+        write_annotations(&input, &output, &[ann], &dims, Some(&cache), false).expect("write");
 
         let out = cache.open(output.to_str().unwrap()).expect("reopen out");
         let after = crate::extract_links(&out).expect("links after");
@@ -539,7 +551,7 @@ mod tests {
             ],
         });
         let ann = sample_annotation(0, AnnotationType::Highlight, "#ffff00", None, geom);
-        write_annotations(&input, &output, &[ann], &dims, Some(&cache)).expect("write");
+        write_annotations(&input, &output, &[ann], &dims, Some(&cache), false).expect("write");
 
         let out = Document::open(&output).expect("reopen");
         let page = out.page(0).expect("page");
@@ -569,7 +581,7 @@ mod tests {
                 "page_width": 100.0, "page_height": 100.0,
             }),
         );
-        write_annotations(&input, &output, &[ann], &dims, Some(&cache)).expect("write");
+        write_annotations(&input, &output, &[ann], &dims, Some(&cache), false).expect("write");
         let out = cache.open(output.to_str().unwrap()).expect("reopen out");
         let extracted = crate::extract_annotations(&out);
         assert!(extracted.is_empty());
@@ -593,7 +605,7 @@ mod tests {
             ],
         });
         let ann = sample_annotation(0, AnnotationType::Underline, "#0066ff", None, geom);
-        write_annotations(&input, &output, &[ann], &dims, Some(&cache)).expect("write");
+        write_annotations(&input, &output, &[ann], &dims, Some(&cache), false).expect("write");
 
         let out = Document::open(&output).expect("reopen");
         let page = out.page(0).expect("page");
@@ -642,7 +654,7 @@ mod tests {
             Some(&markup.text),
             geom,
         );
-        write_annotations(&input, &output, &[ann], &dims, Some(&cache)).expect("write");
+        write_annotations(&input, &output, &[ann], &dims, Some(&cache), false).expect("write");
 
         let out = Document::open(&output).expect("reopen");
         let page = out.page(0).expect("page");
@@ -679,7 +691,7 @@ mod tests {
             ],
         });
         let ann = sample_annotation(0, AnnotationType::Highlight, "#ffff00", None, geom);
-        write_annotations(&input, &output, &[ann], &dims, Some(&cache)).expect("write");
+        write_annotations(&input, &output, &[ann], &dims, Some(&cache), false).expect("write");
 
         let out = cache.open(output.to_str().unwrap()).expect("reopen");
         let extracted = crate::extract_annotations(&out);
