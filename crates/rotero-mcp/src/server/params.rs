@@ -383,3 +383,15 @@ pub struct GetFigureParams {
     /// Index into that page's image list (from `list_figures`).
     pub image_index: u32,
 }
+
+/// Parameters for `get_outline`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetOutlineParams {
+    pub paper_id: String,
+}
+
+/// Parameters for `get_links`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetLinksParams {
+    pub paper_id: String,
+}
