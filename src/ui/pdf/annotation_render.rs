@@ -255,13 +255,14 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
                                 }));
                             }
                         };
-                        // Match pdfrum `/AP`: zigzag along the baseline only
-                        // (not through the glyph body). A short strip under the
-                        // quad keeps amp from eating half the line height.
+                        // Zigzag fully below the text quad so descenders (p/g/y)
+                        // stay clear. Pixel quads hug ink bounds; sitting inside
+                        // the bottom `strip_h` still clipped glyphs.
                         let amp = 2.0_f64;
                         let step = 3.0_f64;
-                        let strip_h = (amp * 2.0 + 2.0).min(rh.max(amp * 2.0 + 2.0));
-                        let top = ry + rh - strip_h;
+                        let strip_h = amp * 2.0 + 2.0;
+                        let gap = 1.0_f64;
+                        let top = ry + rh + gap;
                         let mut d = String::new();
                         let mut x = 0.0_f64;
                         // SVG y grows downward; zig between top of strip and bottom.
