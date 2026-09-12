@@ -232,6 +232,33 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 if show_panel { "Hide Notes ({ann_count})" } else { "Notes ({ann_count})" }
             }
 
+            button {
+                class: "btn btn--ghost",
+                title: "Copy current page as Markdown",
+                onclick: move |_| {
+                    let pdf_path = tabs.read().tab().pdf_path.clone();
+                    let page = tabs.read().tab().view.current_page;
+                    let docs = docs.get();
+                    spawn(async move {
+                        match docs.page_markdown(pdf_path, page).await {
+                            Ok(md) => {
+                                let text = md.trim();
+                                if text.is_empty() {
+                                    tracing::warn!("Page {page} markdown was empty");
+                                    return;
+                                }
+                                if let Ok(mut clip) = arboard::Clipboard::new() {
+                                    let _ = clip.set_text(text);
+                                    tracing::info!("Copied page {page} markdown ({} chars)", text.len());
+                                }
+                            }
+                            Err(e) => tracing::error!("Failed to extract page markdown: {e}"),
+                        }
+                    });
+                },
+                "Copy MD"
+            }
+
             if ann_count > 0 {
                 button {
                     class: "btn btn--ghost",

@@ -8,6 +8,8 @@
 pub mod annotations;
 /// Document cache and PDF operations (render, outline, links, annotations).
 pub mod doc;
+/// Markdown extraction (pdfrum `markdown` feature).
+pub mod markdown;
 /// Text extraction, font detection, and full-text search over PDF pages.
 pub mod text_extract;
 
@@ -18,6 +20,7 @@ pub use doc::{
     open_and_render_initial, open_and_render_initial_with, outline, page_dimensions, page_labels,
     render_pages, render_thumbnails,
 };
+pub use markdown::{document_markdown, page_markdown};
 pub use text_extract::{
     ClickSelectMode, PageTextData, PdfDocMetadata, SearchMatch, SelectionMarkup, TextSegment,
     group_into_lines, search_in_document, selection_at_point, selection_at_point_from_text,
