@@ -65,6 +65,30 @@ async fn save_fulltext_to_db(tabs: &Signal<PdfTabManager>, tab_id: TabId, paper_
 /// render — the spinner stops and the reason is recorded. Previously those
 /// paths skipped both `is_loading = false` sites, and neither retry condition
 /// could fire afterwards, so the tab said "Loading PDF…" until it was closed.
+
+/// Fill `tab.page_labels` from the open document (best-effort).
+async fn load_page_labels_into_tab(
+    docs: &PdfDocs,
+    tabs: &mut Signal<PdfTabManager>,
+    tab_id: TabId,
+) {
+    let pdf_path = {
+        let mgr = tabs.read();
+        let Some(tab) = mgr.tabs.iter().find(|t| t.id == tab_id) else {
+            return;
+        };
+        tab.pdf_path.clone()
+    };
+    let Ok(labels) = docs.page_labels(pdf_path).await else {
+        return;
+    };
+    tabs.with_mut(|mgr| {
+        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+            tab.page_labels = labels;
+        }
+    });
+}
+
 pub async fn open_pdf(
     docs: &PdfDocs,
     tabs: &mut Signal<PdfTabManager>,
@@ -156,6 +180,7 @@ async fn open_pdf_inner(
                 tab.is_loading = false;
             }
         });
+        load_page_labels_into_tab(docs, tabs, tab_id).await;
         if let Some(text_data) = text_data {
             tabs.with_mut(|mgr| {
                 if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
@@ -240,6 +265,7 @@ async fn open_pdf_inner(
             tab.load_error = None;
         }
     });
+    load_page_labels_into_tab(docs, tabs, tab_id).await;
     let page_dims: Vec<(u32, u32, u32)> = {
         let mgr = tabs.read();
         mgr.tabs

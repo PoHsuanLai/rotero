@@ -14,8 +14,9 @@ pub mod text_extract;
 pub use annotations::write_annotations;
 pub use doc::{
     BookmarkEntry, DocCache, ExtractedAnnotation, ExtractedLink, LinkTarget, PdfDocumentInfo,
-    PdfError, RenderedPage, extract_annotations, extract_links, load_document,
-    open_and_render_initial, outline, page_dimensions, render_pages, render_thumbnails,
+    PdfError, RenderedPage, display_page_number, extract_annotations, extract_links, load_document,
+    open_and_render_initial, outline, page_dimensions, page_labels, render_pages,
+    render_thumbnails,
 };
 pub use text_extract::{
     ClickSelectMode, PageTextData, PdfDocMetadata, SearchMatch, SelectionMarkup, TextSegment,

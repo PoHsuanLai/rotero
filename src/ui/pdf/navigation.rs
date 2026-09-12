@@ -15,6 +15,7 @@ pub(crate) fn ThumbnailSidebar() -> Element {
     let page_count = tab.page_count;
     let tab_id = tab.id;
     let thumbnails = tab.render.thumbnails.clone();
+    let page_labels = tab.page_labels.clone();
     drop(mgr);
 
     rsx! {
@@ -47,7 +48,7 @@ pub(crate) fn ThumbnailSidebar() -> Element {
                         let mime = thumb.mime;
                         let w = thumb.width;
                         let h = thumb.height;
-                        let page_num = page_idx + 1;
+                        let page_num = rotero_pdf::display_page_number(&page_labels, page_idx);
                         rsx! {
                             div {
                                 key: "thumb-{page_idx}", class: "thumbnail-item",
@@ -73,7 +74,7 @@ pub(crate) fn ThumbnailSidebar() -> Element {
                         key: "thumb-{page_idx}", class: "thumbnail-item thumbnail-placeholder",
                         style: "width: 120px; height: 160px; background: var(--bg-secondary, #e0e0e0);",
                         {
-                            let num = page_idx + 1;
+                            let num = rotero_pdf::display_page_number(&page_labels, page_idx);
                             rsx! { span { class: "thumbnail-page-num", "{num}" } }
                         }
                     }
@@ -88,8 +89,12 @@ pub(crate) fn OutlinePanel() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let docs = use_context::<PdfDocs>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
-    let tab_id = tabs.read().tab().id;
-    let outline = tabs.read().tab().nav.outline.clone();
+    let mgr = tabs.read();
+    let tab = mgr.tab();
+    let tab_id = tab.id;
+    let outline = tab.nav.outline.clone();
+    let page_labels = tab.page_labels.clone();
+    drop(mgr);
 
     rsx! {
         div { class: "outline-panel",
@@ -117,7 +122,10 @@ pub(crate) fn OutlinePanel() -> Element {
                                 },
                                 "{title}"
                                 if let Some(pi) = page_idx {
-                                    span { class: "outline-page-num", " p.{pi + 1}" }
+                                    {
+                                        let label = rotero_pdf::display_page_number(&page_labels, pi);
+                                        rsx! { span { class: "outline-page-num", " p.{label}" } }
+                                    }
                                 }
                             }
                         }

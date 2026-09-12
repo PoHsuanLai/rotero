@@ -148,6 +148,15 @@ impl PdfDocs {
         .await
     }
 
+    /// `/PageLabels` for every page (`None` = ordinal numbering).
+    pub async fn page_labels(&self, pdf_path: String) -> Result<Vec<Option<String>>, String> {
+        self.run(move |cache| {
+            let doc = cache.open(&pdf_path).map_err(|e| e.to_string())?;
+            Ok(rotero_pdf::page_labels(&doc))
+        })
+        .await
+    }
+
     /// Returns (width_pts, height_pts) for every page.
     pub async fn page_dimensions(&self, pdf_path: String) -> Result<Vec<(f32, f32)>, String> {
         self.run(move |cache| {
