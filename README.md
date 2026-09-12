@@ -52,7 +52,6 @@ Under active development.
 
 Known limitations:
 
-- PDF virtual text layer (selection/copy) needs refinement
 - Sync is file-based (shared/cloud folder); iCloud sync is not yet enabled in release builds
 
 ## Install

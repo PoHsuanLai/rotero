@@ -89,6 +89,7 @@ pulldown-latex = "0.8"
 futures-util.workspace = true
 axum = "0.8"
 arboard = "3"
+unicode-normalization = "0.1"
 open = "5"
 tempfile = { workspace = true, optional = true }
 # Node.js archive extraction: .tar.gz on Unix, .zip on Windows.

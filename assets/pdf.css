@@ -219,7 +219,7 @@
 }
 
 /* Clickable intra-document link hotspot (citations, figures, sections). Sits
-   above the text layer so clicks land on it; invisible until hovered. */
+   above the native text-select overlay so clicks land on it; invisible until hovered. */
 .pdf-link-hotspot {
   position: absolute;
   z-index: 4;
@@ -264,66 +264,15 @@
   cursor: crosshair;
 }
 
-/* --- Text Layer --- */
-.text-layer {
+/* Native text selection hit target (pdfrum). Below links/annotations. */
+.text-select-overlay {
   position: absolute;
   top: 0;
   left: 0;
-  overflow: hidden;
+  width: 100%;
+  height: 100%;
   z-index: 1;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.text-layer::selection {
-  background: transparent;
-}
-
-.text-layer::-moz-selection {
-  background: transparent;
-}
-
-.text-layer br {
-  user-select: none;
-  -webkit-user-select: none;
-  line-height: 0;
-  font-size: 0;
-}
-
-.text-layer span {
-  position: absolute;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  white-space: pre;
-  line-height: 1;
-  pointer-events: auto;
   cursor: text;
-  user-select: text;
-  -webkit-user-select: text;
-  transform-origin: left top;
-  font-family: sans-serif;
-}
-
-.text-layer span::selection {
-  background: var(--selection-color, rgba(0, 100, 255, 0.3));
-}
-
-.text-layer span::-moz-selection {
-  background: var(--selection-color, rgba(0, 100, 255, 0.3));
-}
-
-.text-layer .endOfContent {
-  display: block;
-  position: absolute;
-  inset: 100% 0 0;
-  z-index: 0;
-  cursor: default;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.text-layer.selecting .endOfContent {
-  top: 0;
 }
 
 

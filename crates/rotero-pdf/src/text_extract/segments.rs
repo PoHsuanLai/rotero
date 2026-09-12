@@ -89,8 +89,8 @@ fn extract_page_text_from_doc(
             continue;
         }
 
-        // Trailing space so the browser includes word separators when
-        // selecting/copying text from the virtual text layer.
+        // Trailing space so word separators survive when joining segments
+        // for search / citation helpers.
         let mut text_out = word.text;
         if !text_out.ends_with(' ') {
             text_out.push(' ');

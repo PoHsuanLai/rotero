@@ -1,8 +1,8 @@
 //! Text search within PDF pages.
 //!
 //! Find UI search runs against `pdfrum::TextPage::find_with`. Line grouping and
-//! `text_block_at` remain for the text layer / citation helpers that still work
-//! from extracted segments.
+//! `text_block_at` remain for citation helpers and segment-based search that still
+//! work from extracted segments.
 
 use pdfrum::{CharIndex, Document, FindOptions, Point, Rect, Size, TextIndex, TextPage};
 use serde::{Deserialize, Serialize};
@@ -274,7 +274,7 @@ pub fn search_in_document(
 ///
 /// Prefer [`search_in_document`] for Find UI — it uses pdfrum's text index and
 /// geometry. This path concatenates same-line segments so multi-word queries
-/// still match across word boundaries when only the text layer is available.
+/// still match across word boundaries when only extracted segments are available.
 pub fn search_in_text_data(text_data: &[PageTextData], query: &str) -> Vec<SearchMatch> {
     if query.is_empty() {
         return Vec::new();

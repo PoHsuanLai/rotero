@@ -368,7 +368,7 @@ pub async fn populate_page_dims(
 
 /// Extracts text for every page not already in `text_data`, computing pixel
 /// dimensions from each page's point size × `render_scale` (matching what a real
-/// render would produce, so text-layer coordinates line up). Does NOT render page
+/// render would produce, so search/citation segment coordinates line up). Does NOT render page
 /// images — keeps search/fulltext whole-document while images stay windowed.
 async fn extract_remaining_text(
     docs: &PdfDocs,
