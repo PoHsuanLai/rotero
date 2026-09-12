@@ -440,6 +440,36 @@ impl RoteroMcp {
         ]))
     }
 
+    #[tool(
+        description = "Get the PDF outline/bookmarks for a paper, including page index and printed page_label when available."
+    )]
+    async fn get_outline(
+        &self,
+        Parameters(params): Parameters<GetOutlineParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let (_paper, doc) = self.open_paper_pdf(&params.paper_id).await?;
+        let labels = rotero_pdf::page_labels(&doc);
+        let entries = rotero_pdf::outline(&doc);
+        let out: Vec<_> = entries
+            .into_iter()
+            .map(|e| {
+                let page_label = e.page_index.and_then(|i| {
+                    labels
+                        .get(i as usize)
+                        .and_then(|l| l.clone())
+                        .or_else(|| Some(rotero_pdf::display_page_number(&labels, i)))
+                });
+                serde_json::json!({
+                    "title": e.title,
+                    "page": e.page_index.map(|i| i + 1),
+                    "page_label": page_label,
+                    "level": e.level,
+                })
+            })
+            .collect();
+        json_result(&out)
+    }
+
     #[tool(description = "Add a note to a paper")]
     async fn add_note(
         &self,
