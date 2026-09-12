@@ -1311,6 +1311,21 @@ impl ServerHandler for RoteroMcp {
             resources: vec![
                 rmcp::model::RawResource::new("rotero://library/stats", "Library statistics")
                     .no_annotation(),
+                rmcp::model::RawResource::new(
+                    "paper://{id}/page/{n}.md",
+                    "Markdown for page n of paper id (1-based n)",
+                )
+                .no_annotation(),
+                rmcp::model::RawResource::new(
+                    "paper://{id}/annots.json",
+                    "Library annotations for paper id as JSON",
+                )
+                .no_annotation(),
+                rmcp::model::RawResource::new(
+                    "paper://{id}/outline.json",
+                    "PDF outline/bookmarks for paper id as JSON",
+                )
+                .no_annotation(),
             ],
         })
     }
@@ -1320,7 +1335,7 @@ impl ServerHandler for RoteroMcp {
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, rmcp::ErrorData> {
-        let uri = request.uri.as_str();
+        let uri = request.uri.to_string();
         if uri == "rotero://library/stats" {
             let stats = LibraryStats {
                 total_papers: self.db.count_papers().await.map_err(err)?,
@@ -1330,15 +1345,69 @@ impl ServerHandler for RoteroMcp {
                 favorites_count: self.db.count_favorites().await.map_err(err)?,
             };
             let json = serde_json::to_string_pretty(&stats).map_err(err)?;
-            Ok(ReadResourceResult::new(vec![ResourceContents::text(
+            return Ok(ReadResourceResult::new(vec![ResourceContents::text(
                 json, uri,
-            )]))
-        } else {
-            Err(rmcp::ErrorData::invalid_params(
-                format!("Unknown resource: {uri}"),
-                None,
-            ))
+            )]));
         }
+
+        if let Some(rest) = uri.strip_prefix("paper://") {
+            // paper://{id}/annots.json | outline.json | page/{n}.md
+            if let Some((id, path)) = rest.split_once('/') {
+                if path == "annots.json" {
+                    let anns = self
+                        .db
+                        .list_annotations_for_paper(id)
+                        .await
+                        .map_err(err)?;
+                    let json = serde_json::to_string_pretty(&anns).map_err(err)?;
+                    return Ok(ReadResourceResult::new(vec![ResourceContents::text(
+                        json, uri,
+                    )]));
+                }
+                if path == "outline.json" {
+                    let (_paper, doc) = self.open_paper_pdf(id).await?;
+                    let labels = rotero_pdf::page_labels(&doc);
+                    let entries: Vec<_> = rotero_pdf::outline(&doc)
+                        .into_iter()
+                        .map(|e| {
+                            serde_json::json!({
+                                "title": e.title,
+                                "page": e.page_index.map(|i| i + 1),
+                                "page_label": e.page_index.and_then(|i| {
+                                    labels.get(i as usize).and_then(|l| l.clone())
+                                }),
+                                "level": e.level,
+                            })
+                        })
+                        .collect();
+                    let json = serde_json::to_string_pretty(&entries).map_err(err)?;
+                    return Ok(ReadResourceResult::new(vec![ResourceContents::text(
+                        json, uri,
+                    )]));
+                }
+                if let Some(page_part) = path.strip_prefix("page/")
+                    && let Some(n_str) = page_part.strip_suffix(".md")
+                {
+                    let n: u32 = n_str.parse().map_err(|_| {
+                        rmcp::ErrorData::invalid_params(
+                            format!("bad page number in {uri}"),
+                            None,
+                        )
+                    })?;
+                    let (_paper, doc) = self.open_paper_pdf(id).await?;
+                    let idx = n.saturating_sub(1);
+                    let md = rotero_pdf::page_markdown(&doc, idx).map_err(super::pdf::pdf_err)?;
+                    return Ok(ReadResourceResult::new(vec![ResourceContents::text(
+                        md, uri,
+                    )]));
+                }
+            }
+        }
+
+        Err(rmcp::ErrorData::invalid_params(
+            format!("Unknown resource: {uri}"),
+            None,
+        ))
     }
 
     async fn list_prompts(
