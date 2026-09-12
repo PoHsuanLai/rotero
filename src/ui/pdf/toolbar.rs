@@ -337,6 +337,7 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                                     &dims,
                                     None,
                                     true, // flatten appearances into page content
+                                    None, // author /T — app has no profile name yet
                                 ) {
                                     Ok(()) => tracing::info!("Exported annotated PDF to {:?}", output_path),
                                     Err(e) => tracing::error!("Failed to export annotated PDF: {e}"),
