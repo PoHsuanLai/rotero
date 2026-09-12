@@ -468,6 +468,137 @@ pub fn selection_markup_from_text(
     })
 }
 
+/// How a click expands into a selection when there is no drag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClickSelectMode {
+    /// The word under the point ([`TextPage::words`]).
+    Word,
+    /// The visual line under the point: all characters sharing the hit
+    /// character's text object (same run as [`TextPage::rects`] grouping).
+    Line,
+}
+
+/// Select the word or line under a pixel-space click via pdfrum word / char bounds.
+///
+/// Returns [`None`] when the point misses every character (within a modest
+/// snap tolerance) or the page has no text.
+pub fn selection_at_point(
+    doc: &Document,
+    page_index: u32,
+    img_width: u32,
+    img_height: u32,
+    pixel_x: f64,
+    pixel_y: f64,
+    mode: ClickSelectMode,
+) -> Option<SelectionMarkup> {
+    if img_width == 0 || img_height == 0 {
+        return None;
+    }
+    let page = doc.page(page_index).ok()?;
+    let page_width_pts = page.width();
+    let page_height_pts = page.height();
+    if page_width_pts <= 0.0 || page_height_pts <= 0.0 {
+        return None;
+    }
+    let scale_x = f64::from(img_width) / page_width_pts;
+    let scale_y = f64::from(img_height) / page_height_pts;
+    let text = page.text();
+    selection_at_point_from_text(
+        &text,
+        page_height_pts,
+        scale_x,
+        scale_y,
+        pixel_x,
+        pixel_y,
+        mode,
+    )
+}
+
+/// Same as [`selection_at_point`] when the caller already holds a [`TextPage`].
+pub fn selection_at_point_from_text(
+    text: &TextPage,
+    page_height_pts: f64,
+    scale_x: f64,
+    scale_y: f64,
+    pixel_x: f64,
+    pixel_y: f64,
+    mode: ClickSelectMode,
+) -> Option<SelectionMarkup> {
+    if text.char_count() == 0 || scale_x <= 0.0 || scale_y <= 0.0 {
+        return None;
+    }
+    let pdf_x = pixel_x / scale_x;
+    let pdf_y = page_height_pts - (pixel_y / scale_y);
+    // ~ half a typical glyph so a click near a word still snaps.
+    let tolerance = Size::new(12.0, 12.0);
+    let hit = text.index_at(Point::new(pdf_x, pdf_y), tolerance)?;
+
+    let (from, to) = match mode {
+        ClickSelectMode::Word => {
+            let words = text.words();
+            let word = words.into_iter().find(|w| {
+                let start = w.range.start.get();
+                let end = w.range.end.get();
+                hit.get() >= start && hit.get() < end
+            })?;
+            (word.range.start, word.range.end)
+        }
+        ClickSelectMode::Line => {
+            let obj = text.chars.get(hit.get())?.object?;
+            let mut first = None;
+            let mut last = None;
+            for (i, info) in text.chars.iter().enumerate() {
+                if info.object != Some(obj) {
+                    continue;
+                }
+                if first.is_none() {
+                    first = Some(i);
+                }
+                last = Some(i);
+            }
+            let (f, l) = (first?, last?);
+            (CharIndex::new(f), CharIndex::new(l.saturating_add(1)))
+        }
+    };
+
+    if from.get() >= to.get() {
+        return None;
+    }
+    markup_from_char_range(text, page_height_pts, scale_x, scale_y, from, to)
+}
+
+fn markup_from_char_range(
+    text: &TextPage,
+    page_height_pts: f64,
+    scale_x: f64,
+    scale_y: f64,
+    from: CharIndex,
+    to: CharIndex,
+) -> Option<SelectionMarkup> {
+    let pdf_rects = text.rects(from..to);
+    let line_rects = pdf_rects_to_pixel_bounds(&pdf_rects, page_height_pts, scale_x, scale_y);
+    if line_rects.is_empty() {
+        return None;
+    }
+    let mut bx0 = f64::MAX;
+    let mut by0 = f64::MAX;
+    let mut bx1 = f64::MIN;
+    let mut by1 = f64::MIN;
+    for &(x, y, w, h) in &line_rects {
+        bx0 = bx0.min(x);
+        by0 = by0.min(y);
+        bx1 = bx1.max(x + w);
+        by1 = by1.max(y + h);
+    }
+    let raw = text.slice(from..to);
+    let text_out = raw.replace("\r\n", "\n").replace("\r", "\n");
+    Some(SelectionMarkup {
+        line_rects,
+        bounds: (bx0, by0, bx1 - bx0, by1 - by0),
+        text: text_out,
+    })
+}
+
 /// First..=last character whose glyph box intersects `sel` (inclusive end+1).
 fn char_range_intersecting(text: &TextPage, sel: Rect) -> Option<(CharIndex, CharIndex)> {
     let mut first = None;
@@ -694,5 +825,41 @@ mod tests {
         assert!((x - sel_x).abs() < 2.0, "x={x} sel_x={sel_x}");
         assert!((y - sel_y).abs() < 2.0, "y={y} sel_y={sel_y}");
         assert!(w > 0.0 && h > 0.0);
+    }
+
+    #[test]
+    fn selection_at_point_word_and_line() {
+        let path = fixture("basicapi.pdf");
+        let doc = Document::open(&path).expect("open");
+        let page = doc.page(0).expect("page");
+        let pw = page.width();
+        let ph = page.height();
+        let text = page.text();
+        let words = text.words();
+        assert!(!words.is_empty(), "fixture should have words");
+        let word = &words[0];
+        let mid = word.rect.center();
+        // PDF y-up → pixel top-left at 1:1
+        let px = mid.x;
+        let py = ph - mid.y;
+        let w = selection_at_point_from_text(&text, ph, 1.0, 1.0, px, py, ClickSelectMode::Word)
+            .expect("word select");
+        assert!(
+            w.text.contains(word.text.trim()) || word.text.trim().contains(w.text.trim()),
+            "word text={:?} selected={:?}",
+            word.text,
+            w.text
+        );
+        assert!(!w.line_rects.is_empty());
+
+        let line = selection_at_point_from_text(&text, ph, 1.0, 1.0, px, py, ClickSelectMode::Line)
+            .expect("line select");
+        assert!(
+            line.text.len() >= w.text.len(),
+            "line should be at least the word: word={:?} line={:?}",
+            w.text,
+            line.text
+        );
+        let _ = (pw, doc);
     }
 }
