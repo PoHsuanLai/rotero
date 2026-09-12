@@ -468,3 +468,9 @@ pub struct TextInRectParams {
 pub struct ListCitationNeighborsParams {
     pub paper_id: String,
 }
+
+/// Parameters for `list_attachments`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListAttachmentsParams {
+    pub paper_id: String,
+}

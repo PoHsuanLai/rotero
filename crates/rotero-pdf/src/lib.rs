@@ -6,6 +6,8 @@
 
 /// Annotation writing to PDF files via pdfrum `DocEdit`.
 pub mod annotations;
+/// Catalog embedded-file listings.
+pub mod attachments;
 /// Document cache and PDF operations (render, outline, links, annotations).
 pub mod doc;
 /// Page figure / image listing and PNG extraction.
@@ -16,6 +18,7 @@ pub mod markdown;
 pub mod text_extract;
 
 pub use annotations::write_annotations;
+pub use attachments::{EmbeddedAttachment, list_attachments};
 pub use doc::{
     BookmarkEntry, DocCache, ExtractedAnnotation, ExtractedLink, LinkTarget, PdfDocumentInfo,
     PdfError, RenderedPage, display_page_number, extract_annotations, extract_links, load_document,
