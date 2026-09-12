@@ -1396,8 +1396,23 @@ impl ServerHandler for RoteroMcp {
                     let n: u32 = n_str.parse().map_err(|_| {
                         rmcp::ErrorData::invalid_params(format!("bad page number in {uri}"), None)
                     })?;
+                    if n == 0 {
+                        return Err(rmcp::ErrorData::invalid_params(
+                            format!(
+                                "page numbers in paper:// resources are 1-based;                                  use paper://{{id}}/page/1.md for the first page (got {uri})"
+                            ),
+                            None,
+                        ));
+                    }
                     let (_paper, doc) = self.open_paper_pdf(id).await?;
-                    let idx = n.saturating_sub(1);
+                    let idx = n - 1;
+                    let total = doc.page_count();
+                    if idx >= total {
+                        return Err(rmcp::ErrorData::invalid_params(
+                            format!("page {n} out of range (1..={total}) in {uri}"),
+                            None,
+                        ));
+                    }
                     let md = rotero_pdf::page_markdown(&doc, idx).map_err(super::pdf::pdf_err)?;
                     return Ok(ReadResourceResult::new(vec![ResourceContents::text(
                         md, uri,
