@@ -27,7 +27,10 @@ fn file_mtime(path: &str) -> u64 {
 #[derive(Error, Debug)]
 pub enum PdfError {
     #[error("Failed to load PDF: {0}")]
-    LoadError(#[from] pdfrum::Error),
+    LoadError(pdfrum::Error),
+    /// The PDF is encrypted and the password was missing or wrong.
+    #[error("Password required")]
+    WrongPassword,
     #[error("Page {0} out of range (total: {1})")]
     PageOutOfRange(u32, u32),
     #[error("Failed to render page: {0}")]
@@ -36,6 +39,15 @@ pub enum PdfError {
     ImageError(String),
     #[error("Failed to write annotations: {0}")]
     WriteError(String),
+}
+
+impl From<pdfrum::Error> for PdfError {
+    fn from(err: pdfrum::Error) -> Self {
+        match err {
+            pdfrum::Error::WrongPassword => Self::WrongPassword,
+            other => Self::LoadError(other),
+        }
+    }
 }
 
 struct CachedDoc {
@@ -61,6 +73,15 @@ impl DocCache {
 
     /// Opens (or reuses a cached) document for `pdf_path`, keyed by path + mtime.
     pub fn open(&self, pdf_path: &str) -> Result<Arc<Document>, PdfError> {
+        self.open_with(pdf_path, None)
+    }
+
+    /// Like [`Self::open`], optionally supplying a password for encrypted PDFs.
+    pub fn open_with(
+        &self,
+        pdf_path: &str,
+        password: Option<&str>,
+    ) -> Result<Arc<Document>, PdfError> {
         let mtime = file_mtime(pdf_path);
         let mut guard = self.docs.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(cached) = guard.get(pdf_path)
@@ -68,7 +89,10 @@ impl DocCache {
         {
             return Ok(Arc::clone(&cached.doc));
         }
-        let doc = Document::open(pdf_path)?;
+        let doc = match password {
+            Some(pw) => Document::open_with_password(pdf_path, pw.as_bytes())?,
+            None => Document::open(pdf_path)?,
+        };
         let arc = Arc::new(doc);
         guard.insert(
             pdf_path.to_string(),
@@ -191,7 +215,18 @@ pub fn open_and_render_initial(
     scale: f32,
     batch_size: u32,
 ) -> Result<(u32, Vec<RenderedPage>), PdfError> {
-    let doc = cache.open(pdf_path)?;
+    open_and_render_initial_with(cache, pdf_path, scale, batch_size, None)
+}
+
+/// Like [`open_and_render_initial`], with an optional password for encrypted PDFs.
+pub fn open_and_render_initial_with(
+    cache: &DocCache,
+    pdf_path: &str,
+    scale: f32,
+    batch_size: u32,
+    password: Option<&str>,
+) -> Result<(u32, Vec<RenderedPage>), PdfError> {
+    let doc = cache.open_with(pdf_path, password)?;
     let page_count = doc.page_count();
     let mut session = RenderSession::new();
     let pages = render_pages(&doc, 0, batch_size, scale, &mut session)?;
@@ -641,5 +676,35 @@ mod page_label_tests {
         let doc = Document::open(fixture("basicapi.pdf")).expect("open");
         let labels = page_labels(&doc);
         assert_eq!(labels.len(), doc.page_count() as usize);
+    }
+}
+
+#[cfg(test)]
+mod password_tests {
+    use super::{DocCache, PdfError};
+    use std::path::PathBuf;
+
+    fn fixture(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/pdfs")
+            .join(name)
+    }
+
+    #[test]
+    fn wrong_password_maps_to_pdf_error_variant() {
+        let cache = DocCache::new();
+        let path = fixture("encrypted.pdf");
+        let err = cache
+            .open(path.to_str().unwrap())
+            .expect_err("needs password");
+        assert!(matches!(err, PdfError::WrongPassword), "got {err:?}");
+        let err = cache
+            .open_with(path.to_str().unwrap(), Some("nope"))
+            .expect_err("wrong password");
+        assert!(matches!(err, PdfError::WrongPassword), "got {err:?}");
+        let doc = cache
+            .open_with(path.to_str().unwrap(), Some("1234"))
+            .expect("correct password");
+        assert!(doc.page_count() >= 1);
     }
 }

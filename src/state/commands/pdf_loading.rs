@@ -99,16 +99,112 @@ pub async fn open_pdf(
     let result = open_pdf_inner(docs, tabs, tab_id, data_dir, dpr).await;
 
     if let Err(ref e) = result {
-        tracing::error!("Failed to open PDF in tab {tab_id:?}: {e}");
+        let needs_password = e == "password-required";
+        if needs_password {
+            tracing::info!("PDF in tab {tab_id:?} requires a password");
+        } else {
+            tracing::error!("Failed to open PDF in tab {tab_id:?}: {e}");
+        }
         tabs.with_mut(|mgr| {
             if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
                 tab.is_loading = false;
-                tab.load_error = Some(e.clone());
+                if needs_password {
+                    tab.needs_password = true;
+                    tab.password_error = None;
+                    tab.load_error = None;
+                } else {
+                    tab.needs_password = false;
+                    tab.load_error = Some(e.clone());
+                }
             }
         });
     }
 
     result
+}
+
+/// Retry opening an encrypted PDF after the user enters a password.
+pub async fn open_pdf_with_password(
+    docs: &PdfDocs,
+    tabs: &mut Signal<PdfTabManager>,
+    tab_id: TabId,
+    data_dir: &std::path::Path,
+    dpr: f32,
+    password: String,
+) -> Result<(), String> {
+    tabs.with_mut(|mgr| {
+        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+            tab.is_loading = true;
+            tab.password_error = None;
+            tab.load_error = None;
+        }
+    });
+
+    let (path, batch_size, render_scale) = {
+        let mgr = tabs.read();
+        let tab = mgr
+            .tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .ok_or_else(|| "Tab not found".to_string())?;
+        (
+            tab.pdf_path.clone(),
+            tab.view.page_batch_size,
+            tab.view.render_zoom,
+        )
+    };
+
+    let result = docs
+        .open_and_render_initial_with(path.clone(), render_scale, batch_size, Some(password))
+        .await;
+
+    match result {
+        Ok((page_count, pages)) => {
+            tabs.with_mut(|mgr| {
+                if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+                    tab.page_count = page_count;
+                    tab.view.dpr = dpr;
+                    tab.view.render_zoom = render_scale;
+                    tab.render.rendered_pages =
+                        pages.into_iter().map(|p| (p.page_index, p)).collect();
+                    tab.is_loading = false;
+                    tab.load_error = None;
+                    tab.needs_password = false;
+                    tab.password_error = None;
+                }
+            });
+            load_page_labels_into_tab(docs, tabs, tab_id).await;
+            // Kick off the same follow-up work a normal open does for dims/text/links.
+            let docs_bg = docs.clone();
+            let data_dir_bg = data_dir.to_path_buf();
+            let mut tabs_bg = *tabs;
+            spawn(async move {
+                let _ = super::load_links(&docs_bg, &mut tabs_bg, tab_id).await;
+                ensure_window_rendered(&docs_bg, &mut tabs_bg, tab_id, 0, &data_dir_bg).await;
+            });
+            Ok(())
+        }
+        Err(e) if e == "password-required" => {
+            tabs.with_mut(|mgr| {
+                if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+                    tab.is_loading = false;
+                    tab.needs_password = true;
+                    tab.password_error = Some("Incorrect password".to_string());
+                }
+            });
+            Err(e)
+        }
+        Err(e) => {
+            tabs.with_mut(|mgr| {
+                if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+                    tab.is_loading = false;
+                    tab.needs_password = false;
+                    tab.load_error = Some(e.clone());
+                }
+            });
+            Err(e)
+        }
+    }
 }
 
 async fn open_pdf_inner(
@@ -178,6 +274,9 @@ async fn open_pdf_inner(
                 tab.view.render_zoom = render_scale;
                 tab.render.rendered_pages = resident;
                 tab.is_loading = false;
+                tab.needs_password = false;
+                tab.password_error = None;
+                tab.load_error = None;
             }
         });
         load_page_labels_into_tab(docs, tabs, tab_id).await;
@@ -263,6 +362,8 @@ async fn open_pdf_inner(
             tab.render.rendered_pages = pages.into_iter().map(|p| (p.page_index, p)).collect();
             tab.is_loading = false;
             tab.load_error = None;
+            tab.needs_password = false;
+            tab.password_error = None;
         }
     });
     load_page_labels_into_tab(docs, tabs, tab_id).await;
