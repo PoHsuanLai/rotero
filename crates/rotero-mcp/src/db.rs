@@ -459,6 +459,24 @@ impl Database {
         Ok(pairs)
     }
 
+    /// Papers that `paper_id` cites (outgoing).
+    pub async fn list_cited_by_paper(&self, paper_id: &str) -> Result<Vec<String>, turso::Error> {
+        let all = self.list_all_citations().await?;
+        Ok(all
+            .into_iter()
+            .filter_map(|(citing, cited)| (citing == paper_id).then_some(cited))
+            .collect())
+    }
+
+    /// Papers that cite `paper_id` (incoming).
+    pub async fn list_citing_paper(&self, paper_id: &str) -> Result<Vec<String>, turso::Error> {
+        let all = self.list_all_citations().await?;
+        Ok(all
+            .into_iter()
+            .filter_map(|(citing, cited)| (cited == paper_id).then_some(citing))
+            .collect())
+    }
+
     /// List all papers in the library (up to 10,000).
     pub async fn list_all_papers(&self) -> Result<Vec<Paper>, turso::Error> {
         let sql = queries::PAPER_LIST_PAGINATED.replace("{COLS}", queries::PAPER_SELECT_COLS);
