@@ -145,6 +145,8 @@ pub struct PdfTab {
     pub needs_password: bool,
     /// Last password attempt failed (wrong password after a prompt).
     pub password_error: Option<String>,
+    /// Render pages with pdfrum dark colour scheme (tracks UI dark mode).
+    pub dark_render: bool,
     pub is_suspended: bool,
 
     pub render: PageRenderData,
@@ -177,6 +179,7 @@ impl PdfTab {
             load_error: None,
             needs_password: false,
             password_error: None,
+            dark_render: false,
             is_suspended: false,
             render: PageRenderData::default(),
             view: ViewState {

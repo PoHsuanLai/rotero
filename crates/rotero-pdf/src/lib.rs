@@ -19,8 +19,9 @@ pub use annotations::write_annotations;
 pub use doc::{
     BookmarkEntry, DocCache, ExtractedAnnotation, ExtractedLink, LinkTarget, PdfDocumentInfo,
     PdfError, RenderedPage, display_page_number, extract_annotations, extract_links, load_document,
-    open_and_render_initial, open_and_render_initial_with, outline, page_dimensions, page_labels,
-    render_pages, render_thumbnails,
+    open_and_render_initial, open_and_render_initial_with, open_and_render_initial_with_theme,
+    outline, page_dimensions, page_labels, render_options_for, render_pages, render_pages_with,
+    render_thumbnails,
 };
 pub use images::{PageFigure, extract_page_image_png, list_page_images};
 pub use markdown::{document_markdown, page_markdown};

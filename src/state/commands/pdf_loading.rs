@@ -89,6 +89,7 @@ async fn load_page_labels_into_tab(
     });
 }
 
+#[allow(dead_code)] // thin wrapper; callers use open_pdf_with_theme
 pub async fn open_pdf(
     docs: &PdfDocs,
     tabs: &mut Signal<PdfTabManager>,
@@ -96,6 +97,23 @@ pub async fn open_pdf(
     data_dir: &std::path::Path,
     dpr: f32,
 ) -> Result<(), String> {
+    open_pdf_with_theme(docs, tabs, tab_id, data_dir, dpr, false).await
+}
+
+/// Open a PDF, rendering with the dark colour scheme when `dark` is true.
+pub async fn open_pdf_with_theme(
+    docs: &PdfDocs,
+    tabs: &mut Signal<PdfTabManager>,
+    tab_id: TabId,
+    data_dir: &std::path::Path,
+    dpr: f32,
+    dark: bool,
+) -> Result<(), String> {
+    tabs.with_mut(|mgr| {
+        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+            tab.dark_render = dark;
+        }
+    });
     let result = open_pdf_inner(docs, tabs, tab_id, data_dir, dpr).await;
 
     if let Err(ref e) = result {
@@ -154,8 +172,21 @@ pub async fn open_pdf_with_password(
         )
     };
 
+    let dark = tabs
+        .read()
+        .tabs
+        .iter()
+        .find(|t| t.id == tab_id)
+        .map(|t| t.dark_render)
+        .unwrap_or(false);
     let result = docs
-        .open_and_render_initial_with(path.clone(), render_scale, batch_size, Some(password))
+        .open_and_render_initial_with_theme(
+            path.clone(),
+            render_scale,
+            batch_size,
+            Some(password),
+            dark,
+        )
         .await;
 
     match result {
@@ -249,9 +280,16 @@ async fn open_pdf_inner(
         )>,
         Option<std::collections::HashMap<u32, rotero_pdf::PageTextData>>,
     );
+    let dark = tabs
+        .read()
+        .tabs
+        .iter()
+        .find(|t| t.id == tab_id)
+        .map(|t| t.dark_render)
+        .unwrap_or(false);
     let (cache_tx, cache_rx) = oneshot::channel::<CacheResult>();
     std::thread::spawn(move || {
-        let result = crate::cache::load_cached(&cache_dir, &cache_path, render_scale);
+        let result = crate::cache::load_cached_with(&cache_dir, &cache_path, render_scale, dark);
         let text = crate::cache::load_cached_text(&cache_dir, &cache_path);
         let _ = cache_tx.send((result, text));
     });
@@ -339,19 +377,28 @@ async fn open_pdf_inner(
         }
         return Ok(());
     }
+    let dark = tabs
+        .read()
+        .tabs
+        .iter()
+        .find(|t| t.id == tab_id)
+        .map(|t| t.dark_render)
+        .unwrap_or(false);
     let (page_count, pages) = docs
-        .open_and_render_initial(path.clone(), render_scale, batch_size)
+        .open_and_render_initial_with_theme(path.clone(), render_scale, batch_size, None, dark)
         .await?;
     let cache_pages = pages.clone();
     let cache_dir = data_dir.to_path_buf();
     let cache_path = path.clone();
+    let cache_dark = dark;
     std::thread::spawn(move || {
-        crate::cache::save_pages(
+        crate::cache::save_pages_with(
             &cache_dir,
             &cache_path,
             render_scale,
             page_count,
             &cache_pages,
+            cache_dark,
         );
     });
     tabs.with_mut(|mgr| {
@@ -628,17 +675,17 @@ pub async fn render_more_pages(
     count: u32,
     data_dir: &std::path::Path,
 ) -> Result<(), String> {
-    let (pdf_path, render_scale) = {
+    let (pdf_path, render_scale, dark) = {
         let mgr = tabs.read();
         let tab = mgr
             .tabs
             .iter()
             .find(|t| t.id == tab_id)
             .ok_or("Tab not found")?;
-        (tab.pdf_path.clone(), tab.view.render_zoom)
+        (tab.pdf_path.clone(), tab.view.render_zoom, tab.dark_render)
     };
     let pages = docs
-        .render_pages(pdf_path.clone(), start, count, render_scale)
+        .render_pages_with(pdf_path.clone(), start, count, render_scale, dark)
         .await?;
     let page_dims: Vec<(u32, u32, u32)> = pages
         .iter()
@@ -649,12 +696,13 @@ pub async fn render_more_pages(
     let cache_path = pdf_path.clone();
     let page_count = tabs.read().active_tab().map(|t| t.page_count).unwrap_or(0);
     std::thread::spawn(move || {
-        crate::cache::save_pages(
+        crate::cache::save_pages_with(
             &cache_dir,
             &cache_path,
             render_scale,
             page_count,
             &cache_pages,
+            dark,
         );
     });
     tabs.with_mut(|mgr| {

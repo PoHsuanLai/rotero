@@ -771,13 +771,15 @@ fn action_close_tab(
             let docs = docs.get();
             let cfg_dir = config.read().effective_library_path();
             tabs.with_mut(|m| m.tab_mut().is_loading = true);
+            let dark = config.read().ui.dark_mode;
             spawn(async move {
-                let _ = crate::state::commands::open_pdf(
+                let _ = crate::state::commands::open_pdf_with_theme(
                     &docs,
                     &mut tabs,
                     new_id,
                     &cfg_dir,
                     dpr_sig.read().0,
+                    dark,
                 )
                 .await;
             });
