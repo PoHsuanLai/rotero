@@ -691,6 +691,17 @@ impl RoteroMcp {
         }))
     }
 
+    #[tool(
+        description = "List catalog-level embedded file attachments on a paper's PDF (name, file_name, size, subtype)."
+    )]
+    async fn list_attachments(
+        &self,
+        Parameters(params): Parameters<ListAttachmentsParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let (_paper, doc) = self.open_paper_pdf(&params.paper_id).await?;
+        json_result(&rotero_pdf::list_attachments(&doc))
+    }
+
     #[tool(description = "Add a note to a paper")]
     async fn add_note(
         &self,
