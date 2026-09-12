@@ -255,47 +255,21 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
                                 }));
                             }
                         };
-                        // Loose em-box bottom ≈ font descent line. Match
-                        // pdfrum Squiggly `/AP` (DELTA≈2pt up from bottom).
-                        // Must set viewBox: without it WebView uses the SVG
-                        // default 300×150 viewport, so y≈rh maps near the top
-                        // of the CSS box and the zig reads as mid-glyph.
-                        let amp = (rh * (2.0 / 16.0)).clamp(1.5, 5.0);
-                        let step = amp.max(2.0);
-                        let mut d = String::new();
-                        let mut x = 0.0_f64;
-                        let y_bot = rh - 0.5;
-                        let y_top = (rh - amp).max(0.5);
-                        let mut up = true;
-                        d.push_str(&format!("M0,{y_bot:.1}"));
-                        while x < rw {
-                            x = (x + step).min(rw);
-                            let y = if up { y_top } else { y_bot };
-                            up = !up;
-                            d.push_str(&format!(" L{x:.1},{y:.1}"));
-                        }
-                        let view_box = format!("0 0 {rw:.3} {rh:.3}");
+                        // Same attachment as Underline (bottom of loose em-box).
+                        // Prefer CSS `wavy` over an SVG path: WebView's default
+                        // SVG viewport made path coords unreadable / invisible.
                         rsx! {
-                            svg {
+                            div {
                                 key: "ann-{ann_id}-sq-{ri}",
-                                view_box: "{view_box}",
-                                style: "position: absolute; left: {rx}px; top: {ry}px; width: {rw}px; height: {rh}px; pointer-events: auto; z-index: 3; overflow: visible;",
+                                style: "position: absolute; left: {rx}px; top: {ry}px; width: {rw}px; height: {rh}px; border-bottom: 2.5px wavy {color}; pointer-events: auto; z-index: 3; box-sizing: border-box;",
                                 oncontextmenu: on_context,
-                                path {
-                                    d: "{d}",
-                                    stroke: "{color}",
-                                    stroke_width: "1.25",
-                                    fill: "none",
-                                    stroke_linecap: "round",
-                                    stroke_linejoin: "round",
-                                }
                             }
                         }
                     }
                 }
             }
         }
-        AnnotationType::Ink => {
+                AnnotationType::Ink => {
             let points = ann
                 .geometry
                 .get("points")
