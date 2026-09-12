@@ -217,6 +217,11 @@ pub fn render_pages(
 }
 
 /// Like [`render_pages`], with optional dark / night-mode colour scheme.
+///
+/// A single page reuses `session`. Multiple pages fan out across threads,
+/// each with its own [`RenderSession`] (sessions are `&mut`-only and must
+/// not be shared). Page order in the returned `Vec` matches the input range.
+/// When `count > 1`, `session` is unused for the concurrent path.
 pub fn render_pages_with(
     doc: &Document,
     start: u32,
@@ -228,9 +233,44 @@ pub fn render_pages_with(
     let page_count = doc.page_count();
     let end = (start + count).min(page_count);
     let opts = render_options_for(scale, dark);
-    let mut pages = Vec::with_capacity((end - start) as usize);
-    for i in start..end {
-        pages.push(render_page_inner(session, doc, i, &opts)?);
+    let n = (end - start) as usize;
+    if n == 0 {
+        return Ok(Vec::new());
+    }
+    if n == 1 {
+        // Keep the caller's session warm for single-page / sequential callers.
+        return Ok(vec![render_page_inner(session, doc, start, &opts)?]);
+    }
+
+    // Parallel fan-out. `Document` is `Send + Sync`; each task owns a session.
+    let _ = session;
+    let mut slots: Vec<Option<Result<RenderedPage, PdfError>>> = (0..n).map(|_| None).collect();
+    std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(n);
+        for (slot, page_index) in (start..end).enumerate() {
+            let opts = opts.clone();
+            handles.push(scope.spawn(move || {
+                let mut local = RenderSession::new();
+                (slot, render_page_inner(&mut local, doc, page_index, &opts))
+            }));
+        }
+        for handle in handles {
+            match handle.join() {
+                Ok((slot, result)) => slots[slot] = Some(result),
+                Err(_) => {
+                    if let Some(empty) = slots.iter_mut().find(|s| s.is_none()) {
+                        *empty = Some(Err(PdfError::RenderError(
+                            "page render thread panicked".into(),
+                        )));
+                    }
+                }
+            }
+        }
+    });
+
+    let mut pages = Vec::with_capacity(n);
+    for slot in slots {
+        pages.push(slot.expect("every slot filled")?);
     }
     Ok(pages)
 }
@@ -719,6 +759,47 @@ mod page_label_tests {
         let doc = Document::open(fixture("basicapi.pdf")).expect("open");
         let labels = page_labels(&doc);
         assert_eq!(labels.len(), doc.page_count() as usize);
+    }
+}
+
+
+#[cfg(test)]
+mod render_parallel_tests {
+    use super::{render_pages, render_pages_with, DocCache};
+    use pdfrum::RenderSession;
+    use std::path::PathBuf;
+
+    fn fixture(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/pdfs")
+            .join(name)
+    }
+
+    #[test]
+    fn render_pages_with_preserves_order_when_fanned_out() {
+        let cache = DocCache::new();
+        let path = fixture("tracemonkey.pdf");
+        let doc = cache.open(path.to_str().unwrap()).expect("open");
+        let count = doc.page_count().min(4).max(2);
+        let mut session = RenderSession::new();
+        let pages = render_pages_with(&doc, 0, count, 0.5, false, &mut session)
+            .expect("parallel render");
+        assert_eq!(pages.len(), count as usize);
+        for (i, page) in pages.iter().enumerate() {
+            assert_eq!(page.page_index, i as u32);
+            assert!(!page.base64_data.is_empty());
+            assert!(page.width > 0 && page.height > 0);
+        }
+
+        // Dark path still works under fan-out.
+        let dark = render_pages_with(&doc, 0, count, 0.5, true, &mut session)
+            .expect("dark parallel render");
+        assert_eq!(dark.len(), count as usize);
+
+        // Single-page path still accepts the shared session.
+        let one = render_pages(&doc, 0, 1, 0.5, &mut session).expect("single");
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].page_index, 0);
     }
 }
 
