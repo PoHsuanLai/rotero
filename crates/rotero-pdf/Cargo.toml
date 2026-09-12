@@ -8,7 +8,7 @@ rotero-models.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 tracing.workspace = true
-pdfrum = { git = "https://github.com/PoHsuanLai/pdfrum", rev = "ae748c58965ad0c594895f870c558221a7e8d5b4", features = ["png", "markdown"] }
+pdfrum = { git = "https://github.com/PoHsuanLai/pdfrum", rev = "1961c0ab9b52770e9c8b1d1e778c47f47b992b4f", features = ["png", "markdown"] }
 base64 = "0.23"
 serde_json = "1"
 
