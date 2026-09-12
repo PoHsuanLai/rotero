@@ -47,11 +47,46 @@ fn extracts_external_uri_links() {
 }
 
 #[test]
-fn link_free_pdf_yields_no_links() {
+fn link_annot_free_pdf_may_still_surface_web_links() {
     let cache = DocCache::new();
-    // tracemonkey.pdf carries no link annotations — extraction must be empty,
-    // not error.
+    // tracemonkey.pdf carries no /Link annotations, but body text may still
+    // contain bare URLs/DOIs that `TextPage::web_links` surfaces.
     let doc = cache.open(&fixture("tracemonkey.pdf")).expect("open");
     let links = extract_links(&doc).expect("extract links");
-    assert!(links.is_empty());
+    for l in &links {
+        match &l.target {
+            LinkTarget::External { uri } => assert!(!uri.is_empty()),
+            LinkTarget::Internal { .. } => {
+                panic!("tracemonkey should not have internal /Link targets")
+            }
+        }
+    }
+}
+
+#[test]
+fn web_links_merge_does_not_double_count_identical_uri_rect() {
+    let cache = DocCache::new();
+    let doc = cache.open(&fixture("basicapi.pdf")).expect("open");
+    let links = extract_links(&doc).expect("extract links");
+    // Group external URI+rounded-rect; each key should appear once.
+    use std::collections::HashSet;
+    let mut seen = HashSet::new();
+    for l in &links {
+        let LinkTarget::External { uri } = &l.target else {
+            continue;
+        };
+        let key = (
+            l.page,
+            uri.to_ascii_lowercase(),
+            (l.rect_pts[0] * 10.0).round() as i32,
+            (l.rect_pts[1] * 10.0).round() as i32,
+            (l.rect_pts[2] * 10.0).round() as i32,
+            (l.rect_pts[3] * 10.0).round() as i32,
+        );
+        assert!(
+            seen.insert(key),
+            "duplicate external link: {uri:?} on page {}",
+            l.page
+        );
+    }
 }

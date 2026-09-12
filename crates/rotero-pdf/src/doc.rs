@@ -322,7 +322,11 @@ pub fn extract_annotations(doc: &Document) -> Vec<ExtractedAnnotation> {
     result
 }
 
-/// Reads all links from the PDF — both intra-document jumps and external URIs.
+/// Reads all links from the PDF — `/Link` annotations and bare URLs / DOIs
+/// discovered in page text via [`TextPage::web_links`](pdfrum::TextPage::web_links).
+///
+/// Identical external URI + source rect pairs are not double-counted when a
+/// `/Link` annot already covers the same address.
 pub fn extract_links(doc: &Document) -> Result<Vec<ExtractedLink>, PdfError> {
     let mut result = Vec::new();
 
@@ -373,9 +377,107 @@ pub fn extract_links(doc: &Document) -> Result<Vec<ExtractedLink>, PdfError> {
                 target,
             });
         }
+
+        // Bare http(s)/DOI/www/mailto in body text — clickable like /Link annots.
+        let text = page.text();
+        for web in text.web_links() {
+            let uri = web.url.trim();
+            if uri.is_empty() {
+                continue;
+            }
+            let pdf_rects = text.rects(web.range.clone());
+            if pdf_rects.is_empty() {
+                continue;
+            }
+            // One hotspot per text-object run; usually a single line for a URL.
+            for rect in pdf_rects {
+                let rect = rect.abs();
+                let rect_pts = [
+                    rect.x0 as f32,
+                    rect.y0 as f32,
+                    rect.x1 as f32,
+                    rect.y1 as f32,
+                ];
+                if link_already_covers(&result, i, uri, &rect_pts) {
+                    continue;
+                }
+                result.push(ExtractedLink {
+                    page: i,
+                    rect_pts,
+                    page_width_pts: pw,
+                    page_height_pts: ph,
+                    target: LinkTarget::External {
+                        uri: uri.to_string(),
+                    },
+                });
+            }
+        }
     }
 
     Ok(result)
+}
+
+/// True when `result` already has an external link on `page` with the same
+/// URI and a nearly identical source rect (avoids double-counting web_links
+/// that sit under an existing `/Link` annotation).
+fn link_already_covers(
+    result: &[ExtractedLink],
+    page: u32,
+    uri: &str,
+    rect_pts: &[f32; 4],
+) -> bool {
+    const EPS: f32 = 1.5;
+    result.iter().any(|l| {
+        if l.page != page {
+            return false;
+        }
+        let LinkTarget::External { uri: existing } = &l.target else {
+            return false;
+        };
+        if !uris_equivalent(existing, uri) {
+            return false;
+        }
+        (0..4).all(|i| (l.rect_pts[i] - rect_pts[i]).abs() <= EPS)
+            || rects_overlap_mostly(&l.rect_pts, rect_pts)
+    })
+}
+
+fn uris_equivalent(a: &str, b: &str) -> bool {
+    fn norm(s: &str) -> String {
+        let s = s.trim().trim_end_matches('/');
+        let lower = s.to_ascii_lowercase();
+        lower
+            .strip_prefix("https://")
+            .or_else(|| lower.strip_prefix("http://"))
+            .unwrap_or(&lower)
+            .to_string()
+    }
+    norm(a) == norm(b)
+}
+
+/// Rough IoU-ish overlap so a slightly larger `/Link` rect still suppresses
+/// the text-derived hotspot for the same URI.
+fn rects_overlap_mostly(a: &[f32; 4], b: &[f32; 4]) -> bool {
+    let ax0 = a[0].min(a[2]);
+    let ay0 = a[1].min(a[3]);
+    let ax1 = a[0].max(a[2]);
+    let ay1 = a[1].max(a[3]);
+    let bx0 = b[0].min(b[2]);
+    let by0 = b[1].min(b[3]);
+    let bx1 = b[0].max(b[2]);
+    let by1 = b[1].max(b[3]);
+    let ix0 = ax0.max(bx0);
+    let iy0 = ay0.max(by0);
+    let ix1 = ax1.min(bx1);
+    let iy1 = ay1.min(by1);
+    let iw = (ix1 - ix0).max(0.0);
+    let ih = (iy1 - iy0).max(0.0);
+    let inter = iw * ih;
+    if inter <= 0.0 {
+        return false;
+    }
+    let area_b = ((bx1 - bx0) * (by1 - by0)).max(1e-3);
+    inter / area_b >= 0.7
 }
 
 fn annot_color_hex(dict: &pdfrum::Dict) -> String {
