@@ -462,3 +462,9 @@ pub struct TextInRectParams {
     #[serde(default)]
     pub page_height: Option<u32>,
 }
+
+/// Parameters for citation-neighbour tools.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListCitationNeighborsParams {
+    pub paper_id: String,
+}

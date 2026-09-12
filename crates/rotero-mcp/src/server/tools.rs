@@ -1171,6 +1171,48 @@ impl RoteroMcp {
     }
 
     #[tool(
+        description = "List papers that this paper cites (outgoing citation edges in the library graph)."
+    )]
+    async fn list_cited(
+        &self,
+        Parameters(params): Parameters<ListCitationNeighborsParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let ids = self
+            .db
+            .list_cited_by_paper(&params.paper_id)
+            .await
+            .map_err(err)?;
+        let mut papers = Vec::new();
+        for id in ids {
+            if let Some(p) = self.db.get_paper_by_id(&id).await.map_err(err)? {
+                papers.push(p);
+            }
+        }
+        json_result(&papers)
+    }
+
+    #[tool(
+        description = "List papers in the library that cite this paper (incoming citation edges)."
+    )]
+    async fn list_citing(
+        &self,
+        Parameters(params): Parameters<ListCitationNeighborsParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let ids = self
+            .db
+            .list_citing_paper(&params.paper_id)
+            .await
+            .map_err(err)?;
+        let mut papers = Vec::new();
+        for id in ids {
+            if let Some(p) = self.db.get_paper_by_id(&id).await.map_err(err)? {
+                papers.push(p);
+            }
+        }
+        json_result(&papers)
+    }
+
+    #[tool(
         description = "Get the full paper relationship graph showing how all papers in the library are connected via shared tags, authors, collections, and journals. Returns nodes (papers) and edges (relationships with types and weights)."
     )]
     async fn get_library_graph(
