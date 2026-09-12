@@ -349,6 +349,35 @@ impl RoteroMcp {
         })
     }
 
+    #[tool(
+        description = "Find text in a paper's PDF via pdfrum TextPage::find_with. Returns page, matched text, and pixel rects for each hit."
+    )]
+    async fn find_in_paper(
+        &self,
+        Parameters(params): Parameters<FindInPaperParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        if params.query.trim().is_empty() {
+            return json_result(&Vec::<FindHit>::new());
+        }
+        let (_paper, doc) = self.open_paper_pdf(&params.paper_id).await?;
+        let limit = params.limit.unwrap_or(50).min(200) as usize;
+        let matches = rotero_pdf::search_in_document(&doc, &params.query, &[]);
+        let hits: Vec<FindHit> = matches
+            .into_iter()
+            .take(limit)
+            .map(|m| FindHit {
+                page: m.page_index + 1,
+                matched_text: m.matched_text,
+                rects: m
+                    .bounds
+                    .into_iter()
+                    .map(|(x, y, w, h)| [x, y, w, h])
+                    .collect(),
+            })
+            .collect();
+        json_result(&hits)
+    }
+
     #[tool(description = "Add a note to a paper")]
     async fn add_note(
         &self,
