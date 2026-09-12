@@ -76,10 +76,33 @@ impl PdfDocs {
         zoom: f32,
         batch_size: u32,
     ) -> Result<(u32, Vec<RenderedPageData>), String> {
+        self.open_and_render_initial_with(pdf_path, zoom, batch_size, None)
+            .await
+    }
+
+    /// Open (with optional password) and render the first batch of pages.
+    ///
+    /// Maps [`rotero_pdf::PdfError::WrongPassword`] to the sentinel string
+    /// `"password-required"` so the UI can show an unlock prompt.
+    pub async fn open_and_render_initial_with(
+        &self,
+        pdf_path: String,
+        zoom: f32,
+        batch_size: u32,
+        password: Option<String>,
+    ) -> Result<(u32, Vec<RenderedPageData>), String> {
         self.run(move |cache| {
-            let (page_count, rendered) =
-                rotero_pdf::open_and_render_initial(cache, &pdf_path, zoom, batch_size)
-                    .map_err(|e| e.to_string())?;
+            let (page_count, rendered) = rotero_pdf::open_and_render_initial_with(
+                cache,
+                &pdf_path,
+                zoom,
+                batch_size,
+                password.as_deref(),
+            )
+            .map_err(|e| match e {
+                rotero_pdf::PdfError::WrongPassword => "password-required".to_string(),
+                other => other.to_string(),
+            })?;
             let pages: Vec<RenderedPageData> = rendered.into_iter().map(|r| r.into()).collect();
             Ok((page_count, pages))
         })

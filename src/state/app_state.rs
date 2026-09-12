@@ -141,6 +141,10 @@ pub struct PdfTab {
     /// and the tab-bar path needs `page_count > 0`, so neither fired and the
     /// spinner ran until the tab was closed.
     pub load_error: Option<String>,
+    /// True when open failed with WrongPassword — show the unlock prompt.
+    pub needs_password: bool,
+    /// Last password attempt failed (wrong password after a prompt).
+    pub password_error: Option<String>,
     pub is_suspended: bool,
 
     pub render: PageRenderData,
@@ -171,6 +175,8 @@ impl PdfTab {
             page_labels: Vec::new(),
             is_loading: true,
             load_error: None,
+            needs_password: false,
+            password_error: None,
             is_suspended: false,
             render: PageRenderData::default(),
             view: ViewState {

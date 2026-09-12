@@ -21,6 +21,7 @@ pub fn PdfViewer() -> Element {
     use_context_provider::<AnnCtxState>(|| Signal::new(None));
     // Guards the scroll-driven render window against re-entrant scroll events.
     let mut window_loading = use_signal(|| false);
+    let mut password_input = use_signal(String::new);
 
     let mgr = tabs.read();
     let Some(tab) = mgr.active_tab() else {
@@ -33,6 +34,8 @@ pub fn PdfViewer() -> Element {
     let needs_render = tab.is_loading && tab.render.rendered_pages.is_empty();
     let is_initial_loading = needs_render;
     let load_error = tab.load_error.clone();
+    let needs_password = tab.needs_password;
+    let password_error = tab.password_error.clone();
 
     use_effect(move || {
         let needs = tabs
@@ -233,7 +236,49 @@ pub fn PdfViewer() -> Element {
                 if show_outline {
                     OutlinePanel {}
                 }
-                if let Some(error) = load_error {
+                if needs_password {
+                    div { class: "pdf-loading-overlay",
+                                div { class: "pdf-error-title", "Password required" }
+                                div { class: "pdf-error-detail",
+                                    "This PDF is encrypted. Enter the password to open it."
+                                }
+                                if let Some(err) = password_error.clone() {
+                                    div { class: "pdf-error-detail", style: "color: var(--danger, #c44); margin-top: 8px;",
+                                        "{err}"
+                                    }
+                                }
+                                form {
+                                    style: "display: flex; flex-direction: column; gap: 8px; margin-top: 16px; max-width: 280px;",
+                                    onsubmit: move |evt| {
+                                        evt.prevent_default();
+                                        let pw = password_input();
+                                        if pw.is_empty() {
+                                            return;
+                                        }
+                                        let docs = docs.get();
+                                        let data_dir = config.read().effective_library_path();
+                                        let dpr = tabs.read().tab().view.dpr;
+                                        spawn(async move {
+                                            let _ = crate::state::commands::open_pdf_with_password(
+                                                &docs, &mut tabs, tab_id, &data_dir, dpr, pw,
+                                            ).await;
+                                        });
+                                    },
+                                    input {
+                                        r#type: "password",
+                                        placeholder: "Password",
+                                        value: "{password_input}",
+                                        oninput: move |evt| password_input.set(evt.value()),
+                                        style: "padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border, #ccc);",
+                                    }
+                                    button {
+                                        r#type: "submit",
+                                        class: "btn btn-primary",
+                                        "Unlock"
+                                    }
+                                }
+                            }
+                } else if let Some(error) = load_error {
                     div { class: "pdf-loading-overlay",
                         div { class: "pdf-error-title", "Could not open this PDF" }
                         div { class: "pdf-error-detail", "{error}" }
