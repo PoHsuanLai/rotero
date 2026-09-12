@@ -234,6 +234,52 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
 
             button {
                 class: "btn btn--ghost",
+                title: "Save figures from the current page",
+                onclick: move |_| {
+                    let pdf_path = tabs.read().tab().pdf_path.clone();
+                    let page = tabs.read().tab().view.current_page;
+                    let docs = docs.get();
+                    spawn(async move {
+                        let figs = match docs.list_page_images(pdf_path.clone(), page).await {
+                            Ok(f) => f,
+                            Err(e) => {
+                                tracing::error!("list_page_images: {e}");
+                                return;
+                            }
+                        };
+                        let saveable: Vec<_> = figs.into_iter().filter(|f| !f.is_mask).collect();
+                        if saveable.is_empty() {
+                            tracing::info!("No figures on page {page}");
+                            return;
+                        }
+                        for fig in saveable {
+                            match docs
+                                .extract_page_image_png(pdf_path.clone(), page, fig.image_index)
+                                .await
+                            {
+                                Ok(extracted) => {
+                                    let Some(b64) = extracted.png_base64 else { continue };
+                                    use base64::{Engine as _, engine::general_purpose::STANDARD};
+                                    let Ok(bytes) = STANDARD.decode(&b64) else { continue };
+                                    let default = format!("page{}-fig{}.png", page + 1, fig.image_index);
+                                    if let Some(path) = crate::ui::save_file(&["png"], "Save figure", &default) {
+                                        if let Err(e) = std::fs::write(&path, &bytes) {
+                                            tracing::error!("Failed to write figure: {e}");
+                                        } else {
+                                            tracing::info!("Saved figure to {:?}", path);
+                                        }
+                                    }
+                                }
+                                Err(e) => tracing::error!("extract figure: {e}"),
+                            }
+                        }
+                    });
+                },
+                "Figures"
+            }
+
+            button {
+                class: "btn btn--ghost",
                 title: "Copy current page as Markdown",
                 onclick: move |_| {
                     let pdf_path = tabs.read().tab().pdf_path.clone();

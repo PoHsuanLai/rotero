@@ -198,6 +198,34 @@ impl PdfDocs {
         .await
     }
 
+    /// List embedded figures on a page (metadata only).
+    pub async fn list_page_images(
+        &self,
+        pdf_path: String,
+        page_index: u32,
+    ) -> Result<Vec<rotero_pdf::PageFigure>, String> {
+        self.run(move |cache| {
+            let doc = cache.open(&pdf_path).map_err(|e| e.to_string())?;
+            rotero_pdf::list_page_images(&doc, page_index).map_err(|e| e.to_string())
+        })
+        .await
+    }
+
+    /// Extract one page figure as PNG (base64).
+    pub async fn extract_page_image_png(
+        &self,
+        pdf_path: String,
+        page_index: u32,
+        image_index: u32,
+    ) -> Result<rotero_pdf::PageFigure, String> {
+        self.run(move |cache| {
+            let doc = cache.open(&pdf_path).map_err(|e| e.to_string())?;
+            rotero_pdf::extract_page_image_png(&doc, page_index, image_index)
+                .map_err(|e| e.to_string())
+        })
+        .await
+    }
+
     /// Returns (width_pts, height_pts) for every page.
     pub async fn page_dimensions(&self, pdf_path: String) -> Result<Vec<(f32, f32)>, String> {
         self.run(move |cache| {
