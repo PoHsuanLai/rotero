@@ -1294,9 +1294,7 @@ impl ServerHandler for RoteroMcp {
         )
         .with_server_info(Implementation::new("rotero-mcp", env!("CARGO_PKG_VERSION")))
         .with_instructions(
-            "Rotero paper library MCP server. Search, add, update, and delete papers. \
-             Manage collections and tags. Read annotations and notes, extract PDF text, \
-             and organize your academic paper library.",
+            "Rotero paper library MCP server. Prefer read_markdown/read_pages/find_in_paper/quote_at/text_in_rect for PDF grounding; annotate for highlights/notes; paper:// resources for page markdown and annots; list_cited/list_citing for citation neighbours. Search, add, update, and delete papers. Manage collections and tags. Read annotations and notes, and organize your academic paper library.",
         )
     }
 
