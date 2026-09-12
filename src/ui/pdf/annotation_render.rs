@@ -255,40 +255,21 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
                                 }));
                             }
                         };
-                        // Zigzag along the bottom edge of the quad.
-                        let amp = (rh * 0.2).clamp(2.0, 4.0);
-                        let step = (amp * 2.0).max(4.0);
-                        let mut d = String::new();
-                        let mut x = 0.0_f64;
-                        let base = rh - amp;
-                        let mut up = true;
-                        d.push_str(&format!("M0,{base:.1}"));
-                        while x < rw {
-                            x = (x + step).min(rw);
-                            let y = if up { base - amp } else { base + amp };
-                            up = !up;
-                            d.push_str(&format!(" L{x:.1},{y:.1}"));
-                        }
+                        // Same attachment as Underline (bottom of loose em-box).
+                        // Prefer CSS `wavy` over an SVG path: WebView's default
+                        // SVG viewport made path coords unreadable / invisible.
                         rsx! {
-                            svg {
+                            div {
                                 key: "ann-{ann_id}-sq-{ri}",
-                                style: "position: absolute; left: {rx}px; top: {ry}px; width: {rw}px; height: {rh}px; pointer-events: auto; z-index: 3; overflow: visible;",
+                                style: "position: absolute; left: {rx}px; top: {ry}px; width: {rw}px; height: {rh}px; border-bottom: 2.5px wavy {color}; pointer-events: auto; z-index: 3; box-sizing: border-box;",
                                 oncontextmenu: on_context,
-                                path {
-                                    d: "{d}",
-                                    stroke: "{color}",
-                                    stroke_width: "2",
-                                    fill: "none",
-                                    stroke_linecap: "round",
-                                    stroke_linejoin: "round",
-                                }
                             }
                         }
                     }
                 }
             }
         }
-        AnnotationType::Ink => {
+                AnnotationType::Ink => {
             let points = ann
                 .geometry
                 .get("points")
