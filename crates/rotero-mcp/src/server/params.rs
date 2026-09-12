@@ -395,3 +395,36 @@ pub struct GetOutlineParams {
 pub struct GetLinksParams {
     pub paper_id: String,
 }
+
+/// Parameters for `annotate` — create a Highlight or Note.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AnnotateParams {
+    pub paper_id: String,
+    /// 1-based page number.
+    pub page: u32,
+    /// `highlight` or `note` (sticky).
+    pub ann_type: String,
+    /// Hex color, e.g. `#FFE600`. Defaults by type.
+    #[serde(default)]
+    pub color: Option<String>,
+    /// Note/highlight text contents.
+    #[serde(default)]
+    pub content: Option<String>,
+    /// Geometry in pixel space: x, y, width, height, page_width, page_height.
+    /// When omitted, a small default rect is used (notes).
+    #[serde(default)]
+    pub x: Option<f32>,
+    #[serde(default)]
+    pub y: Option<f32>,
+    #[serde(default)]
+    pub width: Option<f32>,
+    #[serde(default)]
+    pub height: Option<f32>,
+    #[serde(default)]
+    pub page_width: Option<f32>,
+    #[serde(default)]
+    pub page_height: Option<f32>,
+    /// Also bake into the PDF file via AnnotSpec (default true).
+    #[serde(default)]
+    pub write_pdf: Option<bool>,
+}

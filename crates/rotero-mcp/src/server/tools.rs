@@ -500,6 +500,118 @@ impl RoteroMcp {
         json_result(&out)
     }
 
+    #[tool(
+        description = "Create a Highlight or Note annotation on a paper. Stores it in the library DB and, by default, writes it into the PDF via AnnotSpec (/AP). Geometry is pixel-space (x,y,width,height) with page_width/page_height; defaults to a small rect when omitted."
+    )]
+    async fn annotate(
+        &self,
+        Parameters(params): Parameters<AnnotateParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        use chrono::Utc;
+        use rotero_models::{Annotation, AnnotationType};
+
+        let ann_type = match params.ann_type.to_ascii_lowercase().as_str() {
+            "highlight" => AnnotationType::Highlight,
+            "note" => AnnotationType::Note,
+            other => {
+                return Err(rmcp::ErrorData::invalid_params(
+                    format!("ann_type must be highlight or note, got {other}"),
+                    None,
+                ));
+            }
+        };
+        let (_paper, doc) = self.open_paper_pdf(&params.paper_id).await?;
+        let page_idx = params.page.saturating_sub(1);
+        if page_idx >= doc.page_count() {
+            return Err(err(format!(
+                "page {} out of range (1..={})",
+                params.page,
+                doc.page_count()
+            )));
+        }
+        let dims = rotero_pdf::page_dimensions(&doc);
+        let (pw_pts, ph_pts) = dims
+            .get(page_idx as usize)
+            .copied()
+            .unwrap_or((612.0, 792.0));
+        let page_width = params.page_width.unwrap_or(pw_pts);
+        let page_height = params.page_height.unwrap_or(ph_pts);
+        let width = params.width.unwrap_or(if ann_type == AnnotationType::Note {
+            24.0
+        } else {
+            120.0
+        });
+        let height = params
+            .height
+            .unwrap_or(if ann_type == AnnotationType::Note {
+                24.0
+            } else {
+                18.0
+            });
+        let x = params.x.unwrap_or(72.0);
+        let y = params.y.unwrap_or(72.0);
+        let color = params.color.unwrap_or_else(|| {
+            if ann_type == AnnotationType::Note {
+                "#FFD60A".into()
+            } else {
+                "#FFE600".into()
+            }
+        });
+        let now = Utc::now();
+        let geometry = serde_json::json!({
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+            "page_width": page_width,
+            "page_height": page_height,
+        });
+        let ann = Annotation {
+            id: None,
+            paper_id: params.paper_id.clone(),
+            page: page_idx as i32,
+            ann_type,
+            color,
+            content: params.content.clone(),
+            geometry,
+            created_at: now,
+            modified_at: now,
+        };
+        let id = self.db.insert_annotation(&ann).await.map_err(err)?;
+        let mut ann = ann;
+        ann.id = Some(id.clone());
+
+        let write_pdf = params.write_pdf.unwrap_or(true);
+        if write_pdf {
+            let paper = self
+                .db
+                .get_paper_by_id(&params.paper_id)
+                .await
+                .map_err(err)?
+                .ok_or_else(|| err("paper disappeared"))?;
+            let rel = paper
+                .links
+                .pdf_path
+                .as_ref()
+                .ok_or_else(|| err("no pdf path"))?;
+            let abs = self.db.resolve_pdf_path(rel);
+            // Write in-place via temp then rename would be safer; write_annotations
+            // opens input and saves to output — use same path for incremental edit.
+            let tmp = abs.with_extension("annot-tmp.pdf");
+            rotero_pdf::write_annotations(&abs, &tmp, &[ann.clone()], &dims, None, false, None)
+                .map_err(super::pdf::pdf_err)?;
+            std::fs::rename(&tmp, &abs).map_err(|e| err(format!("replace PDF failed: {e}")))?;
+        }
+
+        json_result(&serde_json::json!({
+            "id": id,
+            "paper_id": params.paper_id,
+            "page": params.page,
+            "ann_type": params.ann_type,
+            "wrote_pdf": write_pdf,
+        }))
+    }
+
     #[tool(description = "Add a note to a paper")]
     async fn add_note(
         &self,
