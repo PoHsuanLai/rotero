@@ -261,7 +261,8 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
                         let amp = 2.0_f64;
                         let step = 3.0_f64;
                         let strip_h = amp * 2.0 + 2.0;
-                        let gap = 1.0_f64;
+                        // Clear ink-tight descenders; 1px still clipped p/g/y.
+                        let gap = 3.0_f64;
                         let top = ry + rh + gap;
                         let mut d = String::new();
                         let mut x = 0.0_f64;
