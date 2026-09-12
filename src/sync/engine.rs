@@ -25,6 +25,9 @@ pub struct PdfConfig {
     /// 0-100.
     #[serde(default = "default_thumbnail_quality")]
     pub thumbnail_quality: u8,
+    /// Author name written as PDF annotation `/T` on export / AnnotSpec writes.
+    #[serde(default)]
+    pub annot_author: String,
 }
 
 impl Default for PdfConfig {
@@ -36,6 +39,7 @@ impl Default for PdfConfig {
             render_format: default_render_format(),
             render_quality: default_render_quality(),
             thumbnail_quality: default_thumbnail_quality(),
+            annot_author: String::new(),
         }
     }
 }

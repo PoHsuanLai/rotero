@@ -424,6 +424,9 @@ pub struct AnnotateParams {
     pub page_width: Option<f32>,
     #[serde(default)]
     pub page_height: Option<f32>,
+    /// Annotation author written as PDF `/T` when baking into the PDF.
+    #[serde(default)]
+    pub author: Option<String>,
     /// Also bake into the PDF file via AnnotSpec (default true).
     #[serde(default)]
     pub write_pdf: Option<bool>,

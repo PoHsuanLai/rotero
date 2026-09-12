@@ -603,8 +603,21 @@ impl RoteroMcp {
             // Write in-place via temp then rename would be safer; write_annotations
             // opens input and saves to output — use same path for incremental edit.
             let tmp = abs.with_extension("annot-tmp.pdf");
-            rotero_pdf::write_annotations(&abs, &tmp, &[ann.clone()], &dims, None, false, None)
-                .map_err(super::pdf::pdf_err)?;
+            let author = params
+                .author
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            rotero_pdf::write_annotations(
+                &abs,
+                &tmp,
+                &[ann.clone()],
+                &dims,
+                None,
+                false,
+                author,
+            )
+            .map_err(super::pdf::pdf_err)?;
             std::fs::rename(&tmp, &abs).map_err(|e| err(format!("replace PDF failed: {e}")))?;
         }
 
