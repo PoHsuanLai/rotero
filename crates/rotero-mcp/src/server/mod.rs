@@ -1,6 +1,7 @@
 //! Main server setup, router, and re-exports.
 
 pub mod params;
+mod pdf;
 mod tools;
 
 use crate::db::Database;
