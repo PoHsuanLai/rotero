@@ -49,7 +49,10 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 button {
                     class: "{highlight_class}",
                     onclick: move |_| {
-                        tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Highlight { AnnotationMode::None } else { AnnotationMode::Highlight });
+                        tools.with_mut(|t| {
+                            t.text_selection = None;
+                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Highlight { AnnotationMode::None } else { AnnotationMode::Highlight };
+                        });
                     },
                     span { class: "bi bi-highlighter" }
                 }
@@ -58,7 +61,10 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 button {
                     class: "{underline_class}",
                     onclick: move |_| {
-                        tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Underline { AnnotationMode::None } else { AnnotationMode::Underline });
+                        tools.with_mut(|t| {
+                            t.text_selection = None;
+                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Underline { AnnotationMode::None } else { AnnotationMode::Underline };
+                        });
                     },
                     span { class: "bi bi-type-underline" }
                 }
@@ -67,7 +73,10 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 button {
                     class: "{note_class}",
                     onclick: move |_| {
-                        tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Note { AnnotationMode::None } else { AnnotationMode::Note });
+                        tools.with_mut(|t| {
+                            t.text_selection = None;
+                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Note { AnnotationMode::None } else { AnnotationMode::Note };
+                        });
                     },
                     span { class: "bi bi-sticky" }
                 }
@@ -76,7 +85,10 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 button {
                     class: "{ink_class}",
                     onclick: move |_| {
-                        tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Ink { AnnotationMode::None } else { AnnotationMode::Ink });
+                        tools.with_mut(|t| {
+                            t.text_selection = None;
+                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Ink { AnnotationMode::None } else { AnnotationMode::Ink };
+                        });
                     },
                     span { class: "bi bi-pencil" }
                 }
@@ -85,7 +97,10 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 button {
                     class: "{text_class}",
                     onclick: move |_| {
-                        tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Text { AnnotationMode::None } else { AnnotationMode::Text });
+                        tools.with_mut(|t| {
+                            t.text_selection = None;
+                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Text { AnnotationMode::None } else { AnnotationMode::Text };
+                        });
                     },
                     span { class: "bi bi-fonts" }
                 }

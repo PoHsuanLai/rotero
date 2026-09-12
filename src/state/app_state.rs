@@ -75,7 +75,7 @@ pub enum LinkDest {
 ///
 /// The source rectangle is stored as fractions of the page's width/height so
 /// the overlay can scale it to the rendered image at any zoom (mirrors how the
-/// text layer positions glyphs by percentage).
+/// search/selection overlays scale pixel rects).
 #[derive(Debug, Clone)]
 pub struct PageLink {
     /// Left edge, as a fraction (0..1) of page width.
@@ -336,11 +336,23 @@ impl PdfTabManager {
     }
 }
 
+/// Active native PDF text selection (pdfrum hit-test), kept until cleared.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PdfTextSelection {
+    pub page_index: u32,
+    /// Pixel-space line rects (same space as Highlight preview overlays).
+    pub line_rects: Vec<(f64, f64, f64, f64)>,
+    /// Plain selected text (lines joined by `\n`).
+    pub text: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct ViewerToolState {
     pub annotation_mode: AnnotationMode,
     pub annotation_color: String,
     pub show_annotation_panel: bool,
+    /// Native text selection while not in an annotation tool.
+    pub text_selection: Option<PdfTextSelection>,
 }
 
 impl Default for ViewerToolState {
@@ -349,6 +361,7 @@ impl Default for ViewerToolState {
             annotation_mode: AnnotationMode::None,
             annotation_color: "#ffff00".to_string(),
             show_annotation_panel: false,
+            text_selection: None,
         }
     }
 }

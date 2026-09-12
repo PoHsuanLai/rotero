@@ -54,6 +54,8 @@ pub enum Command {
     OpenSelected,
     DeleteSelected,
     Escape,
+    /// Copy active PDF text selection (Viewer).
+    CopySelection,
 }
 
 impl Command {
@@ -83,6 +85,7 @@ impl Command {
             Self::OpenSelected => "open_selected",
             Self::DeleteSelected => "delete_selected",
             Self::Escape => "escape",
+            Self::CopySelection => "copy_selection",
         }
     }
 
@@ -111,6 +114,7 @@ impl Command {
             Self::OpenSelected => "Open selected paper",
             Self::DeleteSelected => "Delete selected papers",
             Self::Escape => "Cancel / dismiss",
+            Self::CopySelection => "Copy selection",
         }
     }
 
@@ -465,6 +469,12 @@ pub const BINDINGS: &[Binding] = &[
         key: KeySpec::bare(Trigger::Backspace),
         command: Command::DeleteSelected,
         scope: Scope::Library,
+        menu_id: None,
+    },
+    Binding {
+        key: KeySpec::cmd('c'),
+        command: Command::CopySelection,
+        scope: Scope::Viewer,
         menu_id: None,
     },
 ];
@@ -846,7 +856,12 @@ fn action_escape(
 ) {
     let mode = tools.read().annotation_mode;
     if mode != AnnotationMode::None {
-        tools.with_mut(|t| t.annotation_mode = AnnotationMode::None);
+        tools.with_mut(|t| {
+            t.annotation_mode = AnnotationMode::None;
+            t.text_selection = None;
+        });
+    } else if tools.read().text_selection.is_some() {
+        tools.with_mut(|t| t.text_selection = None);
     } else if show_settings.read().0 {
         show_settings.set(ShowSettings(false));
     } else {
@@ -866,6 +881,10 @@ fn action_escape(
             lib_state.with_mut(|s| s.clear_selection());
         }
     }
+}
+
+fn action_copy_selection(tools: Signal<ViewerToolState>) {
+    let _ = crate::ui::pdf::copy_pdf_text_selection(&tools);
 }
 
 fn action_select_next(mut lib_state: Signal<LibraryState>) {
@@ -1114,6 +1133,7 @@ fn dispatch(cmd: Command, ctx: &KeyCtx, db: &Database) {
         Command::OpenSelected => action_open_selected_pdf(lib_state, tabs, db, &config, &dpr_sig),
         Command::DeleteSelected => action_delete_selected(lib_state),
         Command::Escape => action_escape(show_settings, tabs, tools, lib_state),
+        Command::CopySelection => action_copy_selection(tools),
     }
 }
 
@@ -1176,5 +1196,6 @@ fn command_yields_to_text_editing(cmd: Command) -> bool {
             | Command::DeleteSelected
             | Command::ToggleFavorite
             | Command::ToggleRead
+            | Command::CopySelection
     )
 }
