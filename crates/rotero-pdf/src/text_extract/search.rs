@@ -4,7 +4,7 @@
 //! `text_block_at` remain for the text layer / citation helpers that still work
 //! from extracted segments.
 
-use pdfrum::{CharIndex, Document, FindOptions, TextIndex};
+use pdfrum::{CharIndex, Document, FindOptions, Point, Rect, Size, TextIndex, TextPage};
 use serde::{Deserialize, Serialize};
 
 use super::{PageTextData, TextSegment};
@@ -333,11 +333,12 @@ pub fn search_in_text_data(text_data: &[PageTextData], query: &str) -> Vec<Searc
 
 /// Pixel-space result of intersecting a drag/selection rect with page text.
 ///
-/// `line_rects` are Acrobat/Zotero-style: one axis-aligned box per visual line
-/// of selected text (top-left origin, same space as [`TextSegment`]).
+/// `line_rects` are Acrobat/Zotero-style: one axis-aligned box per text-object
+/// run from [`TextPage::rects`] (top-left origin, same space as overlays /
+/// [`write_annotations`](crate::write_annotations)).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SelectionMarkup {
-    /// One rect `(x, y, width, height)` per selected visual line.
+    /// One rect `(x, y, width, height)` per selected visual line / text object.
     pub line_rects: Vec<(f64, f64, f64, f64)>,
     /// Union of [`Self::line_rects`].
     pub bounds: (f64, f64, f64, f64),
@@ -345,65 +346,103 @@ pub struct SelectionMarkup {
     pub text: String,
 }
 
-/// Intersect a selection rectangle with `segments` and build line-grouped markup.
+/// Build Highlight/Underline markup from a pixel-space drag rect via pdfrum
+/// char-level APIs.
 ///
-/// Returns [`None`] when no segment overlaps the selection. Overlapping segments
-/// on the same visual line (via [`group_into_lines`]) are unioned into one quad;
-/// the horizontal extent is clipped to the selection, while each line keeps the
-/// full text height of its overlapping segments.
+/// Approach: map the drag AABB into PDF page space (same scale / y-flip as
+/// overlays and annotation writes), resolve a [`CharIndex`] range with
+/// [`TextPage::index_at`] at the diagonally opposite corners (tolerance so a
+/// drag that misses glyph centres still snaps), then take
+/// [`TextPage::rects`] for that range as the line quads. If either corner
+/// misses, fall back to the first/last character whose box intersects the
+/// selection. Returns [`None`] when no characters are hit.
+#[allow(clippy::too_many_arguments)] // page + pixel size + selection AABB
 pub fn selection_markup(
-    segments: &[TextSegment],
+    doc: &Document,
+    page_index: u32,
+    img_width: u32,
+    img_height: u32,
     sel_x: f64,
     sel_y: f64,
     sel_w: f64,
     sel_h: f64,
 ) -> Option<SelectionMarkup> {
-    if segments.is_empty() || sel_w <= 0.0 || sel_h <= 0.0 {
+    if sel_w <= 0.0 || sel_h <= 0.0 || img_width == 0 || img_height == 0 {
         return None;
     }
-    let sel_x1 = sel_x + sel_w;
-    let sel_y1 = sel_y + sel_h;
+    let page = doc.page(page_index).ok()?;
+    let page_width_pts = page.width();
+    let page_height_pts = page.height();
+    if page_width_pts <= 0.0 || page_height_pts <= 0.0 {
+        return None;
+    }
+    let scale_x = f64::from(img_width) / page_width_pts;
+    let scale_y = f64::from(img_height) / page_height_pts;
+    let text = page.text();
+    selection_markup_from_text(
+        &text,
+        page_height_pts,
+        scale_x,
+        scale_y,
+        sel_x,
+        sel_y,
+        sel_w,
+        sel_h,
+    )
+}
 
-    let mut line_rects = Vec::new();
-    let mut text_lines = Vec::new();
-
-    for line in group_into_lines(segments) {
-        let mut min_x = f64::MAX;
-        let mut min_y = f64::MAX;
-        let mut max_x = f64::MIN;
-        let mut max_y = f64::MIN;
-        let mut line_text = String::new();
-
-        for &idx in &line {
-            let seg = &segments[idx];
-            let sx1 = seg.x + seg.width;
-            let sy1 = seg.y + seg.height;
-            // Any AABB overlap counts as selected.
-            if sx1 <= sel_x || seg.x >= sel_x1 || sy1 <= sel_y || seg.y >= sel_y1 {
-                continue;
-            }
-            // Clip horizontally to the selection; keep full glyph height.
-            let ix0 = seg.x.max(sel_x);
-            let ix1 = sx1.min(sel_x1);
-            if ix1 <= ix0 {
-                continue;
-            }
-            min_x = min_x.min(ix0);
-            max_x = max_x.max(ix1);
-            min_y = min_y.min(seg.y);
-            max_y = max_y.max(sy1);
-            if !line_text.is_empty() {
-                line_text.push(' ');
-            }
-            line_text.push_str(seg.text.trim_end());
-        }
-
-        if min_x < max_x && min_y < max_y {
-            line_rects.push((min_x, min_y, max_x - min_x, max_y - min_y));
-            text_lines.push(line_text);
-        }
+/// Same as [`selection_markup`] when the caller already holds a [`TextPage`].
+#[allow(clippy::too_many_arguments)] // text page + scale + selection AABB
+pub fn selection_markup_from_text(
+    text: &TextPage,
+    page_height_pts: f64,
+    scale_x: f64,
+    scale_y: f64,
+    sel_x: f64,
+    sel_y: f64,
+    sel_w: f64,
+    sel_h: f64,
+) -> Option<SelectionMarkup> {
+    if text.char_count() == 0 || sel_w <= 0.0 || sel_h <= 0.0 || scale_x <= 0.0 || scale_y <= 0.0 {
+        return None;
     }
 
+    // Pixel (top-left) → PDF (bottom-left), matching write_annotations / overlays.
+    let pdf_x0 = sel_x / scale_x;
+    let pdf_x1 = (sel_x + sel_w) / scale_x;
+    let pdf_y1 = page_height_pts - (sel_y / scale_y); // top edge in PDF y-up
+    let pdf_y0 = page_height_pts - ((sel_y + sel_h) / scale_y); // bottom edge
+    let pdf_sel = Rect::new(
+        pdf_x0.min(pdf_x1),
+        pdf_y0.min(pdf_y1),
+        pdf_x0.max(pdf_x1),
+        pdf_y0.max(pdf_y1),
+    );
+
+    // Tolerance ~ half the shorter selection side (pts), floored so a thin drag
+    // still snaps to nearby glyphs.
+    let tol_w = (pdf_sel.width().abs() * 0.5).clamp(8.0, 36.0);
+    let tol_h = (pdf_sel.height().abs() * 0.5).clamp(8.0, 36.0);
+    let tolerance = Size::new(tol_w, tol_h);
+
+    // Screen top-left / bottom-right → PDF points (y-up).
+    let start = text.index_at(Point::new(pdf_sel.x0, pdf_sel.y1), tolerance);
+    let end = text.index_at(Point::new(pdf_sel.x1, pdf_sel.y0), tolerance);
+
+    let (from, to) = match (start, end) {
+        (Some(a), Some(b)) => {
+            let (lo, hi) = if a.get() <= b.get() { (a, b) } else { (b, a) };
+            (lo, CharIndex::new(hi.get().saturating_add(1)))
+        }
+        _ => char_range_intersecting(text, pdf_sel)?,
+    };
+
+    if from.get() >= to.get() {
+        return None;
+    }
+
+    let pdf_rects = text.rects(from..to);
+    let line_rects = pdf_rects_to_pixel_bounds(&pdf_rects, page_height_pts, scale_x, scale_y);
     if line_rects.is_empty() {
         return None;
     }
@@ -419,11 +458,36 @@ pub fn selection_markup(
         by1 = by1.max(y + h);
     }
 
+    let raw = text.slice(from..to);
+    let text_out = raw.replace("\r\n", "\n").replace("\r", "\n");
+
     Some(SelectionMarkup {
         line_rects,
         bounds: (bx0, by0, bx1 - bx0, by1 - by0),
-        text: text_lines.join("\n"),
+        text: text_out,
     })
+}
+
+/// First..=last character whose glyph box intersects `sel` (inclusive end+1).
+fn char_range_intersecting(text: &TextPage, sel: Rect) -> Option<(CharIndex, CharIndex)> {
+    let mut first = None;
+    let mut last = None;
+    for (i, info) in text.chars.iter().enumerate() {
+        let b = info.char_box;
+        let bx0 = b.x0.min(b.x1);
+        let by0 = b.y0.min(b.y1);
+        let bx1 = b.x0.max(b.x1);
+        let by1 = b.y0.max(b.y1);
+        if bx1 < sel.x0 || bx0 > sel.x1 || by1 < sel.y0 || by0 > sel.y1 {
+            continue;
+        }
+        if first.is_none() {
+            first = Some(i);
+        }
+        last = Some(i);
+    }
+    let (f, l) = (first?, last?);
+    Some((CharIndex::new(f), CharIndex::new(l.saturating_add(1))))
 }
 
 #[cfg(test)]
@@ -543,53 +607,92 @@ mod tests {
     }
 
     #[test]
-    fn selection_markup_groups_overlapping_segments_per_line() {
-        // Two lines of words; selection covers both partially in x.
-        let segs = vec![
-            seg("Hello", 10.0, 10.0),
-            seg("world", 40.0, 10.0),
-            seg("foo", 10.0, 30.0),
-            seg("bar", 40.0, 30.0),
-        ];
-        // Selection covers x=15..55, y=5..45 → both lines, clipped words.
-        let m = selection_markup(&segs, 15.0, 5.0, 40.0, 40.0).expect("markup");
-        assert_eq!(m.line_rects.len(), 2);
-        // Line 1: Hello clipped from 15, world full until 55 → 15..55
-        let (x0, y0, w0, h0) = m.line_rects[0];
-        assert!((x0 - 15.0).abs() < 1e-9, "{x0}");
-        assert!((y0 - 10.0).abs() < 1e-9);
-        assert!((w0 - 40.0).abs() < 1e-9, "{w0}");
-        assert!((h0 - 10.0).abs() < 1e-9);
-        let (x1, y1, w1, _) = m.line_rects[1];
-        assert!((x1 - 15.0).abs() < 1e-9);
-        assert!((y1 - 30.0).abs() < 1e-9);
-        assert!((w1 - 40.0).abs() < 1e-9);
-        assert!(m.text.contains("Hello"));
-        assert!(m.text.contains("foo"));
+    fn selection_markup_char_level_multi_line_quads() {
+        let path = fixture("basicapi.pdf");
+        let doc = Document::open(&path).expect("open");
+        let page = doc.page(0).expect("page");
+        let pw = page.width();
+        let ph = page.height();
+        let img_w = pw as u32;
+        let img_h = ph as u32;
+        // 1:1 pts→px. Cover a tall band through the body text so multiple
+        // text objects fall inside the drag.
+        let m = selection_markup(&doc, 0, img_w, img_h, 70.0, 100.0, 400.0, 120.0)
+            .expect("markup over body text");
+        assert!(
+            m.line_rects.len() >= 2,
+            "expected multi-line quads, got {} ({:?})",
+            m.line_rects.len(),
+            m.line_rects
+        );
+        for &(x, y, w, h) in &m.line_rects {
+            assert!(w > 0.0 && h > 0.0, "degenerate ({x},{y},{w},{h})");
+            assert!(x >= 0.0 && y >= 0.0);
+        }
         let (bx, by, bw, bh) = m.bounds;
-        assert!((bx - 15.0).abs() < 1e-9);
-        assert!((by - 10.0).abs() < 1e-9);
-        assert!((bw - 40.0).abs() < 1e-9);
-        assert!((bh - 30.0).abs() < 1e-9);
+        assert!(bw > 0.0 && bh > 0.0, "empty bounds");
+        assert!(bx >= 0.0 && by >= 0.0);
+        assert!(!m.text.trim().is_empty(), "expected selected text");
     }
 
     #[test]
     fn selection_markup_returns_none_without_overlap() {
-        let segs = vec![seg("Hello", 10.0, 10.0)];
-        assert!(selection_markup(&segs, 200.0, 200.0, 50.0, 50.0).is_none());
-        assert!(selection_markup(&[], 0.0, 0.0, 10.0, 10.0).is_none());
+        let path = fixture("basicapi.pdf");
+        let doc = Document::open(&path).expect("open");
+        let page = doc.page(0).expect("page");
+        assert!(
+            selection_markup(
+                &doc,
+                0,
+                page.width() as u32,
+                page.height() as u32,
+                10_000.0,
+                10_000.0,
+                20.0,
+                20.0
+            )
+            .is_none()
+        );
+        assert!(selection_markup(&doc, 0, 100, 100, 0.0, 0.0, 0.0, 10.0).is_none());
     }
 
     #[test]
-    fn selection_markup_single_line_partial_word() {
-        let segs = vec![seg("Hello", 10.0, 10.0), seg("world", 40.0, 10.0)];
-        // Only overlaps "world"
-        let m = selection_markup(&segs, 45.0, 8.0, 20.0, 14.0).expect("markup");
-        assert_eq!(m.line_rects.len(), 1);
-        let (x, _, w, _) = m.line_rects[0];
-        assert!((x - 45.0).abs() < 1e-9);
-        assert!((w - 15.0).abs() < 1e-9); // world goes to 60, sel to 65 → 45..60
-        assert!(m.text.contains("world"));
-        assert!(!m.text.contains("Hello"));
+    fn selection_markup_single_line_tight_quad() {
+        let path = fixture("basicapi.pdf");
+        let doc = Document::open(&path).expect("open");
+        let page = doc.page(0).expect("page");
+        let text = page.text();
+        // Pick a short char run on the first text object and build a drag that
+        // covers just those glyphs (PDF space → pixel at 1:1).
+        assert!(text.char_count() > 8, "fixture should have text");
+        let boxes = text.rects(CharIndex::new(0)..CharIndex::new(5));
+        assert!(!boxes.is_empty());
+        let r = boxes[0].abs();
+        let ph = page.height();
+        let sel_x = r.x0;
+        let sel_y = ph - r.y1;
+        let sel_w = r.width().max(1.0);
+        let sel_h = r.height().abs().max(1.0);
+        let m = selection_markup(
+            &doc,
+            0,
+            page.width() as u32,
+            page.height() as u32,
+            sel_x,
+            sel_y,
+            sel_w,
+            sel_h,
+        )
+        .expect("single-line markup");
+        assert_eq!(
+            m.line_rects.len(),
+            1,
+            "expected one tight quad: {:?}",
+            m.line_rects
+        );
+        let (x, y, w, h) = m.line_rects[0];
+        assert!((x - sel_x).abs() < 2.0, "x={x} sel_x={sel_x}");
+        assert!((y - sel_y).abs() < 2.0, "y={y} sel_y={sel_y}");
+        assert!(w > 0.0 && h > 0.0);
     }
 }

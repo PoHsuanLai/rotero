@@ -4,14 +4,15 @@ use dioxus::prelude::*;
 
 use super::annotation_render::render_annotation;
 use super::{AnnCtxState, hex_to_rgba};
+use crate::app::PdfDocs;
 use crate::state::app_state::{AnnotationMode, PdfTabManager, TabId, ViewerToolState};
 use rotero_db::Database;
 use rotero_models::{Annotation, AnnotationType};
 
-/// Build Highlight/Underline geometry from a drag rect, snapping to text-layer
-/// line quads when segments overlap the selection.
-fn markup_geometry_from_drag(
-    segments: &[rotero_pdf::TextSegment],
+/// Build Highlight/Underline geometry from char-level [`SelectionMarkup`], or
+/// fall back to the raw drag rect when no text was hit.
+fn markup_geometry_from_selection(
+    markup: Option<&rotero_pdf::SelectionMarkup>,
     rx: f64,
     ry: f64,
     rw: f64,
@@ -19,7 +20,7 @@ fn markup_geometry_from_drag(
     page_width: u32,
     page_height: u32,
 ) -> (serde_json::Value, Option<String>) {
-    if let Some(m) = rotero_pdf::selection_markup(segments, rx, ry, rw, rh) {
+    if let Some(m) = markup {
         let (bx, by, bw, bh) = m.bounds;
         let rects: Vec<serde_json::Value> = m
             .line_rects
@@ -77,6 +78,7 @@ pub(crate) fn PdfPageWithOverlay(
 ) -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let tools = use_context::<Signal<ViewerToolState>>();
+    let docs = use_context::<PdfDocs>().get();
     let db = use_context::<Database>();
     let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
     let ann_ctx = use_context::<AnnCtxState>();
@@ -439,7 +441,9 @@ pub(crate) fn PdfPageWithOverlay(
                             let w = (start.0 - current.0).abs();
                             let h = (start.1 - current.1).abs();
                             if w > 2.0 || h > 2.0 {
-                                if let Some(m) = rotero_pdf::selection_markup(&text_segments, x, y, w, h) {
+                                if let Some(m) = docs.selection_markup(
+                                    &pdf_path_for_cache, page_index, width, height, x, y, w, h,
+                                ) {
                                     m.line_rects
                                 } else {
                                     vec![(x, y, w, h)]
@@ -507,8 +511,11 @@ pub(crate) fn PdfPageWithOverlay(
                                             if rw < 5.0 && rh < 5.0 {
                                                 drag_start.set(None); drag_current.set(None); return;
                                             }
-                                            let (geometry, content) = markup_geometry_from_drag(
-                                                &text_segments, rx, ry, rw, rh, width, height,
+                                            let markup = docs.selection_markup(
+                                                &pdf_path_for_cache, page_index, width, height, rx, ry, rw, rh,
+                                            );
+                                            let (geometry, content) = markup_geometry_from_selection(
+                                                markup.as_ref(), rx, ry, rw, rh, width, height,
                                             );
                                             (at, geometry, content)
                                         } else { return; }

@@ -605,35 +605,21 @@ mod tests {
     }
 
     #[test]
-    fn selection_markup_line_rects_round_trip_to_quad_points() {
-        use crate::text_extract::{TextSegment, selection_markup};
+    fn selection_markup_char_level_round_trip_to_quad_points() {
+        use crate::text_extract::selection_markup;
 
-        let segments = vec![
-            TextSegment {
-                text: "Alpha".into(),
-                x: 20.0,
-                y: 30.0,
-                width: 40.0,
-                height: 12.0,
-                font_size: 12.0,
-                font_family: "serif".into(),
-                font_weight: "normal".into(),
-                font_style: "normal".into(),
-            },
-            TextSegment {
-                text: "Beta".into(),
-                x: 20.0,
-                y: 50.0,
-                width: 35.0,
-                height: 12.0,
-                font_size: 12.0,
-                font_family: "serif".into(),
-                font_weight: "normal".into(),
-                font_style: "normal".into(),
-            },
-        ];
-        let markup = selection_markup(&segments, 10.0, 20.0, 80.0, 50.0).expect("markup");
-        assert_eq!(markup.line_rects.len(), 2);
+        let input = fixture("basicapi.pdf");
+        let cache = crate::DocCache::new();
+        let doc = cache.open(input.to_str().unwrap()).expect("open");
+        let dims = crate::page_dimensions(&doc);
+        let (pw, ph) = dims[0];
+        let markup = selection_markup(&doc, 0, pw as u32, ph as u32, 70.0, 100.0, 400.0, 120.0)
+            .expect("char-level markup");
+        assert!(
+            markup.line_rects.len() >= 2,
+            "expected multi-line quads, got {}",
+            markup.line_rects.len()
+        );
 
         let (bx, by, bw, bh) = markup.bounds;
         let rects: Vec<serde_json::Value> = markup
@@ -643,16 +629,12 @@ mod tests {
             .collect();
         let geom = json!({
             "x": bx, "y": by, "width": bw, "height": bh,
-            "page_width": 612.0, "page_height": 792.0,
+            "page_width": pw, "page_height": ph,
             "rects": rects,
         });
 
-        let input = fixture("tracemonkey.pdf");
         let dir = tempfile::tempdir().expect("tempdir");
         let output = dir.path().join("selection-quads.pdf");
-        let cache = crate::DocCache::new();
-        let doc = cache.open(input.to_str().unwrap()).expect("open");
-        let dims = crate::page_dimensions(&doc);
         let ann = sample_annotation(
             0,
             AnnotationType::Highlight,
@@ -668,6 +650,51 @@ mod tests {
             .annotations()
             .find(|a| a.subtype() == Subtype::Highlight)
             .expect("highlight");
-        assert_eq!(highlight.quad_points().len(), 2);
+        assert_eq!(highlight.quad_points().len(), markup.line_rects.len());
+
+        // Extract must surface the same multi-quad geometry for import.
+        let extracted = crate::extract_annotations(&out);
+        let hi = extracted
+            .iter()
+            .find(|a| a.ann_type == AnnotationType::Highlight)
+            .expect("extracted highlight");
+        assert_eq!(hi.rects_pts.len(), markup.line_rects.len());
+    }
+
+    #[test]
+    fn extract_annotations_populates_rects_pts_from_multi_quad() {
+        let input = fixture("tracemonkey.pdf");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let output = dir.path().join("extract-multi-quad.pdf");
+        let cache = crate::DocCache::new();
+        let doc = cache.open(input.to_str().unwrap()).expect("open");
+        let dims = crate::page_dimensions(&doc);
+
+        let geom = json!({
+            "x": 20.0, "y": 30.0, "width": 120.0, "height": 40.0,
+            "page_width": 612.0, "page_height": 792.0,
+            "rects": [
+                {"x": 20.0, "y": 30.0, "width": 60.0, "height": 14.0},
+                {"x": 20.0, "y": 50.0, "width": 90.0, "height": 14.0},
+            ],
+        });
+        let ann = sample_annotation(0, AnnotationType::Highlight, "#ffff00", None, geom);
+        write_annotations(&input, &output, &[ann], &dims, Some(&cache)).expect("write");
+
+        let out = cache.open(output.to_str().unwrap()).expect("reopen");
+        let extracted = crate::extract_annotations(&out);
+        let hi = extracted
+            .iter()
+            .find(|a| a.ann_type == AnnotationType::Highlight)
+            .expect("highlight");
+        assert_eq!(
+            hi.rects_pts.len(),
+            2,
+            "expected two quads on extract: {:?}",
+            hi.rects_pts
+        );
+        // Union bounds should cover both quads.
+        assert!(hi.rect_pts[0] <= hi.rects_pts[0][0] + 0.5);
+        assert!(hi.rect_pts[2] + 0.5 >= hi.rects_pts.iter().map(|r| r[2]).fold(f32::MIN, f32::max));
     }
 }

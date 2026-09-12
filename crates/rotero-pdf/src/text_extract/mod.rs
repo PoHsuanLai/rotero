@@ -44,7 +44,7 @@ pub struct PageTextData {
 
 pub use search::{
     SearchMatch, SelectionMarkup, group_into_lines, search_in_document, search_in_text_data,
-    selection_markup, text_block_at,
+    selection_markup, selection_markup_from_text, text_block_at,
 };
 pub use segments::{
     PdfDocMetadata, extract_doc_metadata, extract_page_text, extract_pages_text, extract_raw_text,

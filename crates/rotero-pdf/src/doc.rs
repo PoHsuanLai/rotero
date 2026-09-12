@@ -266,28 +266,37 @@ pub fn extract_annotations(doc: &Document) -> Vec<ExtractedAnnotation> {
             };
 
             // Prefer /QuadPoints for text-markup subtypes; fall back to /Rect.
-            let bounds = match ann_type {
+            // When multiple quads exist, keep each as rects_pts so import can
+            // populate geometry.rects (same shape create/write already uses).
+            let (bounds, rects_pts) = match ann_type {
                 rotero_models::AnnotationType::Highlight
                 | rotero_models::AnnotationType::Underline => {
                     let quads: Vec<_> = ann.quad_points().collect();
                     if quads.is_empty() {
-                        ann.rect()
+                        (ann.rect(), Vec::new())
                     } else {
                         let mut x0 = f64::INFINITY;
                         let mut y0 = f64::INFINITY;
                         let mut x1 = f64::NEG_INFINITY;
                         let mut y1 = f64::NEG_INFINITY;
-                        for q in quads {
+                        let mut rects_pts = Vec::with_capacity(quads.len());
+                        for q in &quads {
                             let q = q.abs();
                             x0 = x0.min(q.x0);
                             y0 = y0.min(q.y0);
                             x1 = x1.max(q.x1);
                             y1 = y1.max(q.y1);
+                            rects_pts.push([q.x0 as f32, q.y0 as f32, q.x1 as f32, q.y1 as f32]);
                         }
-                        pdfrum::Rect::new(x0, y0, x1, y1)
+                        // Single quad ≡ outer rect; keep rects_pts empty so
+                        // import falls back to one geometry box.
+                        if rects_pts.len() == 1 {
+                            rects_pts.clear();
+                        }
+                        (pdfrum::Rect::new(x0, y0, x1, y1), rects_pts)
                     }
                 }
-                _ => ann.rect(),
+                _ => (ann.rect(), Vec::new()),
             };
             let color = annot_color_hex(ann.dict());
             let content = ann.contents();
@@ -303,6 +312,7 @@ pub fn extract_annotations(doc: &Document) -> Vec<ExtractedAnnotation> {
                     bounds.x1 as f32,
                     bounds.y1 as f32,
                 ],
+                rects_pts,
                 page_width_pts: pw,
                 page_height_pts: ph,
             });
@@ -464,8 +474,12 @@ pub struct ExtractedAnnotation {
     pub color: String,
     /// Optional text content or comment attached to the annotation.
     pub content: Option<String>,
-    /// [x1 (left), y1 (bottom), x2 (right), y2 (top)] in PDF points.
+    /// [x1 (left), y1 (bottom), x2 (right), y2 (top)] union bounds in PDF points.
     pub rect_pts: [f32; 4],
+    /// Per-quad `[x0, y0, x1, y1]` in PDF points for multi-quad Highlight/Underline.
+    /// Empty when the annot has no `/QuadPoints`, a single quad, or a non-markup type —
+    /// import then uses [`Self::rect_pts`] alone.
+    pub rects_pts: Vec<[f32; 4]>,
     /// Width of the containing page in PDF points.
     pub page_width_pts: f32,
     /// Height of the containing page in PDF points.

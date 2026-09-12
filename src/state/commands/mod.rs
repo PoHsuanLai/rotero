@@ -192,6 +192,28 @@ impl PdfDocs {
         .await
     }
 
+    /// Char-level Highlight/Underline markup for a pixel-space drag rect.
+    ///
+    /// Uses the cached document (already open while a tab is viewing the PDF)
+    /// so the overlay can call this synchronously during drag preview / mouseup.
+    #[allow(clippy::too_many_arguments)] // path + page + pixel size + selection AABB
+    pub fn selection_markup(
+        &self,
+        pdf_path: &str,
+        page_index: u32,
+        img_width: u32,
+        img_height: u32,
+        sel_x: f64,
+        sel_y: f64,
+        sel_w: f64,
+        sel_h: f64,
+    ) -> Option<rotero_pdf::SelectionMarkup> {
+        let doc = self.cache.open(pdf_path).ok()?;
+        rotero_pdf::selection_markup(
+            &doc, page_index, img_width, img_height, sel_x, sel_y, sel_w, sel_h,
+        )
+    }
+
     /// Extracts supported annotations from the PDF.
     pub async fn extract_annotations(
         &self,
