@@ -131,6 +131,8 @@ pub struct PdfTab {
     pub paper_id: Option<String>,
     pub title: String,
     pub page_count: u32,
+    /// `/PageLabels` per page (`None` = use 1-based ordinal).
+    pub page_labels: Vec<Option<String>>,
     pub is_loading: bool,
     /// Why the document could not be opened, if it could not.
     ///
@@ -166,6 +168,7 @@ impl PdfTab {
             paper_id: None,
             title,
             page_count: 0,
+            page_labels: Vec::new(),
             is_loading: true,
             load_error: None,
             is_suspended: false,

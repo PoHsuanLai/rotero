@@ -236,6 +236,22 @@ pub fn outline(doc: &Document) -> Vec<BookmarkEntry> {
     entries
 }
 
+/// `/PageLabels` strings for every page, or `None` when the document numbers
+/// pages by ordinal only (the common case).
+pub fn page_labels(doc: &Document) -> Vec<Option<String>> {
+    (0..doc.page_count()).map(|i| doc.page_label(i)).collect()
+}
+
+/// Display string for a zero-based page index: the PDF label when present,
+/// otherwise the 1-based ordinal.
+pub fn display_page_number(labels: &[Option<String>], page_index: u32) -> String {
+    labels
+        .get(page_index as usize)
+        .and_then(|l| l.as_ref())
+        .cloned()
+        .unwrap_or_else(|| (page_index + 1).to_string())
+}
+
 /// Returns (width_pts, height_pts) for all pages without rendering.
 pub fn page_dimensions(doc: &Document) -> Vec<(f32, f32)> {
     let mut dims = Vec::with_capacity(doc.page_count() as usize);
@@ -597,4 +613,33 @@ pub struct BookmarkEntry {
     pub page_index: Option<u32>,
     /// Nesting depth in the outline hierarchy (0 = top level).
     pub level: u32,
+}
+
+#[cfg(test)]
+mod page_label_tests {
+    use super::{display_page_number, page_labels};
+    use pdfrum::Document;
+    use std::path::PathBuf;
+
+    fn fixture(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/pdfs")
+            .join(name)
+    }
+
+    #[test]
+    fn display_page_number_falls_back_to_ordinal() {
+        let labels = vec![None, Some("iv".into()), None];
+        assert_eq!(display_page_number(&labels, 0), "1");
+        assert_eq!(display_page_number(&labels, 1), "iv");
+        assert_eq!(display_page_number(&labels, 2), "3");
+        assert_eq!(display_page_number(&labels, 99), "100");
+    }
+
+    #[test]
+    fn page_labels_len_matches_page_count() {
+        let doc = Document::open(fixture("basicapi.pdf")).expect("open");
+        let labels = page_labels(&doc);
+        assert_eq!(labels.len(), doc.page_count() as usize);
+    }
 }

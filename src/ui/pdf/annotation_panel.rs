@@ -12,7 +12,11 @@ pub(crate) fn AnnotationPanel(tab_id: TabId) -> Element {
     let db = use_context::<Database>();
     let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
     let mut ann_ctx = use_context::<AnnCtxState>();
-    let annotations = tabs.read().tab().annotations.clone();
+    let (annotations, page_labels) = {
+        let mgr = tabs.read();
+        let tab = mgr.tab();
+        (tab.annotations.clone(), tab.page_labels.clone())
+    };
 
     rsx! {
         div { class: "annotation-panel",
@@ -120,7 +124,10 @@ pub(crate) fn AnnotationPanel(tab_id: TabId) -> Element {
                                         div { class: "annotation-item-meta",
                                             div { class: "annotation-color-dot", style: "background: {color};" }
                                             span { class: "annotation-type-label", "{type_label}" }
-                                            span { class: "annotation-page-label", "p.{page + 1}" }
+                                            {
+                                                let label = rotero_pdf::display_page_number(&page_labels, page as u32);
+                                                rsx! { span { class: "annotation-page-label", "p.{label}" } }
+                                            }
                                         }
                                         button {
                                             class: "btn--danger-sm",
@@ -222,6 +229,8 @@ pub(crate) fn AnnotationContextMenu() -> Element {
     let ctx_content = ctx.content;
     let mx = ctx.x;
     let my = ctx.y;
+    let page_label =
+        rotero_pdf::display_page_number(&tabs.read().tab().page_labels, ctx_page.max(0) as u32);
     let ctx_ann_id_del = ctx_ann_id.clone();
     let db_color = db.clone();
     let db_delete = db.clone();
@@ -243,7 +252,7 @@ pub(crate) fn AnnotationContextMenu() -> Element {
             },
 
             ContextMenuItem {
-                label: format!("Go to page {}", ctx_page + 1),
+                label: format!("Go to page {page_label}"),
                 icon: Some("bi-arrow-right-circle".to_string()),
                 on_click: move |_| {
                     let _ = document::eval(&super::scroll_to_page_js(ctx_page.max(0) as u32, "center"));
