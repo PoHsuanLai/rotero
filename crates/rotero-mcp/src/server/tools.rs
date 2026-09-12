@@ -470,6 +470,36 @@ impl RoteroMcp {
         json_result(&out)
     }
 
+    #[tool(
+        description = "List all links in a paper's PDF: /Link annotations merged with text-derived web URLs (same as the viewer)."
+    )]
+    async fn get_links(
+        &self,
+        Parameters(params): Parameters<GetLinksParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let (_paper, doc) = self.open_paper_pdf(&params.paper_id).await?;
+        let links = rotero_pdf::extract_links(&doc).map_err(super::pdf::pdf_err)?;
+        let out: Vec<_> = links
+            .into_iter()
+            .map(|l| {
+                let (kind, target) = match &l.target {
+                    rotero_pdf::LinkTarget::External { uri } => ("uri", serde_json::json!(uri)),
+                    rotero_pdf::LinkTarget::Internal { page, y_frac } => (
+                        "goto",
+                        serde_json::json!({ "page": page + 1, "y_frac": y_frac }),
+                    ),
+                };
+                serde_json::json!({
+                    "page": l.page + 1,
+                    "rect_pts": l.rect_pts,
+                    "kind": kind,
+                    "target": target,
+                })
+            })
+            .collect();
+        json_result(&out)
+    }
+
     #[tool(description = "Add a note to a paper")]
     async fn add_note(
         &self,
