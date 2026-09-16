@@ -5,7 +5,10 @@
 
 use std::path::Path;
 
-use pdfrum::{AnnotSpec, AnnotWrite, Color, Document, FlattenMode, Point, Quad, Rect, SaveOptions};
+use pdfrum::{
+    AnnotWrite, Color, Document, FlattenMode, FreeTextSpec, InkSpec, MarkupKind, MarkupSpec, Point,
+    Quad, Rect, SaveOptions, SquareSpec, TextSpec,
+};
 
 use crate::DocCache;
 use rotero_models::{Annotation, AnnotationType};
@@ -25,7 +28,7 @@ struct AnnotationGeometry {
 ///
 /// `page_dimensions` provides (width_pts, height_pts) per 0-indexed page,
 /// as returned by [`page_dimensions`]. When `flatten` is true, bake appearances
-/// into page content via [`pdfrum::DocEdit::flatten`] before saving.
+/// into page content via [`pdfrum::DocEdit::flatten_document`] before saving.
 ///
 /// Each annotation gets `/NM` from its id (when set), `/M` from `modified_at`,
 /// and `/T` from `author` when provided.
@@ -63,63 +66,45 @@ pub fn write_annotations(
         let contents = ann.content.clone().filter(|s| !s.is_empty());
         let markup_quads = markup_quads(&ann.geometry, &geom, rect, pw_pts, ph_pts);
 
-        let spec = match ann.ann_type {
-            AnnotationType::Highlight => AnnotSpec::Highlight {
-                rect,
-                color,
-                quads: markup_quads,
-                contents,
-            },
-            AnnotationType::Note => AnnotSpec::Text {
-                rect,
-                color,
-                contents,
-            },
-            AnnotationType::Area => AnnotSpec::Square {
-                rect,
-                color,
-                contents,
-            },
-            AnnotationType::Underline => AnnotSpec::Underline {
-                rect,
-                color,
-                quads: markup_quads,
-                contents,
-            },
-            AnnotationType::StrikeOut => AnnotSpec::StrikeOut {
-                rect,
-                color,
-                quads: markup_quads,
-                contents,
-            },
-            AnnotationType::Squiggly => AnnotSpec::Squiggly {
-                rect,
-                color,
-                quads: markup_quads,
-                contents,
-            },
-            AnnotationType::Ink => AnnotSpec::Ink {
-                rect,
-                color,
-                strokes: ink_strokes(&ann.geometry, &geom, pw_pts, ph_pts),
-                contents: None,
-            },
-            AnnotationType::Text => AnnotSpec::FreeText {
-                rect,
-                color,
-                contents: ann.content.clone().unwrap_or_default(),
-                da: "0 0 0 rg /Helvetica 12 Tf".into(),
-            },
+        let mut write: AnnotWrite = match ann.ann_type {
+            AnnotationType::Highlight => MarkupSpec::new(MarkupKind::Highlight, rect, color)
+                .quads(markup_quads)
+                .into(),
+            AnnotationType::Underline => MarkupSpec::new(MarkupKind::Underline, rect, color)
+                .quads(markup_quads)
+                .into(),
+            AnnotationType::StrikeOut => MarkupSpec::new(MarkupKind::StrikeOut, rect, color)
+                .quads(markup_quads)
+                .into(),
+            AnnotationType::Squiggly => MarkupSpec::new(MarkupKind::Squiggly, rect, color)
+                .quads(markup_quads)
+                .into(),
+            AnnotationType::Note => TextSpec::new(rect, color).into(),
+            AnnotationType::Area => SquareSpec::new(rect, color).into(),
+            AnnotationType::Ink => {
+                let strokes = ink_strokes(&ann.geometry, &geom, pw_pts, ph_pts);
+                if strokes.is_empty() {
+                    continue;
+                }
+                InkSpec::new(rect, color, strokes).into()
+            }
+            AnnotationType::Text => {
+                FreeTextSpec::new(rect, color, ann.content.clone().unwrap_or_default())
+                    .da("0 0 0 rg /Helvetica 12 Tf")
+                    .into()
+            }
         };
 
-        let mut write = AnnotWrite::from(spec);
+        if let Some(c) = contents {
+            write = write.contents(c);
+        }
         if let Some(id) = ann.id.as_deref().filter(|s| !s.is_empty()) {
-            write = write.with_name(id);
+            write = write.name(id);
         }
         if let Some(a) = author.filter(|s| !s.is_empty()) {
-            write = write.with_author(a);
+            write = write.author(a);
         }
-        write = write.with_modified(pdfrum::pdf_date(std::time::SystemTime::from(
+        write = write.modified(pdfrum::pdf_date(std::time::SystemTime::from(
             ann.modified_at,
         )));
 
@@ -128,10 +113,8 @@ pub fn write_annotations(
     }
 
     if flatten {
-        for page in 0..page_count {
-            edit.flatten(page, FlattenMode::Print)
-                .map_err(|e| PdfError::WriteError(format!("Failed to flatten page {page}: {e}")))?;
-        }
+        edit.flatten_document(FlattenMode::Print)
+            .map_err(|e| PdfError::WriteError(format!("Failed to flatten: {e}")))?;
     }
 
     let options = SaveOptions::builder().incremental().build();

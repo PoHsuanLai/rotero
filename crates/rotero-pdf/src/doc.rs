@@ -218,10 +218,11 @@ pub fn render_pages(
 
 /// Like [`render_pages`], with optional dark / night-mode colour scheme.
 ///
-/// A single page reuses `session`. Multiple pages fan out across threads,
-/// each with its own [`RenderSession`] (sessions are `&mut`-only and must
-/// not be shared). Page order in the returned `Vec` matches the input range.
-/// When `count > 1`, `session` is unused for the concurrent path.
+/// A single page reuses `session`. Multiple pages fan out across a bounded
+/// number of threads (capped by available parallelism), each with its own
+/// [`RenderSession`] (sessions are `&mut`-only and must not be shared). Page
+/// order in the returned `Vec` matches the input range. When `count > 1`,
+/// `session` is unused for the concurrent path.
 pub fn render_pages_with(
     doc: &Document,
     start: u32,
@@ -242,27 +243,34 @@ pub fn render_pages_with(
         return Ok(vec![render_page_inner(session, doc, start, &opts)?]);
     }
 
-    // Parallel fan-out. `Document` is `Send + Sync`; each task owns a session.
+    // Parallel fan-out. `Document` is `Send + Sync`; each worker owns a session
+    // and renders a contiguous chunk so a long paper does not spawn one OS
+    // thread per page.
     let _ = session;
+    let workers = render_worker_count(n);
+    let chunk = n.div_ceil(workers);
     let mut slots: Vec<Option<Result<RenderedPage, PdfError>>> = (0..n).map(|_| None).collect();
     std::thread::scope(|scope| {
-        let mut handles = Vec::with_capacity(n);
-        for (slot, page_index) in (start..end).enumerate() {
+        let mut handles = Vec::with_capacity(workers);
+        let mut offset = 0usize;
+        while offset < n {
+            let end_off = (offset + chunk).min(n);
             let opts = opts.clone();
             handles.push(scope.spawn(move || {
                 let mut local = RenderSession::new();
-                (slot, render_page_inner(&mut local, doc, page_index, &opts))
+                let mut out = Vec::with_capacity(end_off - offset);
+                for slot in offset..end_off {
+                    let page_index = start + slot as u32;
+                    out.push((slot, render_page_inner(&mut local, doc, page_index, &opts)));
+                }
+                out
             }));
+            offset = end_off;
         }
         for handle in handles {
-            match handle.join() {
-                Ok((slot, result)) => slots[slot] = Some(result),
-                Err(_) => {
-                    if let Some(empty) = slots.iter_mut().find(|s| s.is_none()) {
-                        *empty = Some(Err(PdfError::RenderError(
-                            "page render thread panicked".into(),
-                        )));
-                    }
+            if let Ok(batch) = handle.join() {
+                for (slot, result) in batch {
+                    slots[slot] = Some(result);
                 }
             }
         }
@@ -270,9 +278,21 @@ pub fn render_pages_with(
 
     let mut pages = Vec::with_capacity(n);
     for slot in slots {
-        pages.push(slot.expect("every slot filled")?);
+        pages.push(
+            slot.unwrap_or_else(|| {
+                Err(PdfError::RenderError("page render thread panicked".into()))
+            })?,
+        );
     }
     Ok(pages)
+}
+
+fn render_worker_count(pages: usize) -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .clamp(2, 8)
+        .min(pages)
 }
 
 /// Opens via [`DocCache`] and renders the first `batch_size` pages.
@@ -762,10 +782,9 @@ mod page_label_tests {
     }
 }
 
-
 #[cfg(test)]
 mod render_parallel_tests {
-    use super::{render_pages, render_pages_with, DocCache};
+    use super::{DocCache, render_pages, render_pages_with};
     use pdfrum::RenderSession;
     use std::path::PathBuf;
 
@@ -780,10 +799,10 @@ mod render_parallel_tests {
         let cache = DocCache::new();
         let path = fixture("tracemonkey.pdf");
         let doc = cache.open(path.to_str().unwrap()).expect("open");
-        let count = doc.page_count().min(4).max(2);
+        let count = doc.page_count().clamp(2, 4);
         let mut session = RenderSession::new();
-        let pages = render_pages_with(&doc, 0, count, 0.5, false, &mut session)
-            .expect("parallel render");
+        let pages =
+            render_pages_with(&doc, 0, count, 0.5, false, &mut session).expect("parallel render");
         assert_eq!(pages.len(), count as usize);
         for (i, page) in pages.iter().enumerate() {
             assert_eq!(page.page_index, i as u32);
