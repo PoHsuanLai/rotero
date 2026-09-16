@@ -243,7 +243,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cargo binstall dioxus-cli --version 0.7.10 -y --force
       - uses: taiki-e/install-action@just
+      - name: Free disk before bundle
+        run: |
+          # rust-cache can restore debug artifacts; the smoke job only needs
+          # a release .app. hdiutil's DMG also needs a second copy of that
+          # app on disk, which is what filled the runner after pdfrum landed.
+          rm -rf target/debug || true
+          df -h
       - name: Bundle
-        run: dx bundle --release
+        # .app only — smoke-bundle.sh never mounts a DMG, and creating one
+        # via hdiutil ran the runner out of disk on master after the pdfrum
+        # migration (`hdiutil: create failed - No space left on device`).
+        run: dx bundle --release --package-types macos
       - name: Smoke the bundle
         run: ./scripts/smoke-bundle.sh target/dx/rotero/release/macos/Rotero.app
