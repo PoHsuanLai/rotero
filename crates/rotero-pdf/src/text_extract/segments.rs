@@ -82,9 +82,8 @@ fn extract_page_text_from_doc(
 
         let char_count = word.text.chars().count() as f64;
         let expected_width = font_size * char_count * 0.8;
-        let reasonable = width > 0.0
-            && height > 0.0
-            && (expected_width < 1.0 || width < expected_width * 3.0);
+        let reasonable =
+            width > 0.0 && height > 0.0 && (expected_width < 1.0 || width < expected_width * 3.0);
 
         if !reasonable {
             continue;
