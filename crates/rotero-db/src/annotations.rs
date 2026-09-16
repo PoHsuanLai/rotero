@@ -15,6 +15,8 @@ impl Database {
             AnnotationType::Note => "note",
             AnnotationType::Area => "area",
             AnnotationType::Underline => "underline",
+            AnnotationType::StrikeOut => "strikeout",
+            AnnotationType::Squiggly => "squiggly",
             AnnotationType::Ink => "ink",
             AnnotationType::Text => "text",
         };
@@ -121,6 +123,8 @@ fn parse_ann_type(s: &str) -> AnnotationType {
         "note" => AnnotationType::Note,
         "area" => AnnotationType::Area,
         "underline" => AnnotationType::Underline,
+        "strikeout" | "strike_out" | "strike-out" => AnnotationType::StrikeOut,
+        "squiggly" => AnnotationType::Squiggly,
         "ink" => AnnotationType::Ink,
         "text" => AnnotationType::Text,
         _ => AnnotationType::Note,

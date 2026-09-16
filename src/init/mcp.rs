@@ -28,9 +28,7 @@ pub(crate) fn start_mcp_server() {
                     let _ = tx.send(());
                 }));
             }
-            // Disable PDF extraction in embedded mode — pdfium can crash the HTTP server
-            let pdf_available = false;
-            let mcp_server = rotero_mcp::RoteroMcp::new(mcp_db, pdf_available);
+            let mcp_server = rotero_mcp::RoteroMcp::new(mcp_db);
 
             let config = rmcp::transport::StreamableHttpServerConfig::default()
                 .with_stateful_mode(false)

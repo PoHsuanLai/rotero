@@ -293,3 +293,187 @@ pub(super) struct LibraryStats {
     pub unread_count: u32,
     pub favorites_count: u32,
 }
+
+/// Parameters for `read_markdown` — pdfrum markdown for a page range.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ReadMarkdownParams {
+    /// Paper ID whose PDF to read.
+    pub paper_id: String,
+    /// First page (1-based, inclusive). Defaults to 1.
+    #[serde(default)]
+    pub page_start: Option<u32>,
+    /// Last page (1-based, inclusive). Defaults to page_start + 9.
+    #[serde(default)]
+    pub page_end: Option<u32>,
+}
+
+/// Parameters for `read_pages` — layout/plain text by page range.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ReadPagesParams {
+    /// Paper ID whose PDF to read.
+    pub paper_id: String,
+    /// First page (1-based, inclusive). Defaults to 1.
+    #[serde(default)]
+    pub page_start: Option<u32>,
+    /// Last page (1-based, inclusive). Defaults to page_start + 9.
+    #[serde(default)]
+    pub page_end: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct ReadPagesResult {
+    pub pages: Vec<ReadPageEntry>,
+    pub page_start: u32,
+    pub page_end: u32,
+    pub total_pages: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct ReadPageEntry {
+    /// 1-based page number.
+    pub page: u32,
+    /// Printed page label when the PDF defines one.
+    pub page_label: Option<String>,
+    pub text: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct ReadMarkdownResult {
+    pub markdown: String,
+    pub page_start: u32,
+    pub page_end: u32,
+    pub total_pages: u32,
+}
+
+/// Parameters for `find_in_paper` — TextPage::find_with search.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct FindInPaperParams {
+    pub paper_id: String,
+    /// Case-insensitive substring to find.
+    pub query: String,
+    /// Max hits to return (default 50, cap 200).
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct FindHit {
+    /// 1-based page number.
+    pub page: u32,
+    pub matched_text: String,
+    /// Pixel-space rects `(x, y, width, height)`.
+    pub rects: Vec<[f64; 4]>,
+}
+
+/// Parameters for `list_figures`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListFiguresParams {
+    pub paper_id: String,
+    /// Optional 1-based page; when omitted, scans all pages (may be slow).
+    #[serde(default)]
+    pub page: Option<u32>,
+}
+
+/// Parameters for `get_figure`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetFigureParams {
+    pub paper_id: String,
+    /// 1-based page number.
+    pub page: u32,
+    /// Index into that page's image list (from `list_figures`).
+    pub image_index: u32,
+}
+
+/// Parameters for `get_outline`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetOutlineParams {
+    pub paper_id: String,
+}
+
+/// Parameters for `get_links`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetLinksParams {
+    pub paper_id: String,
+}
+
+/// Parameters for `annotate` — create a Highlight, Note, Underline, StrikeOut, or Squiggly.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AnnotateParams {
+    pub paper_id: String,
+    /// 1-based page number.
+    pub page: u32,
+    /// `highlight`, `note`, `underline`, `strikeout`, or `squiggly`.
+    pub ann_type: String,
+    /// Hex color, e.g. `#FFE600`. Defaults by type.
+    #[serde(default)]
+    pub color: Option<String>,
+    /// Note/highlight text contents.
+    #[serde(default)]
+    pub content: Option<String>,
+    /// Geometry in pixel space: x, y, width, height, page_width, page_height.
+    /// When omitted, a small default rect is used (notes).
+    #[serde(default)]
+    pub x: Option<f32>,
+    #[serde(default)]
+    pub y: Option<f32>,
+    #[serde(default)]
+    pub width: Option<f32>,
+    #[serde(default)]
+    pub height: Option<f32>,
+    #[serde(default)]
+    pub page_width: Option<f32>,
+    #[serde(default)]
+    pub page_height: Option<f32>,
+    /// Annotation author written as PDF `/T` when baking into the PDF.
+    #[serde(default)]
+    pub author: Option<String>,
+    /// Also bake into the PDF file via AnnotSpec (default true).
+    #[serde(default)]
+    pub write_pdf: Option<bool>,
+}
+
+/// Parameters for `quote_at` — text under a point (word/line).
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct QuoteAtParams {
+    pub paper_id: String,
+    /// 1-based page.
+    pub page: u32,
+    /// Pixel X (top-left origin). Uses page_width/page_height scale; defaults assume 1pt=1px.
+    pub x: f64,
+    pub y: f64,
+    /// `word` (default) or `line`.
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub page_width: Option<u32>,
+    #[serde(default)]
+    pub page_height: Option<u32>,
+}
+
+/// Parameters for `text_in_rect` — grounded quote from a selection rect.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct TextInRectParams {
+    pub paper_id: String,
+    /// 1-based page.
+    pub page: u32,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    #[serde(default)]
+    pub page_width: Option<u32>,
+    #[serde(default)]
+    pub page_height: Option<u32>,
+}
+
+/// Parameters for citation-neighbour tools.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListCitationNeighborsParams {
+    pub paper_id: String,
+}
+
+/// Parameters for `list_attachments`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListAttachmentsParams {
+    pub paper_id: String,
+}

@@ -1,13 +1,11 @@
-use tokio::sync::oneshot;
-
-use super::{RenderRequest, recv_reply};
+use super::PdfDocs;
 use crate::state::app_state::{PdfTabManager, TabId};
 use dioxus::prelude::*;
 
 const MAX_RESIDENT_THUMBS: usize = 50;
 
 pub async fn load_thumbnails(
-    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
+    docs: &PdfDocs,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
     start: u32,
@@ -22,16 +20,7 @@ pub async fn load_thumbnails(
             .pdf_path
             .clone()
     };
-    let (reply_tx, reply_rx) = oneshot::channel();
-    render_tx
-        .send(RenderRequest::RenderThumbnails {
-            pdf_path,
-            start,
-            count,
-            reply: reply_tx,
-        })
-        .map_err(|e| e.to_string())?;
-    let thumbnails = recv_reply(reply_rx).await?;
+    let thumbnails = docs.render_thumbnails(pdf_path, start, count).await?;
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
             for thumb in thumbnails {
@@ -52,7 +41,7 @@ pub async fn load_thumbnails(
 }
 
 pub async fn load_outline(
-    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
+    docs: &PdfDocs,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
 ) -> Result<(), String> {
@@ -65,14 +54,7 @@ pub async fn load_outline(
             .pdf_path
             .clone()
     };
-    let (reply_tx, reply_rx) = oneshot::channel();
-    render_tx
-        .send(RenderRequest::ExtractOutline {
-            pdf_path,
-            reply: reply_tx,
-        })
-        .map_err(|e| e.to_string())?;
-    let outline = recv_reply(reply_rx).await?;
+    let outline = docs.extract_outline(pdf_path).await?;
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
             tab.nav.outline = outline;
@@ -84,7 +66,7 @@ pub async fn load_outline(
 /// Extracts intra-document links (citation/figure/section jumps) once and stores
 /// them on the tab, keyed by source page for the overlay.
 pub async fn load_links(
-    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
+    docs: &PdfDocs,
     tabs: &mut Signal<PdfTabManager>,
     tab_id: TabId,
 ) -> Result<(), String> {
@@ -97,14 +79,7 @@ pub async fn load_links(
             .pdf_path
             .clone()
     };
-    let (reply_tx, reply_rx) = oneshot::channel();
-    render_tx
-        .send(RenderRequest::ExtractLinks {
-            pdf_path,
-            reply: reply_tx,
-        })
-        .map_err(|e| e.to_string())?;
-    let links = recv_reply(reply_rx).await?;
+    let links = docs.extract_links(pdf_path).await?;
     let by_page = crate::state::app_state::build_page_links(&links);
     tabs.with_mut(|mgr| {
         if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
@@ -115,7 +90,7 @@ pub async fn load_links(
 }
 
 pub async fn precache_pdf(
-    render_tx: &std::sync::mpsc::Sender<RenderRequest>,
+    docs: &PdfDocs,
     pdf_path: &str,
     data_dir: &std::path::Path,
     zoom: f32,
@@ -126,19 +101,7 @@ pub async fn precache_pdf(
         return;
     }
     let path = pdf_path.to_string();
-    let (reply_tx, reply_rx) = oneshot::channel();
-    if render_tx
-        .send(RenderRequest::OpenPdf {
-            pdf_path: path.clone(),
-            zoom,
-            batch_size: 5,
-            reply: reply_tx,
-        })
-        .is_err()
-    {
-        return;
-    }
-    let Ok((page_count, pages)) = recv_reply(reply_rx).await else {
+    let Ok((page_count, pages)) = docs.open_and_render_initial(path.clone(), zoom, 5).await else {
         return;
     };
     let batch_size = 5u32;
@@ -158,20 +121,7 @@ pub async fn precache_pdf(
     let mut start = batch_size.min(page_count);
     while start < page_count {
         let count = batch_size.min(page_count - start);
-        let (more_tx, more_rx) = oneshot::channel();
-        if render_tx
-            .send(RenderRequest::RenderMorePages {
-                pdf_path: path.clone(),
-                start,
-                count,
-                zoom,
-                reply: more_tx,
-            })
-            .is_err()
-        {
-            break;
-        }
-        let Ok(more_pages) = recv_reply(more_rx).await else {
+        let Ok(more_pages) = docs.render_pages(path.clone(), start, count, zoom).await else {
             break;
         };
         let more_dir = data_dir.to_path_buf();
@@ -184,34 +134,24 @@ pub async fn precache_pdf(
         start += count;
     }
 
-    let (text_tx, text_rx) = oneshot::channel();
-    if render_tx
-        .send(RenderRequest::ExtractText {
-            pdf_path: path.clone(),
-            page_dims: all_page_dims,
-            reply: text_tx,
-        })
-        .is_err()
-    {
+    let Ok(text_data) = docs.extract_text(path.clone(), all_page_dims).await else {
         return;
-    }
-    if let Ok(text_data) = recv_reply(text_rx).await {
-        if let (Some(pid), Some(db)) = (&paper_id, db) {
-            let mut pages_sorted: Vec<u32> = text_data.keys().copied().collect();
-            pages_sorted.sort();
-            let fulltext: String = pages_sorted
-                .iter()
-                .filter_map(|p| text_data.get(p))
-                .flat_map(|td| td.segments.iter().map(|s| s.text.as_str()))
-                .collect::<Vec<_>>()
-                .join("");
-            if !fulltext.is_empty() {
-                let _ = db.update_paper_fulltext(pid, &fulltext).await;
-            }
+    };
+    if let (Some(pid), Some(db)) = (&paper_id, db) {
+        let mut pages_sorted: Vec<u32> = text_data.keys().copied().collect();
+        pages_sorted.sort();
+        let fulltext: String = pages_sorted
+            .iter()
+            .filter_map(|p| text_data.get(p))
+            .flat_map(|td| td.segments.iter().map(|s| s.text.as_str()))
+            .collect::<Vec<_>>()
+            .join("");
+        if !fulltext.is_empty() {
+            let _ = db.update_paper_fulltext(pid, &fulltext).await;
         }
-        let dir = data_dir.to_path_buf();
-        std::thread::spawn(move || {
-            crate::cache::save_text(&dir, &path, &text_data);
-        });
     }
+    let dir = data_dir.to_path_buf();
+    std::thread::spawn(move || {
+        crate::cache::save_text(&dir, &path, &text_data);
+    });
 }

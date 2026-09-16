@@ -6,7 +6,7 @@ use crate::state::app_state::LibraryState;
 pub(crate) fn AddPaperButtons() -> Element {
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let db = use_context::<rotero_db::Database>();
-    let render_ch = use_context::<crate::app::RenderChannel>();
+    let docs = use_context::<crate::app::PdfDocs>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let mut error_msg = use_context::<Signal<Option<String>>>();
     let mut show_doi_input = use_context::<Signal<bool>>();
@@ -42,7 +42,7 @@ pub(crate) fn AddPaperButtons() -> Element {
                                     };
                                     let full_path = db.resolve_pdf_path(&rel_path).to_string_lossy().to_string();
                                     let auto_fetch = config.read().auto_fetch_metadata;
-                                    let meta_render_tx = render_ch.sender();
+                                    let docs = docs.get();
                                     let meta_db = db.clone();
 
                                     match db.insert_paper(&paper).await {
@@ -59,7 +59,7 @@ pub(crate) fn AddPaperButtons() -> Element {
                                             error_msg.set(None);
                                             spawn(async move {
                                                 crate::state::commands::extract_and_fetch_metadata(
-                                                    &meta_render_tx, &meta_db, &id, &full_path, auto_fetch, &mut lib_state,
+                                                    &docs, &meta_db, &id, &full_path, auto_fetch, &mut lib_state,
                                                 ).await;
                                             });
                                         }

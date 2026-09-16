@@ -49,14 +49,21 @@ const CHAT_CSS: &str = include_str!("../../assets/chat.css");
 #[cfg(feature = "mobile")]
 const LONGPRESS_JS: &str = include_str!("../../assets/longpress.js");
 
+/// Copyable Dioxus context handle around the shared [`commands::PdfDocs`] cache.
 #[derive(Clone, Copy)]
-pub struct RenderChannel {
-    inner: Signal<std::sync::mpsc::Sender<commands::RenderRequest>>,
+pub struct PdfDocs {
+    inner: Signal<commands::PdfDocs>,
 }
 
-impl RenderChannel {
-    pub fn sender(&self) -> std::sync::mpsc::Sender<commands::RenderRequest> {
+impl PdfDocs {
+    /// Clones the underlying cache handle (cheap `Arc` clone).
+    pub fn get(&self) -> commands::PdfDocs {
         self.inner.read().clone()
+    }
+
+    /// Drops all cached documents. Call when the last PDF tab closes.
+    pub fn clear(&self) {
+        self.inner.read().clear();
     }
 }
 
@@ -124,15 +131,8 @@ pub fn App() -> Element {
         });
     });
 
-    use_context_provider(|| RenderChannel {
-        inner: Signal::new(commands::spawn_render_thread()),
-    });
-
-    // Report a PDF engine that could not bind. Has to happen here rather than in
-    // `main`, because the render thread starts with the window.
-    #[cfg(feature = "desktop")]
-    use_future(|| async {
-        crate::init::preflight::check_pdf_engine().await;
+    use_context_provider(|| PdfDocs {
+        inner: Signal::new(commands::PdfDocs::new()),
     });
 
     let _chat_state: Signal<ChatState> = use_context_provider(|| Signal::new(ChatState::default()));

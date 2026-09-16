@@ -21,14 +21,6 @@ the file for your platform.
 macOS on Intel is not prebuilt — [build from source](#building-from-source)
 instead. iOS and Android are not available yet.
 
-<Callout type="warning" title="Keep the portable archives together">
-
-The `.zip` and `.tar.gz` builds contain the Rotero executable *and* the PDFium
-library it loads at runtime. If you move the executable somewhere else on its
-own, PDFs will not render. Move the whole folder.
-
-</Callout>
-
 ## First launch
 
 Rotero is not signed with a paid developer certificate, so both macOS and
@@ -68,7 +60,7 @@ You can turn automatic checks off in **Settings ▸ About**.
 ## Building from source
 
 You need [Rust](https://rustup.rs/) and [just](https://github.com/casey/just).
-PDFium is downloaded for you on the first build.
+PDF rendering is pure Rust (pdfrum) — no native library download.
 
 ```sh
 git clone https://github.com/PoHsuanLai/rotero.git

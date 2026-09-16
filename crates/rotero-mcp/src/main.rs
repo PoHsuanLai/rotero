@@ -54,19 +54,7 @@ async fn main() -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
 
-    // Check if pdfium is available (probe only, engine created per-call on blocking thread)
-    let pdf_available = match rotero_pdf::PdfEngine::new(None) {
-        Ok(_) => {
-            tracing::info!("PDF engine available");
-            true
-        }
-        Err(e) => {
-            tracing::warn!("PDF engine not available: {e}. PDF text extraction will be disabled.");
-            false
-        }
-    };
-
-    let server = server::RoteroMcp::new(db, pdf_available);
+    let server = server::RoteroMcp::new(db);
 
     tracing::info!("Starting Rotero MCP server");
 

@@ -23,7 +23,7 @@ setup on your part.
 <Callout type="note">
 
 `21985`, not `21984` — the [connector]({base}/docs/connector-api) has the lower
-port. PDF text extraction is disabled in embedded mode; every other tool works.
+port.
 
 </Callout>
 
@@ -48,18 +48,14 @@ useful working directory. This is the repository's own `.mcp.json`:
     "rotero": {
       "type": "stdio",
       "command": "/absolute/path/to/rotero/target/release/rotero-mcp",
-      "args": [],
-      "env": {
-        "PDFIUM_DYNAMIC_LIB_PATH": "/absolute/path/to/rotero/lib"
-      }
+      "args": []
     }
   }
 }
 ```
 
-`PDFIUM_DYNAMIC_LIB_PATH` points at the PDFium library and is what enables PDF
-text extraction. Leave it out and the server still starts — you just lose that
-one tool.
+No extra environment variables are required — PDF text extraction uses the pure-Rust
+pdfrum engine bundled into the binary.
 
 ### Finding the database
 

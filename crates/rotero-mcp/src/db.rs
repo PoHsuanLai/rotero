@@ -208,6 +208,17 @@ impl Database {
         Ok(())
     }
 
+    /// Insert a highlight/note annotation into the library DB.
+    pub async fn insert_annotation(&self, ann: &Annotation) -> Result<String, turso::Error> {
+        let id = self
+            .as_rotero_db()
+            .insert_annotation(ann)
+            .await
+            .map_err(to_turso)?;
+        self.notify();
+        Ok(id)
+    }
+
     /// List all annotations (highlights, underlines, etc.) for a paper.
     pub async fn list_annotations_for_paper(
         &self,
@@ -446,6 +457,24 @@ impl Database {
             }
         }
         Ok(pairs)
+    }
+
+    /// Papers that `paper_id` cites (outgoing).
+    pub async fn list_cited_by_paper(&self, paper_id: &str) -> Result<Vec<String>, turso::Error> {
+        let all = self.list_all_citations().await?;
+        Ok(all
+            .into_iter()
+            .filter_map(|(citing, cited)| (citing == paper_id).then_some(cited))
+            .collect())
+    }
+
+    /// Papers that cite `paper_id` (incoming).
+    pub async fn list_citing_paper(&self, paper_id: &str) -> Result<Vec<String>, turso::Error> {
+        let all = self.list_all_citations().await?;
+        Ok(all
+            .into_iter()
+            .filter_map(|(citing, cited)| (cited == paper_id).then_some(citing))
+            .collect())
     }
 
     /// List all papers in the library (up to 10,000).

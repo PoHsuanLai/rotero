@@ -13,7 +13,7 @@ use dioxus::prelude::*;
 use rotero_db::Database;
 use rotero_models::{Paper, PaperId};
 
-use crate::app::{DevicePixelRatio, RenderChannel};
+use crate::app::{DevicePixelRatio, PdfDocs};
 use crate::state::app_state::{LibraryState, LinkDest, PdfTabManager, TabId};
 use crate::state::commands::ImportChannel;
 use crate::sync::engine::SyncConfig;
@@ -49,7 +49,7 @@ pub(crate) fn CitationCard(
     let mut lib_state = use_context::<Signal<LibraryState>>();
     let config = use_context::<Signal<SyncConfig>>();
     let dpr_sig = use_context::<Signal<DevicePixelRatio>>();
-    let render_ch = use_context::<RenderChannel>();
+    let docs = use_context::<PdfDocs>();
     let import_channel = use_context::<ImportChannel>();
 
     // Cancel the page wrapper's CSS `zoom` so the card renders at true size.
@@ -168,11 +168,11 @@ pub(crate) fn CitationCard(
         let link = link.clone();
         move || {
             if let LinkDest::Internal { page, y_frac } = link {
-                let render_tx = render_ch.sender();
+                let docs = docs.get();
                 let data_dir = config.read().effective_library_path();
                 spawn(async move {
                     crate::state::commands::ensure_window_rendered(
-                        &render_tx, &mut tabs, tab_id, page, &data_dir,
+                        &docs, &mut tabs, tab_id, page, &data_dir,
                     )
                     .await;
                     let js = match y_frac {

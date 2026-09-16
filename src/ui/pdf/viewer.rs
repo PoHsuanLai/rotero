@@ -6,7 +6,7 @@ use super::navigation::{OutlinePanel, ThumbnailSidebar};
 use super::page_overlay::PdfPageWithOverlay;
 use super::search_bar::PdfSearchBar;
 use super::toolbar::PdfToolbar;
-use crate::app::RenderChannel;
+use crate::app::PdfDocs;
 use crate::state::app_state::{PdfTabManager, ViewerToolState};
 use rotero_db::Database;
 
@@ -14,13 +14,14 @@ use rotero_db::Database;
 pub fn PdfViewer() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let tools = use_context::<Signal<ViewerToolState>>();
-    let render_ch = use_context::<RenderChannel>();
+    let docs = use_context::<PdfDocs>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let db = use_context::<Database>();
     let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
     use_context_provider::<AnnCtxState>(|| Signal::new(None));
     // Guards the scroll-driven render window against re-entrant scroll events.
     let mut window_loading = use_signal(|| false);
+    let mut password_input = use_signal(String::new);
 
     let mgr = tabs.read();
     let Some(tab) = mgr.active_tab() else {
@@ -33,6 +34,8 @@ pub fn PdfViewer() -> Element {
     let needs_render = tab.is_loading && tab.render.rendered_pages.is_empty();
     let is_initial_loading = needs_render;
     let load_error = tab.load_error.clone();
+    let needs_password = tab.needs_password;
+    let password_error = tab.password_error.clone();
 
     use_effect(move || {
         let needs = tabs
@@ -46,14 +49,17 @@ pub fn PdfViewer() -> Element {
         let Some(tid) = tabs.read().active_tab_id else {
             return;
         };
-        let render_tx = render_ch.sender();
+        let docs = docs.get();
         let data_dir = config.read().effective_library_path();
         let dpr = dpr_sig.read().0;
+        let dark = config.read().ui.dark_mode;
         let db = db.clone();
         spawn(async move {
-            if crate::state::commands::open_pdf(&render_tx, &mut tabs, tid, &data_dir, dpr)
-                .await
-                .is_ok()
+            if crate::state::commands::open_pdf_with_theme(
+                &docs, &mut tabs, tid, &data_dir, dpr, dark,
+            )
+            .await
+            .is_ok()
             {
                 let paper_id = tabs.read().active_tab().and_then(|t| t.paper_id.clone());
                 if let Some(ref pid) = paper_id {
@@ -71,15 +77,7 @@ pub fn PdfViewer() -> Element {
                         .map(|p| (p.page_index, (p.width, p.height)))
                         .collect();
 
-                    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-                    if render_tx
-                        .send(crate::state::commands::RenderRequest::ExtractAnnotations {
-                            pdf_path,
-                            reply: reply_tx,
-                        })
-                        .is_ok()
-                        && let Ok(Ok(extracted)) = reply_rx.await
-                    {
+                    if let Ok(extracted) = docs.extract_annotations(pdf_path).await {
                         let now = chrono::Utc::now();
                         for ext in extracted {
                             // Deduplicate: skip if a DB annotation exists on same page with same type and similar position
@@ -111,10 +109,26 @@ pub fn PdfViewer() -> Element {
                             let w = (ext.rect_pts[2] - ext.rect_pts[0]) * sx;
                             let h = (ext.rect_pts[3] - ext.rect_pts[1]) * sy;
 
-                            let geometry = serde_json::json!({
+                            let mut geometry = serde_json::json!({
                                 "x": x, "y": y, "width": w, "height": h,
                                 "page_width": rw, "page_height": rh,
                             });
+                            if !ext.rects_pts.is_empty() {
+                                let rects: Vec<serde_json::Value> = ext
+                                    .rects_pts
+                                    .iter()
+                                    .map(|r| {
+                                        let rx = r[0] * sx;
+                                        let ry = (ext.page_height_pts - r[3]) * sy;
+                                        let rect_w = (r[2] - r[0]) * sx;
+                                        let rect_h = (r[3] - r[1]) * sy;
+                                        serde_json::json!({
+                                            "x": rx, "y": ry, "width": rect_w, "height": rect_h,
+                                        })
+                                    })
+                                    .collect();
+                                geometry["rects"] = serde_json::Value::Array(rects);
+                            }
 
                             let ann = rotero_models::Annotation {
                                 id: None,
@@ -225,7 +239,49 @@ pub fn PdfViewer() -> Element {
                 if show_outline {
                     OutlinePanel {}
                 }
-                if let Some(error) = load_error {
+                if needs_password {
+                    div { class: "pdf-loading-overlay",
+                                div { class: "pdf-error-title", "Password required" }
+                                div { class: "pdf-error-detail",
+                                    "This PDF is encrypted. Enter the password to open it."
+                                }
+                                if let Some(err) = password_error.clone() {
+                                    div { class: "pdf-error-detail", style: "color: var(--danger, #c44); margin-top: 8px;",
+                                        "{err}"
+                                    }
+                                }
+                                form {
+                                    style: "display: flex; flex-direction: column; gap: 8px; margin-top: 16px; max-width: 280px;",
+                                    onsubmit: move |evt| {
+                                        evt.prevent_default();
+                                        let pw = password_input();
+                                        if pw.is_empty() {
+                                            return;
+                                        }
+                                        let docs = docs.get();
+                                        let data_dir = config.read().effective_library_path();
+                                        let dpr = tabs.read().tab().view.dpr;
+                                        spawn(async move {
+                                            let _ = crate::state::commands::open_pdf_with_password(
+                                                &docs, &mut tabs, tab_id, &data_dir, dpr, pw,
+                                            ).await;
+                                        });
+                                    },
+                                    input {
+                                        r#type: "password",
+                                        placeholder: "Password",
+                                        value: "{password_input}",
+                                        oninput: move |evt| password_input.set(evt.value()),
+                                        style: "padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border, #ccc);",
+                                    }
+                                    button {
+                                        r#type: "submit",
+                                        class: "btn btn-primary",
+                                        "Unlock"
+                                    }
+                                }
+                            }
+                } else if let Some(error) = load_error {
                     div { class: "pdf-loading-overlay",
                         div { class: "pdf-error-title", "Could not open this PDF" }
                         div { class: "pdf-error-detail", "{error}" }
@@ -245,7 +301,7 @@ pub fn PdfViewer() -> Element {
                             return;
                         }
                         window_loading.set(true);
-                        let render_tx = render_ch.sender();
+                        let docs = docs.get();
                         let data_dir = config.read().effective_library_path();
                         spawn(async move {
                             // Find the page wrapper whose vertical midpoint is nearest
@@ -275,7 +331,7 @@ pub fn PdfViewer() -> Element {
                                 && idx >= 0
                             {
                                 crate::state::commands::ensure_window_rendered(
-                                    &render_tx,
+                                    &docs,
                                     &mut tabs,
                                     tab_id,
                                     idx as u32,

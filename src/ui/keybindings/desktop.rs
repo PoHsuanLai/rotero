@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 
 use super::EditableFocused;
 
-use crate::app::{DevicePixelRatio, RenderChannel, ShowSettings};
+use crate::app::{DevicePixelRatio, PdfDocs, ShowSettings};
 use crate::state::app_state::{
     AnnotationMode, LibraryState, LibraryView, PdfTab, PdfTabManager, ViewerToolState,
 };
@@ -54,6 +54,8 @@ pub enum Command {
     OpenSelected,
     DeleteSelected,
     Escape,
+    /// Copy active PDF text selection (Viewer).
+    CopySelection,
 }
 
 impl Command {
@@ -83,6 +85,7 @@ impl Command {
             Self::OpenSelected => "open_selected",
             Self::DeleteSelected => "delete_selected",
             Self::Escape => "escape",
+            Self::CopySelection => "copy_selection",
         }
     }
 
@@ -111,6 +114,7 @@ impl Command {
             Self::OpenSelected => "Open selected paper",
             Self::DeleteSelected => "Delete selected papers",
             Self::Escape => "Cancel / dismiss",
+            Self::CopySelection => "Copy selection",
         }
     }
 
@@ -467,6 +471,12 @@ pub const BINDINGS: &[Binding] = &[
         scope: Scope::Library,
         menu_id: None,
     },
+    Binding {
+        key: KeySpec::cmd('c'),
+        command: Command::CopySelection,
+        scope: Scope::Viewer,
+        menu_id: None,
+    },
 ];
 
 /// The default (built-in) key for a command, if it has one.
@@ -738,7 +748,7 @@ fn action_focus_library_search(mut lib_state: Signal<LibraryState>) {
 fn action_close_tab(
     mut tabs: Signal<PdfTabManager>,
     mut lib_state: Signal<LibraryState>,
-    render_ch: RenderChannel,
+    docs: PdfDocs,
     config: Signal<SyncConfig>,
     dpr_sig: Signal<DevicePixelRatio>,
 ) {
@@ -748,10 +758,8 @@ fn action_close_tab(
     tabs.with_mut(|m| m.close_tab(tab_id));
     if tabs.read().tabs.is_empty() {
         lib_state.with_mut(|s| s.view = LibraryView::AllPapers);
-        // No PDFs open — free the engine's cached file bytes.
-        let _ = render_ch
-            .sender()
-            .send(crate::state::commands::RenderRequest::ClearCache);
+        // No PDFs open — drop the shared document cache.
+        docs.clear();
     } else {
         let needs = tabs
             .read()
@@ -760,16 +768,18 @@ fn action_close_tab(
             .unwrap_or(false);
         let new_id = tabs.read().active_tab_id;
         if needs && let Some(new_id) = new_id {
-            let render_tx = render_ch.sender();
+            let docs = docs.get();
             let cfg_dir = config.read().effective_library_path();
             tabs.with_mut(|m| m.tab_mut().is_loading = true);
+            let dark = config.read().ui.dark_mode;
             spawn(async move {
-                let _ = crate::state::commands::open_pdf(
-                    &render_tx,
+                let _ = crate::state::commands::open_pdf_with_theme(
+                    &docs,
                     &mut tabs,
                     new_id,
                     &cfg_dir,
                     dpr_sig.read().0,
+                    dark,
                 )
                 .await;
             });
@@ -848,7 +858,12 @@ fn action_escape(
 ) {
     let mode = tools.read().annotation_mode;
     if mode != AnnotationMode::None {
-        tools.with_mut(|t| t.annotation_mode = AnnotationMode::None);
+        tools.with_mut(|t| {
+            t.annotation_mode = AnnotationMode::None;
+            t.text_selection = None;
+        });
+    } else if tools.read().text_selection.is_some() {
+        tools.with_mut(|t| t.text_selection = None);
     } else if show_settings.read().0 {
         show_settings.set(ShowSettings(false));
     } else {
@@ -868,6 +883,10 @@ fn action_escape(
             lib_state.with_mut(|s| s.clear_selection());
         }
     }
+}
+
+fn action_copy_selection(tools: Signal<ViewerToolState>) {
+    let _ = crate::ui::pdf::copy_pdf_text_selection(&tools);
 }
 
 fn action_select_next(mut lib_state: Signal<LibraryState>) {
@@ -1035,7 +1054,7 @@ pub struct KeyCtx {
     pub show_settings: Signal<ShowSettings>,
     pub lib_state: Signal<LibraryState>,
     pub tabs: Signal<PdfTabManager>,
-    pub render_ch: RenderChannel,
+    pub docs: PdfDocs,
     pub config: Signal<SyncConfig>,
     pub new_coll_editing: Signal<Option<Option<String>>>,
     pub undo_stack: Signal<UndoStack>,
@@ -1055,7 +1074,7 @@ impl KeyCtx {
                 show_settings: use_context::<Signal<ShowSettings>>(),
                 lib_state: use_context::<Signal<LibraryState>>(),
                 tabs: use_context::<Signal<PdfTabManager>>(),
-                render_ch: use_context::<RenderChannel>(),
+                docs: use_context::<PdfDocs>(),
                 config: use_context::<Signal<SyncConfig>>(),
                 new_coll_editing: use_context::<Signal<Option<Option<String>>>>(),
                 undo_stack: use_context::<Signal<UndoStack>>(),
@@ -1084,7 +1103,7 @@ fn dispatch(cmd: Command, ctx: &KeyCtx, db: &Database) {
         show_settings,
         lib_state,
         tabs,
-        render_ch,
+        docs,
         config,
         new_coll_editing,
         undo_stack,
@@ -1100,7 +1119,7 @@ fn dispatch(cmd: Command, ctx: &KeyCtx, db: &Database) {
         Command::ExportBibtex => action_export_bibtex(lib_state),
         Command::Find => action_find(lib_state, tabs),
         Command::FocusLibrarySearch => action_focus_library_search(lib_state),
-        Command::CloseTab => action_close_tab(tabs, lib_state, render_ch, config, dpr_sig),
+        Command::CloseTab => action_close_tab(tabs, lib_state, docs, config, dpr_sig),
         Command::NewCollection => action_new_collection(lib_state, new_coll_editing),
         Command::ShowLibrary => action_show_library(lib_state),
         Command::PrevTab => action_prev_tab(tabs, lib_state),
@@ -1116,6 +1135,7 @@ fn dispatch(cmd: Command, ctx: &KeyCtx, db: &Database) {
         Command::OpenSelected => action_open_selected_pdf(lib_state, tabs, db, &config, &dpr_sig),
         Command::DeleteSelected => action_delete_selected(lib_state),
         Command::Escape => action_escape(show_settings, tabs, tools, lib_state),
+        Command::CopySelection => action_copy_selection(tools),
     }
 }
 
@@ -1178,5 +1198,6 @@ fn command_yields_to_text_editing(cmd: Command) -> bool {
             | Command::DeleteSelected
             | Command::ToggleFavorite
             | Command::ToggleRead
+            | Command::CopySelection
     )
 }

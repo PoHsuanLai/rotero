@@ -9,7 +9,7 @@ pub fn LoadLibraryData() -> Element {
     let db = use_context::<Database>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     #[cfg(feature = "desktop")]
-    let render_ch = use_context::<crate::app::RenderChannel>();
+    let docs = use_context::<crate::app::PdfDocs>();
 
     let db2 = db.clone();
     use_effect(move || {
@@ -91,11 +91,11 @@ pub fn LoadLibraryData() -> Element {
         let db_cites = db.clone();
         use_future(move || {
             let db = db_cites.clone();
-            let render_tx = render_ch.sender();
+            let docs = docs.get();
             async move {
-                // Let the initial UI + render thread settle first.
+                // Let the initial UI settle first.
                 tokio::time::sleep(std::time::Duration::from_secs(6)).await;
-                crate::state::commands::scan_citations_if_needed(&render_tx, &db).await;
+                crate::state::commands::scan_citations_if_needed(&docs, &db).await;
             }
         });
     }

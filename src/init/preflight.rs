@@ -16,8 +16,6 @@ use std::sync::{OnceLock, RwLock};
 pub struct Preflight {
     /// The library database could not be opened, or is structurally unsound.
     pub db: Option<String>,
-    /// PDF rendering is unavailable; the engine could not be bound.
-    pub pdf_engine: Option<String>,
     /// The browser connector could not bind its port.
     pub connector_port: Option<String>,
     /// The MCP server could not bind its port.
@@ -38,7 +36,6 @@ impl Preflight {
     pub fn issues(&self) -> Vec<(&'static str, &str)> {
         [
             ("Library", self.db.as_deref()),
-            ("PDF engine", self.pdf_engine.as_deref()),
             ("Browser connector", self.connector_port.as_deref()),
             ("MCP server", self.mcp_port.as_deref()),
             ("Sync", self.sync_folder.as_deref()),
@@ -86,31 +83,4 @@ pub async fn check_database(db: &rotero_db::Database) {
         .join("; ");
     tracing::error!("Database health check failed: {detail}");
     record(|p| p.db = Some(detail));
-}
-
-/// Report a PDF engine that failed to bind.
-///
-/// `pdf_engine` was the one field here with no writer at all, so the banner
-/// added to surface startup failures could not surface the one that leaves the
-/// reader unusable — the user got a working-looking app and a dead PDF pane.
-///
-/// Waits for the render thread to publish its outcome rather than reading
-/// immediately: the thread is spawned as the window mounts, so an eager read
-/// would nearly always run first and see nothing.
-#[cfg(feature = "desktop")]
-pub async fn check_pdf_engine() {
-    use crate::state::commands::{PDF_ENGINE_ERROR, PDF_ENGINE_READY};
-
-    // Binding is a `dlopen`, so this settles in milliseconds. The cap only
-    // stops a wedged loader from leaving the check pending forever.
-    for _ in 0..100 {
-        if PDF_ENGINE_READY.get().is_some() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-
-    if let Some(e) = PDF_ENGINE_ERROR.get() {
-        record(|p| p.pdf_engine = Some(e.clone()));
-    }
 }

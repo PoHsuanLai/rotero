@@ -1,6 +1,7 @@
 //! Main server setup, router, and re-exports.
 
 pub mod params;
+mod pdf;
 mod tools;
 
 use crate::db::Database;
@@ -9,7 +10,4 @@ use crate::db::Database;
 #[derive(Clone)]
 pub struct RoteroMcp {
     db: Database,
-    /// Whether pdfium is available (checked at startup).
-    #[allow(dead_code)] // stored for future use gating PDF tools
-    pdf_available: bool,
 }

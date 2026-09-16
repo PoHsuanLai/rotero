@@ -75,7 +75,7 @@ pub enum LinkDest {
 ///
 /// The source rectangle is stored as fractions of the page's width/height so
 /// the overlay can scale it to the rendered image at any zoom (mirrors how the
-/// text layer positions glyphs by percentage).
+/// search/selection overlays scale pixel rects).
 #[derive(Debug, Clone)]
 pub struct PageLink {
     /// Left edge, as a fraction (0..1) of page width.
@@ -131,6 +131,8 @@ pub struct PdfTab {
     pub paper_id: Option<String>,
     pub title: String,
     pub page_count: u32,
+    /// `/PageLabels` per page (`None` = use 1-based ordinal).
+    pub page_labels: Vec<Option<String>>,
     pub is_loading: bool,
     /// Why the document could not be opened, if it could not.
     ///
@@ -139,6 +141,12 @@ pub struct PdfTab {
     /// and the tab-bar path needs `page_count > 0`, so neither fired and the
     /// spinner ran until the tab was closed.
     pub load_error: Option<String>,
+    /// True when open failed with WrongPassword — show the unlock prompt.
+    pub needs_password: bool,
+    /// Last password attempt failed (wrong password after a prompt).
+    pub password_error: Option<String>,
+    /// Render pages with pdfrum dark colour scheme (tracks UI dark mode).
+    pub dark_render: bool,
     pub is_suspended: bool,
 
     pub render: PageRenderData,
@@ -166,8 +174,12 @@ impl PdfTab {
             paper_id: None,
             title,
             page_count: 0,
+            page_labels: Vec::new(),
             is_loading: true,
             load_error: None,
+            needs_password: false,
+            password_error: None,
+            dark_render: false,
             is_suspended: false,
             render: PageRenderData::default(),
             view: ViewState {
@@ -336,11 +348,23 @@ impl PdfTabManager {
     }
 }
 
+/// Active native PDF text selection (pdfrum hit-test), kept until cleared.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PdfTextSelection {
+    pub page_index: u32,
+    /// Pixel-space line rects (same space as Highlight preview overlays).
+    pub line_rects: Vec<(f64, f64, f64, f64)>,
+    /// Plain selected text (lines joined by `\n`).
+    pub text: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct ViewerToolState {
     pub annotation_mode: AnnotationMode,
     pub annotation_color: String,
     pub show_annotation_panel: bool,
+    /// Native text selection while not in an annotation tool.
+    pub text_selection: Option<PdfTextSelection>,
 }
 
 impl Default for ViewerToolState {
@@ -349,6 +373,7 @@ impl Default for ViewerToolState {
             annotation_mode: AnnotationMode::None,
             annotation_color: "#ffff00".to_string(),
             show_annotation_panel: false,
+            text_selection: None,
         }
     }
 }
@@ -360,6 +385,8 @@ pub enum AnnotationMode {
     Highlight,
     Note,
     Underline,
+    StrikeOut,
+    Squiggly,
     Ink,
     Text,
 }

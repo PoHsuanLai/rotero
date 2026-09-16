@@ -28,6 +28,55 @@ fn ink_path_data(points: &[serde_json::Value], x: f64, y: f64) -> String {
     d
 }
 
+/// Pixel-space rects for text-markup when `geometry.rects` / `geometry.quads`
+/// is present; otherwise a single outer box from x/y/width/height.
+fn markup_display_rects(geometry: &serde_json::Value) -> Vec<(f64, f64, f64, f64)> {
+    for key in ["rects", "quads"] {
+        if let Some(arr) = geometry.get(key).and_then(|v| v.as_array()) {
+            let mut out = Vec::new();
+            for item in arr {
+                let (x, y, w, h) = if let Some(obj) = item.as_object() {
+                    (
+                        obj.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        obj.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        obj.get("width").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        obj.get("height").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    )
+                } else if let Some(nums) = item.as_array() {
+                    if nums.len() < 4 {
+                        continue;
+                    }
+                    (
+                        nums[0].as_f64().unwrap_or(0.0),
+                        nums[1].as_f64().unwrap_or(0.0),
+                        nums[2].as_f64().unwrap_or(0.0),
+                        nums[3].as_f64().unwrap_or(0.0),
+                    )
+                } else {
+                    continue;
+                };
+                if w > 0.0 && h > 0.0 {
+                    out.push((x, y, w, h));
+                }
+            }
+            if !out.is_empty() {
+                return out;
+            }
+        }
+    }
+    let x = geometry.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let y = geometry.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let w = geometry
+        .get("width")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(24.0);
+    let h = geometry
+        .get("height")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(24.0);
+    vec![(x, y, w, h)]
+}
+
 pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> Element {
     let x = ann
         .geometry
@@ -58,6 +107,7 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
 
     let on_context = {
         let ann_id = ann_id.clone();
+        let content_for_ctx = content.clone();
         move |evt: Event<MouseData>| {
             evt.prevent_default();
             ann_ctx.set(Some(AnnotationContextInfo {
@@ -65,7 +115,7 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
                 ann_type,
                 page,
                 color: color_for_ctx.clone(),
-                content: content.clone(),
+                content: content_for_ctx.clone(),
                 x: evt.client_coordinates().x,
                 y: evt.client_coordinates().y,
             }));
@@ -73,9 +123,39 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
     };
 
     match ann.ann_type {
-        AnnotationType::Highlight => rsx! {
-            div { key: "ann-{ann_id}", style: "position: absolute; left: {x}px; top: {y}px; width: {w}px; height: {h}px; background: {color}; opacity: 0.35; pointer-events: auto; border-radius: 2px; z-index: 3;", oncontextmenu: on_context }
-        },
+        AnnotationType::Highlight => {
+            let rects = markup_display_rects(&ann.geometry);
+            rsx! {
+                for (ri, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
+                    {
+                        let on_context = {
+                            let ann_id = ann_id.clone();
+                            let color_for_ctx = color.clone();
+                            let content = content.clone();
+                            move |evt: Event<MouseData>| {
+                                evt.prevent_default();
+                                ann_ctx.set(Some(AnnotationContextInfo {
+                                    annotation_id: ann_id.clone(),
+                                    ann_type,
+                                    page,
+                                    color: color_for_ctx.clone(),
+                                    content: content.clone(),
+                                    x: evt.client_coordinates().x,
+                                    y: evt.client_coordinates().y,
+                                }));
+                            }
+                        };
+                        rsx! {
+                            div {
+                                key: "ann-{ann_id}-{ri}",
+                                style: "position: absolute; left: {rx}px; top: {ry}px; width: {rw}px; height: {rh}px; background: {color}; opacity: 0.35; pointer-events: auto; border-radius: 2px; z-index: 3;",
+                                oncontextmenu: on_context,
+                            }
+                        }
+                    }
+                }
+            }
+        }
         AnnotationType::Note => {
             let icon_bg = ann.color.clone();
             let title = ann.content.as_deref().unwrap_or("Empty note").to_string();
@@ -86,9 +166,109 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
         AnnotationType::Area => rsx! {
             div { key: "ann-{ann_id}", style: "position: absolute; left: {x}px; top: {y}px; width: {w}px; height: {h}px; border: 2px solid {color}; pointer-events: auto; z-index: 3;", oncontextmenu: on_context }
         },
-        AnnotationType::Underline => rsx! {
-            div { key: "ann-{ann_id}", style: "position: absolute; left: {x}px; top: {y}px; width: {w}px; height: {h}px; border-bottom: 2px solid {color}; pointer-events: auto; z-index: 3;", oncontextmenu: on_context }
-        },
+        AnnotationType::Underline => {
+            let rects = markup_display_rects(&ann.geometry);
+            rsx! {
+                for (ri, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
+                    {
+                        let on_context = {
+                            let ann_id = ann_id.clone();
+                            let color_for_ctx = color.clone();
+                            let content = content.clone();
+                            move |evt: Event<MouseData>| {
+                                evt.prevent_default();
+                                ann_ctx.set(Some(AnnotationContextInfo {
+                                    annotation_id: ann_id.clone(),
+                                    ann_type,
+                                    page,
+                                    color: color_for_ctx.clone(),
+                                    content: content.clone(),
+                                    x: evt.client_coordinates().x,
+                                    y: evt.client_coordinates().y,
+                                }));
+                            }
+                        };
+                        rsx! {
+                            div {
+                                key: "ann-{ann_id}-u-{ri}",
+                                style: "position: absolute; left: {rx}px; top: {ry}px; width: {rw}px; height: {rh}px; border-bottom: 2px solid {color}; pointer-events: auto; z-index: 3;",
+                                oncontextmenu: on_context,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        AnnotationType::StrikeOut => {
+            let rects = markup_display_rects(&ann.geometry);
+            rsx! {
+                for (ri, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
+                    {
+                        let on_context = {
+                            let ann_id = ann_id.clone();
+                            let color_for_ctx = color.clone();
+                            let content = content.clone();
+                            move |evt: Event<MouseData>| {
+                                evt.prevent_default();
+                                ann_ctx.set(Some(AnnotationContextInfo {
+                                    annotation_id: ann_id.clone(),
+                                    ann_type,
+                                    page,
+                                    color: color_for_ctx.clone(),
+                                    content: content.clone(),
+                                    x: evt.client_coordinates().x,
+                                    y: evt.client_coordinates().y,
+                                }));
+                            }
+                        };
+                        let mid = ry + rh / 2.0;
+                        rsx! {
+                            div {
+                                key: "ann-{ann_id}-so-{ri}",
+                                style: "position: absolute; left: {rx}px; top: {mid}px; width: {rw}px; height: 0px; border-top: 2px solid {color}; pointer-events: auto; z-index: 3;",
+                                oncontextmenu: on_context,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        AnnotationType::Squiggly => {
+            let rects = markup_display_rects(&ann.geometry);
+            rsx! {
+                for (ri, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
+                    {
+                        let on_context = {
+                            let ann_id = ann_id.clone();
+                            let color_for_ctx = color.clone();
+                            let content = content.clone();
+                            move |evt: Event<MouseData>| {
+                                evt.prevent_default();
+                                ann_ctx.set(Some(AnnotationContextInfo {
+                                    annotation_id: ann_id.clone(),
+                                    ann_type,
+                                    page,
+                                    color: color_for_ctx.clone(),
+                                    content: content.clone(),
+                                    x: evt.client_coordinates().x,
+                                    y: evt.client_coordinates().y,
+                                }));
+                            }
+                        };
+                        // Same attachment as Underline (bottom of loose em-box).
+                        // Prefer CSS `wavy` over an SVG path: WebView's default
+                        // SVG viewport made path coords unreadable / invisible.
+                        rsx! {
+                            div {
+                                key: "ann-{ann_id}-sq-{ri}",
+                                style: "position: absolute; left: {rx}px; top: {ry}px; width: {rw}px; height: {rh}px; border-bottom: 2.5px wavy {color}; pointer-events: auto; z-index: 3; box-sizing: border-box;",
+                                oncontextmenu: on_context,
+                            }
+                        }
+                    }
+                }
+            }
+        }
         AnnotationType::Ink => {
             let points = ann
                 .geometry

@@ -93,10 +93,6 @@ cleanup() {
 trap cleanup EXIT
 
 # Launch against an isolated library so a developer's real one is never touched.
-#
-# PDFIUM_DYNAMIC_LIB_PATH is deliberately NOT set: a shipped bundle does not get
-# it, so setting it here would hide the exact resolution failure this is meant to
-# catch.
 launch() {
     HOME="$FAKE_HOME" ROTERO_DATA_DIR="$DATA_DIR" "$BIN" >>"$STDOUT_LOG" 2>&1 &
     APP_PID=$!
@@ -266,20 +262,11 @@ else
 fi
 stop
 
-# --- 6. PDF engine bound ------------------------------------------------------
-# The next two checks assert an error is *absent*, so the log has to exist for
-# either to mean anything.
+# --- 6. no database health failure was recorded at startup --------------------
+# Absence of a failure line is the signal, so the log has to exist for this to
+# mean anything.
 require_log
 
-# Absence of a failure line is the signal: a bind error is recorded and logged.
-if log_has "Failed to bind PDFium"; then
-    fail "PDFium failed to bind (PDF viewing, annotations, and thumbnails are dead)"
-    grep -i "pdfium" "$LOG" | head -3 >&2
-else
-    pass "PDF engine bound"
-fi
-
-# --- 7. no database health failure was recorded at startup --------------------
 if log_has "Database health check failed"; then
     fail "startup preflight reported an unhealthy database"
     grep -i "Database health check failed" "$LOG" | head -3 >&2

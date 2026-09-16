@@ -11,6 +11,8 @@ mod viewer;
 pub use tab_bar::PdfTabBar;
 pub use viewer::PdfViewer;
 
+pub(crate) use page_overlay::copy_pdf_text_selection;
+
 pub(crate) use citation_card::CitationCard;
 
 use dioxus::prelude::*;

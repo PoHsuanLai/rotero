@@ -1,12 +1,12 @@
 use dioxus::prelude::*;
 
-use crate::app::RenderChannel;
+use crate::app::PdfDocs;
 use crate::state::app_state::PdfTabManager;
 
 #[component]
 pub(crate) fn ThumbnailSidebar() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
-    let render_ch = use_context::<RenderChannel>();
+    let docs = use_context::<PdfDocs>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let mut is_loading_thumbs = use_signal(|| false);
 
@@ -15,6 +15,7 @@ pub(crate) fn ThumbnailSidebar() -> Element {
     let page_count = tab.page_count;
     let tab_id = tab.id;
     let thumbnails = tab.render.thumbnails.clone();
+    let page_labels = tab.page_labels.clone();
     drop(mgr);
 
     rsx! {
@@ -32,9 +33,9 @@ pub(crate) fn ThumbnailSidebar() -> Element {
                     let ratio = eval.recv::<f64>().await.unwrap_or(0.0);
                     let center = (ratio * page_count as f64) as u32;
                     let start = center.saturating_sub(25);
-                    let render_tx = render_ch.sender();
+                    let docs = docs.get();
                     let _ = crate::state::commands::load_thumbnails(
-                        &render_tx, &mut tabs, tab_id, start, 50,
+                        &docs, &mut tabs, tab_id, start, 50,
                     ).await;
                     is_loading_thumbs.set(false);
                 });
@@ -47,18 +48,18 @@ pub(crate) fn ThumbnailSidebar() -> Element {
                         let mime = thumb.mime;
                         let w = thumb.width;
                         let h = thumb.height;
-                        let page_num = page_idx + 1;
+                        let page_num = rotero_pdf::display_page_number(&page_labels, page_idx);
                         rsx! {
                             div {
                                 key: "thumb-{page_idx}", class: "thumbnail-item",
                                 onclick: move |_| {
-                                    let render_tx = render_ch.sender();
+                                    let docs = docs.get();
                                     let data_dir = config.read().effective_library_path();
                                     spawn(async move {
                                         // Ensure the target page is rendered (it may be
                                         // outside the current window) before scrolling to it.
                                         crate::state::commands::ensure_window_rendered(
-                                            &render_tx, &mut tabs, tab_id, page_idx, &data_dir,
+                                            &docs, &mut tabs, tab_id, page_idx, &data_dir,
                                         ).await;
                                         let _ = document::eval(&super::scroll_to_page_js(page_idx, "start"));
                                     });
@@ -73,7 +74,7 @@ pub(crate) fn ThumbnailSidebar() -> Element {
                         key: "thumb-{page_idx}", class: "thumbnail-item thumbnail-placeholder",
                         style: "width: 120px; height: 160px; background: var(--bg-secondary, #e0e0e0);",
                         {
-                            let num = page_idx + 1;
+                            let num = rotero_pdf::display_page_number(&page_labels, page_idx);
                             rsx! { span { class: "thumbnail-page-num", "{num}" } }
                         }
                     }
@@ -86,10 +87,14 @@ pub(crate) fn ThumbnailSidebar() -> Element {
 #[component]
 pub(crate) fn OutlinePanel() -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
-    let render_ch = use_context::<RenderChannel>();
+    let docs = use_context::<PdfDocs>();
     let config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
-    let tab_id = tabs.read().tab().id;
-    let outline = tabs.read().tab().nav.outline.clone();
+    let mgr = tabs.read();
+    let tab = mgr.tab();
+    let tab_id = tab.id;
+    let outline = tab.nav.outline.clone();
+    let page_labels = tab.page_labels.clone();
+    drop(mgr);
 
     rsx! {
         div { class: "outline-panel",
@@ -105,11 +110,11 @@ pub(crate) fn OutlinePanel() -> Element {
                                 key: "outline-{idx}", class: "outline-entry", style: "padding-left: {indent}px;",
                                 onclick: move |_| {
                                     if let Some(pi) = page_idx {
-                                        let render_tx = render_ch.sender();
+                                        let docs = docs.get();
                                         let data_dir = config.read().effective_library_path();
                                         spawn(async move {
                                             crate::state::commands::ensure_window_rendered(
-                                                &render_tx, &mut tabs, tab_id, pi, &data_dir,
+                                                &docs, &mut tabs, tab_id, pi, &data_dir,
                                             ).await;
                                             let _ = document::eval(&super::scroll_to_page_js(pi, "start"));
                                         });
@@ -117,7 +122,10 @@ pub(crate) fn OutlinePanel() -> Element {
                                 },
                                 "{title}"
                                 if let Some(pi) = page_idx {
-                                    span { class: "outline-page-num", " p.{pi + 1}" }
+                                    {
+                                        let label = rotero_pdf::display_page_number(&page_labels, pi);
+                                        rsx! { span { class: "outline-page-num", " p.{label}" } }
+                                    }
                                 }
                             }
                         }

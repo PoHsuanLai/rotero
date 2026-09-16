@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::app::RenderChannel;
+use crate::app::PdfDocs;
 use crate::state::app_state::{AnnotationMode, PdfTabManager, TabId, ViewerToolState};
 use rotero_db::Database;
 
@@ -8,8 +8,8 @@ use rotero_db::Database;
 pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
     let mut tabs = use_context::<Signal<PdfTabManager>>();
     let mut tools = use_context::<Signal<ViewerToolState>>();
-    let render_ch = use_context::<RenderChannel>();
-    let _config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
+    let docs = use_context::<PdfDocs>();
+    let mut config = use_context::<Signal<crate::sync::engine::SyncConfig>>();
     let db = use_context::<Database>();
     let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
     let zoom_percent = (zoom * 100.0 / 1.5) as u32;
@@ -19,6 +19,7 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
     let current_color = t.annotation_color.clone();
     let show_panel = t.show_annotation_panel;
     drop(t);
+    let annot_author = config.read().pdf.annot_author.clone();
 
     let can_undo = undo_stack.read().can_undo();
     let can_redo = undo_stack.read().can_redo();
@@ -33,6 +34,8 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
     };
     let highlight_class = btn(AnnotationMode::Highlight);
     let underline_class = btn(AnnotationMode::Underline);
+    let strikeout_class = btn(AnnotationMode::StrikeOut);
+    let squiggly_class = btn(AnnotationMode::Squiggly);
     let note_class = btn(AnnotationMode::Note);
     let ink_class = btn(AnnotationMode::Ink);
     let text_class = btn(AnnotationMode::Text);
@@ -49,7 +52,10 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 button {
                     class: "{highlight_class}",
                     onclick: move |_| {
-                        tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Highlight { AnnotationMode::None } else { AnnotationMode::Highlight });
+                        tools.with_mut(|t| {
+                            t.text_selection = None;
+                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Highlight { AnnotationMode::None } else { AnnotationMode::Highlight };
+                        });
                     },
                     span { class: "bi bi-highlighter" }
                 }
@@ -58,16 +64,46 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 button {
                     class: "{underline_class}",
                     onclick: move |_| {
-                        tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Underline { AnnotationMode::None } else { AnnotationMode::Underline });
+                        tools.with_mut(|t| {
+                            t.text_selection = None;
+                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Underline { AnnotationMode::None } else { AnnotationMode::Underline };
+                        });
                     },
                     span { class: "bi bi-type-underline" }
+                }
+            }
+            div { class: "toolbar-tooltip", "data-tooltip": "Strike Out",
+                button {
+                    class: "{strikeout_class}",
+                    onclick: move |_| {
+                        tools.with_mut(|t| {
+                            t.text_selection = None;
+                            t.annotation_mode = if t.annotation_mode == AnnotationMode::StrikeOut { AnnotationMode::None } else { AnnotationMode::StrikeOut };
+                        });
+                    },
+                    span { class: "bi bi-type-strikethrough" }
+                }
+            }
+            div { class: "toolbar-tooltip", "data-tooltip": "Squiggly",
+                button {
+                    class: "{squiggly_class}",
+                    onclick: move |_| {
+                        tools.with_mut(|t| {
+                            t.text_selection = None;
+                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Squiggly { AnnotationMode::None } else { AnnotationMode::Squiggly };
+                        });
+                    },
+                    span { class: "bi bi-vector-pen" }
                 }
             }
             div { class: "toolbar-tooltip", "data-tooltip": "Sticky Note",
                 button {
                     class: "{note_class}",
                     onclick: move |_| {
-                        tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Note { AnnotationMode::None } else { AnnotationMode::Note });
+                        tools.with_mut(|t| {
+                            t.text_selection = None;
+                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Note { AnnotationMode::None } else { AnnotationMode::Note };
+                        });
                     },
                     span { class: "bi bi-sticky" }
                 }
@@ -76,7 +112,10 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 button {
                     class: "{ink_class}",
                     onclick: move |_| {
-                        tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Ink { AnnotationMode::None } else { AnnotationMode::Ink });
+                        tools.with_mut(|t| {
+                            t.text_selection = None;
+                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Ink { AnnotationMode::None } else { AnnotationMode::Ink };
+                        });
                     },
                     span { class: "bi bi-pencil" }
                 }
@@ -85,7 +124,10 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 button {
                     class: "{text_class}",
                     onclick: move |_| {
-                        tools.with_mut(|t| t.annotation_mode = if t.annotation_mode == AnnotationMode::Text { AnnotationMode::None } else { AnnotationMode::Text });
+                        tools.with_mut(|t| {
+                            t.text_selection = None;
+                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Text { AnnotationMode::None } else { AnnotationMode::Text };
+                        });
                     },
                     span { class: "bi bi-fonts" }
                 }
@@ -110,6 +152,23 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                             }
                         }
                     }
+                }
+            }
+
+            div { class: "toolbar-author",
+                span { class: "toolbar-author-label", "Author" }
+                input {
+                    r#type: "text",
+                    class: "input toolbar-author-input",
+                    value: "{annot_author}",
+                    placeholder: "Annotator name",
+                    title: "Written as PDF /T when exporting annotations",
+                    onfocusin: crate::ui::keybindings::editable_focus_in,
+                    onfocusout: crate::ui::keybindings::editable_focus_out,
+                    onchange: move |evt| {
+                        let author = evt.value();
+                        crate::ui::helpers::save_config(&mut config, |c| c.pdf.annot_author = author);
+                    },
                 }
             }
 
@@ -161,11 +220,11 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
             button {
                 class: "btn btn--ghost",
                 onclick: move |_| {
-                    let render_tx = render_ch.sender();
+                    let docs = docs.get();
                     tabs.with_mut(|m| m.tab_mut().nav.show_thumbnails = !m.tab().nav.show_thumbnails);
                     if tabs.read().tab().render.thumbnails.is_empty() {
                         spawn(async move {
-                            let _ = crate::state::commands::load_thumbnails(&render_tx, &mut tabs, tab_id, 0, 50).await;
+                            let _ = crate::state::commands::load_thumbnails(&docs, &mut tabs, tab_id, 0, 50).await;
                         });
                     }
                 },
@@ -174,11 +233,11 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
             button {
                 class: "btn btn--ghost",
                 onclick: move |_| {
-                    let render_tx = render_ch.sender();
+                    let docs = docs.get();
                     tabs.with_mut(|m| m.tab_mut().nav.show_outline = !m.tab().nav.show_outline);
                     if tabs.read().tab().nav.outline.is_empty() {
                         spawn(async move {
-                            let _ = crate::state::commands::load_outline(&render_tx, &mut tabs, tab_id).await;
+                            let _ = crate::state::commands::load_outline(&docs, &mut tabs, tab_id).await;
                         });
                     }
                 },
@@ -217,6 +276,79 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                 if show_panel { "Hide Notes ({ann_count})" } else { "Notes ({ann_count})" }
             }
 
+            button {
+                class: "btn btn--ghost",
+                title: "Save figures from the current page",
+                onclick: move |_| {
+                    let pdf_path = tabs.read().tab().pdf_path.clone();
+                    let page = tabs.read().tab().view.current_page;
+                    let docs = docs.get();
+                    spawn(async move {
+                        let figs = match docs.list_page_images(pdf_path.clone(), page).await {
+                            Ok(f) => f,
+                            Err(e) => {
+                                tracing::error!("list_page_images: {e}");
+                                return;
+                            }
+                        };
+                        let saveable: Vec<_> = figs.into_iter().filter(|f| !f.is_mask).collect();
+                        if saveable.is_empty() {
+                            tracing::info!("No figures on page {page}");
+                            return;
+                        }
+                        for fig in saveable {
+                            match docs
+                                .extract_page_image_png(pdf_path.clone(), page, fig.image_index)
+                                .await
+                            {
+                                Ok(extracted) => {
+                                    let Some(b64) = extracted.png_base64 else { continue };
+                                    use base64::{Engine as _, engine::general_purpose::STANDARD};
+                                    let Ok(bytes) = STANDARD.decode(&b64) else { continue };
+                                    let default = format!("page{}-fig{}.png", page + 1, fig.image_index);
+                                    if let Some(path) = crate::ui::save_file(&["png"], "Save figure", &default) {
+                                        if let Err(e) = std::fs::write(&path, &bytes) {
+                                            tracing::error!("Failed to write figure: {e}");
+                                        } else {
+                                            tracing::info!("Saved figure to {:?}", path);
+                                        }
+                                    }
+                                }
+                                Err(e) => tracing::error!("extract figure: {e}"),
+                            }
+                        }
+                    });
+                },
+                "Figures"
+            }
+
+            button {
+                class: "btn btn--ghost",
+                title: "Copy current page as Markdown",
+                onclick: move |_| {
+                    let pdf_path = tabs.read().tab().pdf_path.clone();
+                    let page = tabs.read().tab().view.current_page;
+                    let docs = docs.get();
+                    spawn(async move {
+                        match docs.page_markdown(pdf_path, page).await {
+                            Ok(md) => {
+                                let text = md.trim();
+                                if text.is_empty() {
+                                    tracing::warn!("Page {page} markdown was empty");
+                                    return;
+                                }
+                                if let Ok(mut clip) = arboard::Clipboard::new() {
+                                    let _ = clip.set_text(text);
+                                    tracing::info!("Copied page {page} markdown ({} chars)", text.len());
+                                }
+                            }
+                            Err(e) => tracing::error!("Failed to extract page markdown: {e}"),
+                        }
+                    });
+                },
+                "Copy MD"
+            }
+
             if ann_count > 0 {
                 button {
                     class: "btn btn--ghost",
@@ -233,20 +365,14 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                         let file = super::super::save_file(&["pdf"], "Export PDF with Annotations", &default_name);
 
                         if let Some(output_path) = file {
-                            let render_tx = render_ch.sender();
+                            let docs = docs.get();
+                            let author = config.read().pdf.annot_author.clone();
+                            let author = (!author.trim().is_empty()).then_some(author);
                             spawn(async move {
-                                let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-                                if render_tx.send(crate::state::commands::RenderRequest::GetPageDimensions {
-                                    pdf_path: pdf_path.clone(),
-                                    reply: reply_tx,
-                                }).is_err() {
-                                    tracing::error!("Failed to send GetPageDimensions request");
-                                    return;
-                                }
-                                let dims = match reply_rx.await {
-                                    Ok(Ok(d)) => d,
-                                    _ => {
-                                        tracing::error!("Failed to get page dimensions");
+                                let dims = match docs.page_dimensions(pdf_path.clone()).await {
+                                    Ok(d) => d,
+                                    Err(e) => {
+                                        tracing::error!("Failed to get page dimensions: {e}");
                                         return;
                                     }
                                 };
@@ -255,6 +381,9 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                                     &output_path,
                                     &annotations,
                                     &dims,
+                                    None,
+                                    true, // flatten appearances into page content
+                                    author.as_deref(),
                                 ) {
                                     Ok(()) => tracing::info!("Exported annotated PDF to {:?}", output_path),
                                     Err(e) => tracing::error!("Failed to export annotated PDF: {e}"),
@@ -262,7 +391,7 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
                             });
                         }
                     },
-                    "Export PDF"
+                    "Export PDF (flattened)"
                 }
             }
 

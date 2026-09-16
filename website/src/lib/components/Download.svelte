@@ -106,8 +106,7 @@
         developer certificate.
         <br />
         Building from source needs <a href="https://github.com/casey/just">just</a>:
-        <code>just run</code> — it fetches PDFium first, which a plain
-        <code>cargo build</code> won&rsquo;t.
+        <code>just run</code> builds and serves with hot reload.
       </p>
     </div>
   </div>

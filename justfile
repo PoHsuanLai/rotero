@@ -4,135 +4,38 @@
 default:
     @just --list
 
-# Download PDFium binary for the current platform
-setup-pdfium:
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    PDFIUM_DIR="{{justfile_directory()}}/lib"
-    mkdir -p "$PDFIUM_DIR"
-
-    ARCH=$(uname -m)
-    OS=$(uname -s)
-
-    # Where the shared library sits inside the archive. Windows ships the DLL
-    # under bin/ (lib/ holds only the import library); the others use lib/.
-    ARCHIVE_SUBDIR="lib"
-
-    if [ "$OS" = "Darwin" ]; then
-        if [ "$ARCH" = "arm64" ]; then
-            PDFIUM_URL="https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz"
-        else
-            PDFIUM_URL="https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-x64.tgz"
-        fi
-        LIB_NAME="libpdfium.dylib"
-    elif [ "$OS" = "Linux" ]; then
-        if [ "$ARCH" = "aarch64" ]; then
-            PDFIUM_URL="https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-arm64.tgz"
-        else
-            PDFIUM_URL="https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-x64.tgz"
-        fi
-        LIB_NAME="libpdfium.so"
-    else
-        # MSYS/MinGW/Cygwin shells on Windows report MINGW64_NT-*, CYGWIN_NT-*, etc.
-        case "$OS" in
-            MINGW*|MSYS*|CYGWIN*)
-                if [ "$ARCH" = "aarch64" ]; then
-                    PDFIUM_URL="https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-arm64.tgz"
-                else
-                    PDFIUM_URL="https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz"
-                fi
-                LIB_NAME="pdfium.dll"
-                ARCHIVE_SUBDIR="bin"
-                ;;
-            *)
-                echo "Unsupported OS: $OS"
-                exit 1
-                ;;
-        esac
-    fi
-
-    if [ -f "$PDFIUM_DIR/$LIB_NAME" ]; then
-        echo "PDFium already downloaded at $PDFIUM_DIR/$LIB_NAME"
-        exit 0
-    fi
-
-    echo "Downloading PDFium for $OS $ARCH..."
-    TMP=$(mktemp -d)
-    curl -sL "$PDFIUM_URL" -o "$TMP/pdfium.tgz"
-    tar -xzf "$TMP/pdfium.tgz" -C "$TMP"
-
-    cp "$TMP/$ARCHIVE_SUBDIR/$LIB_NAME" "$PDFIUM_DIR/$LIB_NAME"
-    rm -rf "$TMP"
-
-    echo "PDFium installed to $PDFIUM_DIR/$LIB_NAME"
-
 # Build the project (debug)
-build: setup-pdfium
-    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" dx build
+build:
+    dx build
 
 # Build the project (release)
-build-release: setup-pdfium
-    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" dx build --release
+build-release:
+    dx build --release
 
 # Run the app (debug, with hot-reload)
-run: setup-pdfium
-    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" dx serve
+run:
+    dx serve
 
 # Run the app (release)
-run-release: setup-pdfium
-    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" dx serve --release
+run-release:
+    dx serve --release
 
 # Bundle the desktop app for distribution
-bundle: setup-pdfium
-    #!/usr/bin/env bash
-    set -euo pipefail
+bundle:
+    dx bundle --release
 
-    # PDFIUM_DYNAMIC_LIB_PATH only points the *build* at PDFium; it is not baked
-    # into the bundle. The library is loaded by name at runtime from beside the
-    # executable (see `candidate_dirs` in rotero-pdf), so it has to be copied in
-    # or the bundled app opens no PDFs. release.yml does the same for the
-    # published artifact.
-    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" dx bundle --release
-
-    case "$(uname -s)" in
-        Darwin) LIB_NAME="libpdfium.dylib" ;;
-        Linux)  LIB_NAME="libpdfium.so" ;;
-        *)      LIB_NAME="pdfium.dll" ;;
-    esac
-
-    SRC="{{justfile_directory()}}/lib/$LIB_NAME"
-    DX_DIR="{{justfile_directory()}}/target/dx/rotero"
-
-    # Every bundled copy of the executable needs the library beside it: `dx`
-    # emits the plain .app and any installer payload (DMG/deb/msi) separately,
-    # and only the former is what `just smoke` checks.
-    found=0
-    for exe in $(find "$DX_DIR" -type f -perm -u+x -name 'rotero' -o -type f -name 'rotero.exe'); do
-        exe_dir=$(dirname "$exe")
-        cp "$SRC" "$exe_dir/"
-        echo "PDFium -> $exe_dir/$LIB_NAME"
-        found=$((found + 1))
-    done
-
-    if [ "$found" -eq 0 ]; then
-        echo "error: no built executable found to place $LIB_NAME beside" >&2
-        exit 1
-    fi
-
-# Run the test suite (PDFium is downloaded first so the PDF tests don't skip).
+# Run the test suite.
 # Needs no network: provider tests run against a local stub.
-test: setup-pdfium setup-nextest
-    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" cargo nextest run --workspace
+test: setup-nextest
+    cargo nextest run --workspace
 
 # Run the sync property tests with far more, and longer, generated scenarios.
 #
 # The same tests `just test` runs, with a bigger budget rather than a separate
 # `#[ignore]`d copy: an ignored test compiles but never runs, so it rots without
 # anyone noticing. Worth running before touching the merge or the clock.
-proptest-deep: setup-pdfium setup-nextest
+proptest-deep: setup-nextest
     ROTERO_PROPTEST=heavy \
-    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib" \
         cargo nextest run -p rotero-db -E 'binary(sync_props)' --no-fail-fast
 
 # Install cargo-nextest if it is not already present.
@@ -164,8 +67,8 @@ setup-nextest:
     echo "Installing cargo-nextest..."
     cargo binstall --no-confirm cargo-nextest
 
-# Launch a built app and assert it works: database health, connector, a saved
-# paper that persists, and PDFium resolution. Pass a .app bundle or a binary.
+# Launch a built app and assert it works: database health, connector, and a
+# saved paper that persists. Pass a .app bundle or a binary.
 smoke BUNDLE="target/dx/rotero/release/macos/Rotero.app":
     {{justfile_directory()}}/scripts/smoke-bundle.sh {{BUNDLE}}
 
@@ -185,12 +88,8 @@ lint:
 clean:
     cargo clean
 
-# Clean PDFium binary
-clean-pdfium:
-    rm -rf {{justfile_directory()}}/lib
-
 # Clean everything
-clean-all: clean clean-pdfium
+clean-all: clean
 
 # Test the browser connector API (app must be running)
 test-connector:
@@ -203,57 +102,17 @@ test-save-paper:
         -d '{"title":"Test Paper","doi":"10.1234/test","authors":["Test Author"]}' \
         | python3 -m json.tool
 
-# Download static PDFium for iOS (from paulocoutinhox/pdfium-lib)
-setup-pdfium-ios:
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    DEVICE_DIR="{{justfile_directory()}}/lib/ios-device"
-    SIM_DIR="{{justfile_directory()}}/lib/ios-sim"
-
-    if [ -f "$DEVICE_DIR/libpdfium.a" ] && [ -f "$SIM_DIR/libpdfium.a" ]; then
-        echo "PDFium iOS static libs already present"
-        exit 0
-    fi
-
-    echo "Downloading static PDFium for iOS from paulocoutinhox/pdfium-lib..."
-    TMP=$(mktemp -d)
-    gh release download --repo paulocoutinhox/pdfium-lib --pattern "ios.tgz" --dir "$TMP"
-    mkdir -p "$TMP/extracted"
-    tar -xzf "$TMP/ios.tgz" -C "$TMP/extracted"
-
-    mkdir -p "$DEVICE_DIR" "$SIM_DIR"
-    cp "$TMP/extracted/release/lib/device/libpdfium.a" "$DEVICE_DIR/libpdfium.a"
-    cp "$TMP/extracted/release/lib/simulator/libpdfium.a" "$SIM_DIR/libpdfium.a"
-    rm -rf "$TMP"
-
-    # Thin fat archives to single-arch (rustc requires thin archives)
-    lipo "$DEVICE_DIR/libpdfium.a" -thin arm64 -output "$DEVICE_DIR/libpdfium-thin.a" && mv "$DEVICE_DIR/libpdfium-thin.a" "$DEVICE_DIR/libpdfium.a"
-
-    # Also download dynamic lib for simulator (from bblanchon — works around libc++ ABI mismatch)
-    if [ ! -f "$SIM_DIR/libpdfium.dylib" ]; then
-        TMP2=$(mktemp -d)
-        gh release download --repo bblanchon/pdfium-binaries --pattern "pdfium-ios-simulator-arm64.tgz" --dir "$TMP2"
-        tar -xzf "$TMP2/pdfium-ios-simulator-arm64.tgz" -C "$TMP2"
-        cp "$TMP2/lib/libpdfium.dylib" "$SIM_DIR/libpdfium.dylib"
-        rm -rf "$TMP2"
-    fi
-
-    echo "PDFium iOS libs installed to lib/ios-device/ and lib/ios-sim/"
-
-# Serve iOS app on simulator (dynamic PDFium linking — sim supports dylibs)
-run-ios device="iPhone 17 Pro": setup-pdfium-ios
+# Serve iOS app on simulator
+run-ios device="iPhone 17 Pro":
     xcrun simctl boot "{{device}}" 2>/dev/null || true
-    PDFIUM_DYNAMIC_LIB_PATH="{{justfile_directory()}}/lib/ios-sim" \
     dx serve --platform ios --features mobile --no-default-features
 
-# Bundle iOS app for device (static PDFium linking — required for real devices)
-build-ios: setup-pdfium-ios
-    PDFIUM_STATIC_LIB_PATH="{{justfile_directory()}}/lib/ios-device" \
-    dx bundle --platform ios --features "mobile,pdfium-static" --no-default-features
+# Bundle iOS app for device
+build-ios:
+    dx bundle --platform ios --features "mobile" --no-default-features
 
 # Capture the user guide screenshots (macOS only; pass shot ids to redo a subset)
-docs-screenshots *SHOTS: setup-pdfium
+docs-screenshots *SHOTS:
     {{justfile_directory()}}/website/tooling/capture.sh {{SHOTS}}
 
 # Capture the extension popup and Word task pane (headless; pass popup/taskpane
