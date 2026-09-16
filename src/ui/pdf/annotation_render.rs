@@ -269,7 +269,7 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
                 }
             }
         }
-                AnnotationType::Ink => {
+        AnnotationType::Ink => {
             let points = ann
                 .geometry
                 .get("points")

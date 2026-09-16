@@ -608,16 +608,8 @@ impl RoteroMcp {
                 .as_deref()
                 .map(str::trim)
                 .filter(|s| !s.is_empty());
-            rotero_pdf::write_annotations(
-                &abs,
-                &tmp,
-                &[ann.clone()],
-                &dims,
-                None,
-                false,
-                author,
-            )
-            .map_err(super::pdf::pdf_err)?;
+            rotero_pdf::write_annotations(&abs, &tmp, &[ann.clone()], &dims, None, false, author)
+                .map_err(super::pdf::pdf_err)?;
             std::fs::rename(&tmp, &abs).map_err(|e| err(format!("replace PDF failed: {e}")))?;
         }
 
@@ -1799,10 +1791,10 @@ impl ServerHandler for RoteroMcp {
                 }
                 let mut unread = Vec::new();
                 for id in neighbor_ids {
-                    if let Some(p) = self.db.get_paper_by_id(&id).await.map_err(err)? {
-                        if !p.status.is_read {
-                            unread.push(p);
-                        }
+                    if let Some(p) = self.db.get_paper_by_id(&id).await.map_err(err)?
+                        && !p.status.is_read
+                    {
+                        unread.push(p);
                     }
                 }
                 unread.sort_by(|a, b| a.title.cmp(&b.title));

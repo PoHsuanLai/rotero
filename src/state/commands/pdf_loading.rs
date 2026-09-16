@@ -59,13 +59,6 @@ async fn save_fulltext_to_db(tabs: &Signal<PdfTabManager>, tab_id: TabId, paper_
     }
 }
 
-/// Open a PDF into its tab, always leaving the tab in a settled state.
-///
-/// Wraps [`open_pdf_inner`] so that however it exits — including a failed
-/// render — the spinner stops and the reason is recorded. Previously those
-/// paths skipped both `is_loading = false` sites, and neither retry condition
-/// could fire afterwards, so the tab said "Loading PDF…" until it was closed.
-
 /// Fill `tab.page_labels` from the open document (best-effort).
 async fn load_page_labels_into_tab(
     docs: &PdfDocs,
@@ -89,6 +82,12 @@ async fn load_page_labels_into_tab(
     });
 }
 
+/// Open a PDF into its tab, always leaving the tab in a settled state.
+///
+/// Wraps [`open_pdf_inner`] so that however it exits — including a failed
+/// render — the spinner stops and the reason is recorded. Previously those
+/// paths skipped both `is_loading = false` sites, and neither retry condition
+/// could fire afterwards, so the tab said "Loading PDF…" until it was closed.
 #[allow(dead_code)] // thin wrapper; callers use open_pdf_with_theme
 pub async fn open_pdf(
     docs: &PdfDocs,
