@@ -1,11 +1,12 @@
 use dioxus::prelude::*;
 
-use super::AnnCtxState;
+use super::super::components::context_menu::{ContextMenu, ContextMenuItem};
 use super::annotation_panel::{AnnotationContextMenu, AnnotationPanel};
 use super::navigation::{OutlinePanel, ThumbnailSidebar};
-use super::page_overlay::PdfPageWithOverlay;
+use super::page_overlay::{PdfPageWithOverlay, copy_pdf_text_selection};
 use super::search_bar::PdfSearchBar;
 use super::toolbar::PdfToolbar;
+use super::{AnnCtxState, CitationCard, CitationCardCtx, SelCopyMenuCtx};
 use crate::app::PdfDocs;
 use crate::state::app_state::{PdfTabManager, ViewerToolState};
 use rotero_db::Database;
@@ -19,6 +20,8 @@ pub fn PdfViewer() -> Element {
     let db = use_context::<Database>();
     let dpr_sig = use_context::<Signal<crate::app::DevicePixelRatio>>();
     use_context_provider::<AnnCtxState>(|| Signal::new(None));
+    use_context_provider::<CitationCardCtx>(|| Signal::new(None));
+    use_context_provider::<SelCopyMenuCtx>(|| Signal::new(None));
     // Guards the scroll-driven render window against re-entrant scroll events.
     let mut window_loading = use_signal(|| false);
     let mut password_input = use_signal(String::new);
@@ -466,7 +469,44 @@ pub fn PdfViewer() -> Element {
             }
 
             AnnotationContextMenu {}
+            PdfOverlayMenus {}
 
+        }
+    }
+}
+
+/// Citation card and selection Copy menu, mounted on the viewer so
+/// `position: fixed` is viewport space (not a page wrapper descendant).
+#[component]
+fn PdfOverlayMenus() -> Element {
+    let mut citation = use_context::<CitationCardCtx>();
+    let mut sel_copy = use_context::<SelCopyMenuCtx>();
+    let tools = use_context::<Signal<ViewerToolState>>();
+
+    rsx! {
+        if let Some(card) = citation() {
+            CitationCard {
+                x: card.x,
+                y: card.y,
+                link: card.dest,
+                tab_id: card.tab_id,
+                on_close: move |_| citation.set(None),
+            }
+        }
+        if let Some((cx, cy)) = sel_copy() {
+            ContextMenu {
+                x: cx,
+                y: cy,
+                on_close: move |_| sel_copy.set(None),
+                ContextMenuItem {
+                    label: "Copy".to_string(),
+                    icon: Some("bi-clipboard".to_string()),
+                    on_click: move |_| {
+                        let _ = copy_pdf_text_selection(&tools);
+                        sel_copy.set(None);
+                    },
+                }
+            }
         }
     }
 }

@@ -1,8 +1,20 @@
 use dioxus::prelude::*;
 
-use super::AnnCtxState;
+use super::{AnnCtxState, PageSpace};
 use crate::state::app_state::AnnotationContextInfo;
 use rotero_models::{Annotation, AnnotationType};
+
+fn stored_page_size(geometry: &serde_json::Value) -> (f64, f64) {
+    let w = geometry
+        .get("page_width")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let h = geometry
+        .get("page_height")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    (w, h)
+}
 
 /// Build the SVG path for an ink stroke, relative to the annotation's origin.
 ///
@@ -77,7 +89,23 @@ fn markup_display_rects(geometry: &serde_json::Value) -> Vec<(f64, f64, f64, f64
     vec![(x, y, w, h)]
 }
 
-pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> Element {
+fn display_markup_rects(
+    geometry: &serde_json::Value,
+    space: PageSpace,
+) -> Vec<(f64, f64, f64, f64)> {
+    let (sw, sh) = stored_page_size(geometry);
+    markup_display_rects(geometry)
+        .into_iter()
+        .map(|(x, y, w, h)| space.stored_rect_to_display(x, y, w, h, sw, sh))
+        .collect()
+}
+
+pub(crate) fn render_annotation(
+    ann: &Annotation,
+    mut ann_ctx: AnnCtxState,
+    space: PageSpace,
+) -> Element {
+    let stored = stored_page_size(&ann.geometry);
     let x = ann
         .geometry
         .get("x")
@@ -98,6 +126,7 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
         .get("height")
         .and_then(|v| v.as_f64())
         .unwrap_or(24.0);
+    let (x, y, w, h) = space.stored_rect_to_display(x, y, w, h, stored.0, stored.1);
     let color = ann.color.clone();
     let ann_id = ann.id.clone().unwrap_or_default();
     let ann_type = ann.ann_type;
@@ -124,7 +153,7 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
 
     match ann.ann_type {
         AnnotationType::Highlight => {
-            let rects = markup_display_rects(&ann.geometry);
+            let rects = display_markup_rects(&ann.geometry, space);
             rsx! {
                 for (ri, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
                     {
@@ -167,7 +196,7 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
             div { key: "ann-{ann_id}", style: "position: absolute; left: {x}px; top: {y}px; width: {w}px; height: {h}px; border: 2px solid {color}; pointer-events: auto; z-index: 3;", oncontextmenu: on_context }
         },
         AnnotationType::Underline => {
-            let rects = markup_display_rects(&ann.geometry);
+            let rects = display_markup_rects(&ann.geometry, space);
             rsx! {
                 for (ri, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
                     {
@@ -200,7 +229,7 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
             }
         }
         AnnotationType::StrikeOut => {
-            let rects = markup_display_rects(&ann.geometry);
+            let rects = display_markup_rects(&ann.geometry, space);
             rsx! {
                 for (ri, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
                     {
@@ -234,7 +263,7 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
             }
         }
         AnnotationType::Squiggly => {
-            let rects = markup_display_rects(&ann.geometry);
+            let rects = display_markup_rects(&ann.geometry, space);
             rsx! {
                 for (ri, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
                     {
@@ -276,9 +305,19 @@ pub(crate) fn render_annotation(ann: &Annotation, mut ann_ctx: AnnCtxState) -> E
                 .and_then(|v| v.as_array())
                 .and_then(|strokes| strokes.first())
                 .and_then(|s| s.as_array());
-            let path_d = points
-                .map(|pts| ink_path_data(pts, x, y))
+            let scaled: Vec<serde_json::Value> = points
+                .map(|pts| {
+                    let nums: Vec<f64> = pts.iter().filter_map(|v| v.as_f64()).collect();
+                    nums.chunks_exact(2)
+                        .flat_map(|p| {
+                            let dx = space.stored_to_display_x(p[0], stored.0);
+                            let dy = space.stored_to_display_y(p[1], stored.1);
+                            [serde_json::json!(dx), serde_json::json!(dy)]
+                        })
+                        .collect()
+                })
                 .unwrap_or_default();
+            let path_d = ink_path_data(&scaled, x, y);
             rsx! {
                 svg {
                     key: "ann-{ann_id}",
