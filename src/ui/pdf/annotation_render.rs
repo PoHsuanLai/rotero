@@ -308,7 +308,9 @@ pub(crate) fn render_annotation(
             let scaled: Vec<serde_json::Value> = points
                 .map(|pts| {
                     let nums: Vec<f64> = pts.iter().filter_map(|v| v.as_f64()).collect();
-                    nums.as_chunks::<2>().0.iter()
+                    nums.as_chunks::<2>()
+                        .0
+                        .iter()
                         .flat_map(|p| {
                             let dx = space.stored_to_display_x(p[0], stored.0);
                             let dy = space.stored_to_display_y(p[1], stored.1);
