@@ -1,6 +1,7 @@
 mod annotation_panel;
 pub(crate) mod annotation_render;
 mod citation_card;
+pub(crate) mod coords;
 mod navigation;
 mod page_overlay;
 mod search_bar;
@@ -11,15 +12,31 @@ mod viewer;
 pub use tab_bar::PdfTabBar;
 pub use viewer::PdfViewer;
 
+pub(crate) use coords::PageSpace;
 pub(crate) use page_overlay::copy_pdf_text_selection;
 
 pub(crate) use citation_card::CitationCard;
 
 use dioxus::prelude::*;
 
-use crate::state::app_state::AnnotationContextInfo;
+use crate::state::app_state::{AnnotationContextInfo, LinkDest, TabId};
 
 pub(crate) type AnnCtxState = Signal<Option<AnnotationContextInfo>>;
+
+/// Citation preview, rendered at the viewer (not inside a page wrapper) so
+/// `position: fixed` is in viewport space.
+#[derive(Clone)]
+pub(crate) struct OpenCitationCard {
+    pub dest: LinkDest,
+    pub x: f64,
+    pub y: f64,
+    pub tab_id: TabId,
+}
+
+pub(crate) type CitationCardCtx = Signal<Option<OpenCitationCard>>;
+
+/// Copy menu for the active PDF text selection. Same viewport-space reason.
+pub(crate) type SelCopyMenuCtx = Signal<Option<(f64, f64)>>;
 
 /// Builds JS that scrolls the given page into view, polling for the element so it
 /// works even when the page was just added to the sliding render window and Dioxus
