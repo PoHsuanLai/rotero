@@ -264,25 +264,23 @@ pub(crate) fn CitationCard(
                             rsx! {
                                 div {
                                     key: "cp-{i}",
-                                    class: "library-card citation-card-result",
-                                    div { class: "library-card-body",
-                                        div { class: "library-card-title", "{title}" }
-                                        div { class: "library-card-meta",
-                                            span { class: "library-card-authors", "{authors}" }
-                                            if !year.is_empty() {
-                                                span { class: "library-card-sep", "\u{00b7}" }
-                                                span { class: "library-card-year", "{year}" }
-                                            }
-                                            if !journal.is_empty() {
-                                                span { class: "library-card-sep", "\u{00b7}" }
-                                                span { class: "library-card-journal", "{journal}" }
-                                            }
+                                    class: "citation-card-result",
+                                    div { class: "citation-card-title", "{title}" }
+                                    div { class: "citation-card-meta",
+                                        span { class: "citation-card-authors", "{authors}" }
+                                        if !year.is_empty() {
+                                            span { class: "citation-card-sep", "\u{00b7}" }
+                                            span { class: "citation-card-year", "{year}" }
                                         }
-                                        if has_abstract {
-                                            div { class: "external-result-abstract", "{abstract_text}" }
+                                        if !journal.is_empty() {
+                                            span { class: "citation-card-sep", "\u{00b7}" }
+                                            span { class: "citation-card-journal", "{journal}" }
                                         }
                                     }
-                                    div { class: "library-card-actions",
+                                    if has_abstract {
+                                        div { class: "citation-card-abstract", "{abstract_text}" }
+                                    }
+                                    div { class: "citation-card-result-actions",
                                         if in_library {
                                             if paper.links.pdf_path.is_some() {
                                                 button {

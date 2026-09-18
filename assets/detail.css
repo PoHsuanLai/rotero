@@ -96,10 +96,10 @@
    component classes (assets/components.css) — no detail-only styles needed. */
 
 .detail-value--title {
+  font-family: var(--font-serif);
   font-size: var(--text-xl);
-  font-weight: 700;
-  line-height: var(--leading-tight);
-  letter-spacing: var(--tracking-tight);
+  font-weight: 600;
+  line-height: var(--leading-snug);
 }
 
 /* Click-to-rename affordance on the library detail title. The web preview's
@@ -121,10 +121,11 @@
    commits, so it behaves as a one-line field. */
 .detail-title-input {
   width: 100%;
+  height: auto;
+  font-family: var(--font-serif);
   font-size: var(--text-xl);
-  font-weight: 700;
-  line-height: var(--leading-tight);
-  letter-spacing: var(--tracking-tight);
+  font-weight: 600;
+  line-height: var(--leading-snug);
   resize: vertical;
 }
 
@@ -249,6 +250,7 @@
 }
 
 .detail-note-title {
+  font-family: var(--font-serif);
   font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text-primary);
@@ -256,10 +258,16 @@
 }
 
 .detail-note-body {
-  font-size: var(--text-xs);
+  font-family: var(--font-serif);
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   white-space: pre-wrap;
   line-height: var(--leading-normal);
+}
+
+.detail-note-body code,
+.detail-note-body pre {
+  font-family: var(--font-mono);
 }
 
 .detail-delete-section {

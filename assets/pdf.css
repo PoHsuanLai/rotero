@@ -546,6 +546,7 @@
 }
 
 .annotation-note-content {
+  font-family: var(--font-serif);
   color: var(--text-secondary);
   cursor: pointer;
   padding: var(--space-1);
@@ -569,6 +570,10 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+}
+
+.annotation-edit-area .textarea {
+  font-family: var(--font-serif);
 }
 
 .annotation-edit-actions {
@@ -613,11 +618,13 @@
 
 /* Verbatim reference text pulled from the References section (internal links). */
 .citation-card-reftext {
-  font-size: var(--text-base, 1rem);
-  line-height: 1.5;
+  font-family: var(--font-serif);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  line-height: var(--leading-normal);
   color: var(--text-primary);
   white-space: pre-wrap;
-  border-left: 2px solid var(--accent, #3b82f6);
+  border-left: 2px solid var(--accent);
   padding-left: var(--space-2);
 }
 
@@ -646,21 +653,69 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--text-base, 1rem);
+  font-size: var(--text-sm);
   color: var(--text-secondary);
 }
 
-/* A resolved paper inside the card reuses .library-card-* body styles but
-   drops the row chrome (no hover/border of its own). */
+/* Resolved paper: a stacked preview, not a library list-row. */
 .citation-card-result {
-  padding: 0;
-  background: transparent;
-  border: none;
-  cursor: default;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
 }
 
+.citation-card-result + .citation-card-result {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.citation-card-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: var(--leading-snug);
+  color: var(--text-primary);
+}
+
+.citation-card-meta {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: var(--leading-snug);
+}
+
+.citation-card-year {
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+}
+
+.citation-card-journal {
+  font-family: var(--font-serif);
+  font-style: italic;
+  color: var(--text-tertiary);
+}
+
+.citation-card-sep {
+  color: var(--border-medium);
+  margin: 0 0.4em;
+}
+
+.citation-card-abstract {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.citation-card-result-actions,
 .citation-card-actions {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
+}
+
+.citation-card-result-actions {
+  margin-top: var(--space-1);
 }
