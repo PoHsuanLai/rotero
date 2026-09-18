@@ -616,16 +616,20 @@
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-/* Verbatim reference text pulled from the References section (internal links). */
+/* Unparsed bibliography dump: hanging indent, clamped. Newlines are collapsed
+   in parse_reference, so this is a short paragraph rather than typeset lines. */
 .citation-card-reftext {
   font-family: var(--font-serif);
   font-size: var(--text-sm);
   font-weight: 400;
-  line-height: var(--leading-normal);
+  line-height: var(--leading-snug);
   color: var(--text-primary);
-  white-space: pre-wrap;
-  border-left: 2px solid var(--accent);
-  padding-left: var(--space-2);
+  text-indent: -1em;
+  padding-left: 1em;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* The linked URI shown as a header on external-link cards. */
@@ -675,12 +679,20 @@
   font-weight: 600;
   line-height: var(--leading-snug);
   color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .citation-card-meta {
   font-size: var(--text-xs);
   color: var(--text-secondary);
   line-height: var(--leading-snug);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .citation-card-year {

@@ -2,8 +2,8 @@
 //!
 //! Clicking a citation link opens this card anchored at the click instead of
 //! navigating away, so the reader can see the cited work in place. Internal
-//! links (in-text marker → references) show the extracted reference-block text
-//! and try to resolve it to a real paper via search; external links (DOI/arXiv)
+//! links parse the extracted reference into title / authors / year and then
+//! try to resolve it to a real paper via search; external links (DOI/arXiv)
 //! resolve against the library or fetch metadata from the web. In every case the
 //! card offers the relevant action — Open (in library), Import (from the web),
 //! or Jump to the target — and dismisses on click-away or Esc.
@@ -11,8 +11,9 @@
 use dioxus::prelude::*;
 
 use rotero_db::Database;
-use rotero_models::{Paper, PaperId};
+use rotero_models::{Paper, PaperId, normalize_title};
 
+use super::PdfScrollLock;
 use crate::app::{DevicePixelRatio, PdfDocs};
 use crate::state::app_state::{LibraryState, LinkDest, PdfTabManager, TabId};
 use crate::state::commands::ImportChannel;
@@ -47,6 +48,7 @@ pub(crate) fn CitationCard(
     let dpr_sig = use_context::<Signal<DevicePixelRatio>>();
     let docs = use_context::<PdfDocs>();
     let import_channel = use_context::<ImportChannel>();
+    let mut scroll_lock = use_context::<PdfScrollLock>();
 
     // Reference-block text for internal links (shown verbatim, always available).
     let mut ref_text = use_signal(|| None::<String>);
@@ -108,25 +110,13 @@ pub(crate) fn CitationCard(
                             }
                             _ => String::new(),
                         };
-                        if !text.is_empty() {
-                            ref_text.set(Some(text.clone()));
-                            // Resolve on demand: library FTS first, then the web.
-                            let local = db.search_papers(&text).await.unwrap_or_default();
-                            let mut out: Vec<CardPaper> = local
-                                .into_iter()
-                                .take(3)
-                                .map(CardPaper::InLibrary)
-                                .collect();
-                            if out.is_empty()
-                                && let Ok(web) =
-                                    rotero_search::openalex::search_papers(&text, 3).await
-                            {
-                                out.extend(web.into_iter().map(CardPaper::Web));
-                            }
-                            resolved.set(Some(out));
-                        } else {
+                        if text.is_empty() {
                             ref_text.set(Some(String::new()));
                             resolved.set(Some(Vec::new()));
+                        } else {
+                            ref_text.set(Some(text.clone()));
+                            let parsed = rotero_pdf::parse_reference(&text);
+                            resolved.set(Some(resolve_citation(&db, &parsed).await));
                         }
                     }
                     LinkDest::External { uri } => {
@@ -137,17 +127,11 @@ pub(crate) fn CitationCard(
                             return;
                         }
                         // Otherwise fetch metadata for a preview.
-                        let fetched = match PaperId::from_url(&uri) {
-                            Some(PaperId::Doi(doi)) => rotero_search::openalex::fetch_by_doi(&doi)
-                                .await
-                                .or(rotero_search::crossref::fetch_by_doi(&doi).await)
-                                .ok(),
-                            Some(PaperId::ArXiv(id)) => {
-                                rotero_search::arxiv::fetch_by_arxiv_id(&id).await.ok()
-                            }
-                            _ => None,
+                        let paper = match PaperId::from_url(&uri) {
+                            Some(id) => fetch_web_by_id(&id).await,
+                            None => None,
                         };
-                        resolved.set(Some(fetched.map(CardPaper::Web).into_iter().collect()));
+                        resolved.set(Some(paper.map(CardPaper::Web).into_iter().collect()));
                     }
                 }
             });
@@ -156,29 +140,41 @@ pub(crate) fn CitationCard(
 
     let is_internal = matches!(link, LinkDest::Internal { .. });
 
-    // Jump-to action: reuse the existing internal-link navigation.
+    // Jump-to: lock the viewer's scroll handler first. A smooth scroll to a
+    // far page (e.g. p.1 → references on p.31) fires `onscroll` while the
+    // viewport is still on p.1, which recenters the render window and cancels
+    // the jump. Instant-scroll + dioxus.send waits until we've actually moved.
     let jump = {
         let link = link.clone();
         move || {
             if let LinkDest::Internal { page, y_frac } = link {
                 let docs = docs.get();
                 let data_dir = config.read().effective_library_path();
+                scroll_lock.0.set(true);
                 spawn(async move {
+                    let mut eval = document::eval(&super::jump_to_page_js(page, y_frac));
+                    let _ = eval.recv::<bool>().await;
                     crate::state::commands::ensure_window_rendered(
                         &docs, &mut tabs, tab_id, page, &data_dir,
                     )
                     .await;
-                    let js = match y_frac {
-                        Some(f) => super::scroll_to_page_at_js(page, f),
-                        None => super::scroll_to_page_js(page, "start"),
-                    };
-                    let _ = document::eval(&js).await;
+                    scroll_lock.0.set(false);
+                    on_close.call(());
                 });
             }
         }
     };
 
     let resolved_list = resolved.read().clone();
+    let has_resolved_papers = matches!(&resolved_list, Some(p) if !p.is_empty());
+    let ref_snapshot = ref_text.read().clone();
+    let parsed_ref = ref_snapshot
+        .as_ref()
+        .filter(|t| !t.is_empty())
+        .map(|t| rotero_pdf::parse_reference(t));
+    // Internal links already have extracted text to show; don't stack a
+    // spinner under it. External links have only the URI until metadata lands.
+    let show_resolving = resolved_list.is_none() && !(is_internal && ref_snapshot.is_some());
 
     rsx! {
         div {
@@ -201,16 +197,29 @@ pub(crate) fn CitationCard(
                 }
             },
 
-            // Reference text (internal links) shown immediately, verbatim.
-            if is_internal {
-                if let Some(text) = ref_text.read().as_ref() {
-                    if text.is_empty() {
+            // Extracted bibliography, shown until a library/web paper replaces it.
+            if is_internal && !has_resolved_papers {
+                match ref_snapshot.as_ref() {
+                    None => rsx! {
+                        div { class: "citation-card-loading", "Reading reference…" }
+                    },
+                    Some(text) if text.is_empty() => rsx! {
                         div { class: "citation-card-empty", "No reference text found at the target." }
-                    } else {
-                        div { class: "citation-card-reftext", "{text}" }
-                    }
-                } else {
-                    div { class: "citation-card-loading", "Reading reference…" }
+                    },
+                    Some(_) => rsx! {
+                        if let Some(parsed) = parsed_ref {
+                            if parsed.has_structure() {
+                                {citation_bib_fields(
+                                    parsed.title.clone().unwrap_or_default(),
+                                    parsed.authors.clone().unwrap_or_default(),
+                                    parsed.year.clone().unwrap_or_default(),
+                                    parsed.venue.clone().unwrap_or_default(),
+                                )}
+                            } else {
+                                div { class: "citation-card-reftext", "{parsed.text}" }
+                            }
+                        }
+                    },
                 }
             }
 
@@ -226,13 +235,15 @@ pub(crate) fn CitationCard(
             }
 
             // Resolved paper(s), or a resolving/empty state.
+            if show_resolving {
+                div { class: "citation-card-loading",
+                    i { class: "bi bi-arrow-repeat external-spinner" }
+                    span { "Resolving…" }
+                }
+            }
+
             match resolved_list {
-                None => rsx! {
-                    div { class: "citation-card-loading",
-                        i { class: "bi bi-arrow-repeat external-spinner" }
-                        span { "Resolving…" }
-                    }
-                },
+                None => rsx! {},
                 Some(papers) if papers.is_empty() => rsx! {
                     // Nothing resolved. For external links offer the browser
                     // fallback; internal links already show their ref text.
@@ -337,8 +348,127 @@ pub(crate) fn CitationCard(
                 div { class: "citation-card-actions",
                     button {
                         class: "btn btn--sm btn--secondary",
-                        onclick: move |_| { jump.clone()(); on_close.call(()); },
+                        onclick: move |evt| {
+                            evt.stop_propagation();
+                            jump.clone()();
+                        },
                         "Jump to"
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Resolve an extracted bibliography line to at most one paper.
+///
+/// Identifier (DOI / arXiv) uses the same lookup as an external PDF link.
+/// Otherwise we search by parsed title and keep a hit only if the titles
+/// actually overlap — a full-text search of the raw blob was returning three
+/// loosely related OpenAlex results for every click.
+async fn resolve_citation(db: &Database, parsed: &rotero_pdf::ParsedReference) -> Vec<CardPaper> {
+    if let Some(uri) = identifier_in_reference(&parsed.text) {
+        if let Some(paper) = db.find_paper_by_link(&uri).await.ok().flatten() {
+            return vec![CardPaper::InLibrary(paper)];
+        }
+        if let Some(id) = PaperId::from_url(&uri).or_else(|| PaperId::parse(&uri))
+            && let Some(paper) = fetch_web_by_id(&id).await
+        {
+            return vec![CardPaper::Web(paper)];
+        }
+    }
+
+    let query = parsed.title.as_deref().unwrap_or("");
+    if query.is_empty() {
+        return Vec::new();
+    }
+
+    let local = db.search_papers(query).await.unwrap_or_default();
+    if let Some(paper) = local.into_iter().find(|p| plausible_citation_hit(p, query)) {
+        return vec![CardPaper::InLibrary(paper)];
+    }
+
+    if let Ok(paper) = rotero_search::openalex::search_by_title(query).await
+        && plausible_citation_hit(&paper, query)
+    {
+        return vec![CardPaper::Web(paper)];
+    }
+
+    Vec::new()
+}
+
+async fn fetch_web_by_id(id: &PaperId) -> Option<Paper> {
+    match id {
+        PaperId::Doi(doi) => rotero_search::openalex::fetch_by_doi(doi)
+            .await
+            .or(rotero_search::crossref::fetch_by_doi(doi).await)
+            .ok(),
+        PaperId::ArXiv(aid) => rotero_search::arxiv::fetch_by_arxiv_id(aid).await.ok(),
+        PaperId::Pmid(_) | PaperId::Isbn(_) => None,
+    }
+}
+
+/// First DOI / arXiv / PMID token in a bibliography line, if any.
+fn identifier_in_reference(text: &str) -> Option<String> {
+    for word in text.split_whitespace() {
+        let w =
+            word.trim_matches(|c: char| matches!(c, ',' | ';' | '.' | ')' | '(' | '[' | ']' | '"'));
+        let w = w
+            .strip_prefix("doi:")
+            .or_else(|| w.strip_prefix("DOI:"))
+            .unwrap_or(w);
+        if PaperId::from_url(w).is_some() || PaperId::parse(w).is_some() {
+            return Some(w.to_string());
+        }
+    }
+    None
+}
+
+fn plausible_citation_hit(paper: &Paper, query: &str) -> bool {
+    let q = normalize_title(query);
+    let nt = normalize_title(&paper.title);
+    if q.is_empty() || nt.is_empty() {
+        return false;
+    }
+    if nt == q || nt.contains(&q) || q.contains(&nt) {
+        return true;
+    }
+    let q_tokens: Vec<&str> = q.split_whitespace().filter(|t| t.len() > 2).collect();
+    if q_tokens.len() < 3 {
+        return false;
+    }
+    let hits = q_tokens
+        .iter()
+        .filter(|t| nt.split_whitespace().any(|w| w == **t))
+        .count();
+    hits * 5 >= q_tokens.len() * 3
+}
+
+/// Title + authors/year/venue, shared by a parsed bibliography line and a
+/// resolved library/web paper.
+fn citation_bib_fields(title: String, authors: String, year: String, venue: String) -> Element {
+    let has_meta = !authors.is_empty() || !year.is_empty() || !venue.is_empty();
+    rsx! {
+        div { class: "citation-card-result",
+            if !title.is_empty() {
+                div { class: "citation-card-title", "{title}" }
+            }
+            if has_meta {
+                div { class: "citation-card-meta",
+                    if !authors.is_empty() {
+                        span { class: "citation-card-authors", "{authors}" }
+                    }
+                    if !year.is_empty() {
+                        if !authors.is_empty() {
+                            span { class: "citation-card-sep", "\u{00b7}" }
+                        }
+                        span { class: "citation-card-year", "{year}" }
+                    }
+                    if !venue.is_empty() {
+                        if !authors.is_empty() || !year.is_empty() {
+                            span { class: "citation-card-sep", "\u{00b7}" }
+                        }
+                        span { class: "citation-card-journal", "{venue}" }
                     }
                 }
             }

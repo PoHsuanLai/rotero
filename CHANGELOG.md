@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Paper titles, notes, annotation notes, and citation-card quotes use Newsreader as the reading serif. Library rows stay system sans.
+
+### Fixed
+- **The citation card after clicking a PDF link was a squeezed library row.** It now stacks a wrapping title, wrapping meta, and always-visible Open/Import.
+- **Internal citation dests ignored named destinations**, so Jump to landed at the top of the page (or not at all). Named dests are resolved, and Jump instant-scrolls with the viewer's scroll handler locked so a far jump (p.1 → references) is not undone.
+- **Every citation click could show three loosely related OpenAlex hits.** The card now keeps at most one paper, and only if the title actually overlaps.
+
 ## v0.2.6
 
 ### Changed
