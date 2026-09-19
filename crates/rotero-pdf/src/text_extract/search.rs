@@ -67,31 +67,10 @@ pub fn group_into_lines(segments: &[TextSegment]) -> Vec<Vec<usize>> {
 }
 
 fn group_into_lines_ref(segments: &[TextSegment]) -> Vec<Vec<&TextSegment>> {
-    if segments.is_empty() {
-        return Vec::new();
-    }
-
-    let mut indexed: Vec<&TextSegment> = segments.iter().collect();
-    indexed.sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal));
-
-    let mut lines: Vec<Vec<&TextSegment>> = Vec::new();
-    let mut current_line: Vec<&TextSegment> = vec![indexed[0]];
-    let mut line_y = indexed[0].y;
-
-    for seg in &indexed[1..] {
-        let tolerance = seg.height * 0.5;
-        if (seg.y - line_y).abs() < tolerance {
-            current_line.push(seg);
-        } else {
-            current_line.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
-            lines.push(current_line);
-            current_line = vec![seg];
-            line_y = seg.y;
-        }
-    }
-    current_line.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
-    lines.push(current_line);
-    lines
+    group_into_lines(segments)
+        .into_iter()
+        .map(|idxs| idxs.into_iter().map(|i| &segments[i]).collect())
+        .collect()
 }
 
 /// Extract a contiguous block of text starting at a vertical position on a page.

@@ -6,7 +6,13 @@ use serde::Deserialize;
 fn openalex_api_url() -> String {
     crate::base_url("ROTERO_OPENALEX_API", "https://api.openalex.org/works")
 }
-const OPENALEX_AUTOCOMPLETE: &str = "https://api.openalex.org/autocomplete/works";
+fn openalex_autocomplete_url() -> String {
+    let works = openalex_api_url();
+    match works.strip_suffix("/works") {
+        Some(base) => format!("{base}/autocomplete/works"),
+        None => format!("{works}/autocomplete"),
+    }
+}
 
 #[derive(Debug, Deserialize)]
 struct OpenAlexWork {
@@ -80,21 +86,7 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, Stri
         urlencoding::encode(query)
     );
 
-    let client = crate::shared_client();
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("OpenAlex request failed: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("OpenAlex API returned status {}", resp.status()));
-    }
-
-    let data: OpenAlexSearchResponse = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse OpenAlex response: {e}"))?;
+    let data: OpenAlexSearchResponse = crate::get_json(&url, "OpenAlex").await?;
 
     let results = data
         .results
@@ -143,18 +135,10 @@ pub async fn find_oa_pdf(doi: Option<&str>, title: &str) -> Result<Vec<String>, 
                 "{openalex_api}?search={}&per_page=1",
                 urlencoding::encode(title)
             );
-            let client = crate::shared_client();
-            if let Ok(resp) = client.get(&url).send().await
-                && resp.status().is_success()
-            {
-                let data: OpenAlexSearchResponse = resp
-                    .json()
-                    .await
-                    .map_err(|e| format!("Failed to parse OpenAlex response: {e}"))?;
-                data.results.and_then(|r| r.into_iter().next())
-            } else {
-                None
-            }
+            crate::get_json::<OpenAlexSearchResponse>(&url, "OpenAlex")
+                .await
+                .ok()
+                .and_then(|data| data.results.and_then(|r| r.into_iter().next()))
         }
     };
 
@@ -178,26 +162,12 @@ pub async fn find_oa_pdf(doi: Option<&str>, title: &str) -> Result<Vec<String>, 
 /// Fast autocomplete search — returns lightweight results (~50-100ms).
 /// Use this for live type-ahead, then fetch full details on import.
 pub async fn autocomplete(query: &str) -> Result<Vec<Paper>, String> {
-    let url = format!("{OPENALEX_AUTOCOMPLETE}?q={}", urlencoding::encode(query));
-
-    let client = crate::shared_client();
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("OpenAlex autocomplete failed: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!(
-            "OpenAlex autocomplete returned status {}",
-            resp.status()
-        ));
-    }
-
-    let data: AutocompleteResponse = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse autocomplete response: {e}"))?;
+    let url = format!(
+        "{}?q={}",
+        openalex_autocomplete_url(),
+        urlencoding::encode(query)
+    );
+    let data: AutocompleteResponse = crate::get_json(&url, "OpenAlex autocomplete").await?;
 
     let mut results = Vec::new();
     for (position, item) in data.results.unwrap_or_default().into_iter().enumerate() {
@@ -247,19 +217,7 @@ struct AutocompleteItem {
 }
 
 async fn fetch_work(url: &str) -> Result<OpenAlexWork, String> {
-    let resp = crate::shared_client()
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("OpenAlex request failed: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("OpenAlex API returned status {}", resp.status()));
-    }
-
-    resp.json()
-        .await
-        .map_err(|e| format!("Failed to parse OpenAlex response: {e}"))
+    crate::get_json(url, "OpenAlex").await
 }
 
 fn work_to_paper(work: OpenAlexWork, doi: &str) -> Result<Paper, String> {

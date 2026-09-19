@@ -152,7 +152,7 @@ pub fn PdfViewer() -> Element {
                         }
                     }
                     tabs.with_mut(|m| {
-                        if let Some(t) = m.tabs.iter_mut().find(|t| t.id == tid) {
+                        if let Some(t) = m.get_mut(tid) {
                             t.annotations = anns;
                         }
                     });
@@ -196,34 +196,33 @@ pub fn PdfViewer() -> Element {
                     }
                     Key::PageDown => {
                         spawn(async move {
-                            let _ = document::eval("let el = document.getElementById('pdf-pages-container'); el.scrollBy({ top: el.clientHeight * 0.9, behavior: 'smooth' });");
+                            let _ = document::eval(&super::pdf_scroll_js("page-down"));
                         });
                     }
                     Key::PageUp => {
                         spawn(async move {
-                            let _ = document::eval("let el = document.getElementById('pdf-pages-container'); el.scrollBy({ top: -el.clientHeight * 0.9, behavior: 'smooth' });");
+                            let _ = document::eval(&super::pdf_scroll_js("page-up"));
                         });
                     }
                     Key::Home => {
                         spawn(async move {
-                            let _ = document::eval("let el = document.getElementById('pdf-pages-container'); el.scrollTo({ top: 0, behavior: 'smooth' });");
+                            let _ = document::eval(&super::pdf_scroll_js("home"));
                         });
                     }
                     Key::End => {
                         spawn(async move {
-                            let _ = document::eval("let el = document.getElementById('pdf-pages-container'); el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });");
+                            let _ = document::eval(&super::pdf_scroll_js("end"));
                         });
                     }
                     Key::Character(ref c) if c == " " => {
-                        if evt.modifiers().shift() {
-                            spawn(async move {
-                                let _ = document::eval("let el = document.getElementById('pdf-pages-container'); el.scrollBy({ top: -el.clientHeight * 0.9, behavior: 'smooth' });");
-                            });
+                        let kind = if evt.modifiers().shift() {
+                            "page-up"
                         } else {
-                            spawn(async move {
-                                let _ = document::eval("let el = document.getElementById('pdf-pages-container'); el.scrollBy({ top: el.clientHeight * 0.9, behavior: 'smooth' });");
-                            });
-                        }
+                            "page-down"
+                        };
+                        spawn(async move {
+                            let _ = document::eval(&super::pdf_scroll_js(kind));
+                        });
                     }
                     _ => {}
                 }

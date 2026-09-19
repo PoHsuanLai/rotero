@@ -29,6 +29,11 @@ impl Database {
         Ok(uuid)
     }
 
+    /// Return the total number of collections.
+    pub async fn count_collections(&self) -> Result<u32, crate::DbError> {
+        self.count_sql(queries::COLLECTION_COUNT).await
+    }
+
     /// List all collections ordered by position.
     pub async fn list_collections(&self) -> Result<Vec<Collection>, crate::DbError> {
         let conn = self.conn();

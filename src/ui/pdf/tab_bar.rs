@@ -40,7 +40,7 @@ pub fn PdfTabBar() -> Element {
                     let is_active = *is_active;
                     let paper_id = paper_id.clone();
                     let tab_class = if is_active { "pdf-tab pdf-tab--active" } else { "pdf-tab" };
-                    let display_title = crate::ui::truncate_text(&title, 30);
+                    let display_title = rotero_models::truncate_chars(&title, 30);
 
                     rsx! {
                         div {
@@ -71,7 +71,7 @@ pub fn PdfTabBar() -> Element {
                                         let mut eval = document::eval("window.__roteroScrollSave || 0");
                                         if let Ok(scroll) = eval.recv::<f64>().await {
                                             tabs.with_mut(|m| {
-                                                if let Some(t) = m.tabs.iter_mut().find(|t| t.id == old_id) {
+                                                if let Some(t) = m.get_mut(old_id) {
                                                     t.view.scroll_top = scroll;
                                                 }
                                             });

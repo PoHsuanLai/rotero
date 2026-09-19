@@ -25,22 +25,14 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
     let can_redo = undo_stack.read().can_redo();
     let ann_count = tabs.read().tab().annotations.len();
 
-    let btn = |m: AnnotationMode| -> &str {
-        if mode == m {
-            "btn btn--ghost btn--ghost-active"
-        } else {
-            "btn btn--ghost"
-        }
-    };
-    let highlight_class = btn(AnnotationMode::Highlight);
-    let underline_class = btn(AnnotationMode::Underline);
-    let strikeout_class = btn(AnnotationMode::StrikeOut);
-    let squiggly_class = btn(AnnotationMode::Squiggly);
-    let note_class = btn(AnnotationMode::Note);
-    let ink_class = btn(AnnotationMode::Ink);
-    let text_class = btn(AnnotationMode::Text);
-    let colors = [
-        "#ffff00", "#ff6b6b", "#51cf66", "#339af0", "#cc5de8", "#ff922b",
+    let tool_defs: &[(AnnotationMode, &str, &str)] = &[
+        (AnnotationMode::Highlight, "Highlight", "bi-highlighter"),
+        (AnnotationMode::Underline, "Underline", "bi-type-underline"),
+        (AnnotationMode::StrikeOut, "Strike Out", "bi-type-strikethrough"),
+        (AnnotationMode::Squiggly, "Squiggly", "bi-vector-pen"),
+        (AnnotationMode::Note, "Sticky Note", "bi-sticky"),
+        (AnnotationMode::Ink, "Draw", "bi-pencil"),
+        (AnnotationMode::Text, "Text", "bi-fonts"),
     ];
 
     rsx! {
@@ -48,94 +40,37 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
             span { class: "toolbar-page-count", "{page_count} pages" }
             div { class: "toolbar-separator" }
 
-            div { class: "toolbar-tooltip", "data-tooltip": "Highlight",
-                button {
-                    class: "{highlight_class}",
-                    onclick: move |_| {
-                        tools.with_mut(|t| {
-                            t.text_selection = None;
-                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Highlight { AnnotationMode::None } else { AnnotationMode::Highlight };
-                        });
-                    },
-                    span { class: "bi bi-highlighter" }
-                }
-            }
-            div { class: "toolbar-tooltip", "data-tooltip": "Underline",
-                button {
-                    class: "{underline_class}",
-                    onclick: move |_| {
-                        tools.with_mut(|t| {
-                            t.text_selection = None;
-                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Underline { AnnotationMode::None } else { AnnotationMode::Underline };
-                        });
-                    },
-                    span { class: "bi bi-type-underline" }
-                }
-            }
-            div { class: "toolbar-tooltip", "data-tooltip": "Strike Out",
-                button {
-                    class: "{strikeout_class}",
-                    onclick: move |_| {
-                        tools.with_mut(|t| {
-                            t.text_selection = None;
-                            t.annotation_mode = if t.annotation_mode == AnnotationMode::StrikeOut { AnnotationMode::None } else { AnnotationMode::StrikeOut };
-                        });
-                    },
-                    span { class: "bi bi-type-strikethrough" }
-                }
-            }
-            div { class: "toolbar-tooltip", "data-tooltip": "Squiggly",
-                button {
-                    class: "{squiggly_class}",
-                    onclick: move |_| {
-                        tools.with_mut(|t| {
-                            t.text_selection = None;
-                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Squiggly { AnnotationMode::None } else { AnnotationMode::Squiggly };
-                        });
-                    },
-                    span { class: "bi bi-vector-pen" }
-                }
-            }
-            div { class: "toolbar-tooltip", "data-tooltip": "Sticky Note",
-                button {
-                    class: "{note_class}",
-                    onclick: move |_| {
-                        tools.with_mut(|t| {
-                            t.text_selection = None;
-                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Note { AnnotationMode::None } else { AnnotationMode::Note };
-                        });
-                    },
-                    span { class: "bi bi-sticky" }
-                }
-            }
-            div { class: "toolbar-tooltip", "data-tooltip": "Draw",
-                button {
-                    class: "{ink_class}",
-                    onclick: move |_| {
-                        tools.with_mut(|t| {
-                            t.text_selection = None;
-                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Ink { AnnotationMode::None } else { AnnotationMode::Ink };
-                        });
-                    },
-                    span { class: "bi bi-pencil" }
-                }
-            }
-            div { class: "toolbar-tooltip", "data-tooltip": "Text",
-                button {
-                    class: "{text_class}",
-                    onclick: move |_| {
-                        tools.with_mut(|t| {
-                            t.text_selection = None;
-                            t.annotation_mode = if t.annotation_mode == AnnotationMode::Text { AnnotationMode::None } else { AnnotationMode::Text };
-                        });
-                    },
-                    span { class: "bi bi-fonts" }
+            for (tool_mode, tooltip, icon) in tool_defs.iter().copied() {
+                {
+                    let class = if mode == tool_mode {
+                        "btn btn--ghost btn--ghost-active"
+                    } else {
+                        "btn btn--ghost"
+                    };
+                    rsx! {
+                        div { class: "toolbar-tooltip", "data-tooltip": "{tooltip}",
+                            button {
+                                class: "{class}",
+                                onclick: move |_| {
+                                    tools.with_mut(|t| {
+                                        t.text_selection = None;
+                                        t.annotation_mode = if t.annotation_mode == tool_mode {
+                                            AnnotationMode::None
+                                        } else {
+                                            tool_mode
+                                        };
+                                    });
+                                },
+                                span { class: "bi {icon}" }
+                            }
+                        }
+                    }
                 }
             }
 
             if mode != AnnotationMode::None {
                 div { class: "toolbar-color-row",
-                    for c in colors.iter() {
+                    for (c, _) in super::SELECTION_COLORS.iter() {
                         {
                             let c = c.to_string();
                             let c2 = c.clone();

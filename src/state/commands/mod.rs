@@ -217,16 +217,6 @@ impl PdfDocs {
         .await
     }
 
-    /// Whole-document Markdown.
-    #[allow(dead_code)] // used by MCP / future callers
-    pub async fn document_markdown(&self, pdf_path: String) -> Result<String, String> {
-        self.run(move |cache| {
-            let doc = cache.open(&pdf_path).map_err(|e| e.to_string())?;
-            Ok(rotero_pdf::document_markdown(&doc))
-        })
-        .await
-    }
-
     /// List embedded figures on a page (metadata only).
     pub async fn list_page_images(
         &self,

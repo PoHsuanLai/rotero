@@ -202,13 +202,38 @@ impl Database {
 
     /// Return the total number of papers in the library.
     pub async fn count_papers(&self) -> Result<u32, crate::DbError> {
+        self.count_sql(queries::PAPER_COUNT).await
+    }
+
+    /// Return the number of unread papers.
+    pub async fn count_unread(&self) -> Result<u32, crate::DbError> {
+        self.count_sql(queries::PAPER_COUNT_UNREAD).await
+    }
+
+    /// Return the number of favorited papers.
+    pub async fn count_favorites(&self) -> Result<u32, crate::DbError> {
+        self.count_sql(queries::PAPER_COUNT_FAVORITES).await
+    }
+
+    /// Fetch a single paper by its unique ID.
+    pub async fn get_paper_by_id(&self, id: &str) -> Result<Option<Paper>, crate::DbError> {
+        let papers = self.get_papers_by_ids(&[id.to_string()]).await?;
+        Ok(papers.into_iter().next())
+    }
+
+    /// Retrieved extracted full text of a paper's PDF, if stored.
+    pub async fn get_paper_fulltext(&self, paper_id: &str) -> Result<Option<String>, crate::DbError> {
         let conn = self.conn();
-        let mut rows = conn.query(queries::PAPER_COUNT, ()).await?;
-        let row = rows
-            .next()
-            .await?
-            .ok_or(turso::Error::QueryReturnedNoRows)?;
-        Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0) as u32)
+        let mut rows = conn
+            .query(
+                queries::PAPER_SELECT_FULLTEXT,
+                [Value::Text(paper_id.to_string())],
+            )
+            .await?;
+        match rows.next().await? {
+            Some(row) => Ok(crate::get_opt_text(&row, 0)),
+            None => Ok(None),
+        }
     }
 
     /// Search papers. If the query parses as an identifier (DOI, arXiv id, …), a

@@ -39,7 +39,7 @@ impl AgentChannel {
 fn get_active_paper_id(lib_state: &LibraryState, tab_mgr: &PdfTabManager) -> Option<String> {
     tab_mgr
         .active_tab_id
-        .and_then(|tid| tab_mgr.tabs.iter().find(|t| t.id == tid))
+        .and_then(|tid| tab_mgr.get(tid))
         .and_then(|t| t.paper_id.clone())
         .or_else(|| lib_state.single_selected_id().cloned())
 }
@@ -155,7 +155,7 @@ pub(crate) fn current_subject(
 ) -> Option<ChatSubject> {
     if let Some(paper_id) = tab_mgr
         .active_tab_id
-        .and_then(|tid| tab_mgr.tabs.iter().find(|t| t.id == tid))
+        .and_then(|tid| tab_mgr.get(tid))
         .and_then(|t| t.paper_id.clone())
     {
         return Some(ChatSubject::Paper(paper_id));

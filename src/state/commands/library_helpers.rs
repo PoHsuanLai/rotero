@@ -30,6 +30,53 @@ pub async fn refresh_papers_and_duplicates(db: &Database, lib_state: &mut Signal
     refresh_duplicates(db, lib_state).await;
 }
 
+/// Apply favorite and/or read flags to `ids` in the DB and the in-memory list.
+///
+/// Single-item callers pass a toggled value; multi-item callers pass `true`.
+/// `report` surfaces DB errors via [`LibraryState::report_error`]; keybindings
+/// pass `false` and swallow them.
+pub fn set_paper_flags(
+    db: Database,
+    mut lib_state: Signal<LibraryState>,
+    ids: Vec<String>,
+    favorite: Option<bool>,
+    read: Option<bool>,
+    report: bool,
+) {
+    spawn(async move {
+        for pid in &ids {
+            if let Some(fav) = favorite
+                && let Err(e) = db.set_favorite(pid, fav).await
+                && report
+            {
+                lib_state.with_mut(|s| {
+                    s.report_error(format!("Could not update the favourite flag: {e}"))
+                });
+            }
+            if let Some(is_read) = read
+                && let Err(e) = db.set_read(pid, is_read).await
+                && report
+            {
+                lib_state.with_mut(|s| {
+                    s.report_error(format!("Could not update the read flag: {e}"))
+                });
+            }
+        }
+        lib_state.with_mut(|s| {
+            for pid in &ids {
+                if let Some(p) = s.paper_mut(pid) {
+                    if let Some(fav) = favorite {
+                        p.status.is_favorite = fav;
+                    }
+                    if let Some(is_read) = read {
+                        p.status.is_read = is_read;
+                    }
+                }
+            }
+        });
+    });
+}
+
 /// Open a PDF in the tab manager, switch to the viewer, and record the access time.
 /// Consolidates the open-PDF sequence used across multiple UI components.
 #[allow(clippy::too_many_arguments)]

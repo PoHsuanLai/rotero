@@ -398,8 +398,8 @@ pub fn file_modified_time(path: &Path) -> Option<std::time::SystemTime> {
 /// Make a file readable only by its owner, where the platform has the concept.
 ///
 /// `config.json` holds `agent_api_keys` in plaintext and `fs::write` creates it
-/// world-readable.
-fn restrict_permissions(path: &Path) {
+/// world-readable. The debug log is the same class of file.
+pub(crate) fn restrict_permissions(path: &Path) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

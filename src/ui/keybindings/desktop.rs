@@ -968,7 +968,7 @@ fn action_delete_selected(mut lib_state: Signal<LibraryState>) {
     }
 }
 
-fn action_toggle_favorite_selected(mut lib_state: Signal<LibraryState>, db: Database) {
+fn action_toggle_favorite_selected(lib_state: Signal<LibraryState>, db: Database) {
     let ids: Vec<String> = lib_state
         .read()
         .selected_paper_ids
@@ -990,25 +990,12 @@ fn action_toggle_favorite_selected(mut lib_state: Signal<LibraryState>, db: Data
     } else {
         true
     };
-    spawn(async move {
-        for pid in &ids {
-            let _ = db.set_favorite(pid, new_val).await;
-        }
-        lib_state.with_mut(|s| {
-            for pid in &ids {
-                if let Some(p) = s
-                    .papers
-                    .iter_mut()
-                    .find(|p| p.id.as_deref() == Some(pid.as_str()))
-                {
-                    p.status.is_favorite = new_val;
-                }
-            }
-        });
-    });
+    crate::state::commands::set_paper_flags(
+        db, lib_state, ids, Some(new_val), None, false,
+    );
 }
 
-fn action_toggle_read_selected(mut lib_state: Signal<LibraryState>, db: Database) {
+fn action_toggle_read_selected(lib_state: Signal<LibraryState>, db: Database) {
     let ids: Vec<String> = lib_state
         .read()
         .selected_paper_ids
@@ -1029,22 +1016,9 @@ fn action_toggle_read_selected(mut lib_state: Signal<LibraryState>, db: Database
     } else {
         true
     };
-    spawn(async move {
-        for pid in &ids {
-            let _ = db.set_read(pid, new_val).await;
-        }
-        lib_state.with_mut(|s| {
-            for pid in &ids {
-                if let Some(p) = s
-                    .papers
-                    .iter_mut()
-                    .find(|p| p.id.as_deref() == Some(pid.as_str()))
-                {
-                    p.status.is_read = new_val;
-                }
-            }
-        });
-    });
+    crate::state::commands::set_paper_flags(
+        db, lib_state, ids, None, Some(new_val), false,
+    );
 }
 
 /// All the state a command might need to run. Bundling it lets `dispatch` have a

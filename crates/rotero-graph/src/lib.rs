@@ -189,7 +189,7 @@ pub fn build_and_simulate(
                 .cloned()
                 .unwrap_or_else(|| "#6b7280".to_string());
 
-            let label = truncate_title(&paper.title, 30);
+            let label = rotero_models::truncate_chars(&paper.title, 30);
 
             Some(GraphNode {
                 id: pid.to_string(),
@@ -217,16 +217,4 @@ pub fn build_and_simulate(
         .collect();
 
     GraphData { nodes, links }
-}
-
-fn truncate_title(title: &str, max: usize) -> String {
-    if title.len() <= max {
-        return title.to_string();
-    }
-    // Truncate at char boundary
-    let mut end = max - 3;
-    while !title.is_char_boundary(end) && end > 0 {
-        end -= 1;
-    }
-    format!("{}...", &title[..end])
 }

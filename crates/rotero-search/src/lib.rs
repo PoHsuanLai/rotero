@@ -51,6 +51,40 @@ pub(crate) fn base_url(env_var: &str, default: &str) -> String {
         .unwrap_or_else(|| default.to_string())
 }
 
+/// GET `url`, mapping transport errors to `"{label} request failed"`.
+pub(crate) async fn send_get(url: &str, label: &str) -> Result<reqwest::Response, String> {
+    shared_client()
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("{label} request failed: {e}"))
+}
+
+/// GET `url` and read the body as text. Non-success HTTP is an error.
+pub(crate) async fn get_text(url: &str, label: &str) -> Result<String, String> {
+    let resp = send_get(url, label).await?;
+    if !resp.status().is_success() {
+        return Err(format!("{label} API returned status {}", resp.status()));
+    }
+    resp.text()
+        .await
+        .map_err(|e| format!("Failed to read {label} response: {e}"))
+}
+
+/// GET `url` and deserialize JSON. Non-success HTTP is an error.
+pub(crate) async fn get_json<T: serde::de::DeserializeOwned>(
+    url: &str,
+    label: &str,
+) -> Result<T, String> {
+    let resp = send_get(url, label).await?;
+    if !resp.status().is_success() {
+        return Err(format!("{label} API returned status {}", resp.status()));
+    }
+    resp.json()
+        .await
+        .map_err(|e| format!("Failed to parse {label} response: {e}"))
+}
+
 /// Returns the shared HTTP client, initializing it on first call.
 pub fn shared_client() -> &'static reqwest::Client {
     SHARED_CLIENT.get_or_init(|| {

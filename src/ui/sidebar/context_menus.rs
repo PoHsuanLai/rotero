@@ -140,14 +140,7 @@ pub fn SidebarTagContextMenu(
     let mut renaming = use_signal(|| false);
     let mut rename_value = use_signal(|| tag_name.clone());
 
-    let colors = [
-        ("#ffff00", "Yellow"),
-        ("#ff6b6b", "Red"),
-        ("#51cf66", "Green"),
-        ("#339af0", "Blue"),
-        ("#cc5de8", "Purple"),
-        ("#ff922b", "Orange"),
-    ];
+    let colors = crate::ui::pdf::SELECTION_COLORS;
 
     rsx! {
         if renaming() {

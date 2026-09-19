@@ -14,22 +14,7 @@ pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, Stri
         urlencoding::encode(query)
     );
 
-    let client = crate::shared_client();
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("arXiv request failed: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("arXiv API returned status {}", resp.status()));
-    }
-
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| format!("Failed to read arXiv response: {e}"))?;
-
+    let body = crate::get_text(&url, "arXiv").await?;
     parse_arxiv_entries(&body)
 }
 
@@ -73,21 +58,7 @@ pub async fn fetch_by_arxiv_id(arxiv_id: &str) -> Result<Paper, String> {
     let arxiv_api = arxiv_api_url();
     let url = format!("{arxiv_api}?id_list={}", urlencoding::encode(arxiv_id));
 
-    let client = crate::shared_client();
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("arXiv request failed: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("arXiv API returned status {}", resp.status()));
-    }
-
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| format!("Failed to read arXiv response: {e}"))?;
+    let body = crate::get_text(&url, "arXiv").await?;
     parse_arxiv_atom(&body, arxiv_id)
 }
 

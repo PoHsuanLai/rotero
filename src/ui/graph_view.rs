@@ -124,7 +124,7 @@ pub fn GraphView() -> Element {
                     .iter()
                     .find(|p| p.id.as_deref() == Some(node.id.as_str()))
                 {
-                    node.label = crate::ui::truncate_text(&paper.title, 25);
+                    node.label = rotero_models::truncate_chars(&paper.title, 25);
                 }
             }
 

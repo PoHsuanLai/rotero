@@ -141,16 +141,9 @@ pub fn PaperCard(
                         let db = db_for_fav.clone();
                         let new_val = !is_fav;
                         let pid = pid.clone();
-                        spawn(async move {
-                            if let Ok(()) = db.set_favorite(&pid, new_val).await {
-                                let pid2 = pid.clone();
-                                lib_state.with_mut(|s| {
-                                    if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
-                                        p.status.is_favorite = new_val;
-                                    }
-                                });
-                            }
-                        });
+                        crate::state::commands::set_paper_flags(
+                            db, lib_state, vec![pid], Some(new_val), None, false,
+                        );
                     }},
                     i { class: if is_fav { "bi bi-star-fill" } else { "bi bi-star" } }
                 }

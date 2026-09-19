@@ -248,6 +248,12 @@ pub const GRAPH_ALL_PAPER_COLLECTIONS: &str =
 /// Fetch all directed citation edges (citing → cited) for the graph.
 pub const GRAPH_ALL_CITATIONS: &str =
     "SELECT citing_paper_id, cited_paper_id FROM paper_citations_live";
+/// Papers that `citing_paper_id` cites.
+pub const GRAPH_CITED_BY_PAPER: &str =
+    "SELECT cited_paper_id FROM paper_citations_live WHERE citing_paper_id = ?1";
+/// Papers that cite `cited_paper_id`.
+pub const GRAPH_CITING_PAPER: &str =
+    "SELECT citing_paper_id FROM paper_citations_live WHERE cited_paper_id = ?1";
 /// Upsert one citation edge; ignore if it already exists.
 pub const CITATION_INSERT: &str =
     "INSERT OR IGNORE INTO paper_citations (citing_paper_id, cited_paper_id) VALUES (?1, ?2)";

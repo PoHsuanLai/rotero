@@ -75,6 +75,11 @@ impl Database {
         Ok(uuid)
     }
 
+    /// Return the total number of tags.
+    pub async fn count_tags(&self) -> Result<u32, crate::DbError> {
+        self.count_sql(queries::TAG_COUNT).await
+    }
+
     /// List all tags.
     pub async fn list_tags(&self) -> Result<Vec<Tag>, crate::DbError> {
         let conn = self.conn();

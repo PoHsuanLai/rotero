@@ -22,14 +22,7 @@ const BATCH_OPTIONS: &[(u32, &str)] = &[
     (20, "20 pages"),
 ];
 
-const SELECTION_COLORS: &[(&str, &str)] = &[
-    ("#ffff00", "Yellow"),
-    ("#ff6b6b", "Red"),
-    ("#51cf66", "Green"),
-    ("#339af0", "Blue"),
-    ("#cc5de8", "Purple"),
-    ("#ff922b", "Orange"),
-];
+
 
 #[component]
 pub fn PdfViewerSection() -> Element {
@@ -68,7 +61,7 @@ pub fn PdfViewerSection() -> Element {
 
             SettingsField { label: "Selection color",
                 div { class: "settings-color-picker",
-                    for (color, _name) in SELECTION_COLORS.iter() {
+                    for (color, _name) in crate::ui::pdf::SELECTION_COLORS.iter() {
                         {
                             let c = color.to_string();
                             let c2 = c.clone();

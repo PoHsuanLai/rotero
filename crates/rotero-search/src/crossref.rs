@@ -51,21 +51,7 @@ pub async fn fetch_by_doi(doi: &str) -> Result<Paper, String> {
     let crossref_api = crossref_api_url();
     let url = format!("{crossref_api}/{doi}");
 
-    let client = crate::shared_client();
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("HTTP request failed: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("CrossRef API returned status {}", resp.status()));
-    }
-
-    let data: CrossRefResponse = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse CrossRef response: {e}"))?;
+    let data: CrossRefResponse = crate::get_json(&url, "CrossRef").await?;
 
     let work = data.message;
 

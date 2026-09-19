@@ -4,6 +4,28 @@ use super::{AnnCtxState, PageSpace};
 use crate::state::app_state::AnnotationContextInfo;
 use rotero_models::{Annotation, AnnotationType};
 
+fn annotation_on_context(
+    mut ann_ctx: AnnCtxState,
+    ann_id: String,
+    ann_type: AnnotationType,
+    page: i32,
+    color: String,
+    content: String,
+) -> impl FnMut(Event<MouseData>) {
+    move |evt: Event<MouseData>| {
+        evt.prevent_default();
+        ann_ctx.set(Some(AnnotationContextInfo {
+            annotation_id: ann_id.clone(),
+            ann_type,
+            page,
+            color: color.clone(),
+            content: content.clone(),
+            x: evt.client_coordinates().x,
+            y: evt.client_coordinates().y,
+        }));
+    }
+}
+
 fn stored_page_size(geometry: &serde_json::Value) -> (f64, f64) {
     let w = geometry
         .get("page_width")
@@ -102,7 +124,7 @@ fn display_markup_rects(
 
 pub(crate) fn render_annotation(
     ann: &Annotation,
-    mut ann_ctx: AnnCtxState,
+    ann_ctx: AnnCtxState,
     space: PageSpace,
 ) -> Element {
     let stored = stored_page_size(&ann.geometry);
@@ -134,22 +156,14 @@ pub(crate) fn render_annotation(
     let content = ann.content.clone().unwrap_or_default();
     let color_for_ctx = color.clone();
 
-    let on_context = {
-        let ann_id = ann_id.clone();
-        let content_for_ctx = content.clone();
-        move |evt: Event<MouseData>| {
-            evt.prevent_default();
-            ann_ctx.set(Some(AnnotationContextInfo {
-                annotation_id: ann_id.clone(),
-                ann_type,
-                page,
-                color: color_for_ctx.clone(),
-                content: content_for_ctx.clone(),
-                x: evt.client_coordinates().x,
-                y: evt.client_coordinates().y,
-            }));
-        }
-    };
+    let on_context = annotation_on_context(
+        ann_ctx,
+        ann_id.clone(),
+        ann_type,
+        page,
+        color_for_ctx,
+        content.clone(),
+    );
 
     match ann.ann_type {
         AnnotationType::Highlight => {
@@ -157,23 +171,14 @@ pub(crate) fn render_annotation(
             rsx! {
                 for (ri, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
                     {
-                        let on_context = {
-                            let ann_id = ann_id.clone();
-                            let color_for_ctx = color.clone();
-                            let content = content.clone();
-                            move |evt: Event<MouseData>| {
-                                evt.prevent_default();
-                                ann_ctx.set(Some(AnnotationContextInfo {
-                                    annotation_id: ann_id.clone(),
-                                    ann_type,
-                                    page,
-                                    color: color_for_ctx.clone(),
-                                    content: content.clone(),
-                                    x: evt.client_coordinates().x,
-                                    y: evt.client_coordinates().y,
-                                }));
-                            }
-                        };
+                        let on_context = annotation_on_context(
+                            ann_ctx,
+                            ann_id.clone(),
+                            ann_type,
+                            page,
+                            color.clone(),
+                            content.clone(),
+                        );
                         rsx! {
                             div {
                                 key: "ann-{ann_id}-{ri}",
@@ -200,23 +205,14 @@ pub(crate) fn render_annotation(
             rsx! {
                 for (ri, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
                     {
-                        let on_context = {
-                            let ann_id = ann_id.clone();
-                            let color_for_ctx = color.clone();
-                            let content = content.clone();
-                            move |evt: Event<MouseData>| {
-                                evt.prevent_default();
-                                ann_ctx.set(Some(AnnotationContextInfo {
-                                    annotation_id: ann_id.clone(),
-                                    ann_type,
-                                    page,
-                                    color: color_for_ctx.clone(),
-                                    content: content.clone(),
-                                    x: evt.client_coordinates().x,
-                                    y: evt.client_coordinates().y,
-                                }));
-                            }
-                        };
+                        let on_context = annotation_on_context(
+                            ann_ctx,
+                            ann_id.clone(),
+                            ann_type,
+                            page,
+                            color.clone(),
+                            content.clone(),
+                        );
                         rsx! {
                             div {
                                 key: "ann-{ann_id}-u-{ri}",
@@ -233,23 +229,14 @@ pub(crate) fn render_annotation(
             rsx! {
                 for (ri, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
                     {
-                        let on_context = {
-                            let ann_id = ann_id.clone();
-                            let color_for_ctx = color.clone();
-                            let content = content.clone();
-                            move |evt: Event<MouseData>| {
-                                evt.prevent_default();
-                                ann_ctx.set(Some(AnnotationContextInfo {
-                                    annotation_id: ann_id.clone(),
-                                    ann_type,
-                                    page,
-                                    color: color_for_ctx.clone(),
-                                    content: content.clone(),
-                                    x: evt.client_coordinates().x,
-                                    y: evt.client_coordinates().y,
-                                }));
-                            }
-                        };
+                        let on_context = annotation_on_context(
+                            ann_ctx,
+                            ann_id.clone(),
+                            ann_type,
+                            page,
+                            color.clone(),
+                            content.clone(),
+                        );
                         let mid = ry + rh / 2.0;
                         rsx! {
                             div {
@@ -267,23 +254,14 @@ pub(crate) fn render_annotation(
             rsx! {
                 for (ri, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
                     {
-                        let on_context = {
-                            let ann_id = ann_id.clone();
-                            let color_for_ctx = color.clone();
-                            let content = content.clone();
-                            move |evt: Event<MouseData>| {
-                                evt.prevent_default();
-                                ann_ctx.set(Some(AnnotationContextInfo {
-                                    annotation_id: ann_id.clone(),
-                                    ann_type,
-                                    page,
-                                    color: color_for_ctx.clone(),
-                                    content: content.clone(),
-                                    x: evt.client_coordinates().x,
-                                    y: evt.client_coordinates().y,
-                                }));
-                            }
-                        };
+                        let on_context = annotation_on_context(
+                            ann_ctx,
+                            ann_id.clone(),
+                            ann_type,
+                            page,
+                            color.clone(),
+                            content.clone(),
+                        );
                         // Same attachment as Underline (bottom of loose em-box).
                         // Prefer CSS `wavy` over an SVG path: WebView's default
                         // SVG viewport made path coords unreadable / invisible.

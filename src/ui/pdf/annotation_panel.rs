@@ -4,18 +4,18 @@ use super::super::components::context_menu::{ContextMenu, ContextMenuItem, Conte
 use super::AnnCtxState;
 use crate::state::app_state::{AnnotationContextInfo, PdfTabManager, TabId};
 use rotero_db::Database;
-use rotero_models::AnnotationType;
+use rotero_models::{Annotation, AnnotationType};
 
 #[component]
 pub(crate) fn AnnotationPanel(tab_id: TabId) -> Element {
-    let mut tabs = use_context::<Signal<PdfTabManager>>();
+    let tabs = use_context::<Signal<PdfTabManager>>();
     let db = use_context::<Database>();
-    let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
-    let mut ann_ctx = use_context::<AnnCtxState>();
     let (annotations, page_labels) = {
         let mgr = tabs.read();
-        let tab = mgr.tab();
-        (tab.annotations.clone(), tab.page_labels.clone())
+        match mgr.get(tab_id) {
+            Some(tab) => (tab.annotations.clone(), tab.page_labels.clone()),
+            None => (Vec::new(), Vec::new()),
+        }
     };
 
     rsx! {
@@ -47,16 +47,7 @@ pub(crate) fn AnnotationPanel(tab_id: TabId) -> Element {
                                                     body.push_str(&format!("## Page {}\n", ann.page + 1));
                                                     current_page = Some(ann.page);
                                                 }
-                                                let type_label = match ann.ann_type {
-                                                    rotero_models::AnnotationType::Highlight => "Highlight",
-                                                    rotero_models::AnnotationType::Note => "Note",
-                                                    rotero_models::AnnotationType::Area => "Area",
-                                                    rotero_models::AnnotationType::Underline => "Underline",
-                                                    rotero_models::AnnotationType::StrikeOut => "StrikeOut",
-                                                    rotero_models::AnnotationType::Squiggly => "Squiggly",
-                                                    rotero_models::AnnotationType::Ink => "Ink",
-                                                    rotero_models::AnnotationType::Text => "Text",
-                                                };
+                                                let type_label = ann.ann_type.label();
                                                 let content = ann.content.as_deref().unwrap_or("");
                                                 if content.is_empty() {
                                                     body.push_str(&format!("- [{type_label}] ({}) \n", ann.color));
@@ -82,135 +73,150 @@ pub(crate) fn AnnotationPanel(tab_id: TabId) -> Element {
             } else {
                 div { class: "annotation-panel-list",
                     for ann in annotations.iter() {
-                        {
-                            let ann_id = ann.id.clone().unwrap_or_default();
-                            let page = ann.page;
-                            let color = ann.color.clone();
-                            let ann_type = ann.ann_type;
-                            let content = ann.content.clone().unwrap_or_default();
-                            let mut editing = use_signal(|| false);
-                            let mut edit_value = use_signal(|| content.clone());
-                            let db_for_delete = db.clone();
-                            let db_for_save = db.clone();
-                            let type_label = match ann_type {
-                                AnnotationType::Highlight => "Highlight",
-                                AnnotationType::Note => "Note",
-                                AnnotationType::Area => "Area",
-                                AnnotationType::Underline => "Underline",
-                                AnnotationType::StrikeOut => "StrikeOut",
-                                AnnotationType::Squiggly => "Squiggly",
-                                AnnotationType::Ink => "Ink",
-                                AnnotationType::Text => "Text",
-                            };
-                            let ctx_color = color.clone();
-                            let ctx_content = content.clone();
-                            let aid_ctx = ann_id.clone();
-                            let aid_del = ann_id.clone();
-                            let aid_save = ann_id.clone();
-                            rsx! {
-                                div {
-                                    key: "panel-ann-{ann_id}",
-                                    class: "annotation-item",
-                                    style: "border-left-color: {color};",
-                                    oncontextmenu: move |evt: Event<MouseData>| {
-                                        evt.prevent_default();
-                                        ann_ctx.set(Some(AnnotationContextInfo {
-                                            annotation_id: aid_ctx.clone(),
-                                            ann_type,
-                                            page,
-                                            color: ctx_color.clone(),
-                                            content: ctx_content.clone(),
-                                            x: evt.client_coordinates().x,
-                                            y: evt.client_coordinates().y,
-                                        }));
-                                    },
-                                    div { class: "annotation-item-header",
-                                        div { class: "annotation-item-meta",
-                                            div { class: "annotation-color-dot", style: "background: {color};" }
-                                            span { class: "annotation-type-label", "{type_label}" }
-                                            {
-                                                let label = rotero_pdf::display_page_number(&page_labels, page as u32);
-                                                rsx! { span { class: "annotation-page-label", "p.{label}" } }
-                                            }
-                                        }
-                                        button {
-                                            class: "btn--danger-sm",
-                                            onclick: move |_| {
-                                                let db = db_for_delete.clone();
-                                                let aid = aid_del.clone();
-                                                let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id.as_deref() == Some(aid.as_str())).cloned();
-                                                let aid2 = aid.clone();
-                                                spawn(async move {
-                                                    if let Ok(()) = db.delete_annotation(&aid).await {
-                                                        if let Some(ann) = deleted_ann {
-                                                            undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Delete(ann)));
-                                                        }
-                                                        let aid3 = aid2.clone();
-                                                        tabs.with_mut(|m| m.tab_mut().annotations.retain(|a| a.id.as_deref() != Some(aid3.as_str())));
-                                                    }
-                                                });
-                                            },
-                                            "x"
-                                        }
-                                    }
-                                    if ann_type == AnnotationType::Note {
-                                        if editing() {
-                                            div { class: "annotation-edit-area",
-                                                textarea {
-                                                    class: "textarea",
-                                                    value: "{edit_value}",
-                                                    onfocusin: crate::ui::keybindings::editable_focus_in,
-                                                    onfocusout: crate::ui::keybindings::editable_focus_out,
-                                                    oninput: move |evt| edit_value.set(evt.value()),
-                                                }
-                                                div { class: "annotation-edit-actions",
-                                                    button {
-                                                        class: "btn--save-sm",
-                                                        onclick: move |_| {
-                                                            let new_content = edit_value();
-                                                            let old_content = content.clone();
-                                                            let db = db_for_save.clone();
-                                                            let nc = new_content.clone();
-                                                            let aid = aid_save.clone();
-                                                            spawn(async move {
-                                                                let opt = if nc.is_empty() { None } else { Some(nc.as_str()) };
-                                                                if let Ok(()) = db.update_annotation_content(&aid, opt).await {
-                                                                    let old = if old_content.is_empty() { None } else { Some(old_content) };
-                                                                    let new = if new_content.is_empty() { None } else { Some(new_content.clone()) };
-                                                                    let aid2 = aid.clone();
-                                                                    undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::UpdateContent { id: aid2, old, new }));
-                                                                    let aid3 = aid.clone();
-                                                                    tabs.with_mut(|m| {
-                                                                        if let Some(a) = m.tab_mut().annotations.iter_mut().find(|a| a.id.as_deref() == Some(aid3.as_str())) {
-                                                                            a.content = if new_content.is_empty() { None } else { Some(new_content.clone()) };
-                                                                        }
-                                                                    });
-                                                                }
-                                                                editing.set(false);
-                                                            });
-                                                        },
-                                                        "Save"
-                                                    }
-                                                    button { class: "btn--cancel-sm", onclick: move |_| editing.set(false), "Cancel" }
-                                                }
-                                            }
-                                        } else {
-                                            div {
-                                                class: "annotation-note-content",
-                                                onclick: move |_| { edit_value.set(content.clone()); editing.set(true); },
-                                                if content.is_empty() {
-                                                    span { class: "annotation-note-empty", "Click to add note..." }
-                                                } else { "{content}" }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                        AnnotationItem {
+                            key: "panel-ann-{ann.id.clone().unwrap_or_default()}",
+                            ann: ann.clone(),
+                            page_labels: page_labels.clone(),
                         }
                     }
                 }
             }
 
+        }
+    }
+}
+
+fn delete_annotation(
+    db: Database,
+    mut tabs: Signal<PdfTabManager>,
+    mut undo_stack: Signal<crate::state::undo::UndoStack>,
+    aid: String,
+) {
+    let deleted_ann = tabs
+        .read()
+        .tab()
+        .annotations
+        .iter()
+        .find(|a| a.id.as_deref() == Some(aid.as_str()))
+        .cloned();
+    spawn(async move {
+        if let Ok(()) = db.delete_annotation(&aid).await {
+            if let Some(ann) = deleted_ann {
+                undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Delete(ann)));
+            }
+            tabs.with_mut(|m| {
+                m.tab_mut()
+                    .annotations
+                    .retain(|a| a.id.as_deref() != Some(aid.as_str()))
+            });
+        }
+    });
+}
+
+#[component]
+fn AnnotationItem(ann: Annotation, page_labels: Vec<Option<String>>) -> Element {
+    let mut tabs = use_context::<Signal<PdfTabManager>>();
+    let db = use_context::<Database>();
+    let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
+    let mut ann_ctx = use_context::<AnnCtxState>();
+
+    let ann_id = ann.id.clone().unwrap_or_default();
+    let page = ann.page;
+    let color = ann.color.clone();
+    let ann_type = ann.ann_type;
+    let content = ann.content.clone().unwrap_or_default();
+    let mut editing = use_signal(|| false);
+    let mut edit_value = use_signal(|| content.clone());
+    let type_label = ann_type.label();
+    let ctx_color = color.clone();
+    let ctx_content = content.clone();
+    let aid_ctx = ann_id.clone();
+    let aid_del = ann_id.clone();
+    let aid_save = ann_id.clone();
+    let db_for_save = db.clone();
+
+    rsx! {
+        div {
+            class: "annotation-item",
+            style: "border-left-color: {color};",
+            oncontextmenu: move |evt: Event<MouseData>| {
+                evt.prevent_default();
+                ann_ctx.set(Some(AnnotationContextInfo {
+                    annotation_id: aid_ctx.clone(),
+                    ann_type,
+                    page,
+                    color: ctx_color.clone(),
+                    content: ctx_content.clone(),
+                    x: evt.client_coordinates().x,
+                    y: evt.client_coordinates().y,
+                }));
+            },
+            div { class: "annotation-item-header",
+                div { class: "annotation-item-meta",
+                    div { class: "annotation-color-dot", style: "background: {color};" }
+                    span { class: "annotation-type-label", "{type_label}" }
+                    {
+                        let label = rotero_pdf::display_page_number(&page_labels, page as u32);
+                        rsx! { span { class: "annotation-page-label", "p.{label}" } }
+                    }
+                }
+                button {
+                    class: "btn--danger-sm",
+                    onclick: move |_| {
+                        delete_annotation(db.clone(), tabs, undo_stack, aid_del.clone());
+                    },
+                    "x"
+                }
+            }
+            if ann_type == AnnotationType::Note {
+                if editing() {
+                    div { class: "annotation-edit-area",
+                        textarea {
+                            class: "textarea",
+                            value: "{edit_value}",
+                            onfocusin: crate::ui::keybindings::editable_focus_in,
+                            onfocusout: crate::ui::keybindings::editable_focus_out,
+                            oninput: move |evt| edit_value.set(evt.value()),
+                        }
+                        div { class: "annotation-edit-actions",
+                            button {
+                                class: "btn--save-sm",
+                                onclick: move |_| {
+                                    let new_content = edit_value();
+                                    let old_content = content.clone();
+                                    let db = db_for_save.clone();
+                                    let nc = new_content.clone();
+                                    let aid = aid_save.clone();
+                                    spawn(async move {
+                                        let opt = if nc.is_empty() { None } else { Some(nc.as_str()) };
+                                        if let Ok(()) = db.update_annotation_content(&aid, opt).await {
+                                            let old = if old_content.is_empty() { None } else { Some(old_content) };
+                                            let new = if new_content.is_empty() { None } else { Some(new_content.clone()) };
+                                            undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::UpdateContent { id: aid.clone(), old, new }));
+                                            tabs.with_mut(|m| {
+                                                if let Some(a) = m.tab_mut().annotations.iter_mut().find(|a| a.id.as_deref() == Some(aid.as_str())) {
+                                                    a.content = if new_content.is_empty() { None } else { Some(new_content.clone()) };
+                                                }
+                                            });
+                                        }
+                                        editing.set(false);
+                                    });
+                                },
+                                "Save"
+                            }
+                            button { class: "btn--cancel-sm", onclick: move |_| editing.set(false), "Cancel" }
+                        }
+                    }
+                } else {
+                    div {
+                        class: "annotation-note-content",
+                        onclick: move |_| { edit_value.set(content.clone()); editing.set(true); },
+                        if content.is_empty() {
+                            span { class: "annotation-note-empty", "Click to add note..." }
+                        } else { "{content}" }
+                    }
+                }
+            }
         }
     }
 }
@@ -238,14 +244,7 @@ pub(crate) fn AnnotationContextMenu() -> Element {
     let ctx_ann_id_del = ctx_ann_id.clone();
     let db_color = db.clone();
     let db_delete = db.clone();
-    let colors = [
-        ("#ffff00", "Yellow"),
-        ("#ff6b6b", "Red"),
-        ("#51cf66", "Green"),
-        ("#339af0", "Blue"),
-        ("#cc5de8", "Purple"),
-        ("#ff922b", "Orange"),
-    ];
+    let colors = super::SELECTION_COLORS;
 
     rsx! {
         ContextMenu {
@@ -343,19 +342,7 @@ pub(crate) fn AnnotationContextMenu() -> Element {
                 on_click: {
                     let aid = ctx_ann_id_del.clone();
                     move |_| {
-                        let db = db_delete.clone();
-                        let aid = aid.clone();
-                        let deleted_ann = tabs.read().tab().annotations.iter().find(|a| a.id.as_deref() == Some(aid.as_str())).cloned();
-                        let aid2 = aid.clone();
-                        spawn(async move {
-                            if let Ok(()) = db.delete_annotation(&aid).await {
-                                if let Some(ann) = deleted_ann {
-                                    undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Delete(ann)));
-                                }
-                                let aid3 = aid2.clone();
-                                tabs.with_mut(|m| m.tab_mut().annotations.retain(|a| a.id.as_deref() != Some(aid3.as_str())));
-                            }
-                        });
+                        delete_annotation(db_delete.clone(), tabs, undo_stack, aid.clone());
                         ann_ctx.set(None);
                     }
                 },

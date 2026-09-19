@@ -383,20 +383,7 @@ pub fn LibraryPanel() -> Element {
                             if filtered.is_empty() {
                                 div { class: "search-section-empty", "No matches in your library." }
                             } else {
-                                for paper in filtered.iter() {
-                                    {
-                                        let paper_id = paper.id.clone().unwrap_or_default();
-                                        let selected = state.is_selected(&paper_id);
-                                        rsx! {
-                                            super::paper_card::PaperCard {
-                                                key: "{paper_id}",
-                                                paper: paper.clone(),
-                                                selected,
-                                                ctx_menu,
-                                            }
-                                        }
-                                    }
-                                }
+                                PaperCardList { papers: filtered.clone(), ctx_menu }
                             }
                         }
                     }
@@ -417,20 +404,7 @@ pub fn LibraryPanel() -> Element {
                     } else if let Some(ref groups) = duplicate_groups {
                         DuplicatesView { groups: groups.clone() }
                     } else {
-                        for paper in filtered.iter() {
-                            {
-                                let paper_id = paper.id.clone().unwrap_or_default();
-                                let selected = state.is_selected(&paper_id);
-                                rsx! {
-                                    super::paper_card::PaperCard {
-                                        key: "{paper_id}",
-                                        paper: paper.clone(),
-                                        selected,
-                                        ctx_menu,
-                                    }
-                                }
-                            }
-                        }
+                        PaperCardList { papers: filtered.clone(), ctx_menu }
                     }
                 }
             }
@@ -492,6 +466,30 @@ pub fn LibraryPanel() -> Element {
                                 lib_state.with_mut(|s| s.confirm_delete = None);
                             },
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn PaperCardList(
+    papers: Vec<rotero_models::Paper>,
+    ctx_menu: Signal<Option<(String, f64, f64)>>,
+) -> Element {
+    let lib_state = use_context::<Signal<LibraryState>>();
+    rsx! {
+        for paper in papers.iter() {
+            {
+                let paper_id = paper.id.clone().unwrap_or_default();
+                let selected = lib_state.read().is_selected(&paper_id);
+                rsx! {
+                    super::paper_card::PaperCard {
+                        key: "{paper_id}",
+                        paper: paper.clone(),
+                        selected,
+                        ctx_menu,
                     }
                 }
             }

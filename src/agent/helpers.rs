@@ -76,7 +76,6 @@ pub(crate) fn wait_for_switch_or_shutdown(req_rx: &mpsc::Receiver<ChatRequest>) 
             Ok(ChatRequest::SwitchAgent { provider_id }) => {
                 return LoopResult::SwitchAgent(provider_id);
             }
-            Ok(ChatRequest::Shutdown) => return LoopResult::Shutdown,
             Err(_) => return LoopResult::Shutdown,
             _ => {}
         }

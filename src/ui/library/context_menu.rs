@@ -272,29 +272,14 @@ pub fn PaperContextMenu(
                 on_click: move |_| {
                     let db = db_fav.clone();
                     let pids = pids_fav.clone();
-                    spawn(async move {
-                        let state = lib_state.read();
-                        // For single: toggle. For multi: always set favorite.
-                        let new_val = if pids.len() == 1 {
-                            !state.papers.iter().find(|p| p.id.as_deref() == Some(pids[0].as_str())).map(|p| p.status.is_favorite).unwrap_or(false)
-                        } else {
-                            true
-                        };
-                        drop(state);
-                        for pid in &pids {
-                            if let Err(e) = db.set_favorite(pid, new_val).await {
-                                let mut lib_state = lib_state;
-                                lib_state.with_mut(|s| s.report_error(format!("Could not update the favourite flag: {e}")));
-                            }
-                        }
-                        lib_state.with_mut(|s| {
-                            for pid in &pids {
-                                if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid.as_str())) {
-                                    p.status.is_favorite = new_val;
-                                }
-                            }
-                        });
-                    });
+                    let new_val = if pids.len() == 1 {
+                        !lib_state.read().papers.iter().find(|p| p.id.as_deref() == Some(pids[0].as_str())).map(|p| p.status.is_favorite).unwrap_or(false)
+                    } else {
+                        true
+                    };
+                    crate::state::commands::set_paper_flags(
+                        db, lib_state, pids, Some(new_val), None, true,
+                    );
                 },
             }
 
@@ -305,28 +290,14 @@ pub fn PaperContextMenu(
                 on_click: move |_| {
                     let db = db_read.clone();
                     let pids = pids_read.clone();
-                    spawn(async move {
-                        let state = lib_state.read();
-                        let new_val = if pids.len() == 1 {
-                            !state.papers.iter().find(|p| p.id.as_deref() == Some(pids[0].as_str())).map(|p| p.status.is_read).unwrap_or(false)
-                        } else {
-                            true
-                        };
-                        drop(state);
-                        for pid in &pids {
-                            if let Err(e) = db.set_read(pid, new_val).await {
-                                let mut lib_state = lib_state;
-                                lib_state.with_mut(|s| s.report_error(format!("Could not update the read flag: {e}")));
-                            }
-                        }
-                        lib_state.with_mut(|s| {
-                            for pid in &pids {
-                                if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid.as_str())) {
-                                    p.status.is_read = new_val;
-                                }
-                            }
-                        });
-                    });
+                    let new_val = if pids.len() == 1 {
+                        !lib_state.read().papers.iter().find(|p| p.id.as_deref() == Some(pids[0].as_str())).map(|p| p.status.is_read).unwrap_or(false)
+                    } else {
+                        true
+                    };
+                    crate::state::commands::set_paper_flags(
+                        db, lib_state, pids, None, Some(new_val), true,
+                    );
                 },
             }
 

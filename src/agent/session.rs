@@ -351,7 +351,7 @@ async fn drive_session(
                                     *outcome.lock().unwrap() = Some(LoopResult::SwitchAgent(provider_id));
                                     return Ok(());
                                 }
-                                Ok(ChatRequest::Shutdown) | Err(mpsc::TryRecvError::Disconnected) => {
+                                Err(mpsc::TryRecvError::Disconnected) => {
                                     *outcome.lock().unwrap() = Some(LoopResult::Shutdown);
                                     return Ok(());
                                 }
@@ -542,7 +542,7 @@ async fn drive_session(
                     }
                 }
             }
-            Ok(ChatRequest::Shutdown) | Err(mpsc::TryRecvError::Disconnected) => {
+            Err(mpsc::TryRecvError::Disconnected) => {
                 *outcome.lock().unwrap() = Some(LoopResult::Shutdown);
                 return Ok(());
             }
