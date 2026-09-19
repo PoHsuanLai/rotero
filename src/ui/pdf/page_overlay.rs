@@ -113,6 +113,160 @@ fn click_streak(prev: &mut Option<(std::time::Instant, f64, f64, u8)>, x: f64, y
     count
 }
 
+#[derive(Clone, Copy)]
+struct OverlayPage {
+    index: u32,
+    width: u32,
+    height: u32,
+    display_scale: f64,
+}
+
+fn apply_text_selection(
+    tools: &mut Signal<ViewerToolState>,
+    page_index: u32,
+    markup: Option<rotero_pdf::SelectionMarkup>,
+) {
+    match markup {
+        Some(m) if !m.text.trim().is_empty() => {
+            tools.with_mut(|t| {
+                t.text_selection = Some(PdfTextSelection {
+                    page_index,
+                    line_rects: m.line_rects,
+                    text: m.text,
+                });
+            });
+        }
+        _ => tools.with_mut(|t| t.text_selection = None),
+    }
+}
+
+fn compute_drag_preview_rects(
+    docs: &crate::state::commands::PdfDocs,
+    pdf_path: &str,
+    page: OverlayPage,
+    mode: AnnotationMode,
+    start: Option<(f64, f64)>,
+    current: Option<(f64, f64)>,
+) -> Vec<(f64, f64, f64, f64)> {
+    let selecting_text = mode == AnnotationMode::None;
+    let markup_mode = selecting_text
+        || matches!(
+            mode,
+            AnnotationMode::Highlight
+                | AnnotationMode::Underline
+                | AnnotationMode::StrikeOut
+                | AnnotationMode::Squiggly
+        );
+    if !markup_mode {
+        return Vec::new();
+    }
+    let (Some(start), Some(current)) = (start, current) else {
+        return Vec::new();
+    };
+    let x = start.0.min(current.0);
+    let y = start.1.min(current.1);
+    let w = (start.0 - current.0).abs();
+    let h = (start.1 - current.1).abs();
+    if w * page.display_scale <= 2.0 && h * page.display_scale <= 2.0 {
+        return Vec::new();
+    }
+    if let Some(m) = docs.selection_markup(pdf_path, page.index, page.width, page.height, x, y, w, h)
+    {
+        m.line_rects
+    } else if selecting_text {
+        Vec::new()
+    } else {
+        vec![(x, y, w, h)]
+    }
+}
+
+fn markup_ann_type(mode: AnnotationMode) -> Option<AnnotationType> {
+    match mode {
+        AnnotationMode::Highlight => Some(AnnotationType::Highlight),
+        AnnotationMode::Underline => Some(AnnotationType::Underline),
+        AnnotationMode::StrikeOut => Some(AnnotationType::StrikeOut),
+        AnnotationMode::Squiggly => Some(AnnotationType::Squiggly),
+        _ => None,
+    }
+}
+
+fn finish_markup(
+    docs: &crate::state::commands::PdfDocs,
+    pdf_path: &str,
+    page: OverlayPage,
+    start: (f64, f64),
+    end: (f64, f64),
+    mode: AnnotationMode,
+) -> Option<(AnnotationType, serde_json::Value, Option<String>)> {
+    let at = markup_ann_type(mode)?;
+    let rx = start.0.min(end.0);
+    let ry = start.1.min(end.1);
+    let rw = (start.0 - end.0).abs();
+    let rh = (start.1 - end.1).abs();
+    if rw * page.display_scale < 5.0 && rh * page.display_scale < 5.0 {
+        return None;
+    }
+    let markup = docs.selection_markup(pdf_path, page.index, page.width, page.height, rx, ry, rw, rh);
+    let (geometry, content) = markup_geometry_from_selection(
+        markup.as_ref(),
+        rx,
+        ry,
+        rw,
+        rh,
+        page.width,
+        page.height,
+    );
+    Some((at, geometry, content))
+}
+
+fn finish_ink(
+    pts: &[f64],
+    width: u32,
+    height: u32,
+) -> Option<(AnnotationType, serde_json::Value, Option<String>)> {
+    if pts.len() < 4 {
+        return None;
+    }
+    let mut min_x = f64::MAX;
+    let mut min_y = f64::MAX;
+    let mut max_x = f64::MIN;
+    let mut max_y = f64::MIN;
+    for i in (0..pts.len()).step_by(2) {
+        let px = pts[i];
+        let py = pts[i + 1];
+        min_x = min_x.min(px);
+        min_y = min_y.min(py);
+        max_x = max_x.max(px);
+        max_y = max_y.max(py);
+    }
+    Some((
+        AnnotationType::Ink,
+        serde_json::json!({
+            "x": min_x, "y": min_y,
+            "width": max_x - min_x, "height": max_y - min_y,
+            "page_width": width, "page_height": height,
+            "points": [pts],
+        }),
+        None,
+    ))
+}
+
+fn persist_new_annotation(
+    db: Database,
+    mut tabs: Signal<PdfTabManager>,
+    mut undo_stack: Signal<crate::state::undo::UndoStack>,
+    ann: Annotation,
+) {
+    spawn(async move {
+        if let Ok(id) = db.insert_annotation(&ann).await {
+            let mut ann = ann;
+            ann.id = Some(id);
+            undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Create(ann.clone())));
+            tabs.with_mut(|m| m.tab_mut().annotations.push(ann));
+        }
+    });
+}
+
 #[component]
 pub(crate) fn PdfPageWithOverlay(
     page_index: u32,
@@ -129,11 +283,11 @@ pub(crate) fn PdfPageWithOverlay(
     render_zoom: f32,
     tab_id: TabId,
 ) -> Element {
-    let mut tabs = use_context::<Signal<PdfTabManager>>();
+    let tabs = use_context::<Signal<PdfTabManager>>();
     let mut tools = use_context::<Signal<ViewerToolState>>();
     let docs = use_context::<PdfDocs>().get();
     let db = use_context::<Database>();
-    let mut undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
+    let undo_stack = use_context::<Signal<crate::state::undo::UndoStack>>();
     let ann_ctx = use_context::<AnnCtxState>();
     let mut citation = use_context::<CitationCardCtx>();
     let mut sel_copy = use_context::<SelCopyMenuCtx>();
@@ -211,47 +365,20 @@ pub(crate) fn PdfPageWithOverlay(
         };
     };
 
-    // Live drag preview rects (text select or Highlight/Underline).
-    let drag_preview_rects: Vec<(f64, f64, f64, f64)> = {
-        let selecting_text = mode == AnnotationMode::None;
-        let markup_mode = mode == AnnotationMode::Highlight
-            || mode == AnnotationMode::Underline
-            || mode == AnnotationMode::StrikeOut
-            || mode == AnnotationMode::Squiggly
-            || selecting_text;
-        if markup_mode {
-            if let (Some(start), Some(current)) = (drag_start(), drag_current()) {
-                let x = start.0.min(current.0);
-                let y = start.1.min(current.1);
-                let w = (start.0 - current.0).abs();
-                let h = (start.1 - current.1).abs();
-                if w * space.display_scale > 2.0 || h * space.display_scale > 2.0 {
-                    if let Some(m) = docs.selection_markup(
-                        &pdf_path_for_cache,
-                        page_index,
-                        width,
-                        height,
-                        x,
-                        y,
-                        w,
-                        h,
-                    ) {
-                        m.line_rects
-                    } else if selecting_text {
-                        Vec::new()
-                    } else {
-                        vec![(x, y, w, h)]
-                    }
-                } else {
-                    Vec::new()
-                }
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        }
+    let overlay_page = OverlayPage {
+        index: page_index,
+        width,
+        height,
+        display_scale: space.display_scale,
     };
+    let drag_preview_rects = compute_drag_preview_rects(
+        &docs,
+        &pdf_path_for_cache,
+        overlay_page,
+        mode,
+        drag_start(),
+        drag_current(),
+    );
 
     let preview_fill = if mode == AnnotationMode::None {
         selection_color.clone()
@@ -428,30 +555,19 @@ pub(crate) fn PdfPageWithOverlay(
                             multi_click_select.set(true);
                             drag_start.set(None);
                             drag_current.set(None);
-                            if let Some(m) = docs_select.selection_at_point(
-                                &path_select,
+                            apply_text_selection(
+                                &mut tools,
                                 page_index,
-                                width,
-                                height,
-                                px,
-                                py,
-                                mode,
-                            ) {
-                                let text = m.text;
-                                if text.trim().is_empty() {
-                                    tools.with_mut(|t| t.text_selection = None);
-                                } else {
-                                    tools.with_mut(|t| {
-                                        t.text_selection = Some(PdfTextSelection {
-                                            page_index,
-                                            line_rects: m.line_rects,
-                                            text,
-                                        });
-                                    });
-                                }
-                            } else {
-                                tools.with_mut(|t| t.text_selection = None);
-                            }
+                                docs_select.selection_at_point(
+                                    &path_select,
+                                    page_index,
+                                    width,
+                                    height,
+                                    px,
+                                    py,
+                                    mode,
+                                ),
+                            );
                             return;
                         }
                         multi_click_select.set(false);
@@ -487,31 +603,20 @@ pub(crate) fn PdfPageWithOverlay(
                             if rw * space.display_scale < 3.0 && rh * space.display_scale < 3.0 {
                                 return;
                             }
-                            if let Some(m) = docs_select_up.selection_markup(
-                                &path_select_up,
+                            apply_text_selection(
+                                &mut tools,
                                 page_index,
-                                width,
-                                height,
-                                rx,
-                                ry,
-                                rw,
-                                rh,
-                            ) {
-                                let text = m.text;
-                                if text.trim().is_empty() {
-                                    tools.with_mut(|t| t.text_selection = None);
-                                } else {
-                                    tools.with_mut(|t| {
-                                        t.text_selection = Some(PdfTextSelection {
-                                            page_index,
-                                            line_rects: m.line_rects,
-                                            text,
-                                        });
-                                    });
-                                }
-                            } else {
-                                tools.with_mut(|t| t.text_selection = None);
-                            }
+                                docs_select_up.selection_markup(
+                                    &path_select_up,
+                                    page_index,
+                                    width,
+                                    height,
+                                    rx,
+                                    ry,
+                                    rw,
+                                    rh,
+                                ),
+                            );
                         }
                     },
                     oncontextmenu: move |evt| {
@@ -577,82 +682,67 @@ pub(crate) fn PdfPageWithOverlay(
                                 | AnnotationMode::Underline
                                 | AnnotationMode::StrikeOut
                                 | AnnotationMode::Squiggly => {
-                                    let at = match mode {
-                                        AnnotationMode::Highlight => AnnotationType::Highlight,
-                                        AnnotationMode::Underline => AnnotationType::Underline,
-                                        AnnotationMode::StrikeOut => AnnotationType::StrikeOut,
-                                        AnnotationMode::Squiggly => AnnotationType::Squiggly,
-                                        _ => unreachable!(),
+                                    let Some(start) = drag_start() else { return; };
+                                    let Some(result) = finish_markup(
+                                        &docs_annot,
+                                        &path_annot,
+                                        overlay_page,
+                                        start,
+                                        (x, y),
+                                        mode,
+                                    ) else {
+                                        drag_start.set(None);
+                                        drag_current.set(None);
+                                        return;
                                     };
-                                    if let Some(start) = drag_start() {
-                                        let rx = start.0.min(x); let ry = start.1.min(y);
-                                        let rw = (start.0 - x).abs(); let rh = (start.1 - y).abs();
-                                        if rw * space.display_scale < 5.0 && rh * space.display_scale < 5.0 {
-                                            drag_start.set(None); drag_current.set(None); return;
-                                        }
-                                        let markup = docs_annot.selection_markup(
-                                            &path_annot, page_index, width, height, rx, ry, rw, rh,
-                                        );
-                                        let (geometry, content) = markup_geometry_from_selection(
-                                            markup.as_ref(), rx, ry, rw, rh, width, height,
-                                        );
-                                        (at, geometry, content)
-                                    } else { return; }
+                                    result
                                 }
-                                AnnotationMode::Note => {
-                                    (AnnotationType::Note, serde_json::json!({
+                                AnnotationMode::Note => (
+                                    AnnotationType::Note,
+                                    serde_json::json!({
                                         "x": x, "y": y, "width": 24.0, "height": 24.0,
                                         "page_width": width, "page_height": height,
-                                    }), Some(String::new()))
-                                }
+                                    }),
+                                    Some(String::new()),
+                                ),
                                 AnnotationMode::Ink => {
                                     let pts = ink_points.read().clone();
                                     ink_points.with_mut(|p| p.clear());
-                                    if pts.len() < 4 {
-                                        drag_start.set(None); return;
-                                    }
-                                    // Compute bounding box
-                                    let mut min_x = f64::MAX; let mut min_y = f64::MAX;
-                                    let mut max_x = f64::MIN; let mut max_y = f64::MIN;
-                                    for i in (0..pts.len()).step_by(2) {
-                                        let px = pts[i]; let py = pts[i + 1];
-                                        if px < min_x { min_x = px; }
-                                        if py < min_y { min_y = py; }
-                                        if px > max_x { max_x = px; }
-                                        if py > max_y { max_y = py; }
-                                    }
-                                    (AnnotationType::Ink, serde_json::json!({
-                                        "x": min_x, "y": min_y,
-                                        "width": max_x - min_x, "height": max_y - min_y,
-                                        "page_width": width, "page_height": height,
-                                        "points": [pts],
-                                    }), None)
+                                    let Some(result) = finish_ink(&pts, width, height) else {
+                                        drag_start.set(None);
+                                        return;
+                                    };
+                                    result
                                 }
-                                AnnotationMode::Text => {
-                                    (AnnotationType::Text, serde_json::json!({
+                                AnnotationMode::Text => (
+                                    AnnotationType::Text,
+                                    serde_json::json!({
                                         "x": x, "y": y, "width": 150.0, "height": 20.0,
                                         "page_width": width, "page_height": height,
-                                    }), Some(String::new()))
-                                }
+                                    }),
+                                    Some(String::new()),
+                                ),
                                 AnnotationMode::None => return,
                             };
-                            drag_start.set(None); drag_current.set(None);
+                            drag_start.set(None);
+                            drag_current.set(None);
                             let now = chrono::Utc::now();
-                            let ann = Annotation {
-                                id: None, paper_id: paper_id.clone(), page: page_index as i32, ann_type,
-                                color: color.clone(),
-                                content: selected_content,
-                                geometry, created_at: now, modified_at: now,
-                            };
-                            let db = db.clone();
-                            spawn(async move {
-                                if let Ok(id) = db.insert_annotation(&ann).await {
-                                    let mut ann = ann;
-                                    ann.id = Some(id);
-                                    undo_stack.with_mut(|s| s.push(crate::state::undo::UndoAction::Create(ann.clone())));
-                                    tabs.with_mut(|m| m.tab_mut().annotations.push(ann));
-                                }
-                            });
+                            persist_new_annotation(
+                                db.clone(),
+                                tabs,
+                                undo_stack,
+                                Annotation {
+                                    id: None,
+                                    paper_id: paper_id.clone(),
+                                    page: page_index as i32,
+                                    ann_type,
+                                    color: color.clone(),
+                                    content: selected_content,
+                                    geometry,
+                                    created_at: now,
+                                    modified_at: now,
+                                },
+                            );
                         },
                         onclick: move |_| {},
                 }

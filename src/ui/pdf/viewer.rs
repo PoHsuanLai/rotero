@@ -64,98 +64,12 @@ pub fn PdfViewer() -> Element {
             .await
             .is_ok()
             {
-                let paper_id = tabs.read().active_tab().and_then(|t| t.paper_id.clone());
-                if let Some(ref pid) = paper_id {
-                    let mut anns = db.list_annotations_for_paper(pid).await.unwrap_or_default();
-
-                    let pdf_path = tabs.read().tab().pdf_path.clone();
-                    // Page pixel dims keyed by absolute page index (rendered_pages
-                    // is a sliding window, so it may not be contiguous from 0).
-                    let page_dims: std::collections::HashMap<u32, (u32, u32)> = tabs
-                        .read()
-                        .tab()
-                        .render
-                        .rendered_pages
-                        .values()
-                        .map(|p| (p.page_index, (p.width, p.height)))
-                        .collect();
-
-                    if let Ok(extracted) = docs.extract_annotations(pdf_path).await {
-                        let now = chrono::Utc::now();
-                        for ext in extracted {
-                            // Deduplicate: skip if a DB annotation exists on same page with same type and similar position
-                            let dominated = anns.iter().any(|a| {
-                                a.page == ext.page as i32 && a.ann_type == ext.ann_type && {
-                                    let ax =
-                                        a.geometry.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                                    let ay =
-                                        a.geometry.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                                    let (rw, rh) =
-                                        page_dims.get(&ext.page).copied().unwrap_or((1, 1));
-                                    let sx = rw as f64 / ext.page_width_pts as f64;
-                                    let sy = rh as f64 / ext.page_height_pts as f64;
-                                    let ex = ext.rect_pts[0] as f64 * sx;
-                                    let ey =
-                                        (ext.page_height_pts as f64 - ext.rect_pts[3] as f64) * sy;
-                                    (ax - ex).abs() < 10.0 && (ay - ey).abs() < 10.0
-                                }
-                            });
-                            if dominated {
-                                continue;
-                            }
-
-                            let (rw, rh) = page_dims.get(&ext.page).copied().unwrap_or((1, 1));
-                            let sx = rw as f32 / ext.page_width_pts;
-                            let sy = rh as f32 / ext.page_height_pts;
-                            let x = ext.rect_pts[0] * sx;
-                            let y = (ext.page_height_pts - ext.rect_pts[3]) * sy;
-                            let w = (ext.rect_pts[2] - ext.rect_pts[0]) * sx;
-                            let h = (ext.rect_pts[3] - ext.rect_pts[1]) * sy;
-
-                            let mut geometry = serde_json::json!({
-                                "x": x, "y": y, "width": w, "height": h,
-                                "page_width": rw, "page_height": rh,
-                            });
-                            if !ext.rects_pts.is_empty() {
-                                let rects: Vec<serde_json::Value> = ext
-                                    .rects_pts
-                                    .iter()
-                                    .map(|r| {
-                                        let rx = r[0] * sx;
-                                        let ry = (ext.page_height_pts - r[3]) * sy;
-                                        let rect_w = (r[2] - r[0]) * sx;
-                                        let rect_h = (r[3] - r[1]) * sy;
-                                        serde_json::json!({
-                                            "x": rx, "y": ry, "width": rect_w, "height": rect_h,
-                                        })
-                                    })
-                                    .collect();
-                                geometry["rects"] = serde_json::Value::Array(rects);
-                            }
-
-                            let ann = rotero_models::Annotation {
-                                id: None,
-                                paper_id: pid.clone(),
-                                page: ext.page as i32,
-                                ann_type: ext.ann_type,
-                                color: ext.color,
-                                content: ext.content,
-                                geometry,
-                                created_at: now,
-                                modified_at: now,
-                            };
-                            if let Ok(id) = db.insert_annotation(&ann).await {
-                                let mut ann = ann;
-                                ann.id = Some(id);
-                                anns.push(ann);
-                            }
-                        }
-                    }
-                    tabs.with_mut(|m| {
-                        if let Some(t) = m.get_mut(tid) {
-                            t.annotations = anns;
-                        }
-                    });
+                let paper_id = tabs.read().get(tid).and_then(|t| t.paper_id.clone());
+                if let Some(pid) = paper_id {
+                    crate::state::commands::import_embedded_annotations(
+                        &docs, &db, tabs, tid, &pid,
+                    )
+                    .await;
                 }
             }
         });

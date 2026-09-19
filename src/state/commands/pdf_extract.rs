@@ -1,7 +1,9 @@
+use std::collections::HashMap;
+
 use dioxus::prelude::*;
 
 use super::PdfDocs;
-use crate::state::app_state::LibraryState;
+use crate::state::app_state::{LibraryState, PdfTabManager, TabId};
 
 pub async fn extract_and_fetch_metadata(
     docs: &PdfDocs,
@@ -131,4 +133,117 @@ async fn apply_fetched_metadata(
         let _ = db.update_citation_count(paper_id, count).await;
     }
     true
+}
+
+/// Import annotations embedded in the PDF that are not already in the library.
+///
+/// Deduplicates against existing DB rows on the same page, type, and a ~10px
+/// position match (PDF extract is in points; stored geometry is in page pixels).
+pub async fn import_embedded_annotations(
+    docs: &PdfDocs,
+    db: &rotero_db::Database,
+    mut tabs: Signal<PdfTabManager>,
+    tab_id: TabId,
+    paper_id: &str,
+) {
+    let mut anns = db.list_annotations_for_paper(paper_id).await.unwrap_or_default();
+    let (pdf_path, page_dims) = {
+        let mgr = tabs.read();
+        let Some(tab) = mgr.get(tab_id) else {
+            return;
+        };
+        let dims: HashMap<u32, (u32, u32)> = tab
+            .render
+            .rendered_pages
+            .values()
+            .map(|p| (p.page_index, (p.width, p.height)))
+            .collect();
+        (tab.pdf_path.clone(), dims)
+    };
+
+    let Ok(extracted) = docs.extract_annotations(pdf_path).await else {
+        tabs.with_mut(|m| {
+            if let Some(t) = m.get_mut(tab_id) {
+                t.annotations = anns;
+            }
+        });
+        return;
+    };
+
+    let now = chrono::Utc::now();
+    for ext in extracted {
+        if extracted_ann_duplicates(&anns, &ext, &page_dims) {
+            continue;
+        }
+        let (rw, rh) = page_dims.get(&ext.page).copied().unwrap_or((1, 1));
+        let sx = rw as f32 / ext.page_width_pts;
+        let sy = rh as f32 / ext.page_height_pts;
+        let x = ext.rect_pts[0] * sx;
+        let y = (ext.page_height_pts - ext.rect_pts[3]) * sy;
+        let w = (ext.rect_pts[2] - ext.rect_pts[0]) * sx;
+        let h = (ext.rect_pts[3] - ext.rect_pts[1]) * sy;
+
+        let mut geometry = serde_json::json!({
+            "x": x, "y": y, "width": w, "height": h,
+            "page_width": rw, "page_height": rh,
+        });
+        if !ext.rects_pts.is_empty() {
+            let rects: Vec<serde_json::Value> = ext
+                .rects_pts
+                .iter()
+                .map(|r| {
+                    let rx = r[0] * sx;
+                    let ry = (ext.page_height_pts - r[3]) * sy;
+                    let rect_w = (r[2] - r[0]) * sx;
+                    let rect_h = (r[3] - r[1]) * sy;
+                    serde_json::json!({
+                        "x": rx, "y": ry, "width": rect_w, "height": rect_h,
+                    })
+                })
+                .collect();
+            geometry["rects"] = serde_json::Value::Array(rects);
+        }
+
+        let ann = rotero_models::Annotation {
+            id: None,
+            paper_id: paper_id.to_string(),
+            page: ext.page as i32,
+            ann_type: ext.ann_type,
+            color: ext.color,
+            content: ext.content,
+            geometry,
+            created_at: now,
+            modified_at: now,
+        };
+        if let Ok(id) = db.insert_annotation(&ann).await {
+            let mut ann = ann;
+            ann.id = Some(id);
+            anns.push(ann);
+        }
+    }
+
+    tabs.with_mut(|m| {
+        if let Some(t) = m.get_mut(tab_id) {
+            t.annotations = anns;
+        }
+    });
+}
+
+fn extracted_ann_duplicates(
+    anns: &[rotero_models::Annotation],
+    ext: &rotero_pdf::ExtractedAnnotation,
+    page_dims: &HashMap<u32, (u32, u32)>,
+) -> bool {
+    anns.iter().any(|a| {
+        a.page == ext.page as i32 && a.ann_type == ext.ann_type && {
+            let ax = a.geometry.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let ay = a.geometry.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let (rw, rh) = page_dims.get(&ext.page).copied().unwrap_or((1, 1));
+            let sx = rw as f64 / ext.page_width_pts as f64;
+            let sy = rh as f64 / ext.page_height_pts as f64;
+            let ex = ext.rect_pts[0] as f64 * sx;
+            let ey = (ext.page_height_pts as f64 - ext.rect_pts[3] as f64) * sy;
+            (ax - ex).abs() < 10.0 && (ay - ey).abs() < 10.0
+        }
+    })
 }

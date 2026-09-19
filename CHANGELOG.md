@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Agent PDF downloads go through the same library import path as the app, so they land in `papers/{year}/` with the same filename scheme.
+
+### Fixed
+- **Editing an annotation note could lose the editor** when another annotation was added or removed. Each row is now its own component, so hook order stays stable.
+- **MCP PDF paths could follow `../` out of the papers directory.** Resolution uses the same traversal guard as the app.
+- Semantic Scholar search and OpenAlex autocomplete now honour the stub-API overrides, so those lookups can be tested offline.
+
 ## v0.2.6
 
 ### Changed
