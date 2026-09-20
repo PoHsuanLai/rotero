@@ -1,5 +1,5 @@
-use rotero_models::{Paper, PaperId};
 use rotero_models::merge_into;
+use rotero_models::{Paper, PaperId};
 
 /// Tries CrossRef first (most complete), then fills gaps from OpenAlex and Semantic Scholar.
 pub async fn enrich_paper(paper: &Paper) -> Option<Paper> {
@@ -9,7 +9,8 @@ pub async fn enrich_paper(paper: &Paper) -> Option<Paper> {
             PaperId::Doi(doi) => fetch_from_sources_doi(doi).await,
             PaperId::Pmid(_) | PaperId::Isbn(_) => None,
         }
-    } else if let Some(PaperId::ArXiv(arxiv)) = paper.links.url.as_deref().and_then(PaperId::from_url)
+    } else if let Some(PaperId::ArXiv(arxiv)) =
+        paper.links.url.as_deref().and_then(PaperId::from_url)
     {
         fetch_from_sources_arxiv(&arxiv).await
     } else if !paper.title.is_empty() && paper.title != "Untitled" {

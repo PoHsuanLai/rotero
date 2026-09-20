@@ -57,11 +57,13 @@ impl Database {
             .await
     }
 
-    async fn list_id_column(&self, sql: &str, paper_id: &str) -> Result<Vec<String>, crate::DbError> {
+    async fn list_id_column(
+        &self,
+        sql: &str,
+        paper_id: &str,
+    ) -> Result<Vec<String>, crate::DbError> {
         let conn = self.conn();
-        let mut rows = conn
-            .query(sql, [Value::Text(paper_id.to_string())])
-            .await?;
+        let mut rows = conn.query(sql, [Value::Text(paper_id.to_string())]).await?;
         let mut ids = Vec::new();
         while let Some(row) = rows.next().await? {
             if let Some(id) = crate::get_opt_text(&row, 0) {

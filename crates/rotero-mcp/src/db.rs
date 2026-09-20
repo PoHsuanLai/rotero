@@ -71,7 +71,10 @@ impl Database {
     /// otherwise BM25 full-text search runs, re-ranked so exact/prefix title
     /// matches lead; falls back to LIKE if FTS is unavailable.
     pub async fn search_papers(&self, query: &str) -> Result<Vec<Paper>, turso::Error> {
-        self.as_rotero_db().search_papers(query).await.map_err(to_turso)
+        self.as_rotero_db()
+            .search_papers(query)
+            .await
+            .map_err(to_turso)
     }
 
     /// Fetch a single paper by its unique ID.
@@ -102,7 +105,10 @@ impl Database {
 
     /// Return the number of favorited papers.
     pub async fn count_favorites(&self) -> Result<u32, turso::Error> {
-        self.as_rotero_db().count_favorites().await.map_err(to_turso)
+        self.as_rotero_db()
+            .count_favorites()
+            .await
+            .map_err(to_turso)
     }
 
     /// Set or clear the favorite flag on a paper.

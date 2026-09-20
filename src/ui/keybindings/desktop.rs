@@ -990,9 +990,7 @@ fn action_toggle_favorite_selected(lib_state: Signal<LibraryState>, db: Database
     } else {
         true
     };
-    crate::state::commands::set_paper_flags(
-        db, lib_state, ids, Some(new_val), None, false,
-    );
+    crate::state::commands::set_paper_flags(db, lib_state, ids, Some(new_val), None, false);
 }
 
 fn action_toggle_read_selected(lib_state: Signal<LibraryState>, db: Database) {
@@ -1016,9 +1014,7 @@ fn action_toggle_read_selected(lib_state: Signal<LibraryState>, db: Database) {
     } else {
         true
     };
-    crate::state::commands::set_paper_flags(
-        db, lib_state, ids, None, Some(new_val), false,
-    );
+    crate::state::commands::set_paper_flags(db, lib_state, ids, None, Some(new_val), false);
 }
 
 /// All the state a command might need to run. Bundling it lets `dispatch` have a

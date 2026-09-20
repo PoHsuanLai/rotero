@@ -57,9 +57,8 @@ pub fn set_paper_flags(
                 && let Err(e) = db.set_read(pid, is_read).await
                 && report
             {
-                lib_state.with_mut(|s| {
-                    s.report_error(format!("Could not update the read flag: {e}"))
-                });
+                lib_state
+                    .with_mut(|s| s.report_error(format!("Could not update the read flag: {e}")));
             }
         }
         lib_state.with_mut(|s| {
@@ -162,10 +161,7 @@ pub async fn import_dropped_pdf(
         }
     };
 
-    let full_path = db
-        .resolve_pdf_path(&rel_path)
-        .to_string_lossy()
-        .to_string();
+    let full_path = db.resolve_pdf_path(&rel_path).to_string_lossy().to_string();
     let cfg = config.read();
     let data_dir = cfg.effective_library_path();
     let zoom = cfg.pdf.default_zoom * dpr;

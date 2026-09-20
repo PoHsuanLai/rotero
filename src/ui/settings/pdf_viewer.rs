@@ -22,8 +22,6 @@ const BATCH_OPTIONS: &[(u32, &str)] = &[
     (20, "20 pages"),
 ];
 
-
-
 #[component]
 pub fn PdfViewerSection() -> Element {
     let mut config = use_context::<Signal<SyncConfig>>();

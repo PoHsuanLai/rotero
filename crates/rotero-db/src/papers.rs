@@ -222,7 +222,10 @@ impl Database {
     }
 
     /// Retrieved extracted full text of a paper's PDF, if stored.
-    pub async fn get_paper_fulltext(&self, paper_id: &str) -> Result<Option<String>, crate::DbError> {
+    pub async fn get_paper_fulltext(
+        &self,
+        paper_id: &str,
+    ) -> Result<Option<String>, crate::DbError> {
         let conn = self.conn();
         let mut rows = conn
             .query(

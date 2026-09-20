@@ -28,7 +28,11 @@ pub(crate) fn PdfToolbar(page_count: u32, zoom: f32, tab_id: TabId) -> Element {
     let tool_defs: &[(AnnotationMode, &str, &str)] = &[
         (AnnotationMode::Highlight, "Highlight", "bi-highlighter"),
         (AnnotationMode::Underline, "Underline", "bi-type-underline"),
-        (AnnotationMode::StrikeOut, "Strike Out", "bi-type-strikethrough"),
+        (
+            AnnotationMode::StrikeOut,
+            "Strike Out",
+            "bi-type-strikethrough",
+        ),
         (AnnotationMode::Squiggly, "Squiggly", "bi-vector-pen"),
         (AnnotationMode::Note, "Sticky Note", "bi-sticky"),
         (AnnotationMode::Ink, "Draw", "bi-pencil"),

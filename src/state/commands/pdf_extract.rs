@@ -146,7 +146,10 @@ pub async fn import_embedded_annotations(
     tab_id: TabId,
     paper_id: &str,
 ) {
-    let mut anns = db.list_annotations_for_paper(paper_id).await.unwrap_or_default();
+    let mut anns = db
+        .list_annotations_for_paper(paper_id)
+        .await
+        .unwrap_or_default();
     let (pdf_path, page_dims) = {
         let mgr = tabs.read();
         let Some(tab) = mgr.get(tab_id) else {
