@@ -16,7 +16,7 @@ the file for your platform.
 | --- | --- |
 | macOS (Apple silicon) | `Rotero-*-macos-arm64.dmg` |
 | Windows (x64) | `Rotero-*-windows-x64.msi`, or `.zip` to run without installing |
-| Linux (x64) | `Rotero-*-linux-x64.deb`, or `.tar.gz` to run without installing |
+| Linux (x64) | `Rotero-*-linux-x64.deb` on Debian/Ubuntu, or `.tar.gz` (portable; includes a desktop installer) |
 
 macOS on Intel is not prebuilt — [build from source](#building-from-source)
 instead. iOS and Android are not available yet.
@@ -43,14 +43,32 @@ SmartScreen shows "Windows protected your PC". Click **More info**, then
 
 ### Linux
 
-Install the `.deb` with your package manager, or extract the `.tar.gz` and run
-the `rotero` executable inside it. No warning appears.
+On Debian/Ubuntu, install the `.deb` with your package manager. On Fedora,
+Arch, and other distros, extract the `.tar.gz` and run the installer so Rotero
+shows up in the application menu:
+
+```sh
+tar -xzf Rotero-*-linux-x64.tar.gz
+./install.sh
+```
+
+That puts the binary in `~/.local/lib/rotero`, a symlink on `PATH`, a
+`.desktop` file, and icons. WebKitGTK 4.1 must be installed (`webkit2gtk4.1`
+on Fedora, `libwebkit2gtk-4.1-0` on Debian). No first-launch warning appears.
+
+From a git checkout the same installer is `just install-linux` (downloads the
+latest release) or `ROTERO_BIN=./path/to/rotero just install-linux` for a
+local build.
 
 ## Updating
 
 Rotero checks for new versions on its own and offers to install them —
 **Help ▸ Check for Updates…** forces a check. The update downloads, replaces the
-running application, and asks you to restart.
+running application, and asks you to restart. A Linux desktop install
+(`install.sh` / `just install-linux`) is updated in place the same way, including
+the launcher icon and `.desktop` file. Development builds (`just run`) and
+system packages under `/usr` are left alone — install the portable copy to
+receive in-app updates.
 
 If your platform has no prebuilt download, the updater says so and links to the
 releases page rather than failing silently.

@@ -60,7 +60,7 @@ Download the latest release from the [Releases page](https://github.com/PoHsuanL
 
 - **macOS** — `Rotero-*-macos-arm64.dmg`
 - **Windows** — `Rotero-*-windows-x64.msi` (installer) or `.zip` (portable)
-- **Linux** — `Rotero-*-linux-x64.deb` or `.tar.gz` (portable)
+- **Linux** — `Rotero-*-linux-x64.deb` (Debian/Ubuntu) or `.tar.gz` (portable; run `./install.sh` inside it for a KDE/GNOME launcher entry)
 
 > **macOS note:** On first launch, macOS may show "Apple could not verify “Rotero” is free of malware that may harm your Mac or compromise your privacy." This is because the app is not notarized with an Apple Developer account. To open it: go to System Settings → Privacy & Security → scroll down to "Rotero was blocked to protect your Mac." -> click "Open Anyway". You only need to do this once.
 
@@ -76,7 +76,7 @@ cd rotero
 just run    # builds and runs with hot reload
 ```
 
-Other commands: `just check`, `just lint`, `just build-release`, `just run-release`, `just clean`
+Other commands: `just check`, `just lint`, `just build-release`, `just run-release`, `just install-linux`, `just clean`
 
 ## Browser Extension
 

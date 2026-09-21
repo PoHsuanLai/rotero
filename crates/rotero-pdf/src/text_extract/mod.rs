@@ -2,6 +2,8 @@
 
 /// Font name heuristics for CSS weight, style, and family mapping.
 pub mod font;
+/// Bibliography-entry parse of a `text_block_at` dump.
+pub mod reference;
 /// Full-text search over extracted page text data.
 pub mod search;
 /// Per-page text segment extraction and document metadata reading.
@@ -42,6 +44,7 @@ pub struct PageTextData {
     pub segments: Arc<Vec<TextSegment>>,
 }
 
+pub use reference::{ParsedReference, parse_reference};
 pub use search::{
     ClickSelectMode, SearchMatch, SelectionMarkup, group_into_lines, search_in_document,
     search_in_text_data, selection_at_point, selection_at_point_from_text, selection_markup,

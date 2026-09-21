@@ -6,7 +6,7 @@ use super::navigation::{OutlinePanel, ThumbnailSidebar};
 use super::page_overlay::{PdfPageWithOverlay, copy_pdf_text_selection};
 use super::search_bar::PdfSearchBar;
 use super::toolbar::PdfToolbar;
-use super::{AnnCtxState, CitationCard, CitationCardCtx, SelCopyMenuCtx};
+use super::{AnnCtxState, CitationCard, CitationCardCtx, PdfScrollLock, SelCopyMenuCtx};
 use crate::app::PdfDocs;
 use crate::state::app_state::{PdfTabManager, ViewerToolState};
 use rotero_db::Database;
@@ -24,6 +24,7 @@ pub fn PdfViewer() -> Element {
     use_context_provider::<SelCopyMenuCtx>(|| Signal::new(None));
     // Guards the scroll-driven render window against re-entrant scroll events.
     let mut window_loading = use_signal(|| false);
+    use_context_provider(|| PdfScrollLock(window_loading));
     let mut password_input = use_signal(String::new);
 
     let mgr = tabs.read();

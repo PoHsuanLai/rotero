@@ -60,6 +60,12 @@ pub(crate) type CitationCardCtx = Signal<Option<OpenCitationCard>>;
 /// Copy menu for the active PDF text selection. Same viewport-space reason.
 pub(crate) type SelCopyMenuCtx = Signal<Option<(f64, f64)>>;
 
+/// While true, the viewer's scroll handler must not re-center the render
+/// window. Jump-to sets this so a long citation jump (p.1 → references)
+/// is not immediately undone by `onscroll` still seeing the old page.
+#[derive(Clone, Copy)]
+pub(crate) struct PdfScrollLock(pub Signal<bool>);
+
 /// Builds JS that scrolls the given page into view, polling for the element so it
 /// works even when the page was just added to the sliding render window and Dioxus
 /// hasn't flushed it to the DOM yet. `block` is the `scrollIntoView` block alignment
@@ -81,22 +87,28 @@ pub(crate) fn scroll_to_page_js(page_index: u32, block: &str) -> String {
 /// Like [`scroll_to_page_js`] but lands at a fractional y position (0 = top,
 /// 1 = bottom) down the target page, so a link jump reaches the cited line
 /// rather than just the page top. The scroll container is `#pdf-pages-container`.
-pub(crate) fn scroll_to_page_at_js(page_index: u32, y_frac: f64) -> String {
-    let y_frac = y_frac.clamp(0.0, 1.0);
+/// Instant jump used by the citation card. Sends `true`/`false` via `dioxus.send`
+/// so Rust can wait until the scroll has actually been applied. Smooth scrolling
+/// here races the viewer's `onscroll` handler, which still sees the old page
+/// and recenters the render window back to where the reader was.
+pub(crate) fn jump_to_page_js(page_index: u32, y_frac: Option<f64>) -> String {
+    let y = y_frac.unwrap_or(0.0).clamp(0.0, 1.0);
     format!(
         "(function() {{ \
            let tries = 0; \
            function go() {{ \
              let el = document.getElementById('pdf-page-{page_index}'); \
              let cont = document.getElementById('pdf-pages-container'); \
-             if (el && cont) {{ \
+             if (el && cont && el.offsetHeight > 0) {{ \
                let contRect = cont.getBoundingClientRect(); \
                let elRect = el.getBoundingClientRect(); \
-               let target = cont.scrollTop + (elRect.top - contRect.top) + elRect.height * {y_frac} - contRect.height * 0.15; \
-               cont.scrollTo({{ top: Math.max(0, target), behavior: 'smooth' }}); \
+               let target = cont.scrollTop + (elRect.top - contRect.top) + elRect.height * {y} - contRect.height * 0.15; \
+               cont.scrollTo(0, Math.max(0, target)); \
+               dioxus.send(true); \
                return; \
              }} \
-             if (tries++ < 20) setTimeout(go, 50); \
+             if (tries++ < 40) setTimeout(go, 50); \
+             else dioxus.send(false); \
            }} \
            go(); \
          }})()"
