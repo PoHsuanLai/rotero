@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use crate::updates::running_exe;
 use crate::updates::types::UpdateError;
 
 /// Extract the `.app` and swap it for the running bundle.
@@ -66,8 +67,8 @@ fn current_app_bundle() -> Result<PathBuf, UpdateError> {
     let not_bundled =
         || UpdateError::NotInstalled("This copy isn't running from a Rotero.app bundle.".into());
 
-    let exe = std::env::current_exe()
-        .map_err(|e| UpdateError::NotInstalled(format!("Can't find current exe: {e}")))?;
+    let exe =
+        running_exe().ok_or_else(|| UpdateError::NotInstalled("Can't find current exe.".into()))?;
     // exe is like /path/to/Rotero.app/Contents/MacOS/rotero
     // Walk up to find the .app directory.
     let mut path = exe.as_path();
