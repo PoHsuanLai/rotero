@@ -54,8 +54,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cargo binstall dioxus-cli --version 0.7.10 -y --force
 
+      - name: Free disk before bundle
+        run: |
+          # rust-cache can restore debug artifacts. After pdfrum, `dx bundle
+          # --release` also builds a DMG via hdiutil and fills the runner
+          # (`hdiutil: create failed - No space left on device` on v0.2.7).
+          # The zip and create-dmg steps below are the release assets.
+          rm -rf target/debug || true
+          df -h
+
       - name: Bundle app
-        run: dx bundle --release
+        # .app only — same flag as CI bundle smoke. The DMG for the website
+        # is built later with create-dmg; the updater uses the zip.
+        run: dx bundle --release --package-types macos
 
       - name: Prepare and sign app bundle
         run: |
