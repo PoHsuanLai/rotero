@@ -32,6 +32,37 @@ pub struct DevicePixelRatio(pub f32);
 
 const FONTS_CSS: &str = include_str!("../../assets/fonts.css");
 const TOKENS_CSS: &str = include_str!("../../assets/tokens.css");
+
+/// Newsreader variable faces, inlined as data URIs so the WebView does not
+/// have to fetch font files. Encoded once; Abril is already baked into
+/// `FONTS_CSS` the same way.
+fn newsreader_css() -> &'static str {
+    static CSS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    CSS.get_or_init(|| {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        let roman = STANDARD.encode(include_bytes!("../../assets/fonts/Newsreader-Roman.woff2"));
+        let italic = STANDARD.encode(include_bytes!("../../assets/fonts/Newsreader-Italic.woff2"));
+        format!(
+            "\
+@font-face {{\
+font-family:'Newsreader';\
+font-style:normal;\
+font-weight:200 800;\
+font-optical-sizing:auto;\
+src:url(data:font/woff2;base64,{roman}) format('woff2');\
+}}\
+@font-face {{\
+font-family:'Newsreader';\
+font-style:italic;\
+font-weight:200 800;\
+font-optical-sizing:auto;\
+src:url(data:font/woff2;base64,{italic}) format('woff2');\
+}}"
+        )
+    })
+    .as_str()
+}
+
 const BASE_CSS: &str = include_str!("../../assets/base.css");
 const BUTTONS_CSS: &str = include_str!("../../assets/buttons.css");
 const INPUTS_CSS: &str = include_str!("../../assets/inputs.css");
@@ -181,6 +212,7 @@ pub fn App() -> Element {
 
             rsx! {
                 document::Style { {FONTS_CSS} }
+                document::Style { {newsreader_css()} }
                 document::Style { {TOKENS_CSS} }
                 document::Style { {BASE_CSS} }
                 document::Style { {BUTTONS_CSS} }
@@ -209,6 +241,7 @@ pub fn App() -> Element {
             let err = e.clone();
             rsx! {
                 document::Style { {FONTS_CSS} }
+                document::Style { {newsreader_css()} }
                 document::Style { {TOKENS_CSS} }
                 document::Style { {BASE_CSS} }
                 document::Style { {BUTTONS_CSS} }
@@ -225,6 +258,7 @@ pub fn App() -> Element {
         None => {
             rsx! {
                 document::Style { {FONTS_CSS} }
+                document::Style { {newsreader_css()} }
                 document::Style { {TOKENS_CSS} }
                 document::Style { {BASE_CSS} }
                 document::Style { {LAYOUT_CSS} }

@@ -29,9 +29,10 @@ pub use doc::{
 pub use images::{PageFigure, extract_page_image_png, list_page_images};
 pub use markdown::{document_markdown, page_markdown};
 pub use text_extract::{
-    ClickSelectMode, PageTextData, PdfDocMetadata, SearchMatch, SelectionMarkup, TextSegment,
-    extract_raw_text, group_into_lines, search_in_document, selection_at_point,
-    selection_at_point_from_text, selection_markup, selection_markup_from_text, text_block_at,
+    ClickSelectMode, PageTextData, ParsedReference, PdfDocMetadata, SearchMatch, SelectionMarkup,
+    TextSegment, extract_raw_text, group_into_lines, parse_reference, search_in_document,
+    selection_at_point, selection_at_point_from_text, selection_markup, selection_markup_from_text,
+    text_block_at,
 };
 
 /// Re-export so app code can create per-call render sessions without depending on pdfrum directly.

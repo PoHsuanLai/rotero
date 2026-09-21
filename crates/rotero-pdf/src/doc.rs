@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use pdfrum::{
-    Argb, ColorMode, ColorScheme, Dest, Document, LinkTarget as PdfrumLinkTarget, Name, Object,
-    RenderOptions, RenderSession, Subtype, VelloCpuBackend,
+    Argb, ColorMode, ColorScheme, Diagnostics, Document, Limits, LinkTarget as PdfrumLinkTarget,
+    Name, Object, RenderOptions, RenderSession, Subtype, VelloCpuBackend,
 };
 use thiserror::Error;
 
@@ -490,7 +490,6 @@ pub fn extract_links(doc: &Document) -> Result<Vec<ExtractedLink>, PdfError> {
         let i = page.index().get();
         let pw = page.width() as f32;
         let ph = page.height() as f32;
-        let resolver = doc.parser();
 
         // Zip resolved page_links (page/URI) with raw Link dicts (for Dest Y).
         let raw_links = page.links();
@@ -502,7 +501,7 @@ pub fn extract_links(doc: &Document) -> Result<Vec<ExtractedLink>, PdfError> {
                 PdfrumLinkTarget::Uri(uri) if !uri.is_empty() => LinkTarget::External { uri },
                 PdfrumLinkTarget::Page(page_idx) => {
                     let target_page = page_idx.get();
-                    let y_pts = dest_y_pts(&raw, resolver);
+                    let y_pts = dest_y_pts(&raw, doc);
                     let y_frac = y_pts.and_then(|y| {
                         let th = page_heights
                             .get(target_page as usize)
@@ -665,13 +664,15 @@ fn annot_color_hex(dict: &pdfrum::Dict) -> String {
 }
 
 /// Pulls the destination Y (PDF points, bottom-up) from a link's `/Dest` or
-/// action `/D` array when present.
-fn dest_y_pts(link: &pdfrum::Link, resolver: &impl pdfrum::Resolve) -> Option<f32> {
-    let array = link.dict.array(&Name::from("Dest"), resolver).or_else(|| {
-        let action = link.dict.dict(&Name::from("A"), resolver)?;
-        action.array(&Name::from("D"), resolver)
-    })?;
-    let dest = Dest { array: Some(array) };
+/// action `/D`. Named destinations (`/Dest (cite.foo)`) are resolved through
+/// the catalog; reading the dict as an array only used to miss them, so every
+/// internal link in papers that use hyperref names jumped to the page top.
+fn dest_y_pts(link: &pdfrum::Link, doc: &Document) -> Option<f32> {
+    let resolver = doc.parser();
+    let catalog = resolver.catalog().ok()?;
+    let mut diags = Diagnostics::default();
+    let dest = link.dest(&catalog, resolver, &Limits::default(), &mut diags);
+    dest.array.as_ref()?;
     if let Some(xyz) = dest.xyz(resolver) {
         return xyz.y;
     }
