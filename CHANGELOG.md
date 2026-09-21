@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- **Linux desktop install.** The portable tarball now ships a `.desktop` file, icons, and `install.sh`, which installs Rotero as a user-local app (application menu, taskbar icon). `just install-linux` does the same from a checkout. In-app updates replace that install — binary, sidecars, launcher entry — and restart from the path captured at launch.
+
 ### Changed
 - Paper titles, notes, annotation notes, and citation-card quotes use Newsreader as the reading serif. Library rows stay system sans.
 

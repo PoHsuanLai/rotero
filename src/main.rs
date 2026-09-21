@@ -26,6 +26,12 @@ pub use init::mcp::MCP_HTTP_PORT;
 fn main() {
     init::logging::init_logging();
 
+    // Snapshot the exe path before any in-app update replaces the file. On
+    // Linux, `current_exe()` after that swap is `$path (deleted)` and restart
+    // from it fails.
+    #[cfg(feature = "desktop")]
+    updates::remember_running_exe();
+
     // Ctrl+C / SIGTERM do not run Drop on the agent thread. The SDK child is in
     // its own process group, so the signal never reaches it either. Kill it here.
     #[cfg(all(unix, feature = "desktop"))]
