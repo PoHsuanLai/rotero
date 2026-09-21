@@ -9,34 +9,7 @@
 use std::collections::HashMap;
 
 use rotero_models::Paper;
-
-/// Fill empty fields of `primary` from `secondary`, leaving populated fields untouched.
-///
-/// Only additive: an already-present value on `primary` is never overwritten, so
-/// the caller controls precedence by choosing which paper is primary.
-pub fn merge_into(primary: &mut Paper, secondary: Paper) {
-    if primary.abstract_text.is_none() {
-        primary.abstract_text = secondary.abstract_text;
-    }
-    if primary.year.is_none() {
-        primary.year = secondary.year;
-    }
-    if primary.citation.citation_count.is_none() {
-        primary.citation.citation_count = secondary.citation.citation_count;
-    }
-    if primary.publication.journal.is_none() {
-        primary.publication.journal = secondary.publication.journal;
-    }
-    if primary.links.pdf_url.is_none() {
-        primary.links.pdf_url = secondary.links.pdf_url;
-    }
-    if primary.links.url.is_none() {
-        primary.links.url = secondary.links.url;
-    }
-    if primary.creators.is_empty() {
-        primary.creators = secondary.creators;
-    }
-}
+pub use rotero_models::merge_into;
 
 /// Collapse duplicate papers by DOI, backfill-merging overlaps.
 ///

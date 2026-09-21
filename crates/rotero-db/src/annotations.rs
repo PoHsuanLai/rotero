@@ -10,16 +10,7 @@ impl Database {
     pub async fn insert_annotation(&self, ann: &Annotation) -> Result<String, crate::DbError> {
         let conn = self.conn();
         let uuid = uuid::Uuid::now_v7().to_string();
-        let ann_type_str = match ann.ann_type {
-            AnnotationType::Highlight => "highlight",
-            AnnotationType::Note => "note",
-            AnnotationType::Area => "area",
-            AnnotationType::Underline => "underline",
-            AnnotationType::StrikeOut => "strikeout",
-            AnnotationType::Squiggly => "squiggly",
-            AnnotationType::Ink => "ink",
-            AnnotationType::Text => "text",
-        };
+        let ann_type_str = ann.ann_type.as_str();
         let geometry = serde_json::to_string(&ann.geometry).unwrap_or_else(|_| "{}".to_string());
 
         conn.execute(
@@ -118,17 +109,7 @@ impl Database {
 }
 
 fn parse_ann_type(s: &str) -> AnnotationType {
-    match s {
-        "highlight" => AnnotationType::Highlight,
-        "note" => AnnotationType::Note,
-        "area" => AnnotationType::Area,
-        "underline" => AnnotationType::Underline,
-        "strikeout" | "strike_out" | "strike-out" => AnnotationType::StrikeOut,
-        "squiggly" => AnnotationType::Squiggly,
-        "ink" => AnnotationType::Ink,
-        "text" => AnnotationType::Text,
-        _ => AnnotationType::Note,
-    }
+    AnnotationType::parse(s)
 }
 
 impl crate::FromRow for Annotation {

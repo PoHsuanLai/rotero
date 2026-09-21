@@ -20,7 +20,7 @@ pub(crate) fn init_logging() {
         Ok(log_file) => {
             // The log records library activity and scraped hosts, so it should
             // not be readable by every account on the machine.
-            restrict_permissions(&log_path);
+            crate::sync::engine::restrict_permissions(&log_path);
             let _ = tracing_subscriber::fmt()
                 .with_writer(std::sync::Mutex::new(log_file))
                 .with_env_filter(filter())
@@ -38,18 +38,5 @@ pub(crate) fn init_logging() {
                 log_path.display()
             );
         }
-    }
-}
-
-/// Make a file readable only by its owner, where the platform has the concept.
-fn restrict_permissions(path: &std::path::Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
     }
 }

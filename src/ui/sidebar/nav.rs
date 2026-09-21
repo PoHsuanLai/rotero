@@ -164,11 +164,7 @@ pub fn Sidebar(collapsed: bool, on_toggle: EventHandler<()>) -> Element {
                             let pdf_rel = paper.links.pdf_path.clone();
                             let recent_icon = if paper.links.pdf_path.is_some() { "bi bi-file-earmark-pdf" } else { "bi bi-file-earmark-text" };
                             let db_recent = db.clone();
-                            let truncated = if title.len() > 35 {
-                                crate::ui::truncate_text(&title, 35)
-                            } else {
-                                title.clone()
-                            };
+                            let truncated = rotero_models::truncate_chars(&title, 35);
                             let pid_drag = paper_id.clone();
                             let pid_open = paper_id.clone();
                             let pid_ctx = paper_id.clone();

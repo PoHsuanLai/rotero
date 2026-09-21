@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use turso::Value;
 
 use crate::Database;
-use crate::sync_schema::{PkSpec, SYNCED_TABLES, SyncedTable};
+use crate::sync_schema::{SYNCED_TABLES, SyncedTable};
 
 /// Bumped when the on-disk shape changes incompatibly.
 pub const FORMAT_VERSION: u32 = 1;
@@ -592,13 +592,6 @@ impl Database {
 /// carrying none, and `tags.name` is UNIQUE across all of them.
 pub fn retired_tag_name(id: &str) -> String {
     format!("__retired:{id}")
-}
-
-impl PkSpec {
-    /// Whether this key is a single column.
-    pub fn is_single(&self) -> bool {
-        matches!(self, PkSpec::Single(_))
-    }
 }
 
 /// Placeholder values for a table's NOT NULL columns.

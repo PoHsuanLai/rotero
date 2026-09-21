@@ -23,17 +23,10 @@ pub async fn fetch_oa_url(doi: &str) -> Result<Option<String>, String> {
     let unpaywall_api = unpaywall_api_url();
     let url = format!("{unpaywall_api}/{doi}?email={EMAIL}");
 
-    let client = crate::shared_client();
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("Unpaywall request failed: {e}"))?;
-
+    let resp = crate::send_get(&url, "Unpaywall").await?;
     if !resp.status().is_success() {
         return Ok(None);
     }
-
     let data: UnpaywallResponse = resp
         .json()
         .await

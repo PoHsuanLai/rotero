@@ -1,10 +1,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use rotero_db::FromRow;
-use rotero_models::queries;
 use rotero_models::{Annotation, Collection, Note, Paper, Tag};
-use turso::{Connection, Value};
+use turso::Connection;
 
 /// Callback invoked after every write operation so the UI can refresh.
 pub type OnChangeFn = Arc<dyn Fn() + Send + Sync>;
@@ -45,6 +43,8 @@ impl Database {
     }
 
     /// Set a callback that fires after every write operation.
+    ///
+    /// Called from the app crate; unused when this crate is built as a binary.
     #[allow(dead_code)]
     pub fn set_on_change(&mut self, f: OnChangeFn) {
         self.on_change = Some(f);
@@ -62,130 +62,53 @@ impl Database {
         &self.data_dir
     }
 
-    /// Return the directory where imported PDF files are stored.
-    pub fn papers_dir(&self) -> std::path::PathBuf {
-        self.data_dir.join("papers")
-    }
-
     /// Resolve a relative PDF path to an absolute path under the papers directory.
     pub fn resolve_pdf_path(&self, rel_path: &str) -> std::path::PathBuf {
-        self.papers_dir().join(rel_path)
+        self.as_rotero_db().resolve_pdf_path(rel_path)
     }
 
     /// Search papers by query string. Identifiers are looked up directly;
     /// otherwise BM25 full-text search runs, re-ranked so exact/prefix title
     /// matches lead; falls back to LIKE if FTS is unavailable.
     pub async fn search_papers(&self, query: &str) -> Result<Vec<Paper>, turso::Error> {
-        let trimmed = query.trim();
-        if let Some(pid) = rotero_models::PaperId::parse(trimmed) {
-            let hits = self.search_papers_by_doi(&pid.to_stored_string()).await?;
-            if !hits.is_empty() {
-                return Ok(hits);
-            }
-        }
-        let candidates = match self.search_papers_fts(query).await {
-            Ok(results) => results,
-            Err(_) => self.search_papers_like(query).await?,
-        };
-        Ok(rotero_models::rank_local_results(candidates, query))
-    }
-
-    async fn search_papers_by_doi(&self, stored_id: &str) -> Result<Vec<Paper>, turso::Error> {
-        let sql = queries::PAPER_SEARCH_BY_DOI.replace("{COLS}", queries::PAPER_SELECT_COLS);
-        let mut rows = self
-            .conn
-            .query(&sql, [Value::Text(stored_id.to_string())])
-            .await?;
-        let mut papers = Vec::new();
-        while let Some(row) = rows.next().await? {
-            papers.push(Paper::from_row(&row));
-        }
-        Ok(papers)
-    }
-
-    async fn search_papers_fts(&self, query: &str) -> Result<Vec<Paper>, turso::Error> {
-        // AND-join query tokens so all terms must be present (turso defaults to
-        // OR, which lets a common word match the whole library). Mirrors
-        // rotero-db's search so both consumers rank identically.
-        let match_query = rotero_models::build_fts_match_query(query);
-        if match_query.is_empty() {
-            return Ok(Vec::new());
-        }
-        let sql = queries::PAPER_SEARCH_FTS.replace("{COLS}", queries::PAPER_SELECT_COLS);
-        let mut rows = self.conn.query(&sql, [Value::Text(match_query)]).await?;
-        let mut papers = Vec::new();
-        while let Some(row) = rows.next().await? {
-            papers.push(Paper::from_row(&row));
-        }
-        Ok(papers)
-    }
-
-    async fn search_papers_like(&self, query: &str) -> Result<Vec<Paper>, turso::Error> {
-        let pattern = format!("%{query}%");
-        let sql = queries::PAPER_SEARCH_LIKE.replace("{COLS}", queries::PAPER_SELECT_COLS);
-        let mut rows = self.conn.query(&sql, [Value::Text(pattern)]).await?;
-        let mut papers = Vec::new();
-        while let Some(row) = rows.next().await? {
-            papers.push(Paper::from_row(&row));
-        }
-        Ok(papers)
+        self.as_rotero_db()
+            .search_papers(query)
+            .await
+            .map_err(to_turso)
     }
 
     /// Fetch a single paper by its unique ID.
     pub async fn get_paper_by_id(&self, id: &str) -> Result<Option<Paper>, turso::Error> {
-        let sql = queries::PAPER_GET_BY_ID.replace("{COLS}", queries::PAPER_SELECT_COLS);
-        let mut rows = self.conn.query(&sql, [Value::Text(id.to_string())]).await?;
-        match rows.next().await? {
-            Some(row) => Ok(Some(Paper::from_row(&row))),
-            None => Ok(None),
-        }
+        self.as_rotero_db()
+            .get_paper_by_id(id)
+            .await
+            .map_err(to_turso)
     }
 
     /// List papers with pagination (offset and limit).
     pub async fn list_papers(&self, offset: u32, limit: u32) -> Result<Vec<Paper>, turso::Error> {
-        let sql = queries::PAPER_LIST_PAGINATED.replace("{COLS}", queries::PAPER_SELECT_COLS);
-        let mut rows = self
-            .conn
-            .query(
-                &sql,
-                [Value::Integer(limit as i64), Value::Integer(offset as i64)],
-            )
-            .await?;
-        let mut papers = Vec::new();
-        while let Some(row) = rows.next().await? {
-            papers.push(Paper::from_row(&row));
-        }
-        Ok(papers)
+        self.as_rotero_db()
+            .list_papers_paginated(offset, limit)
+            .await
+            .map_err(to_turso)
     }
 
     /// Return the total number of papers in the library.
     pub async fn count_papers(&self) -> Result<u32, turso::Error> {
-        let mut rows = self.conn.query(queries::PAPER_COUNT, ()).await?;
-        let row = rows
-            .next()
-            .await?
-            .ok_or(turso::Error::QueryReturnedNoRows)?;
-        Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0) as u32)
+        self.as_rotero_db().count_papers().await.map_err(to_turso)
     }
 
     /// Return the number of unread papers.
     pub async fn count_unread(&self) -> Result<u32, turso::Error> {
-        let mut rows = self.conn.query(queries::PAPER_COUNT_UNREAD, ()).await?;
-        let row = rows
-            .next()
-            .await?
-            .ok_or(turso::Error::QueryReturnedNoRows)?;
-        Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0) as u32)
+        self.as_rotero_db().count_unread().await.map_err(to_turso)
     }
 
     /// Return the number of favorited papers.
     pub async fn count_favorites(&self) -> Result<u32, turso::Error> {
-        let mut rows = self.conn.query(queries::PAPER_COUNT_FAVORITES, ()).await?;
-        let row = rows
-            .next()
-            .await?
-            .ok_or(turso::Error::QueryReturnedNoRows)?;
-        Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0) as u32)
+        self.as_rotero_db()
+            .count_favorites()
+            .await
+            .map_err(to_turso)
     }
 
     /// Set or clear the favorite flag on a paper.
@@ -224,34 +147,18 @@ impl Database {
         &self,
         paper_id: &str,
     ) -> Result<Vec<Annotation>, turso::Error> {
-        let mut rows = self
-            .conn
-            .query(
-                queries::ANNOTATION_LIST_FOR_PAPER,
-                [Value::Text(paper_id.to_string())],
-            )
-            .await?;
-        let mut anns = Vec::new();
-        while let Some(row) = rows.next().await? {
-            anns.push(Annotation::from_row(&row));
-        }
-        Ok(anns)
+        self.as_rotero_db()
+            .list_annotations_for_paper(paper_id)
+            .await
+            .map_err(to_turso)
     }
 
     /// List all user notes attached to a paper.
     pub async fn list_notes_for_paper(&self, paper_id: &str) -> Result<Vec<Note>, turso::Error> {
-        let mut rows = self
-            .conn
-            .query(
-                queries::NOTE_LIST_FOR_PAPER,
-                [Value::Text(paper_id.to_string())],
-            )
-            .await?;
-        let mut notes = Vec::new();
-        while let Some(row) = rows.next().await? {
-            notes.push(Note::from_row(&row));
-        }
-        Ok(notes)
+        self.as_rotero_db()
+            .list_notes_for_paper(paper_id)
+            .await
+            .map_err(to_turso)
     }
 
     /// Create a new note for a paper and return the generated note ID.
@@ -285,35 +192,18 @@ impl Database {
 
     /// List all collections in the library.
     pub async fn list_collections(&self) -> Result<Vec<Collection>, turso::Error> {
-        let mut rows = self.conn.query(queries::COLLECTION_LIST, ()).await?;
-        let mut colls = Vec::new();
-        while let Some(row) = rows.next().await? {
-            colls.push(Collection {
-                id: get_opt_text(&row, 0),
-                name: row
-                    .get_value(1)
-                    .ok()
-                    .and_then(|v| v.as_text().cloned())
-                    .unwrap_or_default(),
-                parent_id: get_opt_text(&row, 2),
-                position: row
-                    .get_value(3)
-                    .ok()
-                    .and_then(|v| v.as_integer().copied())
-                    .unwrap_or(0) as i32,
-            });
-        }
-        Ok(colls)
+        self.as_rotero_db()
+            .list_collections()
+            .await
+            .map_err(to_turso)
     }
 
     /// Return the total number of collections.
     pub async fn count_collections(&self) -> Result<u32, turso::Error> {
-        let mut rows = self.conn.query(queries::COLLECTION_COUNT, ()).await?;
-        let row = rows
-            .next()
-            .await?
-            .ok_or(turso::Error::QueryReturnedNoRows)?;
-        Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0) as u32)
+        self.as_rotero_db()
+            .count_collections()
+            .await
+            .map_err(to_turso)
     }
 
     /// List paper IDs belonging to a specific collection.
@@ -321,63 +211,28 @@ impl Database {
         &self,
         collection_id: &str,
     ) -> Result<Vec<String>, turso::Error> {
-        let mut rows = self
-            .conn
-            .query(
-                queries::COLLECTION_PAPER_IDS,
-                [Value::Text(collection_id.to_string())],
-            )
-            .await?;
-        let mut ids = Vec::new();
-        while let Some(row) = rows.next().await? {
-            if let Some(id) = get_opt_text(&row, 0) {
-                ids.push(id);
-            }
-        }
-        Ok(ids)
+        self.as_rotero_db()
+            .list_paper_ids_in_collection(collection_id)
+            .await
+            .map_err(to_turso)
     }
 
     /// List all tags in the library.
     pub async fn list_tags(&self) -> Result<Vec<Tag>, turso::Error> {
-        let mut rows = self.conn.query(queries::TAG_LIST, ()).await?;
-        let mut tags = Vec::new();
-        while let Some(row) = rows.next().await? {
-            tags.push(Tag {
-                id: get_opt_text(&row, 0),
-                name: row
-                    .get_value(1)
-                    .ok()
-                    .and_then(|v| v.as_text().cloned())
-                    .unwrap_or_default(),
-                color: row.get_value(2).ok().and_then(|v| v.as_text().cloned()),
-            });
-        }
-        Ok(tags)
+        self.as_rotero_db().list_tags().await.map_err(to_turso)
     }
 
     /// Return the total number of tags.
     pub async fn count_tags(&self) -> Result<u32, turso::Error> {
-        let mut rows = self.conn.query(queries::TAG_COUNT, ()).await?;
-        let row = rows
-            .next()
-            .await?
-            .ok_or(turso::Error::QueryReturnedNoRows)?;
-        Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0) as u32)
+        self.as_rotero_db().count_tags().await.map_err(to_turso)
     }
 
     /// List paper IDs that have a specific tag.
     pub async fn list_paper_ids_by_tag(&self, tag_id: &str) -> Result<Vec<String>, turso::Error> {
-        let mut rows = self
-            .conn
-            .query(queries::TAG_PAPER_IDS, [Value::Text(tag_id.to_string())])
-            .await?;
-        let mut ids = Vec::new();
-        while let Some(row) = rows.next().await? {
-            if let Some(id) = get_opt_text(&row, 0) {
-                ids.push(id);
-            }
-        }
-        Ok(ids)
+        self.as_rotero_db()
+            .list_paper_ids_by_tag(tag_id)
+            .await
+            .map_err(to_turso)
     }
 
     /// Find an existing tag by name, or create one with the given color.
@@ -407,88 +262,58 @@ impl Database {
 
     /// Retrieve the extracted full text of a paper's PDF, if available.
     pub async fn get_paper_fulltext(&self, paper_id: &str) -> Result<Option<String>, turso::Error> {
-        let mut rows = self
-            .conn
-            .query(
-                queries::PAPER_SELECT_FULLTEXT,
-                [Value::Text(paper_id.to_string())],
-            )
-            .await?;
-        match rows.next().await? {
-            Some(row) => Ok(get_opt_text(&row, 0)),
-            None => Ok(None),
-        }
+        self.as_rotero_db()
+            .get_paper_fulltext(paper_id)
+            .await
+            .map_err(to_turso)
     }
 
     /// Return all (paper_id, tag_id) pairs for building the relationship graph.
     pub async fn list_all_paper_tags(&self) -> Result<Vec<(String, String)>, turso::Error> {
-        let mut rows = self.conn.query(queries::GRAPH_ALL_PAPER_TAGS, ()).await?;
-        let mut pairs = Vec::new();
-        while let Some(row) = rows.next().await? {
-            if let (Some(pid), Some(tid)) = (get_opt_text(&row, 0), get_opt_text(&row, 1)) {
-                pairs.push((pid, tid));
-            }
-        }
-        Ok(pairs)
+        self.as_rotero_db()
+            .list_all_paper_tags()
+            .await
+            .map_err(to_turso)
     }
 
     /// Return all (paper_id, collection_id) pairs for building the relationship graph.
     pub async fn list_all_paper_collections(&self) -> Result<Vec<(String, String)>, turso::Error> {
-        let mut rows = self
-            .conn
-            .query(queries::GRAPH_ALL_PAPER_COLLECTIONS, ())
-            .await?;
-        let mut pairs = Vec::new();
-        while let Some(row) = rows.next().await? {
-            if let (Some(pid), Some(cid)) = (get_opt_text(&row, 0), get_opt_text(&row, 1)) {
-                pairs.push((pid, cid));
-            }
-        }
-        Ok(pairs)
+        self.as_rotero_db()
+            .list_all_paper_collections()
+            .await
+            .map_err(to_turso)
     }
 
     /// List all directed (citing, cited) citation edges.
     pub async fn list_all_citations(&self) -> Result<Vec<(String, String)>, turso::Error> {
-        let mut rows = self.conn.query(queries::GRAPH_ALL_CITATIONS, ()).await?;
-        let mut pairs = Vec::new();
-        while let Some(row) = rows.next().await? {
-            if let (Some(a), Some(b)) = (get_opt_text(&row, 0), get_opt_text(&row, 1)) {
-                pairs.push((a, b));
-            }
-        }
-        Ok(pairs)
+        self.as_rotero_db()
+            .list_all_citations()
+            .await
+            .map_err(to_turso)
     }
 
     /// Papers that `paper_id` cites (outgoing).
     pub async fn list_cited_by_paper(&self, paper_id: &str) -> Result<Vec<String>, turso::Error> {
-        let all = self.list_all_citations().await?;
-        Ok(all
-            .into_iter()
-            .filter_map(|(citing, cited)| (citing == paper_id).then_some(cited))
-            .collect())
+        self.as_rotero_db()
+            .list_cited_by_paper(paper_id)
+            .await
+            .map_err(to_turso)
     }
 
     /// Papers that cite `paper_id` (incoming).
     pub async fn list_citing_paper(&self, paper_id: &str) -> Result<Vec<String>, turso::Error> {
-        let all = self.list_all_citations().await?;
-        Ok(all
-            .into_iter()
-            .filter_map(|(citing, cited)| (cited == paper_id).then_some(citing))
-            .collect())
+        self.as_rotero_db()
+            .list_citing_paper(paper_id)
+            .await
+            .map_err(to_turso)
     }
 
     /// List all papers in the library (up to 10,000).
     pub async fn list_all_papers(&self) -> Result<Vec<Paper>, turso::Error> {
-        let sql = queries::PAPER_LIST_PAGINATED.replace("{COLS}", queries::PAPER_SELECT_COLS);
-        let mut rows = self
-            .conn
-            .query(&sql, [Value::Integer(10000), Value::Integer(0)])
-            .await?;
-        let mut papers = Vec::new();
-        while let Some(row) = rows.next().await? {
-            papers.push(Paper::from_row(&row));
-        }
-        Ok(papers)
+        self.as_rotero_db()
+            .list_papers_paginated(0, 10_000)
+            .await
+            .map_err(to_turso)
     }
 
     /// Insert a new paper and return its generated UUID.
@@ -666,10 +491,18 @@ impl Database {
         self.notify();
         Ok(())
     }
-}
 
-fn get_opt_text(row: &turso::Row, idx: usize) -> Option<String> {
-    row.get_value(idx).ok().and_then(|v| v.as_text().cloned())
+    /// Import PDF bytes using the library naming scheme.
+    pub fn import_pdf_bytes(
+        &self,
+        bytes: &[u8],
+        title: &str,
+        first_author: Option<&str>,
+        year: Option<i32>,
+    ) -> Result<(String, String), String> {
+        self.as_rotero_db()
+            .import_pdf_bytes(bytes, title, first_author, year)
+    }
 }
 
 /// Map a `rotero_db` error into the `turso::Error` the MCP surface returns.

@@ -1,5 +1,5 @@
+use rotero_models::merge_into;
 use rotero_models::{Paper, PaperId};
-use rotero_search::merge::merge_into;
 
 /// Tries CrossRef first (most complete), then fills gaps from OpenAlex and Semantic Scholar.
 pub async fn enrich_paper(paper: &Paper) -> Option<Paper> {
@@ -9,7 +9,9 @@ pub async fn enrich_paper(paper: &Paper) -> Option<Paper> {
             PaperId::Doi(doi) => fetch_from_sources_doi(doi).await,
             PaperId::Pmid(_) | PaperId::Isbn(_) => None,
         }
-    } else if let Some(arxiv) = extract_arxiv_from_url(paper) {
+    } else if let Some(PaperId::ArXiv(arxiv)) =
+        paper.links.url.as_deref().and_then(PaperId::from_url)
+    {
         fetch_from_sources_arxiv(&arxiv).await
     } else if !paper.title.is_empty() && paper.title != "Untitled" {
         match super::openalex::search_by_title(&paper.title).await {
@@ -79,21 +81,4 @@ async fn fetch_from_sources_arxiv(arxiv_id: &str) -> Option<Paper> {
     }
 
     primary
-}
-
-fn extract_arxiv_from_url(paper: &Paper) -> Option<String> {
-    let url = paper.links.url.as_deref()?;
-    let pos = url
-        .find("arxiv.org/abs/")
-        .or_else(|| url.find("arxiv.org/pdf/"))?;
-    let after = &url[pos + 14..];
-    let id: String = after
-        .chars()
-        .take_while(|c| c.is_ascii_digit() || *c == '.')
-        .collect();
-    if id.contains('.') && !id.is_empty() {
-        Some(id)
-    } else {
-        None
-    }
 }

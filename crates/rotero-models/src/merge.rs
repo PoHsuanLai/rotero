@@ -45,7 +45,7 @@ fn is_real_doi(doi: &Option<String>) -> bool {
 
 /// Merge `other` into `keep`, filling gaps and keeping the strongest signal from
 /// each. `keep` is expected to be the more metadata-complete of the two.
-fn merge_into(keep: &mut Paper, other: Paper) {
+pub fn merge_into(keep: &mut Paper, other: Paper) {
     if keep.abstract_text.is_none() {
         keep.abstract_text = other.abstract_text;
     }
@@ -403,5 +403,18 @@ mod tests {
 
         let out = merge_and_rank(&[vec![partial, exact]], "attention is all you need");
         assert_eq!(out[0].title, "Attention Is All You Need");
+    }
+
+    #[test]
+    fn merge_into_upgrades_arxiv_doi_and_keeps_max_citations() {
+        let mut keep = paper("Attention", Some("arXiv:1706.03762"));
+        keep.citation.citation_count = Some(10);
+        let mut other = paper("Attention", Some("10.5555/real"));
+        other.citation.citation_count = Some(50);
+        other.abstract_text = Some("abs".into());
+        merge_into(&mut keep, other);
+        assert_eq!(keep.doi.as_deref(), Some("10.5555/real"));
+        assert_eq!(keep.citation.citation_count, Some(50));
+        assert_eq!(keep.abstract_text.as_deref(), Some("abs"));
     }
 }

@@ -1054,72 +1054,27 @@ impl RoteroMcp {
             .await
             .map_err(|e| err(format!("Failed to read response: {e}")))?;
 
-        if !bytes.starts_with(b"%PDF") {
-            return Err(err("URL did not return a valid PDF file"));
-        }
-
-        // Save to library
         let first_author = paper.author_names().into_iter().next();
-        let papers_dir = self.db.papers_dir();
-        std::fs::create_dir_all(&papers_dir)
-            .map_err(|e| err(format!("Failed to create papers dir: {e}")))?;
+        let title = paper.title.clone();
+        let year = paper.year;
+        let size_bytes = bytes.len();
+        let db = self.db.clone();
+        let (rel_path, sha256) = tokio::task::spawn_blocking(move || {
+            db.import_pdf_bytes(&bytes, &title, first_author.as_deref(), year)
+        })
+        .await
+        .map_err(|e| err(format!("Save task failed: {e}")))?
+        .map_err(err)?;
 
-        let safe_title: String = paper
-            .title
-            .chars()
-            .map(|c| {
-                if c.is_alphanumeric() || c == ' ' || c == '-' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect();
-        let safe_title = safe_title.trim();
-        // By character: a byte cut at 80 panics when a title's multi-byte
-        // character lands on it, and titles come straight from paper metadata.
-        let safe_title = rotero_models::take_chars(safe_title, 80);
-        let safe_title = safe_title.as_str();
-
-        let filename = if let Some(author) = first_author {
-            let safe_author: String = author
-                .chars()
-                .map(|c| {
-                    if c.is_alphanumeric() || c == ' ' || c == '-' {
-                        c
-                    } else {
-                        '_'
-                    }
-                })
-                .collect();
-            if let Some(year) = paper.year {
-                format!("{safe_author} - {year} - {safe_title}.pdf")
-            } else {
-                format!("{safe_author} - {safe_title}.pdf")
-            }
-        } else {
-            format!("{safe_title}.pdf")
-        };
-
-        let dest = papers_dir.join(&filename);
-        std::fs::write(&dest, &bytes).map_err(|e| err(format!("Failed to save PDF: {e}")))?;
-
-        // Record the hash alongside the path. This is a third PDF write path,
-        // independent of `Database::import_pdf{,_bytes}` and with its own naming
-        // scheme, so it has to compute the hash itself — a path stored without
-        // one cannot be published to peers.
-        let sha256 = rotero_db::snapshot::checksum(&bytes);
-
-        // Update the paper's pdf_path in the database
         self.db
-            .update_pdf_path(&params.paper_id, &filename, Some(&sha256))
+            .update_pdf_path(&params.paper_id, &rel_path, Some(&sha256))
             .await
             .map_err(err)?;
 
         json_result(&serde_json::json!({
             "success": true,
-            "pdf_path": filename,
-            "size_bytes": bytes.len(),
+            "pdf_path": rel_path,
+            "size_bytes": size_bytes,
         }))
     }
 

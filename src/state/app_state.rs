@@ -241,14 +241,20 @@ impl PdfTabManager {
         self.tabs.iter().position(|t| t.pdf_path == path)
     }
 
+    pub fn get(&self, id: TabId) -> Option<&PdfTab> {
+        self.tabs.iter().find(|t| t.id == id)
+    }
+
+    pub fn get_mut(&mut self, id: TabId) -> Option<&mut PdfTab> {
+        self.tabs.iter_mut().find(|t| t.id == id)
+    }
+
     pub fn active_tab(&self) -> Option<&PdfTab> {
-        self.active_tab_id
-            .and_then(|id| self.tabs.iter().find(|t| t.id == id))
+        self.active_tab_id.and_then(|id| self.get(id))
     }
 
     pub fn active_tab_mut(&mut self) -> Option<&mut PdfTab> {
-        self.active_tab_id
-            .and_then(|id| self.tabs.iter_mut().find(|t| t.id == id))
+        self.active_tab_id.and_then(|id| self.get_mut(id))
     }
 
     /// Panics if no active tab.
@@ -266,7 +272,7 @@ impl PdfTabManager {
 
     pub fn switch_to(&mut self, tab_id: TabId) {
         self.active_tab_id = Some(tab_id);
-        if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+        if let Some(tab) = self.get_mut(tab_id) {
             tab.is_suspended = false;
         }
 
@@ -281,7 +287,7 @@ impl PdfTabManager {
         if resident.len() >= limit {
             let to_suspend = resident.len() - (limit - 1);
             for &id in resident.iter().take(to_suspend) {
-                if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == id) {
+                if let Some(tab) = self.get_mut(id) {
                     tab.suspend();
                 }
             }
@@ -600,6 +606,10 @@ impl LibraryState {
     /// Writes that could fail used to be discarded with `let _ =`, because the
     /// alternative was a button that did nothing with no explanation. This is
     /// the missing half of that trade.
+    pub fn paper_mut(&mut self, id: &str) -> Option<&mut Paper> {
+        self.papers.iter_mut().find(|p| p.id.as_deref() == Some(id))
+    }
+
     pub fn report_error(&mut self, message: impl Into<String>) {
         let message = message.into();
         tracing::error!("{message}");

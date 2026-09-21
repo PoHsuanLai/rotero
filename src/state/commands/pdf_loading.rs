@@ -67,7 +67,7 @@ async fn load_page_labels_into_tab(
 ) {
     let pdf_path = {
         let mgr = tabs.read();
-        let Some(tab) = mgr.tabs.iter().find(|t| t.id == tab_id) else {
+        let Some(tab) = mgr.get(tab_id) else {
             return;
         };
         tab.pdf_path.clone()
@@ -76,27 +76,10 @@ async fn load_page_labels_into_tab(
         return;
     };
     tabs.with_mut(|mgr| {
-        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+        if let Some(tab) = mgr.get_mut(tab_id) {
             tab.page_labels = labels;
         }
     });
-}
-
-/// Open a PDF into its tab, always leaving the tab in a settled state.
-///
-/// Wraps [`open_pdf_inner`] so that however it exits — including a failed
-/// render — the spinner stops and the reason is recorded. Previously those
-/// paths skipped both `is_loading = false` sites, and neither retry condition
-/// could fire afterwards, so the tab said "Loading PDF…" until it was closed.
-#[allow(dead_code)] // thin wrapper; callers use open_pdf_with_theme
-pub async fn open_pdf(
-    docs: &PdfDocs,
-    tabs: &mut Signal<PdfTabManager>,
-    tab_id: TabId,
-    data_dir: &std::path::Path,
-    dpr: f32,
-) -> Result<(), String> {
-    open_pdf_with_theme(docs, tabs, tab_id, data_dir, dpr, false).await
 }
 
 /// Open a PDF, rendering with the dark colour scheme when `dark` is true.
@@ -109,7 +92,7 @@ pub async fn open_pdf_with_theme(
     dark: bool,
 ) -> Result<(), String> {
     tabs.with_mut(|mgr| {
-        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+        if let Some(tab) = mgr.get_mut(tab_id) {
             tab.dark_render = dark;
         }
     });
@@ -123,7 +106,7 @@ pub async fn open_pdf_with_theme(
             tracing::error!("Failed to open PDF in tab {tab_id:?}: {e}");
         }
         tabs.with_mut(|mgr| {
-            if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+            if let Some(tab) = mgr.get_mut(tab_id) {
                 tab.is_loading = false;
                 if needs_password {
                     tab.needs_password = true;
@@ -150,7 +133,7 @@ pub async fn open_pdf_with_password(
     password: String,
 ) -> Result<(), String> {
     tabs.with_mut(|mgr| {
-        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+        if let Some(tab) = mgr.get_mut(tab_id) {
             tab.is_loading = true;
             tab.password_error = None;
             tab.load_error = None;
@@ -191,7 +174,7 @@ pub async fn open_pdf_with_password(
     match result {
         Ok((page_count, pages)) => {
             tabs.with_mut(|mgr| {
-                if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+                if let Some(tab) = mgr.get_mut(tab_id) {
                     tab.page_count = page_count;
                     tab.view.dpr = dpr;
                     tab.view.render_zoom = render_scale;
@@ -216,7 +199,7 @@ pub async fn open_pdf_with_password(
         }
         Err(e) if e == "password-required" => {
             tabs.with_mut(|mgr| {
-                if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+                if let Some(tab) = mgr.get_mut(tab_id) {
                     tab.is_loading = false;
                     tab.needs_password = true;
                     tab.password_error = Some("Incorrect password".to_string());
@@ -226,7 +209,7 @@ pub async fn open_pdf_with_password(
         }
         Err(e) => {
             tabs.with_mut(|mgr| {
-                if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+                if let Some(tab) = mgr.get_mut(tab_id) {
                     tab.is_loading = false;
                     tab.needs_password = false;
                     tab.load_error = Some(e.clone());
@@ -305,7 +288,7 @@ async fn open_pdf_inner(
             .collect();
         evict_pages_outside_window(&mut resident, 0);
         tabs.with_mut(|mgr| {
-            if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+            if let Some(tab) = mgr.get_mut(tab_id) {
                 tab.page_count = meta.page_count;
                 tab.view.dpr = dpr;
                 tab.view.render_zoom = render_scale;
@@ -319,7 +302,7 @@ async fn open_pdf_inner(
         load_page_labels_into_tab(docs, tabs, tab_id).await;
         if let Some(text_data) = text_data {
             tabs.with_mut(|mgr| {
-                if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+                if let Some(tab) = mgr.get_mut(tab_id) {
                     tab.render.text_data = text_data;
                 }
             });
@@ -401,7 +384,7 @@ async fn open_pdf_inner(
         );
     });
     tabs.with_mut(|mgr| {
-        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+        if let Some(tab) = mgr.get_mut(tab_id) {
             tab.page_count = page_count;
             tab.view.dpr = dpr;
             tab.view.render_zoom = render_scale;
@@ -441,7 +424,7 @@ async fn open_pdf_inner(
             });
 
             tabs2.with_mut(|mgr| {
-                if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+                if let Some(tab) = mgr.get_mut(tab_id) {
                     tab.render.text_data = text_data;
                 }
             });
@@ -512,7 +495,7 @@ pub async fn populate_page_dims(
     // Already populated for the full document? Reuse it.
     {
         let mgr = tabs.read();
-        if let Some(t) = mgr.tabs.iter().find(|t| t.id == tab_id)
+        if let Some(t) = mgr.get(tab_id)
             && t.render.page_dims.len() as u32 == t.page_count
             && t.page_count > 0
         {
@@ -532,7 +515,7 @@ pub async fn populate_page_dims(
         })
         .collect();
     tabs.with_mut(|mgr| {
-        if let Some(t) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+        if let Some(t) = mgr.get_mut(tab_id) {
             t.render.page_dims = pixel_dims.clone();
         }
     });
@@ -575,7 +558,7 @@ async fn extract_remaining_text(
     }
     if let Ok(text_data) = docs.extract_text(pdf_path.to_string(), page_dims).await {
         tabs.with_mut(|mgr| {
-            if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+            if let Some(tab) = mgr.get_mut(tab_id) {
                 tab.render.text_data.extend(text_data);
             }
         });
@@ -601,7 +584,7 @@ pub async fn ensure_window_rendered(
         std::collections::BTreeSet<u32>,
     ) = {
         let mgr = tabs.read();
-        match mgr.tabs.iter().find(|t| t.id == tab_id) {
+        match mgr.get(tab_id) {
             Some(t) => (
                 t.page_count,
                 t.view.render_zoom,
@@ -637,7 +620,7 @@ pub async fn ensure_window_rendered(
     }
     // Record the new center so eviction keeps the right window.
     tabs.with_mut(|mgr| {
-        if let Some(t) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+        if let Some(t) = mgr.get_mut(tab_id) {
             t.view.current_page = center;
         }
     });
@@ -705,7 +688,7 @@ pub async fn render_more_pages(
         );
     });
     tabs.with_mut(|mgr| {
-        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+        if let Some(tab) = mgr.get_mut(tab_id) {
             tab.render
                 .rendered_pages
                 .extend(pages.into_iter().map(|p| (p.page_index, p)));
@@ -717,7 +700,7 @@ pub async fn render_more_pages(
     spawn(async move {
         if let Ok(text_data) = docs2.extract_text(pdf_path, page_dims).await {
             tabs2.with_mut(|mgr| {
-                if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+                if let Some(tab) = mgr.get_mut(tab_id) {
                     tab.render.text_data.extend(text_data);
                 }
             });
@@ -728,7 +711,7 @@ pub async fn render_more_pages(
 
 pub fn set_zoom(tabs: &mut Signal<PdfTabManager>, tab_id: TabId, new_zoom: f32) {
     tabs.with_mut(|mgr| {
-        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+        if let Some(tab) = mgr.get_mut(tab_id) {
             tab.view.zoom = new_zoom;
         }
     });

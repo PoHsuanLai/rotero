@@ -42,20 +42,9 @@ pub fn MultiSelectSummary() -> Element {
                         button {
                             class: "btn btn--ghost multi-select-btn",
                             onclick: move |_| {
-                                let db = db_fav.clone();
-                                let ids = ids_fav.clone();
-                                spawn(async move {
-                                    for pid in &ids {
-                                        let _ = db.set_favorite(pid, true).await;
-                                    }
-                                    lib_state.with_mut(|s| {
-                                        for pid in &ids {
-                                            if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid.as_str())) {
-                                                p.status.is_favorite = true;
-                                            }
-                                        }
-                                    });
-                                });
+                                crate::state::commands::set_paper_flags(
+                                    db_fav.clone(), lib_state, ids_fav.clone(), Some(true), None, false,
+                                );
                             },
                             i { class: "bi bi-star" }
                             " Favorite All"
@@ -70,20 +59,9 @@ pub fn MultiSelectSummary() -> Element {
                         button {
                             class: "btn btn--ghost multi-select-btn",
                             onclick: move |_| {
-                                let db = db_read.clone();
-                                let ids = ids_read.clone();
-                                spawn(async move {
-                                    for pid in &ids {
-                                        let _ = db.set_read(pid, true).await;
-                                    }
-                                    lib_state.with_mut(|s| {
-                                        for pid in &ids {
-                                            if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid.as_str())) {
-                                                p.status.is_read = true;
-                                            }
-                                        }
-                                    });
-                                });
+                                crate::state::commands::set_paper_flags(
+                                    db_read.clone(), lib_state, ids_read.clone(), None, Some(true), false,
+                                );
                             },
                             i { class: "bi bi-book-fill" }
                             " Mark All Read"

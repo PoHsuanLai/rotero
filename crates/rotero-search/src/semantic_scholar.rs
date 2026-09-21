@@ -45,9 +45,6 @@ struct S2Author {
 struct S2ExternalIds {
     #[serde(rename = "DOI")]
     doi: Option<String>,
-    #[allow(dead_code)]
-    #[serde(rename = "ArXiv")]
-    arxiv: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,28 +60,11 @@ struct S2SearchResponse {
 /// Searches Semantic Scholar for papers matching the given query.
 pub async fn search_papers(query: &str, limit: usize) -> Result<Vec<Paper>, String> {
     let url = format!(
-        "https://api.semanticscholar.org/graph/v1/paper/search?query={}&limit={limit}&fields={S2_FIELDS}",
+        "{}/search?query={}&limit={limit}&fields={S2_FIELDS}",
+        s2_api_url(),
         urlencoding::encode(query)
     );
-
-    let client = crate::shared_client();
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("Semantic Scholar request failed: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!(
-            "Semantic Scholar API returned status {}",
-            resp.status()
-        ));
-    }
-
-    let data: S2SearchResponse = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse Semantic Scholar response: {e}"))?;
+    let data: S2SearchResponse = crate::get_json(&url, "Semantic Scholar").await?;
 
     let papers = data.data.unwrap_or_default();
     let mut results = Vec::new();
@@ -151,21 +131,14 @@ pub async fn find_oa_pdf(doi: Option<&str>, title: &str) -> Result<Option<String
         Some(p) => Some(p),
         None => {
             let url = format!(
-                "https://api.semanticscholar.org/graph/v1/paper/search?query={}&limit=1&fields=openAccessPdf",
+                "{}/search?query={}&limit=1&fields=openAccessPdf",
+                s2_api_url(),
                 urlencoding::encode(title)
             );
-            let client = crate::shared_client();
-            if let Ok(resp) = client.get(&url).send().await
-                && resp.status().is_success()
-            {
-                let data: S2SearchResponse = resp
-                    .json()
-                    .await
-                    .map_err(|e| format!("Failed to parse S2 response: {e}"))?;
-                data.data.and_then(|d| d.into_iter().next())
-            } else {
-                None
-            }
+            crate::get_json::<S2SearchResponse>(&url, "Semantic Scholar")
+                .await
+                .ok()
+                .and_then(|data| data.data.and_then(|d| d.into_iter().next()))
         }
     };
 
@@ -173,22 +146,7 @@ pub async fn find_oa_pdf(doi: Option<&str>, title: &str) -> Result<Option<String
 }
 
 async fn fetch_paper(url: &str) -> Result<S2Paper, String> {
-    let resp = crate::shared_client()
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("Semantic Scholar request failed: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!(
-            "Semantic Scholar API returned status {}",
-            resp.status()
-        ));
-    }
-
-    resp.json()
-        .await
-        .map_err(|e| format!("Failed to parse Semantic Scholar response: {e}"))
+    crate::get_json(url, "Semantic Scholar").await
 }
 
 fn s2_to_paper(paper: S2Paper, doi: &str) -> Result<Paper, String> {

@@ -45,6 +45,34 @@ impl Database {
         Ok(pairs)
     }
 
+    /// Papers that `paper_id` cites (outgoing).
+    pub async fn list_cited_by_paper(&self, paper_id: &str) -> Result<Vec<String>, crate::DbError> {
+        self.list_id_column(queries::GRAPH_CITED_BY_PAPER, paper_id)
+            .await
+    }
+
+    /// Papers that cite `paper_id` (incoming).
+    pub async fn list_citing_paper(&self, paper_id: &str) -> Result<Vec<String>, crate::DbError> {
+        self.list_id_column(queries::GRAPH_CITING_PAPER, paper_id)
+            .await
+    }
+
+    async fn list_id_column(
+        &self,
+        sql: &str,
+        paper_id: &str,
+    ) -> Result<Vec<String>, crate::DbError> {
+        let conn = self.conn();
+        let mut rows = conn.query(sql, [Value::Text(paper_id.to_string())]).await?;
+        let mut ids = Vec::new();
+        while let Some(row) = rows.next().await? {
+            if let Some(id) = crate::get_opt_text(&row, 0) {
+                ids.push(id);
+            }
+        }
+        Ok(ids)
+    }
+
     /// Record that `citing_paper_id` cites `cited_paper_id`. Idempotent; a
     /// self-citation (equal ids) is rejected.
     pub async fn insert_citation(

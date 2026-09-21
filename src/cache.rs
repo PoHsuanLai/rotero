@@ -41,8 +41,12 @@ fn default_mime() -> String {
     "image/png".to_string()
 }
 
-fn ext_for_mime(_mime: &str) -> &str {
-    "png"
+fn ext_for_mime(mime: &str) -> &str {
+    if mime == "image/jpeg" || mime == "image/jpg" {
+        "jpg"
+    } else {
+        "png"
+    }
 }
 
 /// Extract (width, height) from PNG or JPEG image bytes by reading the header.

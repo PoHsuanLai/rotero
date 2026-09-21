@@ -80,7 +80,7 @@ async fn run_import(db: &Database, mut lib_state: Signal<LibraryState>, paper: P
     });
 
     set_status(&mut lib_state, &key, ImportStatus::Downloading);
-    download_pdf_into_library(db, &mut lib_state, &paper, &id).await;
+    let _ = download_pdf_into_library(db, &mut lib_state, &paper, &id).await;
     lib_state.with_mut(|s| {
         s.import_status.remove(&key);
     });
@@ -109,7 +109,7 @@ pub async fn download_pdf_into_library(
     lib_state: &mut Signal<LibraryState>,
     paper: &Paper,
     paper_id: &str,
-) {
+) -> Result<(), String> {
     let title = paper.title.clone();
     let author_names = paper.author_names();
     tracing::info!("Downloading OA PDF for: {title}");
@@ -127,18 +127,16 @@ pub async fn download_pdf_into_library(
             let _ = db.update_pdf_path(paper_id, &rel_path, Some(&sha256)).await;
             let pid = paper_id.to_string();
             lib_state.with_mut(|s| {
-                if let Some(p) = s
-                    .papers
-                    .iter_mut()
-                    .find(|p| p.id.as_deref() == Some(pid.as_str()))
-                {
+                if let Some(p) = s.paper_mut(&pid) {
                     p.links.pdf_path = Some(rel_path.clone());
                 }
             });
             tracing::info!("Downloaded OA PDF for: {title} -> {rel_path}");
+            Ok(())
         }
         Err(e) => {
             tracing::debug!("No OA PDF for: {title}: {e}");
+            Err(e.to_string())
         }
     }
 }

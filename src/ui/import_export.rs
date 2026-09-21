@@ -238,7 +238,7 @@ fn OaPromptDialog(papers: Vec<OaPending>) -> Element {
                                     let _ = db.update_pdf_path(&p.id, &rel_path, Some(&sha256)).await;
                                     let pid = p.id.clone();
                                     lib_state.with_mut(|s| {
-                                        if let Some(paper) = s.papers.iter_mut().find(|paper| paper.id.as_deref() == Some(pid.as_str())) {
+                                        if let Some(paper) = s.paper_mut(&pid) {
                                             paper.links.pdf_path = Some(rel_path);
                                         }
                                     });

@@ -237,8 +237,6 @@ pub enum ChatRequest {
     SwitchAgent {
         provider_id: String,
     },
-    #[allow(dead_code)]
-    Shutdown,
 }
 
 #[derive(Debug)]

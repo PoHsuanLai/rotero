@@ -22,7 +22,7 @@ pub async fn load_thumbnails(
     };
     let thumbnails = docs.render_thumbnails(pdf_path, start, count).await?;
     tabs.with_mut(|mgr| {
-        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+        if let Some(tab) = mgr.get_mut(tab_id) {
             for thumb in thumbnails {
                 tab.render.thumbnails.insert(thumb.page_index, thumb);
             }
@@ -56,7 +56,7 @@ pub async fn load_outline(
     };
     let outline = docs.extract_outline(pdf_path).await?;
     tabs.with_mut(|mgr| {
-        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+        if let Some(tab) = mgr.get_mut(tab_id) {
             tab.nav.outline = outline;
         }
     });
@@ -82,7 +82,7 @@ pub async fn load_links(
     let links = docs.extract_links(pdf_path).await?;
     let by_page = crate::state::app_state::build_page_links(&links);
     tabs.with_mut(|mgr| {
-        if let Some(tab) = mgr.tabs.iter_mut().find(|t| t.id == tab_id) {
+        if let Some(tab) = mgr.get_mut(tab_id) {
             tab.links = by_page;
         }
     });

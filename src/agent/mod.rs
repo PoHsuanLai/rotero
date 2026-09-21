@@ -50,7 +50,7 @@ fn agent_main(
     // is answered rather than dropped.
     let (feed_tx, feed_rx) = mpsc::channel();
     match req_rx.recv() {
-        Ok(ChatRequest::Shutdown) | Err(_) => return,
+        Err(_) => return,
         Ok(first) => {
             if feed_tx.send(first).is_err() {
                 return;

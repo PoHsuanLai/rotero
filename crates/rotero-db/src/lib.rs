@@ -283,6 +283,16 @@ impl Database {
         &self.data_dir
     }
 
+    /// Run a `SELECT COUNT(*)` statement and return the first column as `u32`.
+    pub(crate) async fn count_sql(&self, sql: &str) -> Result<u32, DbError> {
+        let mut rows = self.conn().query(sql, ()).await?;
+        let row = rows
+            .next()
+            .await?
+            .ok_or(turso::Error::QueryReturnedNoRows)?;
+        Ok(row.get_value(0)?.as_integer().copied().unwrap_or(0) as u32)
+    }
+
     /// Returns the directory where imported PDFs are stored.
     pub fn papers_dir(&self) -> PathBuf {
         self.data_dir.join("papers")
@@ -345,18 +355,7 @@ impl Database {
         let abs_dir = self.papers_dir().join(rel_dir);
         std::fs::create_dir_all(&abs_dir).map_err(|e| format!("Failed to create folder: {e}"))?;
 
-        let mut dest_name = clean_name.clone();
-        let mut dest = abs_dir.join(&dest_name);
-        let mut counter = 1;
-        while dest.exists() {
-            let stem = Path::new(&clean_name)
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy();
-            dest_name = format!("{stem} ({counter}).pdf");
-            dest = abs_dir.join(&dest_name);
-            counter += 1;
-        }
+        let (dest_name, dest) = unique_pdf_dest(&abs_dir, &clean_name);
 
         std::fs::copy(source, &dest).map_err(|e| format!("Failed to copy PDF: {e}"))?;
 
@@ -403,18 +402,7 @@ impl Database {
         let abs_dir = self.papers_dir().join(rel_dir);
         std::fs::create_dir_all(&abs_dir).map_err(|e| format!("Failed to create folder: {e}"))?;
 
-        let mut dest_name = clean_name.clone();
-        let mut dest = abs_dir.join(&dest_name);
-        let mut counter = 1;
-        while dest.exists() {
-            let stem = Path::new(&clean_name)
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy();
-            dest_name = format!("{stem} ({counter}).pdf");
-            dest = abs_dir.join(&dest_name);
-            counter += 1;
-        }
+        let (dest_name, dest) = unique_pdf_dest(&abs_dir, &clean_name);
 
         std::fs::write(&dest, bytes).map_err(|e| format!("Failed to write PDF: {e}"))?;
 
@@ -463,6 +451,23 @@ fn build_clean_filename(source: &Path, title: Option<&str>, first_author: Option
             format!("{clean}.pdf")
         }
     }
+}
+
+/// Pick a filename in `abs_dir` that does not already exist, adding ` (N)` on collision.
+fn unique_pdf_dest(abs_dir: &Path, clean_name: &str) -> (String, PathBuf) {
+    let mut dest_name = clean_name.to_string();
+    let mut dest = abs_dir.join(&dest_name);
+    let mut counter = 1;
+    while dest.exists() {
+        let stem = Path::new(clean_name)
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy();
+        dest_name = format!("{stem} ({counter}).pdf");
+        dest = abs_dir.join(&dest_name);
+        counter += 1;
+    }
+    (dest_name, dest)
 }
 
 /// Remove filesystem-unsafe characters and truncate to `max_len`.
@@ -521,4 +526,24 @@ async fn read_device_id(conn: &Connection) -> Result<Arc<str>, String> {
         .ok_or_else(|| "Failed to read device id: no row".to_string())?;
 
     Ok(Arc::from(id.as_str()))
+}
+
+#[cfg(test)]
+mod resolve_pdf_path_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn resolve_pdf_path_does_not_escape_papers_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Database::open(dir.path().to_path_buf()).await.unwrap();
+        let papers = db.papers_dir();
+        std::fs::create_dir_all(&papers).unwrap();
+        let resolved = db.resolve_pdf_path("../secret.pdf");
+        assert!(
+            resolved.starts_with(&papers),
+            "traversal must stay under papers/: {}",
+            resolved.display()
+        );
+        assert_ne!(resolved, dir.path().join("secret.pdf"));
+    }
 }

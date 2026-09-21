@@ -35,11 +35,8 @@ pub fn ChatEventPump() -> Element {
             let Some(mut rx) = rx_sig.write().take() else {
                 return;
             };
-            loop {
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                while let Ok(event) = rx.try_recv() {
-                    handle_chat_event(&mut chat_state, &lib_state, &db, event);
-                }
+            while let Some(event) = rx.recv().await {
+                handle_chat_event(&mut chat_state, &lib_state, &db, event);
             }
         }
     });
@@ -127,10 +124,13 @@ pub fn record_session(
     });
 }
 
-/// Persist a single chat message to the database.
-pub fn persist_chat_message(db: &Database, session_id: &str, seq: i64, message: &ChatMessage) {
+fn message_record(
+    session_id: &str,
+    seq: i64,
+    message: &ChatMessage,
+) -> Option<rotero_db::chat_sessions::ChatMessageRecord> {
     if message.hidden {
-        return;
+        return None;
     }
     let role = match message.role {
         ChatRole::User => "user",
@@ -140,16 +140,23 @@ pub fn persist_chat_message(db: &Database, session_id: &str, seq: i64, message: 
         Ok(j) => j,
         Err(e) => {
             tracing::warn!("chat: failed to serialize message content: {e}");
-            return;
+            return None;
         }
     };
-    let record = rotero_db::chat_sessions::ChatMessageRecord {
+    Some(rotero_db::chat_sessions::ChatMessageRecord {
         id: format!("{session_id}:{seq}"),
         session_id: session_id.to_string(),
         seq,
         role: role.to_string(),
         content_json,
         created_at: message.timestamp.to_rfc3339(),
+    })
+}
+
+/// Persist a single chat message to the database.
+pub fn persist_chat_message(db: &Database, session_id: &str, seq: i64, message: &ChatMessage) {
+    let Some(record) = message_record(session_id, seq, message) else {
+        return;
     };
     let db = db.clone();
     spawn(async move {
@@ -161,32 +168,11 @@ pub fn persist_chat_message(db: &Database, session_id: &str, seq: i64, message: 
 
 /// Persist all visible messages in the transcript for a session.
 pub fn persist_chat_transcript(db: &Database, session_id: &str, messages: &[ChatMessage]) {
-    let mut records = Vec::new();
-    for (i, msg) in messages.iter().enumerate() {
-        if msg.hidden {
-            continue;
-        }
-        let seq = (i + 1) as i64;
-        let role = match msg.role {
-            ChatRole::User => "user",
-            ChatRole::Assistant => "assistant",
-        };
-        let content_json = match serde_json::to_string(&msg.content) {
-            Ok(j) => j,
-            Err(e) => {
-                tracing::warn!("chat: failed to serialize message content: {e}");
-                continue;
-            }
-        };
-        records.push(rotero_db::chat_sessions::ChatMessageRecord {
-            id: format!("{session_id}:{seq}"),
-            session_id: session_id.to_string(),
-            seq,
-            role: role.to_string(),
-            content_json,
-            created_at: msg.timestamp.to_rfc3339(),
-        });
-    }
+    let records: Vec<_> = messages
+        .iter()
+        .enumerate()
+        .filter_map(|(i, msg)| message_record(session_id, (i + 1) as i64, msg))
+        .collect();
     if records.is_empty() {
         return;
     }

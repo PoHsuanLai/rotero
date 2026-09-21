@@ -78,6 +78,47 @@ async fn providers_read_their_base_url_from_the_environment() {
         result.is_err(),
         "an HTTP 500 must be an error, not an empty result set"
     );
+
+    // --- S2 search honours ROTERO_S2_API --------------------------------
+    let s2 = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [{
+                "title": "S2 Stub",
+                "authors": [],
+                "year": 2021,
+                "externalIds": { "DOI": "10.1234/s2" }
+            }]
+        })))
+        .mount(&s2)
+        .await;
+
+    set_base_url("ROTERO_S2_API", &format!("{}/graph/v1/paper", s2.uri()));
+    let found = rotero_search::semantic_scholar::search_papers("anything", 5).await;
+    clear_base_url("ROTERO_S2_API");
+    let papers = found.expect("a stubbed S2 200 must parse");
+    assert_eq!(papers.len(), 1);
+    assert_eq!(papers[0].title, "S2 Stub");
+
+    // --- OpenAlex autocomplete honours the same works-base override ------
+    let ac = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "results": [{
+                "display_name": "AC Stub",
+                "external_id": "https://doi.org/10.1234/ac",
+                "cited_by_count": 3
+            }]
+        })))
+        .mount(&ac)
+        .await;
+
+    set_base_url("ROTERO_OPENALEX_API", &format!("{}/works", ac.uri()));
+    let found = rotero_search::openalex::autocomplete("anything").await;
+    clear_base_url("ROTERO_OPENALEX_API");
+    let papers = found.expect("a stubbed autocomplete 200 must parse");
+    assert_eq!(papers.len(), 1);
+    assert_eq!(papers[0].title, "AC Stub");
 }
 
 /// The shared client carries a total timeout.

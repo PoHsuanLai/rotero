@@ -94,7 +94,7 @@ pub(crate) fn CitationCard(
                         // extract the reference block starting at the link's y.
                         let (segments, page_height) = {
                             let mgr = tabs.read();
-                            let tab = mgr.tabs.iter().find(|t| t.id == tab_id);
+                            let tab = mgr.get(tab_id);
                             let seg = tab
                                 .and_then(|t| t.render.text_data.get(&page))
                                 .map(|td| td.segments.clone());

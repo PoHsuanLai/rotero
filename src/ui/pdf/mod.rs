@@ -23,6 +23,28 @@ use crate::state::app_state::{AnnotationContextInfo, LinkDest, TabId};
 
 pub(crate) type AnnCtxState = Signal<Option<AnnotationContextInfo>>;
 
+/// Shared swatch palette for annotation tools, context menus, and settings.
+pub(crate) const SELECTION_COLORS: &[(&str, &str)] = &[
+    ("#ffff00", "Yellow"),
+    ("#ff6b6b", "Red"),
+    ("#51cf66", "Green"),
+    ("#339af0", "Blue"),
+    ("#cc5de8", "Purple"),
+    ("#ff922b", "Orange"),
+];
+
+/// Scroll the PDF pages container. `kind` is `page-down`, `page-up`, `home`, or `end`.
+pub(crate) fn pdf_scroll_js(kind: &str) -> String {
+    let action = match kind {
+        "page-down" => "el.scrollBy({ top: el.clientHeight * 0.9, behavior: 'smooth' });",
+        "page-up" => "el.scrollBy({ top: -el.clientHeight * 0.9, behavior: 'smooth' });",
+        "home" => "el.scrollTo({ top: 0, behavior: 'smooth' });",
+        "end" => "el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });",
+        _ => "el.scrollBy({ top: el.clientHeight * 0.9, behavior: 'smooth' });",
+    };
+    format!("let el = document.getElementById('pdf-pages-container'); {action}")
+}
+
 /// Citation preview, rendered at the viewer (not inside a page wrapper) so
 /// `position: fixed` is in viewport space.
 #[derive(Clone)]

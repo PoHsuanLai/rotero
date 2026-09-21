@@ -99,7 +99,7 @@ pub fn PaperDetail() -> Element {
                                                             let _ = db.update_citation_key(&pid, &new_key).await;
                                                             let pid2 = pid.clone();
                                                             lib_state.with_mut(|s| {
-                                                                if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
+                                                                if let Some(p) = s.paper_mut(&pid2) {
                                                                     p.citation.citation_key = Some(new_key);
                                                                 }
                                                             });
@@ -123,7 +123,7 @@ pub fn PaperDetail() -> Element {
                                                     let _ = db.update_citation_key(&pid, &new_key).await;
                                                     let pid2 = pid.clone();
                                                     lib_state.with_mut(|s| {
-                                                        if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
+                                                        if let Some(p) = s.paper_mut(&pid2) {
                                                             p.citation.citation_key = Some(new_key);
                                                         }
                                                     });
@@ -214,11 +214,6 @@ pub fn PaperDetail() -> Element {
                     }
                     if paper.links.pdf_path.is_none() {
                         {
-                            let doi_for_oa = paper.doi.clone();
-                            let url_for_oa = paper.links.pdf_url.clone();
-                            let paper_title = paper.title.clone();
-                            let paper_authors = paper.author_names();
-                            let paper_year = paper.year;
                             let db_oa = db.clone();
                             let agent_title = paper.title.clone();
                             let agent_doi = paper.doi.clone();
@@ -272,33 +267,20 @@ pub fn PaperDetail() -> Element {
                                             });
                                             oa_statuses.with_mut(|m| { m.insert(pid, "Agent...".into()); });
                                         } else {
-                                            // Automated OA search
                                             let db = db_oa.clone();
-                                            let doi = doi_for_oa.clone();
-                                            let direct_url = url_for_oa.clone();
-                                            let title = paper_title.clone();
-                                            let authors = paper_authors.clone();
-                                            let year = paper_year;
+                                            let paper_for_oa = paper.clone();
                                             let paper_id = pid_oa.clone();
                                             oa_statuses.with_mut(|m| { m.insert(paper_id.clone(), "Searching...".into()); });
                                             spawn(async move {
-                                                let urls = crate::metadata::pdf_download::resolve_pdf_urls(direct_url.as_deref(), doi.as_deref(), &title).await;
-                                                if urls.is_empty() {
-                                                    oa_statuses.with_mut(|m| { m.insert(paper_id.clone(), "ask_agent".into()); });
-                                                    return;
-                                                }
-                                                oa_statuses.with_mut(|m| { m.insert(paper_id.clone(), "Downloading...".into()); });
-                                                let first_author = authors.first().map(|a| a.as_str());
-                                                match crate::metadata::pdf_download::download_and_save_pdf(&db, &urls, &title, first_author, year).await {
-                                                    Ok((rel_path, sha256)) => {
-                                                        let pid = paper_id.clone();
-                                                        let _ = db.update_pdf_path(&pid, &rel_path, Some(&sha256)).await;
-                                                        let pid2 = pid.clone();
-                                                        lib_state.with_mut(|s| {
-                                                            if let Some(p) = s.papers.iter_mut().find(|p| p.id.as_deref() == Some(pid2.as_str())) {
-                                                                p.links.pdf_path = Some(rel_path);
-                                                            }
-                                                        });
+                                                match crate::state::commands::download_pdf_into_library(
+                                                    &db,
+                                                    &mut lib_state,
+                                                    &paper_for_oa,
+                                                    &paper_id,
+                                                )
+                                                .await
+                                                {
+                                                    Ok(()) => {
                                                         oa_statuses.with_mut(|m| { m.insert(paper_id, "Downloaded".into()); });
                                                     }
                                                     Err(_) => {

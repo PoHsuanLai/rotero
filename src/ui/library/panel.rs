@@ -276,75 +276,26 @@ pub fn LibraryPanel() -> Element {
             ondrop: move |evt| {
                 drag_over.set(false);
                 let dropped_files = evt.files();
-                if !dropped_files.is_empty() {
-                    let db = db.clone();
-                    spawn(async move {
-                        for file_data in &dropped_files {
-                            let file_name = file_data.name();
-                            let file_path = file_data.path();
-                            let file_path_str = file_path.to_string_lossy().to_string();
-                            if file_name.ends_with(".pdf") {
-                                let title = std::path::Path::new(&file_name)
-                                    .file_stem()
-                                    .map(|s| s.to_string_lossy().to_string())
-                                    .unwrap_or_else(|| "Untitled".to_string());
-
-                                match db.import_pdf(&file_path_str, Some(&title), None, None) {
-                                    Ok((rel_path, sha256)) => {
-                                        let mut paper = rotero_models::Paper {
-                                            title,
-                                            links: rotero_models::PaperLinks {
-                                                pdf_path: Some(rel_path.clone()),
-                                                ..Default::default()
-                                            },
-                                            ..Default::default()
-                                        };
-                                        let paper_id = match db.insert_paper(&paper).await {
-                                            Ok(id) => {
-                                                // The model carries no hash
-                                                // field; record it here so the
-                                                // synced path has one.
-                                                let _ = db
-                                                    .update_pdf_path(&id, &rel_path, Some(&sha256))
-                                                    .await;
-                                                paper.id = Some(id.clone());
-                                                lib_state.with_mut(|s| s.papers.insert(0, paper));
-                                                Some(id)
-                                            }
-                                            Err(e) => {
-                                                tracing::error!("Failed to insert paper: {e}");
-                                                None
-                                            }
-                                        };
-                                        let full_path = db.resolve_pdf_path(&rel_path).to_string_lossy().to_string();
-                                        let docs_pre = docs.get();
-                                        let cfg = config.read();
-                                        let data_dir = cfg.effective_library_path();
-                                        let zoom = cfg.pdf.default_zoom * dpr_sig.read().0;
-                                        drop(cfg);
-                                        let db_for_cache = db.clone();
-                                        let auto_fetch = config.read().auto_fetch_metadata;
-                                        let meta_full_path = full_path.clone();
-                                        let docs_meta = docs.get();
-                                        let meta_db = db.clone();
-                                        let paper_id2 = paper_id.clone();
-                                        spawn(async move {
-                                            crate::state::commands::precache_pdf(&docs_pre, &full_path, &data_dir, zoom, paper_id, Some(&db_for_cache)).await;
-                                        });
-                                        if let Some(pid) = paper_id2 {
-                                            spawn(async move {
-                                                crate::state::commands::extract_and_fetch_metadata(
-                                                    &docs_meta, &meta_db, &pid, &meta_full_path, auto_fetch, &mut lib_state,
-                                                ).await;
-                                            });
-                                        }
-                                    }
-                                    Err(e) => tracing::error!("Failed to import {file_name}: {e}"),
-                                }
-                            }
-                        }
-                    });
+                if dropped_files.is_empty() {
+                    return;
                 }
+                let db = db.clone();
+                let docs = docs.get();
+                let dpr = dpr_sig.read().0;
+                spawn(async move {
+                    for file_data in &dropped_files {
+                        crate::state::commands::import_dropped_pdf(
+                            &db,
+                            &docs,
+                            lib_state,
+                            config,
+                            dpr,
+                            &file_data.path().to_string_lossy(),
+                            &file_data.name(),
+                        )
+                        .await;
+                    }
+                });
             },
 
             if drag_over() {
@@ -383,20 +334,7 @@ pub fn LibraryPanel() -> Element {
                             if filtered.is_empty() {
                                 div { class: "search-section-empty", "No matches in your library." }
                             } else {
-                                for paper in filtered.iter() {
-                                    {
-                                        let paper_id = paper.id.clone().unwrap_or_default();
-                                        let selected = state.is_selected(&paper_id);
-                                        rsx! {
-                                            super::paper_card::PaperCard {
-                                                key: "{paper_id}",
-                                                paper: paper.clone(),
-                                                selected,
-                                                ctx_menu,
-                                            }
-                                        }
-                                    }
-                                }
+                                PaperCardList { papers: filtered.clone(), ctx_menu }
                             }
                         }
                     }
@@ -417,20 +355,7 @@ pub fn LibraryPanel() -> Element {
                     } else if let Some(ref groups) = duplicate_groups {
                         DuplicatesView { groups: groups.clone() }
                     } else {
-                        for paper in filtered.iter() {
-                            {
-                                let paper_id = paper.id.clone().unwrap_or_default();
-                                let selected = state.is_selected(&paper_id);
-                                rsx! {
-                                    super::paper_card::PaperCard {
-                                        key: "{paper_id}",
-                                        paper: paper.clone(),
-                                        selected,
-                                        ctx_menu,
-                                    }
-                                }
-                            }
-                        }
+                        PaperCardList { papers: filtered.clone(), ctx_menu }
                     }
                 }
             }
@@ -492,6 +417,30 @@ pub fn LibraryPanel() -> Element {
                                 lib_state.with_mut(|s| s.confirm_delete = None);
                             },
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn PaperCardList(
+    papers: Vec<rotero_models::Paper>,
+    ctx_menu: Signal<Option<(String, f64, f64)>>,
+) -> Element {
+    let lib_state = use_context::<Signal<LibraryState>>();
+    rsx! {
+        for paper in papers.iter() {
+            {
+                let paper_id = paper.id.clone().unwrap_or_default();
+                let selected = lib_state.read().is_selected(&paper_id);
+                rsx! {
+                    super::paper_card::PaperCard {
+                        key: "{paper_id}",
+                        paper: paper.clone(),
+                        selected,
+                        ctx_menu,
                     }
                 }
             }
