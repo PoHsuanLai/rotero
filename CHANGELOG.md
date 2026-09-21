@@ -2,20 +2,45 @@
 
 ## Unreleased
 
+## v0.2.7
+
+PDF rendering is now pdfrum, a pure-Rust library, instead of PDFium. There is no native PDF sidecar to ship or load. Linux also becomes a real desktop app: the portable tarball installs a launcher icon, and in-app updates replace that copy.
+
+Clicking a citation in a PDF shows a proper card, and Jump to reaches the cited line rather than staying on the page you were reading.
+
+The v0.2.4 limitation — two devices editing different fields of the same paper in one sync window losing one of the edits — is gone. Each field is judged on its own clock.
+
+The library migrates from schema v18 to v20 on first launch. Older versions of Rotero will not open it afterwards.
+
 ### Added
 - **Linux desktop install.** The portable tarball now ships a `.desktop` file, icons, and `install.sh`, which installs Rotero as a user-local app (application menu, taskbar icon). `just install-linux` does the same from a checkout. In-app updates replace that install — binary, sidecars, launcher entry — and restart from the path captured at launch.
+- **Encrypted PDFs prompt for a password** instead of failing to open.
+- **Dark and night-mode PDF rendering**, matching the rest of the app.
+- **Native text select and copy** in the reader, including word/line click and a Copy menu.
+- **Copy page as Markdown** from the toolbar.
+- **StrikeOut and Squiggly** annotation tools.
+- **Page labels** from the PDF catalog in the outline and page indicator.
+- **Figures** listed from a page and savable as PNG.
+- **Chat memory survives switching providers.** Switching Claude to Grok (or the other way) no longer drops the conversation.
+- Type-aware chips for tool calls in chat.
 
 ### Changed
+- **PDF rendering is pdfrum.** The Linux tarball no longer needs `libpdfium.so`. PDF search, markup geometry, and save go through pdfrum as well.
 - Paper titles, notes, annotation notes, and citation-card quotes use Newsreader as the reading serif. Library rows stay system sans.
 - Agent PDF downloads go through the same library import path as the app, so they land in `papers/{year}/` with the same filename scheme.
 
 ### Fixed
+- **Two devices editing different fields of the same paper no longer lose one of the edits.** Each paper column has its own clock, so a title change on one device and a PDF attach on another both land. This was the known limitation in v0.2.4.
 - **The citation card after clicking a PDF link was a squeezed library row.** It now stacks a wrapping title, wrapping meta, and always-visible Open/Import.
 - **Internal citation dests ignored named destinations**, so Jump to landed at the top of the page (or not at all). Named dests are resolved, and Jump instant-scrolls with the viewer's scroll handler locked so a far jump (p.1 → references) is not undone.
 - **Every citation click could show three loosely related OpenAlex hits.** The card now keeps at most one paper, and only if the title actually overlaps.
+- **PDF overlay clicks missed the mark on HiDPI displays.**
 - **Editing an annotation note could lose the editor** when another annotation was added or removed. Each row is now its own component, so hook order stays stable.
 - **MCP PDF paths could follow `../` out of the papers directory.** Resolution uses the same traversal guard as the app.
-- Semantic Scholar search and OpenAlex autocomplete now honour the stub-API overrides, so those lookups can be tested offline.
+
+### Known limitations
+- **Conversations do not sync between devices.** They are tied to the machine that created them.
+- **iCloud sync is untested against the real service and remains off by default.**
 
 ## v0.2.6
 
