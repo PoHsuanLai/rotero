@@ -31,8 +31,10 @@ fn restart_app() {
     }
 
     // Elsewhere there is no bundle indirection — re-exec the binary directly.
+    // Use the path captured at startup: after self-replace, `current_exe()` on
+    // Linux points at a deleted inode.
     #[cfg(not(target_os = "macos"))]
-    if let Ok(exe) = std::env::current_exe() {
+    if let Some(exe) = crate::updates::running_exe() {
         let _ = std::process::Command::new(exe).spawn();
     }
 

@@ -24,6 +24,12 @@ run-release:
 bundle:
     dx bundle --release
 
+# Install Rotero as a user-local desktop app (Linux).
+# Pass a tarball, or omit to download the latest GitHub release.
+# For a just-built binary: ROTERO_BIN=./path/to/rotero just install-linux
+install-linux TARBALL="":
+    {{justfile_directory()}}/scripts/install-linux.sh {{TARBALL}}
+
 # Run the test suite.
 # Needs no network: provider tests run against a local stub.
 test: setup-nextest

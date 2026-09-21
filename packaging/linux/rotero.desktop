@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Rotero
+GenericName=Reference Manager
+Comment=Read, annotate, cite, and explore your papers
+Exec=rotero
+TryExec=rotero
+Icon=rotero
+Terminal=false
+StartupNotify=true
+StartupWMClass=rotero
+Categories=Office;
+Keywords=papers;pdf;zotero;reference;citation;bibtex;research;library;
+SingleMainWindow=true

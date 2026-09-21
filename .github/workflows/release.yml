@@ -207,13 +207,9 @@ jobs:
       - name: Stage the portable tarball
         run: |
           set -euo pipefail
-          BIN=$(find target/dx/rotero/release -type f -name 'rotero' -perm -u+x | head -1)
-          test -n "$BIN" || { echo "rotero binary not found"; exit 1; }
-          STAGE=$(mktemp -d)
-          cp "$BIN" "$STAGE/"
-          TAR_NAME="Rotero-${{ github.ref_name }}-linux-x64.tar.gz"
-          tar -czf "$TAR_NAME" -C "$STAGE" .
-          echo "TAR_NAME=$TAR_NAME" >> "$GITHUB_ENV"
+          # Binary + desktop file + icons + install.sh. Layout is a contract
+          # with src/updates/install/linux.rs and scripts/install-linux.sh.
+          ./scripts/stage-linux-tarball.sh
           # dx puts installers under bundle/<platform>/, not release/.
           DEB=$(find target/dx -name '*.deb' | head -1)
           test -n "$DEB" || { echo "deb not found"; exit 1; }
