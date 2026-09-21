@@ -16,8 +16,9 @@ fn restart_app() {
             .is_ok();
 
         if !launched {
-            // Fallback: try to find and open the .app bundle directly.
-            if let Ok(exe) = std::env::current_exe() {
+            // Fallback: walk up from the path captured at startup. After an
+            // in-place bundle swap, `current_exe()` can point at a deleted file.
+            if let Some(exe) = crate::updates::running_exe() {
                 let mut path = exe.as_path();
                 while let Some(parent) = path.parent() {
                     if path.extension().and_then(|e| e.to_str()) == Some("app") {
@@ -31,8 +32,10 @@ fn restart_app() {
     }
 
     // Elsewhere there is no bundle indirection — re-exec the binary directly.
+    // Use the path captured at startup: after self-replace, `current_exe()` on
+    // Linux points at a deleted inode.
     #[cfg(not(target_os = "macos"))]
-    if let Ok(exe) = std::env::current_exe() {
+    if let Some(exe) = crate::updates::running_exe() {
         let _ = std::process::Command::new(exe).spawn();
     }
 
