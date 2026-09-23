@@ -216,3 +216,76 @@ CREATE TABLE IF NOT EXISTS saved_searches (
     updated_by TEXT NOT NULL DEFAULT '',
     deleted    INTEGER NOT NULL DEFAULT 0
 );
+
+-- A page the agent maintains for a method, dataset, benchmark, task, or idea.
+-- `slug` is the lookup key. Uniqueness is enforced in Rust, including across
+-- tombstones: a SQL UNIQUE constraint would refuse to revive a deleted row.
+CREATE TABLE IF NOT EXISTS concepts (
+    id          TEXT PRIMARY KEY,
+    kind        TEXT NOT NULL,
+    title       TEXT NOT NULL,
+    slug        TEXT NOT NULL,
+    body        TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    modified_at TEXT NOT NULL,
+    updated_at  INTEGER NOT NULL DEFAULT 0,
+    updated_by  TEXT NOT NULL DEFAULT '',
+    deleted     INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_concepts_kind_slug ON concepts (kind, slug);
+
+-- One sentence a paper states. `statement_key` is the normalized statement,
+-- the upsert identity together with `paper_id`. The quotation is copied onto
+-- the row because the PDF and `papers.fulltext` do not sync.
+CREATE TABLE IF NOT EXISTS claims (
+    id             TEXT PRIMARY KEY,
+    paper_id       TEXT NOT NULL,
+    statement      TEXT NOT NULL,
+    statement_key  TEXT NOT NULL,
+    quote          TEXT NOT NULL DEFAULT '',
+    page           INTEGER,
+    annotation_id  TEXT,
+    status         TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    modified_at    TEXT NOT NULL,
+    updated_at     INTEGER NOT NULL DEFAULT 0,
+    updated_by     TEXT NOT NULL DEFAULT '',
+    deleted        INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_claims_paper_key ON claims (paper_id, statement_key);
+
+-- Typed links. `id` is the sync key: the clock stamp addresses one column or
+-- two, and this identity is five. The five columns are the logical key, looked
+-- up in Rust the same way concept slugs are.
+CREATE TABLE IF NOT EXISTS wiki_edges (
+    id        TEXT PRIMARY KEY,
+    src_kind  TEXT NOT NULL,
+    src_id    TEXT NOT NULL,
+    rel       TEXT NOT NULL,
+    dst_kind  TEXT NOT NULL,
+    dst_id    TEXT NOT NULL,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    updated_by TEXT NOT NULL DEFAULT '',
+    deleted    INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_wiki_edges_src ON wiki_edges (src_kind, src_id);
+CREATE INDEX IF NOT EXISTS idx_wiki_edges_dst ON wiki_edges (dst_kind, dst_id);
+
+-- A citation target named by a PDF that the library does not own yet.
+-- `identifier` is `PaperId::to_stored_string()`. Arbitrary URLs are not stored.
+CREATE TABLE IF NOT EXISTS reference_stubs (
+    id               TEXT PRIMARY KEY,
+    citing_paper_id  TEXT NOT NULL,
+    identifier       TEXT NOT NULL,
+    raw              TEXT NOT NULL DEFAULT '',
+    created_at       TEXT NOT NULL,
+    updated_at       INTEGER NOT NULL DEFAULT 0,
+    updated_by       TEXT NOT NULL DEFAULT '',
+    deleted          INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_stubs_citing ON reference_stubs (citing_paper_id);
+CREATE INDEX IF NOT EXISTS idx_stubs_identifier ON reference_stubs (identifier);

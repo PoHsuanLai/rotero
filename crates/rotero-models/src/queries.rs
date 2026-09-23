@@ -258,6 +258,120 @@ pub const GRAPH_CITING_PAPER: &str =
 pub const CITATION_INSERT: &str =
     "INSERT OR IGNORE INTO paper_citations (citing_paper_id, cited_paper_id) VALUES (?1, ?2)";
 
+/// Columns a concept read returns, in `Concept` field order.
+pub const CONCEPT_COLS: &str = "id, kind, title, slug, body, created_at, modified_at";
+
+pub const CONCEPT_INSERT: &str = "\
+    INSERT INTO concepts (id, kind, title, slug, body, created_at, modified_at) \
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
+
+pub const CONCEPT_UPDATE: &str = "\
+    UPDATE concepts SET title = ?1, body = ?2, modified_at = ?3 WHERE id = ?4";
+
+pub const CONCEPT_LIST: &str = "\
+    SELECT {COLS} FROM concepts_live ORDER BY title COLLATE NOCASE";
+
+/// Live row, else the newest tombstone, so an upsert can revive it.
+pub const CONCEPT_FIND_BY_SLUG: &str = "\
+    SELECT id, deleted FROM concepts WHERE kind = ?1 AND slug = ?2 \
+    ORDER BY deleted ASC, updated_at DESC LIMIT 1";
+
+pub const CONCEPT_GET: &str = "SELECT {COLS} FROM concepts_live WHERE id = ?1";
+
+/// Includes tombstones, so a merge can read the row it is about to revive.
+pub const CONCEPT_GET_BASE: &str = "SELECT {COLS} FROM concepts WHERE id = ?1";
+
+pub const CONCEPT_SEARCH_FTS: &str = "\
+    SELECT {COLS} FROM concepts_live \
+    WHERE fts_match(title, body, ?1) LIMIT 20";
+
+pub const CONCEPT_SEARCH_LIKE: &str = "\
+    SELECT {COLS} FROM concepts_live \
+    WHERE title LIKE ?1 OR body LIKE ?1 OR slug LIKE ?1 LIMIT 20";
+
+/// Columns a claim read returns. `statement_key` stays internal.
+pub const CLAIM_COLS: &str =
+    "id, paper_id, statement, quote, page, annotation_id, status, created_at, modified_at";
+
+pub const CLAIM_INSERT: &str = "\
+    INSERT INTO claims (id, paper_id, statement, statement_key, quote, page, annotation_id, status, created_at, modified_at) \
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
+
+pub const CLAIM_UPDATE: &str = "\
+    UPDATE claims SET statement = ?1, statement_key = ?2, quote = ?3, page = ?4, \
+    annotation_id = ?5, status = ?6, modified_at = ?7 WHERE id = ?8";
+
+pub const CLAIM_LIST_FOR_PAPER: &str = "\
+    SELECT {COLS} FROM claims_live WHERE paper_id = ?1 ORDER BY created_at";
+
+pub const CLAIM_GET: &str = "SELECT {COLS} FROM claims_live WHERE id = ?1";
+
+pub const CLAIM_GET_BASE: &str = "SELECT {COLS} FROM claims WHERE id = ?1";
+
+pub const CLAIM_FIND_BY_KEY: &str = "\
+    SELECT id, deleted FROM claims WHERE paper_id = ?1 AND statement_key = ?2 \
+    ORDER BY deleted ASC, updated_at DESC LIMIT 1";
+
+pub const CLAIM_SEARCH_FTS: &str = "\
+    SELECT {COLS} FROM claims_live \
+    WHERE fts_match(statement, quote, ?1) LIMIT 40";
+
+pub const CLAIM_SEARCH_LIKE: &str = "\
+    SELECT {COLS} FROM claims_live \
+    WHERE statement LIKE ?1 OR quote LIKE ?1 LIMIT 40";
+
+pub const WIKI_EDGE_INSERT: &str = "\
+    INSERT INTO wiki_edges (id, src_kind, src_id, rel, dst_kind, dst_id) \
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
+
+pub const WIKI_EDGE_FIND: &str = "\
+    SELECT id, deleted FROM wiki_edges \
+    WHERE src_kind = ?1 AND src_id = ?2 AND rel = ?3 AND dst_kind = ?4 AND dst_id = ?5 \
+    LIMIT 1";
+
+pub const WIKI_EDGE_IDS_TOUCHING_CLAIM: &str = "\
+    SELECT id FROM wiki_edges \
+    WHERE (src_kind = 'claim' AND src_id = ?1) OR (dst_kind = 'claim' AND dst_id = ?1)";
+
+pub const WIKI_CLAIMS_ABOUT_CONCEPT: &str = "\
+    SELECT c.id, c.paper_id, c.statement, c.quote, c.page, c.annotation_id, c.status, c.created_at, c.modified_at \
+    FROM claims_live c \
+    JOIN wiki_edges_live e ON e.src_kind = 'claim' AND e.src_id = c.id \
+    WHERE e.rel = 'about' AND e.dst_kind = 'concept' AND e.dst_id = ?1";
+
+pub const WIKI_CONCEPTS_FOR_CLAIM: &str = "\
+    SELECT c.id, c.kind, c.title, c.slug, c.body, c.created_at, c.modified_at \
+    FROM concepts_live c \
+    JOIN wiki_edges_live e ON e.dst_kind = 'concept' AND e.dst_id = c.id \
+    WHERE e.rel = 'about' AND e.src_kind = 'claim' AND e.src_id = ?1 \
+    ORDER BY c.title COLLATE NOCASE";
+
+pub const WIKI_RELATED_CONCEPTS: &str = "\
+    SELECT c.id, c.kind, c.title, c.slug, c.body, c.created_at, c.modified_at \
+    FROM concepts_live c \
+    JOIN wiki_edges_live e ON e.rel = 'related' AND e.src_kind = 'concept' AND e.dst_kind = 'concept' \
+      AND ((e.src_id = ?1 AND e.dst_id = c.id) OR (e.dst_id = ?1 AND e.src_id = c.id))";
+
+pub const STUB_INSERT: &str = "\
+    INSERT INTO reference_stubs (id, citing_paper_id, identifier, raw, created_at) \
+    VALUES (?1, ?2, ?3, ?4, ?5)";
+
+pub const STUB_FIND: &str = "\
+    SELECT id, deleted FROM reference_stubs \
+    WHERE citing_paper_id = ?1 AND identifier = ?2 \
+    ORDER BY deleted ASC, updated_at DESC LIMIT 1";
+
+pub const STUB_LIST: &str = "\
+    SELECT id, citing_paper_id, identifier, raw, created_at \
+    FROM reference_stubs_live ORDER BY created_at";
+
+pub const STUB_LIST_FOR_PAPER: &str = "\
+    SELECT id, citing_paper_id, identifier, raw, created_at \
+    FROM reference_stubs_live WHERE citing_paper_id = ?1 ORDER BY created_at";
+
+pub const STUB_IDS_FOR_IDENTIFIER: &str = "\
+    SELECT id FROM reference_stubs WHERE identifier = ?1 AND deleted = 0";
+
 /// Fetch a single paper by ID.
 pub const PAPER_GET_BY_ID: &str = "SELECT {COLS} FROM papers_live WHERE id = ?1";
 

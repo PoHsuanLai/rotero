@@ -21,6 +21,39 @@ pub fn truncate_chars(s: &str, max_chars: usize) -> String {
     }
 }
 
+/// Lookup key for a concept title.
+///
+/// Lowercases, treats everything that is not a letter or digit as a separator,
+/// and collapses separators to a single hyphen. An empty result means the title
+/// had nothing to look up, and the caller rejects it.
+pub fn slug_key(title: &str) -> String {
+    let mut out = String::new();
+    let mut hyphen = false;
+    for c in title.chars() {
+        if c.is_alphanumeric() {
+            for lower in c.to_lowercase() {
+                out.push(lower);
+            }
+            hyphen = false;
+        } else if !out.is_empty() && !hyphen {
+            out.push('-');
+            hyphen = true;
+        }
+    }
+    if out.ends_with('-') {
+        out.pop();
+    }
+    out
+}
+
+/// Identity of a claim statement: trimmed, with internal whitespace collapsed.
+///
+/// Case is preserved. "LoRA" and "lora" stay distinct, because collapsing them
+/// would merge claims the papers did not.
+pub fn normalize_statement(statement: &str) -> String {
+    statement.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// The first `n` characters, or the whole string when it is shorter.
 ///
 /// For callers that need a bare prefix with no ellipsis.
@@ -85,5 +118,21 @@ mod tests {
         assert_eq!(mask_secret(""), "•");
         // Multi-byte keys must not panic.
         assert_eq!(mask_secret("日本語のキーです"), "••••••••");
+    }
+
+    #[test]
+    fn slug_key_folds_punctuation_and_case() {
+        assert_eq!(slug_key("Low-Rank Adaptation"), "low-rank-adaptation");
+        assert_eq!(slug_key("  ImageNet "), "imagenet");
+        assert_eq!(slug_key("MMLU"), "mmlu");
+        assert_eq!(slug_key("!!!"), "");
+        assert_eq!(slug_key("疎な注意"), "疎な注意");
+    }
+
+    #[test]
+    fn normalize_statement_collapses_whitespace_only() {
+        assert_eq!(normalize_statement("  a   b\n"), "a b");
+        assert_eq!(normalize_statement("LoRA"), "LoRA");
+        assert_eq!(normalize_statement("lora"), "lora");
     }
 }

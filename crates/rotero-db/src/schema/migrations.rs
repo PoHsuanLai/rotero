@@ -2,10 +2,10 @@
 
 use turso::Connection;
 
-use super::tables::{CREATE_FTS_INDEX, CREATE_LIVE_VIEWS, CREATE_TABLES};
+use super::tables::{CREATE_FTS_INDEX, CREATE_LIVE_VIEWS, CREATE_TABLES, CREATE_WIKI_FTS};
 
 /// Current schema version; incremented with each migration.
-pub const SCHEMA_VERSION: i64 = 20;
+pub const SCHEMA_VERSION: i64 = 21;
 
 /// Why a database could not be prepared for use.
 #[derive(Debug, thiserror::Error)]
@@ -136,6 +136,7 @@ async fn run_migrations(conn: &Connection) -> Result<(), SchemaError> {
     if current_version < 1 {
         // Fresh database
         let _ = conn.execute(CREATE_FTS_INDEX, ()).await;
+        let _ = conn.execute_batch(CREATE_WIKI_FTS).await;
         conn.execute(
             "INSERT INTO schema_version (version) VALUES (?1)",
             [SCHEMA_VERSION],
@@ -492,6 +493,14 @@ async fn run_migrations(conn: &Connection) -> Result<(), SchemaError> {
             )
             .await?;
         }
+    }
+
+    if current_version < 21 {
+        // Concepts, claims, edges, and stubs are created by CREATE_TABLES on
+        // every open (`IF NOT EXISTS`). This pass only builds their FTS indexes,
+        // which the fresh-database path above also builds. A failure leaves
+        // search on the LIKE fallback.
+        let _ = conn.execute_batch(CREATE_WIKI_FTS).await;
     }
 
     if current_version < SCHEMA_VERSION {
