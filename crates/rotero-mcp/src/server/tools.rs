@@ -1255,6 +1255,204 @@ impl RoteroMcp {
             edges: graph_edges,
         })
     }
+
+    #[tool(
+        description = "List concept pages (methods, datasets, benchmarks, tasks, ideas). This is the wiki catalog: call it before saying the library has nothing on a topic. Does not write notes or paper metadata."
+    )]
+    async fn list_concepts(
+        &self,
+        Parameters(params): Parameters<ListConceptsParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let kind = match params
+            .kind
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            None => None,
+            Some(s) => Some(
+                rotero_models::ConceptKind::parse(s)
+                    .ok_or_else(|| err("kind must be method, dataset, benchmark, task, or idea"))?,
+            ),
+        };
+        let concepts = self
+            .db
+            .list_concepts(kind, params.query.as_deref())
+            .await
+            .map_err(err)?;
+        let entries: Vec<serde_json::Value> = concepts
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "id": c.id,
+                    "kind": c.kind.as_str(),
+                    "title": c.title,
+                    "slug": c.slug,
+                    "summary": first_line(&c.body),
+                })
+            })
+            .collect();
+        json_result(&entries)
+    }
+
+    #[tool(
+        description = "Read one concept page, the claims about it, and the concepts related to it."
+    )]
+    async fn read_concept(
+        &self,
+        Parameters(params): Parameters<ReadConceptParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let page = self
+            .db
+            .read_concept(&params.concept_id)
+            .await
+            .map_err(err)?;
+        json_result(&page)
+    }
+
+    #[tool(
+        description = "Create or update a concept page. Merges on kind and title. Does not write notes, annotations, or paper metadata. Omit body to leave an existing body unchanged."
+    )]
+    async fn upsert_concept(
+        &self,
+        Parameters(params): Parameters<UpsertConceptParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let kind = rotero_models::ConceptKind::parse(params.kind.trim())
+            .ok_or_else(|| err("kind must be method, dataset, benchmark, task, or idea"))?;
+        let concept = self
+            .db
+            .upsert_concept(kind, &params.title, params.body.as_deref())
+            .await
+            .map_err(err)?;
+        json_result(&concept)
+    }
+
+    #[tool(
+        description = "List sourced claims filed for one paper, including the quotation and page."
+    )]
+    async fn list_claims(
+        &self,
+        Parameters(params): Parameters<PaperIdParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let claims = self
+            .db
+            .list_claims_for_paper(&params.paper_id)
+            .await
+            .map_err(err)?;
+        json_result(&claims)
+    }
+
+    #[tool(
+        description = "Search concept pages, claims, and papers. Call this, and list_concepts, before saying the library has nothing on a topic. Claims are ordered confirmed, then extracted, then from_chat."
+    )]
+    async fn search_wiki(
+        &self,
+        Parameters(params): Parameters<SearchWikiParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let found = self.db.search_wiki(&params.query).await.map_err(err)?;
+        json_result(&found)
+    }
+
+    #[tool(
+        description = "File one claim: a sentence a paper states, with the quotation copied onto the row. confirmed and extracted require quote. from_chat may omit it and will not replace a claim that already has a quotation. Does not write notes, annotations, paper metadata, or citation edges."
+    )]
+    async fn file_claim(
+        &self,
+        Parameters(params): Parameters<FileClaimParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let status = match params
+            .status
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            None => rotero_models::ClaimStatus::Extracted,
+            Some(s) => rotero_models::ClaimStatus::parse(s)
+                .ok_or_else(|| err("status must be confirmed, extracted, or from_chat"))?,
+        };
+        let claim = self
+            .db
+            .file_claim(&rotero_models::ClaimDraft {
+                paper_id: params.paper_id,
+                statement: params.statement,
+                quote: params.quote.unwrap_or_default(),
+                page: params.page,
+                annotation_id: params.annotation_id,
+                status,
+            })
+            .await
+            .map_err(err)?;
+        json_result(&claim)
+    }
+
+    #[tool(
+        description = "Record that a claim is about a concept. Does not edit the claim text or the concept body."
+    )]
+    async fn link_claim_concept(
+        &self,
+        Parameters(params): Parameters<LinkClaimConceptParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let id = self
+            .db
+            .link_claim_concept(&params.claim_id, &params.concept_id)
+            .await
+            .map_err(err)?;
+        json_result(&serde_json::json!({ "edge_id": id, "success": true }))
+    }
+
+    #[tool(
+        description = "Relate two claims. rel is supports, qualifies, or disputes. A claim cannot link to itself. Does not edit either claim's text."
+    )]
+    async fn link_claims(
+        &self,
+        Parameters(params): Parameters<LinkClaimsParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let rel = rotero_models::WikiRel::parse(params.rel.trim())
+            .ok_or_else(|| err("rel must be supports, qualifies, or disputes"))?;
+        let id = self
+            .db
+            .link_claims(&params.src_claim_id, &params.dst_claim_id, rel)
+            .await
+            .map_err(err)?;
+        json_result(&serde_json::json!({ "edge_id": id, "success": true }))
+    }
+
+    #[tool(description = "Relate two concept pages. Stored once regardless of argument order.")]
+    async fn link_concepts(
+        &self,
+        Parameters(params): Parameters<LinkConceptsParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let id = self
+            .db
+            .link_concepts(&params.concept_a, &params.concept_b)
+            .await
+            .map_err(err)?;
+        json_result(&serde_json::json!({ "edge_id": id, "success": true }))
+    }
+
+    #[tool(
+        description = "List citation targets a PDF named that are not in the library yet. These are import targets, not papers. The scanner writes them; this tool only reads."
+    )]
+    async fn list_stubs(
+        &self,
+        Parameters(params): Parameters<ListStubsParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let stubs = self
+            .db
+            .list_stubs(params.citing_paper_id.as_deref())
+            .await
+            .map_err(err)?;
+        json_result(&stubs)
+    }
+}
+
+/// First non-empty line of a concept body, trimmed for the catalog.
+fn first_line(body: &str) -> String {
+    let line = body
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("");
+    rotero_models::truncate_chars(line.trim(), 160)
 }
 
 #[tool_handler]
@@ -1270,7 +1468,7 @@ impl ServerHandler for RoteroMcp {
         )
         .with_server_info(Implementation::new("rotero-mcp", env!("CARGO_PKG_VERSION")))
         .with_instructions(
-            "Rotero paper library MCP server. Prefer read_markdown/read_pages/find_in_paper/quote_at/text_in_rect for PDF grounding; annotate for highlights/notes; paper:// resources for page markdown and annots; list_cited/list_citing for citation neighbours. Search, add, update, and delete papers. Manage collections and tags. Read annotations and notes, and organize your academic paper library.",
+            "Rotero paper library MCP server. Prefer read_markdown/read_pages/find_in_paper/quote_at/text_in_rect for PDF grounding; annotate for highlights/notes; paper:// resources for page markdown and annots; list_cited/list_citing for citation neighbours. Search, add, update, and delete papers. Manage collections and tags. Read annotations and notes, and organize your academic paper library. Before saying the library has nothing on a topic, call list_concepts and search_wiki. Write claims and concepts only through file_claim, upsert_concept, and the link tools. Do not put wiki prose into notes. A claim needs the quotation it came from. Do not file a chat answer as extracted.",
         )
     }
 
@@ -1440,6 +1638,17 @@ impl ServerHandler for RoteroMcp {
                     ]),
                 ),
                 Prompt::new(
+                    "compile-paper",
+                    Some(
+                        "File sourced claims and concept pages for one paper. Does not edit notes or paper metadata.",
+                    ),
+                    Some(vec![
+                        rmcp::model::PromptArgument::new("paper_id")
+                            .with_description("Paper ID to compile into the wiki")
+                            .with_required(true),
+                    ]),
+                ),
+                Prompt::new(
                     "find-related-unread",
                     Some(
                         "Suggest related unread papers from citation and library graph neighbours",
@@ -1510,6 +1719,27 @@ impl ServerHandler for RoteroMcp {
                     prompt,
                 )])
                 .with_description("Summarize a paper"))
+            }
+            "compile-paper" => {
+                let paper_id = request
+                    .arguments
+                    .as_ref()
+                    .and_then(|args| args.get("paper_id"))
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        rmcp::ErrorData::invalid_params("Missing paper_id argument", None)
+                    })?;
+                let paper = self
+                    .db
+                    .get_paper_by_id(paper_id)
+                    .await
+                    .map_err(err)?
+                    .ok_or_else(|| err(format!("No paper found with ID {paper_id}")))?;
+                Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+                    PromptMessageRole::User,
+                    rotero_models::compile_paper_prompt(paper_id, &paper.title),
+                )])
+                .with_description("Compile a paper into the wiki"))
             }
             "literature-review" => {
                 let topic = request

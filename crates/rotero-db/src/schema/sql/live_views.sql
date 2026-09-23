@@ -7,3 +7,7 @@ CREATE VIEW IF NOT EXISTS saved_searches_live AS SELECT * FROM saved_searches WH
 CREATE VIEW IF NOT EXISTS paper_collections_live AS SELECT * FROM paper_collections WHERE deleted = 0;
 CREATE VIEW IF NOT EXISTS paper_tags_live AS SELECT * FROM paper_tags WHERE deleted = 0;
 CREATE VIEW IF NOT EXISTS paper_citations_live AS SELECT * FROM paper_citations WHERE deleted = 0;
+CREATE VIEW IF NOT EXISTS concepts_live AS SELECT * FROM concepts WHERE deleted = 0;
+CREATE VIEW IF NOT EXISTS claims_live AS SELECT * FROM claims WHERE deleted = 0;
+CREATE VIEW IF NOT EXISTS wiki_edges_live AS SELECT * FROM wiki_edges WHERE deleted = 0;
+CREATE VIEW IF NOT EXISTS reference_stubs_live AS SELECT * FROM reference_stubs WHERE deleted = 0;

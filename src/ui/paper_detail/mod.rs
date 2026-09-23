@@ -7,6 +7,7 @@ mod notes;
 mod shell;
 mod title_field;
 mod web_preview;
+mod wiki;
 
 pub use detail::PaperDetail;
 pub use multi_select::MultiSelectSummary;

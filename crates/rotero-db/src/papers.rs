@@ -175,6 +175,7 @@ impl Database {
         )
         .await?;
 
+        self.retire_stubs_matching_paper(paper).await?;
         Ok(uuid)
     }
 
@@ -409,6 +410,7 @@ impl Database {
             ],
         )
         .await?;
+        self.retire_stubs_matching_paper(paper).await?;
         Ok(())
     }
 
@@ -613,6 +615,10 @@ impl Database {
         let tags = self.tag_ids_for_paper(id).await?;
         let annotations = self.child_ids("annotations", "paper_id", id).await?;
         let notes = self.child_ids("notes", "paper_id", id).await?;
+        let claims = self.child_ids("claims", "paper_id", id).await?;
+        let stubs = self
+            .child_ids("reference_stubs", "citing_paper_id", id)
+            .await?;
         let conn = self.conn();
 
         // Tombstoned, not removed. A hard delete leaves nothing to publish, so
@@ -621,7 +627,13 @@ impl Database {
         let now = chrono::Utc::now().timestamp_millis();
         let device = self.device_id().to_string();
 
-        for table in ["annotations", "notes", "paper_collections", "paper_tags"] {
+        for table in [
+            "annotations",
+            "notes",
+            "claims",
+            "paper_collections",
+            "paper_tags",
+        ] {
             conn.execute(
                 &crate::sync_sql::tombstone_children(table, "paper_id"),
                 turso::params::Params::Positional(vec![
@@ -632,6 +644,15 @@ impl Database {
             )
             .await?;
         }
+        conn.execute(
+            &crate::sync_sql::tombstone_children("reference_stubs", "citing_paper_id"),
+            turso::params::Params::Positional(vec![
+                Value::Text(id.to_string()),
+                Value::Integer(now),
+                Value::Text(device.clone()),
+            ]),
+        )
+        .await?;
         conn.execute(
             crate::sync_sql::tombstone_citations(),
             turso::params::Params::Positional(vec![
@@ -650,6 +671,15 @@ impl Database {
         }
         for note_id in &notes {
             self.tombstone("notes", crate::clock::Pk::Single(note_id))
+                .await?;
+        }
+        for claim_id in &claims {
+            self.tombstone_edges_touching_claim(claim_id).await?;
+            self.tombstone("claims", crate::clock::Pk::Single(claim_id))
+                .await?;
+        }
+        for stub_id in &stubs {
+            self.tombstone("reference_stubs", crate::clock::Pk::Single(stub_id))
                 .await?;
         }
         for collection_id in &collections {
