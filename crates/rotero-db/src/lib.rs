@@ -8,11 +8,15 @@ pub mod annotations;
 /// Test utilities for simulating multi-device sync round-trips.
 /// The agent conversation belonging to each subject. Local-only, not synced.
 pub mod chat_sessions;
+/// One sourced sentence a paper states.
+pub mod claims;
 /// Stamping local writes so they can win a merge.
 pub mod clock;
 /// One-time repair for libraries written without CRR change tracking.
 /// Collection (folder) CRUD and paper-collection membership.
 pub mod collections;
+/// A maintained page for a method, dataset, benchmark, task, or idea.
+pub mod concepts;
 /// Graph queries for paper-tag and paper-collection relationships.
 pub mod graph;
 /// Structural invariants an initialized database must satisfy.
@@ -41,6 +45,8 @@ pub mod sync_sql;
 pub mod sync_test_helpers;
 /// Tag CRUD and paper-tag membership.
 pub mod tags;
+/// Typed edges between claims and concepts, and unresolved citation stubs.
+pub mod wiki;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -58,6 +64,12 @@ pub enum DbError {
     /// An error from the turso SQLite driver.
     #[error(transparent)]
     Turso(#[from] turso::Error),
+    /// A wiki write the caller is not allowed to make.
+    ///
+    /// Distinct from a driver error so a tool can show the agent the rule it
+    /// broke — an empty quote, an unknown relation — instead of a SQL failure.
+    #[error("{0}")]
+    Rejected(String),
 }
 
 /// Convenience alias for results in the db layer.

@@ -64,6 +64,7 @@ export const nav: DocSection[] = [
 		title: 'Going further',
 		pages: [
 			{ slug: 'graph', title: 'Citation graph' },
+			{ slug: 'wiki', title: 'Wiki' },
 			{ slug: 'sync', title: 'Sync' },
 			{ slug: 'settings', title: 'Settings' },
 			{ slug: 'shortcuts', title: 'Keyboard shortcuts' }

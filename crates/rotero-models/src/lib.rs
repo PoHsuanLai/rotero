@@ -5,8 +5,12 @@
 
 /// PDF annotation types and data.
 pub mod annotation;
+/// One sourced sentence a paper states.
+pub mod claim;
 /// Hierarchical folder-like groupings for papers.
 pub mod collection;
+/// A maintained page for a method, dataset, benchmark, task, or idea.
+pub mod concept;
 /// Merge, dedup, and rank web-search results across providers.
 pub mod merge;
 /// Free-form notes attached to papers.
@@ -21,9 +25,13 @@ pub mod saved_search;
 pub mod tag;
 /// Character-safe string trimming for text that reaches the UI.
 pub mod text;
+/// Typed wiki edges, search results, and the compile-paper prompt.
+pub mod wiki;
 
 pub use annotation::{Annotation, AnnotationType};
+pub use claim::{CitationRecord, Claim, ClaimDraft, ClaimStatus, ReferenceStub};
 pub use collection::{Collection, children_of, collection_tree, has_children};
+pub use concept::{Concept, ConceptKind, ConceptPage};
 pub use merge::{merge_and_rank, merge_into};
 pub use note::Note;
 pub use paper::{
@@ -33,4 +41,5 @@ pub use paper::{
 };
 pub use saved_search::SavedSearch;
 pub use tag::Tag;
-pub use text::{mask_secret, take_chars, truncate_chars};
+pub use text::{mask_secret, normalize_statement, slug_key, take_chars, truncate_chars};
+pub use wiki::{ENDPOINT_CLAIM, ENDPOINT_CONCEPT, WikiRel, WikiSearch, compile_paper_prompt};

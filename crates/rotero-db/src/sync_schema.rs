@@ -223,6 +223,40 @@ pub const SYNCED_TABLES: &[SyncedTable] = &[
         per_column: false,
         columns: &[],
     },
+    SyncedTable {
+        name: "concepts",
+        pk: PkSpec::Single("id"),
+        per_column: false,
+        columns: &["kind", "title", "slug", "body", "created_at", "modified_at"],
+    },
+    SyncedTable {
+        name: "claims",
+        pk: PkSpec::Single("id"),
+        per_column: false,
+        columns: &[
+            "paper_id",
+            "statement",
+            "statement_key",
+            "quote",
+            "page",
+            "annotation_id",
+            "status",
+            "created_at",
+            "modified_at",
+        ],
+    },
+    SyncedTable {
+        name: "wiki_edges",
+        pk: PkSpec::Single("id"),
+        per_column: false,
+        columns: &["src_kind", "src_id", "rel", "dst_kind", "dst_id"],
+    },
+    SyncedTable {
+        name: "reference_stubs",
+        pk: PkSpec::Single("id"),
+        per_column: false,
+        columns: &["citing_paper_id", "identifier", "raw", "created_at"],
+    },
 ];
 
 /// Look up a synced table by name.

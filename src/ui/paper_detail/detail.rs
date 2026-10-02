@@ -10,6 +10,7 @@ use super::detail_fields::DetailFields;
 use super::fields::{CollectionsField, TagsField};
 use super::notes::NotesSection;
 use super::title_field::EditableTitleField;
+use super::wiki::WikiSection;
 
 #[component]
 pub fn PaperDetail() -> Element {
@@ -190,6 +191,7 @@ pub fn PaperDetail() -> Element {
             // panel reuses the instance across selections, and a key here is
             // not allowed on a non-first node.
             ConversationsSection { paper_id: paper_id.clone() }
+            WikiSection { paper_id: paper_id.clone() }
             NotesSection { paper_id: paper_id.clone() }
 
             div { class: "detail-delete-section",

@@ -21,3 +21,7 @@ pub const CREATE_LIVE_VIEWS: &str = include_str!("sql/live_views.sql");
 
 /// SQL statement that creates the turso FTS index over paper text fields with weighted columns.
 pub const CREATE_FTS_INDEX: &str = include_str!("sql/fts_index.sql");
+
+/// FTS indexes over concept pages and claims. Separate from [`CREATE_FTS_INDEX`]
+/// so a failure here does not drop the paper index. Search falls back to LIKE.
+pub const CREATE_WIKI_FTS: &str = include_str!("sql/wiki_fts.sql");

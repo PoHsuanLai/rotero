@@ -85,6 +85,88 @@ pub(super) struct ExtractPdfTextResult {
     pub total_pages: u32,
 }
 
+/// Parameters for `list_concepts`.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct ListConceptsParams {
+    /// `method`, `dataset`, `benchmark`, `task`, or `idea`. Omit to list every kind.
+    pub kind: Option<String>,
+    /// Substring matched against the title, slug, and body.
+    pub query: Option<String>,
+}
+
+/// Parameters for `read_concept`.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct ReadConceptParams {
+    pub concept_id: String,
+}
+
+/// Parameters for `upsert_concept`.
+///
+/// Merges on kind plus the slug of the title. Does not write notes, annotations,
+/// or paper metadata. An empty body on an existing page leaves the body alone.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct UpsertConceptParams {
+    /// `method`, `dataset`, `benchmark`, `task`, or `idea`.
+    pub kind: String,
+    pub title: String,
+    /// Markdown body. Omit to leave an existing body unchanged.
+    pub body: Option<String>,
+}
+
+/// Parameters for `file_claim`.
+///
+/// `confirmed` and `extracted` require `quote`. `from_chat` may omit it, and a
+/// `from_chat` write does not replace a claim that already has a quotation.
+/// This tool does not write notes, annotations, or paper metadata.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct FileClaimParams {
+    pub paper_id: String,
+    pub statement: String,
+    /// The sentence copied from the paper. Required unless status is `from_chat`.
+    pub quote: Option<String>,
+    /// 1-based page the quotation came from.
+    pub page: Option<i32>,
+    /// Highlight this quotation was taken from, when there is one.
+    pub annotation_id: Option<String>,
+    /// `confirmed`, `extracted` (default), or `from_chat`.
+    pub status: Option<String>,
+}
+
+/// Parameters for `link_claim_concept`.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct LinkClaimConceptParams {
+    pub claim_id: String,
+    pub concept_id: String,
+}
+
+/// Parameters for `link_claims`.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct LinkClaimsParams {
+    pub src_claim_id: String,
+    pub dst_claim_id: String,
+    /// `supports`, `qualifies`, or `disputes`.
+    pub rel: String,
+}
+
+/// Parameters for `link_concepts`.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct LinkConceptsParams {
+    pub concept_a: String,
+    pub concept_b: String,
+}
+
+/// Parameters for `search_wiki`.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct SearchWikiParams {
+    pub query: String,
+}
+
+/// Parameters for `list_stubs`.
+#[derive(Deserialize, schemars::JsonSchema)]
+pub struct ListStubsParams {
+    pub citing_paper_id: Option<String>,
+}
+
 /// Parameters for the `add_note` tool.
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct AddNoteParams {
