@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixed
+- **Check for Updates failed with "Unexpected response from GitHub"** when this network had used up GitHub's unauthenticated API quota (60 requests per hour). The updater now falls back to the public latest-release page, which is not rate-limited the same way.
+
 ## v0.2.7
 
 PDF rendering is now pdfrum, a pure-Rust library, instead of PDFium. There is no native PDF sidecar to ship or load. Linux also becomes a real desktop app: the portable tarball installs a launcher icon, and in-app updates replace that copy.

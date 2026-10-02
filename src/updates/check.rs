@@ -23,54 +23,158 @@ pub(super) const fn update_asset_suffix() -> Option<&'static str> {
 /// Check GitHub Releases for a newer version.
 pub async fn check_for_update() -> Result<Option<UpdateInfo>, UpdateError> {
     let current = env!("CARGO_PKG_VERSION");
-    let url = format!("https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest");
-
-    let client = reqwest::Client::new();
-    let resp: serde_json::Value = client
-        .get(&url)
-        .header("User-Agent", "rotero-updater")
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-        .map_err(|e| UpdateError::Network(e.to_string()))?
-        .json()
-        .await
-        .map_err(|e| UpdateError::Network(e.to_string()))?;
-
-    // A rate-limit or error body has no tag_name, so report it as a network
-    // problem rather than "no releases".
-    let tag = resp["tag_name"]
-        .as_str()
-        .ok_or_else(|| UpdateError::Network("Unexpected response from GitHub".into()))?;
-    let latest_version = tag.trim_start_matches('v');
+    let latest = fetch_latest_release().await?;
+    let latest_version = latest.tag.trim_start_matches('v');
 
     if !version_gt(latest_version, current) {
         return Ok(None);
     }
 
-    let release_notes = resp["body"].as_str().unwrap_or("").to_string();
-
-    // Only this platform's artifact can update this build.
     let suffix = update_asset_suffix().ok_or(UpdateError::NoAssetForPlatform)?;
-    let download_url = resp["assets"]
-        .as_array()
-        .and_then(|assets| {
-            assets.iter().find_map(|a| {
-                let name = a["name"].as_str().unwrap_or("");
-                if name.ends_with(suffix) {
-                    a["browser_download_url"].as_str().map(String::from)
-                } else {
-                    None
-                }
-            })
-        })
-        .ok_or(UpdateError::NoAssetForPlatform)?;
+    let download_url = latest.download_url_for(suffix);
 
     Ok(Some(UpdateInfo {
         latest_version: latest_version.to_string(),
-        release_notes,
+        release_notes: latest.notes,
         download_url,
     }))
+}
+
+struct LatestRelease {
+    tag: String,
+    notes: String,
+    /// `(filename, browser_download_url)` from the API, if we got that far.
+    assets: Vec<(String, String)>,
+}
+
+impl LatestRelease {
+    fn download_url_for(&self, suffix: &str) -> String {
+        self.assets
+            .iter()
+            .find(|(name, _)| name.ends_with(suffix))
+            .map(|(_, url)| url.clone())
+            .unwrap_or_else(|| download_url_for_tag(&self.tag, suffix))
+    }
+}
+
+/// REST API first (notes + asset URLs). Unauthenticated GitHub allows 60
+/// requests per hour per IP, which a shared NAT burns quickly — the app used
+/// to treat the 403 JSON as "Unexpected response from GitHub". On any API
+/// failure, fall back to the HTML latest-release redirect, which is not
+/// rate-limited the same way.
+async fn fetch_latest_release() -> Result<LatestRelease, UpdateError> {
+    match fetch_latest_via_api().await {
+        Ok(latest) => Ok(latest),
+        Err(api_err) => match fetch_latest_via_web().await {
+            Ok(latest) => Ok(latest),
+            Err(_) => Err(api_err),
+        },
+    }
+}
+
+async fn fetch_latest_via_api() -> Result<LatestRelease, UpdateError> {
+    let url = format!("https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest");
+    let client = reqwest::Client::builder()
+        .user_agent("rotero-updater")
+        .build()
+        .map_err(|e| UpdateError::Network(e.to_string()))?;
+    let resp = client
+        .get(&url)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| UpdateError::Network(e.to_string()))?;
+    let status = resp.status();
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| UpdateError::Network(e.to_string()))?;
+
+    if !status.is_success() {
+        return Err(UpdateError::Network(api_error_message(status, &body)));
+    }
+
+    let tag = body["tag_name"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| UpdateError::Network("Unexpected response from GitHub".into()))?
+        .to_string();
+
+    let notes = body["body"].as_str().unwrap_or("").to_string();
+    let mut assets = Vec::new();
+    if let Some(list) = body["assets"].as_array() {
+        for a in list {
+            if let (Some(name), Some(url)) =
+                (a["name"].as_str(), a["browser_download_url"].as_str())
+            {
+                assets.push((name.to_string(), url.to_string()));
+            }
+        }
+    }
+    Ok(LatestRelease { tag, notes, assets })
+}
+
+/// `GET /releases/latest` 302s to `/releases/tag/vX.Y.Z`. That hop does not
+/// count against the REST rate limit.
+async fn fetch_latest_via_web() -> Result<LatestRelease, UpdateError> {
+    let url = format!("https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/latest");
+    let client = reqwest::Client::builder()
+        .user_agent("rotero-updater")
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| UpdateError::Network(e.to_string()))?;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| UpdateError::Network(e.to_string()))?;
+    let location = resp
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| UpdateError::Network("Unexpected response from GitHub".into()))?;
+    let tag = tag_from_latest_location(location)
+        .ok_or_else(|| UpdateError::Network("Unexpected response from GitHub".into()))?;
+    Ok(LatestRelease {
+        tag,
+        notes: String::new(),
+        assets: Vec::new(),
+    })
+}
+
+fn api_error_message(status: reqwest::StatusCode, body: &serde_json::Value) -> String {
+    let msg = body["message"].as_str().unwrap_or("").trim();
+    if status.as_u16() == 403 || status.as_u16() == 429 {
+        if msg.to_ascii_lowercase().contains("rate limit") {
+            return "GitHub rate-limited this network. Try again in a few minutes.".into();
+        }
+        if !msg.is_empty() {
+            return msg.to_string();
+        }
+        return format!("GitHub returned {status}");
+    }
+    if !msg.is_empty() {
+        return format!("GitHub returned {status}: {msg}");
+    }
+    format!("GitHub returned {status}")
+}
+
+/// `https://github.com/owner/repo/releases/tag/v0.2.7` → `v0.2.7`.
+fn tag_from_latest_location(location: &str) -> Option<String> {
+    const MARKER: &str = "/releases/tag/";
+    let rest = location.split(MARKER).nth(1)?;
+    let tag = rest.split(['?', '#', '/']).next()?.trim();
+    if tag.is_empty() {
+        None
+    } else {
+        Some(tag.to_string())
+    }
+}
+
+fn download_url_for_tag(tag: &str, suffix: &str) -> String {
+    format!(
+        "https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/download/{tag}/Rotero-{tag}-{suffix}"
+    )
 }
 
 /// Whether release `a` is newer than release `b`.
@@ -134,6 +238,49 @@ mod tests {
     fn short_and_padded_versions_are_equivalent() {
         assert!(!version_gt("0.3", "0.3.0"));
         assert!(version_gt("0.3", "0.2.9"));
+    }
+
+    #[test]
+    fn tag_from_absolute_and_relative_locations() {
+        assert_eq!(
+            tag_from_latest_location("https://github.com/PoHsuanLai/rotero/releases/tag/v0.2.7"),
+            Some("v0.2.7".into())
+        );
+        assert_eq!(
+            tag_from_latest_location("/PoHsuanLai/rotero/releases/tag/v0.2.7"),
+            Some("v0.2.7".into())
+        );
+        assert_eq!(
+            tag_from_latest_location(
+                "https://github.com/PoHsuanLai/rotero/releases/tag/v0.2.7?foo=1"
+            ),
+            Some("v0.2.7".into())
+        );
+        assert_eq!(
+            tag_from_latest_location("https://github.com/PoHsuanLai/rotero/releases/latest"),
+            None
+        );
+    }
+
+    #[test]
+    fn constructed_download_url_matches_release_assets() {
+        assert_eq!(
+            download_url_for_tag("v0.2.7", "linux-x64.tar.gz"),
+            "https://github.com/PoHsuanLai/rotero/releases/download/v0.2.7/Rotero-v0.2.7-linux-x64.tar.gz"
+        );
+        assert_eq!(
+            download_url_for_tag("v0.2.7", "macos-arm64.zip"),
+            "https://github.com/PoHsuanLai/rotero/releases/download/v0.2.7/Rotero-v0.2.7-macos-arm64.zip"
+        );
+    }
+
+    #[test]
+    fn rate_limit_body_is_a_clear_network_error() {
+        let body = serde_json::json!({
+            "message": "API rate limit exceeded for 1.2.3.4."
+        });
+        let msg = api_error_message(reqwest::StatusCode::FORBIDDEN, &body);
+        assert!(msg.to_ascii_lowercase().contains("rate-limited"));
     }
 
     /// Every published asset name must be matchable, or the updater reports
