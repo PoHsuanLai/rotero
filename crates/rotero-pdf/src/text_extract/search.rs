@@ -737,8 +737,6 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    /// One word-segment at (x, y) with a fixed height/width; other font fields
-    /// are irrelevant to line grouping.
     #[test]
     fn text_block_at_stays_in_destination_column() {
         // Two columns of references, gutter between x=60 and x=100.
@@ -869,6 +867,8 @@ mod tests {
         assert_eq!(block.split_whitespace().count(), 16);
     }
 
+    /// One word-segment at (x, y) with a fixed height/width; other font fields
+    /// are irrelevant to line grouping.
     fn seg(text: &str, x: f64, y: f64) -> TextSegment {
         TextSegment {
             text: text.to_string(),

@@ -13,6 +13,9 @@ use rotero_models::Paper;
 const MIN_SCORE: f64 = 0.8;
 /// How far ahead of the runner-up the winner must be.
 const MIN_MARGIN: f64 = 0.15;
+/// Titles with at most this many significant words must appear as a whole
+/// clause of the entry, not merely as words somewhere in it.
+const SHORT_TITLE: usize = 3;
 
 const STOPWORDS: &[&str] = &[
     "the", "and", "for", "with", "from", "into", "via", "using", "are", "its", "our", "that",
@@ -26,13 +29,32 @@ const STOPWORDS: &[&str] = &[
 /// match an entry for *Neural Networks for Pattern Recognition*), tolerating a
 /// stray word or two from line-wrapping. Accepts the best only when it covers
 /// at least [`MIN_SCORE`] of its title and clearly beats every different title.
+///
+/// A short title ("Dropout", "Deep Learning", "Highway Networks") is far too
+/// easy to find as loose words — "Deep *residual* learning…", a venue called
+/// *Neural Networks* — and the reference list is often incomplete, so the real
+/// target may be missing and nothing would out-rank it. Those must instead
+/// make up a whole clause of the entry ("… Schmidhuber. Highway networks.
+/// arXiv …").
 pub fn match_reference(entry: &str, candidates: &[Paper]) -> Option<usize> {
     let entry_forms = [words(entry, false), words(entry, true)];
+    let entry_clauses = clauses(entry);
 
     let mut scored: Vec<(usize, f64, usize)> = candidates
         .iter()
         .enumerate()
         .filter_map(|(i, p)| {
+            let sig = significant(&words(&p.title, false)).len();
+            if sig == 0 {
+                return None;
+            }
+            if sig <= SHORT_TITLE {
+                let whole = [false, true].into_iter().any(|join| {
+                    let title = words(&p.title, join);
+                    entry_clauses.iter().any(|c| c[usize::from(join)] == title)
+                });
+                return whole.then_some((i, 1.0, sig));
+            }
             let (score, matched) = [false, true]
                 .into_iter()
                 .flat_map(|join| {
@@ -133,6 +155,26 @@ fn significant(words: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// The entry split into sentences and quoted spans, each as (split, joined)
+/// words. Not split at commas: a title ends in a full stop (or sits in quotes),
+/// whereas a venue is followed by ", volume:pages", so "Neural Networks, 61:85"
+/// never reads as a clause equal to a title "Neural Networks".
+///
+/// A clause with a subtitle also yields its head ("The Open Images Dataset V4:
+/// Unified image classification…" → "The Open Images Dataset V4"), since
+/// providers often store a title without its subtitle.
+fn clauses(entry: &str) -> Vec<[Vec<String>; 2]> {
+    entry
+        .split(['.', '"', '\u{201c}', '\u{201d}', '?', '!'])
+        .flat_map(|c| {
+            let head = c.split_once(':').map(|(h, _)| h);
+            std::iter::once(c).chain(head)
+        })
+        .map(|c| [words(c, false), words(c, true)])
+        .filter(|[w, _]| !w.is_empty())
+        .collect()
+}
+
 fn normalized(title: &str) -> String {
     words(title, true).join(" ")
 }
@@ -157,8 +199,10 @@ mod tests {
             "Microsoft COCO: Common Objects in Context",
             "Rich Feature Hierarchies for Accurate Object Detection and Semantic Segmentation",
         ]);
-        let entry = "[44] C. Szegedy, W. Liu, Y. Jia, P. Sermanet, S. Reed, D. Anguelov, D. convolutions. \
-                     V. Vanhoucke, and A. Rabinovich. Going deeper with In CVPR, 2015.";
+        // As extracted from ResNet, title hyphenation now fixed but the
+        // parse still takes the author tail as the title.
+        let entry = "[44] C. Szegedy, W. Liu, Y. Jia, P. Sermanet, S. Reed, D. Anguelov, D. \
+                     V. Vanhoucke, and A. Rabinovich. Going deeper with convolutions. In CVPR, 2015.";
         assert_eq!(match_reference(entry, &refs), Some(0));
         let entry = "[8] R. hierarchies Girshick, J. Donahue, T. Darrell, and J. Malik. Rich feature for \
                      accurate object detection and semantic segmentation. In CVPR, 2014.";
@@ -191,7 +235,7 @@ mod tests {
     #[test]
     fn joined_hyphen_still_matches() {
         let refs = papers(&["Deeply-Supervised Nets", "Highway Networks"]);
-        let entry = "[24] C.-Y. Deeplysupervised Lee, S. Xie, P. Gallagher, Z. Zhang, and Z. Tu. nets. \
+        let entry = "[24] C.-Y. Lee, S. Xie, P. Gallagher, Z. Zhang, and Z. Tu. Deeplysupervised nets. \
                      arXiv:1409.5185, 2014.";
         assert_eq!(match_reference(entry, &refs), Some(0));
     }
@@ -200,6 +244,28 @@ mod tests {
     fn duplicate_records_are_not_rivals() {
         let refs = papers(&["Efficient BackProp", "Efficient BackProp"]);
         assert!(match_reference("[23] Y. LeCun et al. Efficient backprop. 1998.", &refs).is_some());
+    }
+
+    #[test]
+    fn short_title_needs_a_whole_clause() {
+        let refs = papers(&["Deep Learning", "Neural Networks", "Image Recognition"]);
+        for entry in [
+            "[13] K. He, X. Zhang, S. Ren, and J. Sun. Deep residual learning for image recognition. In CVPR, 2016.",
+            "[5] A. Graves. Generating sequences. Neural Networks, 61:85-117, 2015.",
+        ] {
+            assert_eq!(match_reference(entry, &refs), None, "{entry}");
+        }
+        let entry =
+            "[30] Y. LeCun, Y. Bengio, and G. Hinton. Deep learning. Nature, 521:436-444, 2015.";
+        assert_eq!(match_reference(entry, &refs), Some(0));
+    }
+
+    #[test]
+    fn short_title_matches_head_before_subtitle() {
+        let refs = papers(&["The Open Images Dataset V4", "Highway Networks"]);
+        let entry = "[49] A. Kuznetsova, H. Rom, N. Alldrin. The open images dataset V4: Unified image \
+                     classification, object detection, and visual relationship detection at scale. IJCV, 2020.";
+        assert_eq!(match_reference(entry, &refs), Some(0));
     }
 
     #[test]

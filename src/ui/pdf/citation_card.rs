@@ -378,24 +378,51 @@ pub(crate) fn CitationCard(
 
 /// Reference lists already fetched, by library paper id. Only successful
 /// fetches are stored, so a rate-limited attempt is retried on the next click.
-static REFERENCE_LISTS: LazyLock<Mutex<HashMap<String, Arc<Vec<Paper>>>>> =
+static REFERENCE_LISTS: LazyLock<Mutex<HashMap<String, CachedRefs>>> =
     LazyLock::new(Default::default);
+
+/// A reference-list lookup result, by library paper id.
+#[derive(Clone)]
+enum CachedRefs {
+    Found(Arc<Vec<Paper>>),
+    /// Failed, timed out, or OpenAlex lists nothing: skip the list (use the
+    /// fallbacks) until this passes, so offline or throttled clicks don't each
+    /// wait on the network again.
+    Missing(std::time::Instant),
+}
+
+/// How long to give the reference-list fetch before the card falls back.
+const REFERENCE_LIST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
+/// How long a failed or empty lookup is remembered before trying again.
+const REFERENCE_LIST_RETRY: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// The open paper's own reference list (from OpenAlex), fetched once per paper.
 async fn reference_list(db: &Database, paper_id: &str) -> Option<Arc<Vec<Paper>>> {
-    if let Some(hit) = REFERENCE_LISTS.lock().ok()?.get(paper_id) {
-        return Some(hit.clone());
+    match REFERENCE_LISTS.lock().ok()?.get(paper_id) {
+        Some(CachedRefs::Found(refs)) => return Some(refs.clone()),
+        Some(CachedRefs::Missing(at)) if at.elapsed() < REFERENCE_LIST_RETRY => return None,
+        _ => {}
     }
     let paper = db.get_paper_by_id(paper_id).await.ok().flatten()?;
-    let refs = rotero_search::openalex::fetch_references(paper.paper_id().as_ref(), &paper.title)
-        .await
-        .inspect_err(|e| tracing::debug!("reference list for {paper_id}: {e}"))
-        .ok()?;
-    let refs = Arc::new(refs);
+    let fetched = tokio::time::timeout(
+        REFERENCE_LIST_TIMEOUT,
+        rotero_search::openalex::fetch_references(paper.paper_id().as_ref(), &paper.title),
+    )
+    .await
+    .map_err(|_| "timed out".to_string())
+    .and_then(|r| r)
+    .inspect_err(|e| tracing::debug!("reference list for {paper_id}: {e}"));
+    let entry = match fetched {
+        Ok(refs) if !refs.is_empty() => CachedRefs::Found(Arc::new(refs)),
+        _ => CachedRefs::Missing(std::time::Instant::now()),
+    };
     if let Ok(mut cache) = REFERENCE_LISTS.lock() {
-        cache.insert(paper_id.to_string(), refs.clone());
+        cache.insert(paper_id.to_string(), entry.clone());
     }
-    Some(refs)
+    match entry {
+        CachedRefs::Found(refs) => Some(refs),
+        CachedRefs::Missing(_) => None,
+    }
 }
 
 /// Resolve an extracted bibliography line to at most one paper.
@@ -503,10 +530,11 @@ fn identifier_in_reference(text: &str) -> Option<String> {
 /// The parsed title is the strongest signal, but extraction can garble it
 /// (ligatures, hyphenation, an author initial split as a sentence), so also
 /// accept the first author's surname appearing in the reference text with a
-/// matching year.
+/// matching year. With no parsed title at all, that author/year check is the
+/// only one — the identifier may have come from a neighbouring entry.
 fn id_hit_matches(paper: &Paper, parsed: &rotero_pdf::ParsedReference) -> bool {
     let query = parsed.title.as_deref().unwrap_or("");
-    if query.is_empty() || plausible_citation_hit(paper, query) {
+    if !query.is_empty() && plausible_citation_hit(paper, query) {
         return true;
     }
     let Some(surname) = paper
@@ -529,8 +557,9 @@ fn id_hit_matches(paper: &Paper, parsed: &rotero_pdf::ParsedReference) -> bool {
     else {
         return false;
     };
-    let text = normalize_title(&parsed.text);
-    let author_ok = text.split_whitespace().any(|w| w == surname);
+    // Whole-word phrase match, so "van der Berg" / "de Moura" work too.
+    let text = format!(" {} ", normalize_title(&parsed.text));
+    let author_ok = text.contains(&format!(" {surname} "));
     let year_ok = match (paper.year, parsed.year.as_deref()) {
         (Some(y), Some(py)) => py.parse::<i32>().is_ok_and(|py| (py - y).abs() <= 1),
         _ => false,
@@ -629,6 +658,54 @@ mod tests {
             &paper("Attention"),
             "Attention is all you need"
         ));
+    }
+
+    fn parsed(text: &str, title: Option<&str>, year: Option<&str>) -> rotero_pdf::ParsedReference {
+        rotero_pdf::ParsedReference {
+            text: text.to_string(),
+            authors: None,
+            year: year.map(str::to_string),
+            title: title.map(str::to_string),
+            venue: None,
+        }
+    }
+
+    fn authored(title: &str, first: &str, last: &str, year: i32) -> Paper {
+        Paper {
+            creators: vec![rotero_models::Creator::author(first, last)],
+            year: Some(year),
+            ..paper(title)
+        }
+    }
+
+    #[test]
+    fn id_hit_without_title_needs_author_and_year() {
+        // Unparsed title, identifier possibly from the next entry.
+        let entry = parsed(
+            "[7] R. Girshick. Fast R-CNN. ICCV, 2015. arXiv:1409.0575",
+            None,
+            Some("2015"),
+        );
+        let wrong = authored(
+            "ImageNet Large Scale Visual Recognition Challenge",
+            "Olga",
+            "Russakovsky",
+            2015,
+        );
+        assert!(!id_hit_matches(&wrong, &entry));
+        let right = authored("Fast R-CNN", "Ross", "Girshick", 2015);
+        assert!(id_hit_matches(&right, &entry));
+    }
+
+    #[test]
+    fn id_hit_matches_multi_word_surname() {
+        let entry = parsed(
+            "[3] L. de Moura and N. Bjorner. Z3: an SMT solver. TACAS, 2008.",
+            Some("x"),
+            Some("2008"),
+        );
+        let paper = authored("Z3: An Efficient SMT Solver", "Leonardo", "de Moura", 2008);
+        assert!(id_hit_matches(&paper, &entry));
     }
 
     #[test]

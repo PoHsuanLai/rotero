@@ -130,12 +130,29 @@ fn skip_to_enumerator(s: &str) -> &str {
     find_enumerator(s, 0).map_or(s, |i| &s[i..])
 }
 
-/// Drop everything from the second `[n]` onward (the next reference entry).
+/// The number inside the `[n]` at byte `i` (which [`find_enumerator`] found).
+fn enumerator_number(s: &str, i: usize) -> Option<u32> {
+    let rest = &s[i + 1..];
+    rest[..rest.find(']')?].parse().ok()
+}
+
+/// Drop everything from the next entry's `[n]` onward. Only a higher number
+/// counts as the next entry, so an inline "[3]" inside entry [12] stays.
 fn cut_at_next_enumerator(s: &str) -> &str {
     if find_enumerator(s, 0) != Some(0) {
         return s;
     }
-    find_enumerator(s, 1).map_or(s, |i| s[..i].trim_end())
+    let Some(own) = enumerator_number(s, 0) else {
+        return s;
+    };
+    let mut from = 1;
+    while let Some(i) = find_enumerator(s, from) {
+        if enumerator_number(s, i).is_some_and(|n| n > own) {
+            return s[..i].trim_end();
+        }
+        from = i + 1;
+    }
+    s
 }
 
 /// Drop a leading `[12]`, `(12)`, `12.`, or `12)`.
@@ -408,6 +425,16 @@ mod tests {
             "[17] H. Jegou, M. Douze, and C. Schmid. Product quantization for nearest neighbor search. TPAMI, 33, 2011.",
         );
         assert_eq!(p.year.as_deref(), Some("2011"));
+    }
+
+    #[test]
+    fn inline_bracket_number_is_not_the_next_entry() {
+        let p = parse_reference(
+            "[12] A. Smith. Results of trial [3] revisited. In CVPR, 2019. [13] B. Jones. Other work. 2020.",
+        );
+        assert!(p.text.contains("revisited"), "{}", p.text);
+        assert!(!p.text.contains("[13]"), "{}", p.text);
+        assert_eq!(p.year.as_deref(), Some("2019"));
     }
 
     #[test]

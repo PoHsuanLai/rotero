@@ -106,13 +106,15 @@ pub async fn fetch_references(id: Option<&PaperId>, title: &str) -> Result<Vec<P
     };
 
     let mut refs = Vec::new();
+    // Kept so a failed lookup is reported as a failure, not as "cites nothing".
+    let mut lookup_err = None;
     if let Some(doi) = doi {
-        let url = format!(
-            "{api}/https://doi.org/{}?select=title,referenced_works",
-            urlencoding::encode(&doi)
-        );
-        if let Ok(work) = crate::get_json::<OpenAlexRefList>(&url, "OpenAlex").await {
-            refs = work.referenced_works.unwrap_or_default();
+        // Same raw-DOI path form as `fetch_by_doi`: the `/` inside a DOI is a
+        // literal path separator to OpenAlex, not `%2F`.
+        let url = format!("{api}/https://doi.org/{doi}?select=title,referenced_works");
+        match crate::get_json::<OpenAlexRefList>(&url, "OpenAlex").await {
+            Ok(work) => refs = work.referenced_works.unwrap_or_default(),
+            Err(e) => lookup_err = Some(e),
         }
     }
 
@@ -132,34 +134,47 @@ pub async fn fetch_references(id: Option<&PaperId>, title: &str) -> Result<Vec<P
             .max_by_key(Vec::len)
             .unwrap_or_default();
     }
+    if refs.is_empty()
+        && let Some(e) = lookup_err
+    {
+        return Err(e);
+    }
 
     let ids: Vec<&str> = refs
         .iter()
         .filter_map(|u| u.rsplit('/').next())
         .filter(|id| !id.is_empty())
         .collect();
-    let mut papers = Vec::with_capacity(ids.len());
-    for chunk in ids.chunks(50) {
+    // One request per 50 ids, all at once. A failed chunk loses only its own
+    // references; every chunk failing is an error.
+    let chunks = ids.chunks(50).map(|chunk| {
         let url = format!(
             "{api}?filter=openalex:{}&per_page=50",
             urlencoding::encode(&chunk.join("|"))
         );
-        let data: OpenAlexSearchResponse = crate::get_json(&url, "OpenAlex").await?;
-        papers.extend(
-            data.results
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|work| {
+        async move { crate::get_json::<OpenAlexSearchResponse>(&url, "OpenAlex").await }
+    });
+    let mut papers = Vec::with_capacity(ids.len());
+    let mut last_err = None;
+    for result in futures_util::future::join_all(chunks).await {
+        match result {
+            Ok(data) => papers.extend(data.results.unwrap_or_default().into_iter().filter_map(
+                |work| {
                     let doi = work
                         .doi
                         .as_deref()
                         .unwrap_or("")
                         .replace("https://doi.org/", "");
                     work_to_paper(work, &doi).ok()
-                }),
-        );
+                },
+            )),
+            Err(e) => last_err = Some(e),
+        }
     }
-    Ok(papers)
+    match last_err {
+        Some(e) if papers.is_empty() => Err(e),
+        _ => Ok(papers),
+    }
 }
 
 /// Searches OpenAlex by title and returns the top result.
