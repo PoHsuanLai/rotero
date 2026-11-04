@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+- **The citation card could swap the right reference for a wrong paper** a moment after opening, offering to import something the PDF never cited. The card now matches the clicked entry against the open paper's own reference list (from OpenAlex), and anything else it finds must agree with the entry's title, or its first author and year. On two-column pages it reads only the clicked column, and in author–year bibliographies it stops at the next entry.
+- **Text selection in the reader no longer moves both ends.** Dragging up, to the left, or back past where you started used to shift the start of the selection too; the end you pressed on now stays put. Highlight, underline, and strikeout drags behave the same way.
+- **Check for Updates failed with "Unexpected response from GitHub"** when this network had used up GitHub's unauthenticated API quota (60 requests per hour). The updater now falls back to the public latest-release page, which is not rate-limited the same way.
+
 ## v0.2.7
 
 PDF rendering is now pdfrum, a pure-Rust library, instead of PDFium. There is no native PDF sidecar to ship or load. Linux also becomes a real desktop app: the portable tarball installs a launcher icon, and in-app updates replace that copy.

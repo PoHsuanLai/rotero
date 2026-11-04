@@ -48,7 +48,8 @@ pub use reference::{ParsedReference, parse_reference};
 pub use search::{
     ClickSelectMode, SearchMatch, SelectionMarkup, group_into_lines, search_in_document,
     search_in_text_data, selection_at_point, selection_at_point_from_text, selection_markup,
-    selection_markup_from_text, text_block_at,
+    selection_markup_between, selection_markup_between_from_text, selection_markup_from_text,
+    text_block_at,
 };
 pub use segments::{
     PdfDocMetadata, extract_doc_metadata, extract_page_text, extract_pages_text, extract_raw_text,

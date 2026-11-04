@@ -170,9 +170,14 @@ fn compute_drag_preview_rects(
     if w * page.display_scale <= 2.0 && h * page.display_scale <= 2.0 {
         return Vec::new();
     }
-    if let Some(m) =
-        docs.selection_markup(pdf_path, page.index, page.width, page.height, x, y, w, h)
-    {
+    if let Some(m) = docs.selection_between(
+        pdf_path,
+        page.index,
+        page.width,
+        page.height,
+        start,
+        current,
+    ) {
         m.line_rects
     } else if selecting_text {
         Vec::new()
@@ -207,16 +212,7 @@ fn finish_markup(
     if rw * page.display_scale < 5.0 && rh * page.display_scale < 5.0 {
         return None;
     }
-    let markup = docs.selection_markup(
-        pdf_path,
-        page.index,
-        page.width,
-        page.height,
-        rx,
-        ry,
-        rw,
-        rh,
-    );
+    let markup = docs.selection_between(pdf_path, page.index, page.width, page.height, start, end);
     let (geometry, content) =
         markup_geometry_from_selection(markup.as_ref(), rx, ry, rw, rh, page.width, page.height);
     Some((at, geometry, content))
@@ -518,7 +514,7 @@ pub(crate) fn PdfPageWithOverlay(
             }
 
             // Native text selection: overlay under links/annotations so those
-            // stay clickable; drag uses pdfrum `selection_markup`. Double-click
+            // stay clickable; drag uses `selection_between` (anchor/focus). Double-click
             // selects a word, triple-click a line (via word/char bounds).
             // Multi-page drag selection is out of scope — starting a drag on
             // another page clears the prior selection (per-page overlays).
@@ -597,8 +593,6 @@ pub(crate) fn PdfPageWithOverlay(
                         let c = evt.element_coordinates();
                         let (x, y) = space.overlay_to_page(c.x, c.y);
                         if let Some(start) = drag_start() {
-                            let rx = start.0.min(x);
-                            let ry = start.1.min(y);
                             let rw = (start.0 - x).abs();
                             let rh = (start.1 - y).abs();
                             drag_start.set(None);
@@ -609,15 +603,13 @@ pub(crate) fn PdfPageWithOverlay(
                             apply_text_selection(
                                 &mut tools,
                                 page_index,
-                                docs_select_up.selection_markup(
+                                docs_select_up.selection_between(
                                     &path_select_up,
                                     page_index,
                                     width,
                                     height,
-                                    rx,
-                                    ry,
-                                    rw,
-                                    rh,
+                                    start,
+                                    (x, y),
                                 ),
                             );
                         }

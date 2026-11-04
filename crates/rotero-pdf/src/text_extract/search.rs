@@ -82,8 +82,24 @@ fn group_into_lines_ref(segments: &[TextSegment]) -> Vec<Vec<&TextSegment>> {
 /// downward until a paragraph-sized vertical gap (the next reference) or
 /// `max_lines` is reached. Returns the joined, trimmed text (lines separated by
 /// `\n`), or an empty string if nothing sits at/below `start_y`.
-pub fn text_block_at(segments: &[TextSegment], start_y: f64, max_lines: usize) -> String {
-    let lines = group_into_lines_ref(segments);
+///
+/// `start_x` (the destination's left edge, when the link carries one) keeps
+/// the block inside that column: on a two-column reference page each grouped
+/// "line" otherwise splices both columns, mixing in the neighbouring entry's
+/// title and DOI.
+pub fn text_block_at(
+    segments: &[TextSegment],
+    start_x: Option<f64>,
+    start_y: f64,
+    max_lines: usize,
+) -> String {
+    let range = start_x.and_then(|x| column_range(segments, x, start_y));
+    let segments: Vec<TextSegment> = segments
+        .iter()
+        .filter(|s| range.is_none_or(|(lo, hi)| s.x >= lo && s.x < hi))
+        .map(reposition_wrapped_word)
+        .collect();
+    let lines = group_into_lines_ref(&segments);
     if lines.is_empty() {
         return String::new();
     }
@@ -111,13 +127,39 @@ pub fn text_block_at(segments: &[TextSegment], start_y: f64, max_lines: usize) -
         return String::new();
     };
 
+    // Bibliographies set each entry with a hanging indent: first line at the
+    // margin, continuation lines indented. When nearby lines show that layout,
+    // a line back at the margin starts the next entry — the only boundary
+    // author–year lists have (no `[n]`, and often no paragraph gap). A
+    // one-line entry has no indented line of its own, so look at its
+    // neighbours rather than just line 2.
+    let left = |line: &[&TextSegment]| line.first().map_or(0.0, |s| s.x);
+    let indented_after = |from: usize, margin: f64, tol: f64| {
+        lines
+            .iter()
+            .skip(from + 1)
+            .take(max_lines * 2)
+            .any(|l| left(l) > margin + tol && left(l) < margin + tol * 12.0)
+    };
+    let mut start = start;
+    if let (Some(a), Some(b)) = (lines.get(start), lines.get(start + 1)) {
+        let tol = line_metrics(a).1.max(1.0) * 0.5;
+        // Destination landed on the indented tail of the previous entry.
+        if left(b) < left(a) - tol && indented_after(start + 1, left(b), tol) {
+            start += 1;
+        }
+    }
+    let first_left = left(&lines[start]);
+    let tol = line_metrics(&lines[start]).1.max(1.0) * 0.5;
+    let hanging = indented_after(start, first_left, tol);
+
     let mut out: Vec<String> = Vec::new();
     let (_, mut prev_h) = line_metrics(&lines[start]);
     let mut prev_bottom = {
         let (y, h) = line_metrics(&lines[start]);
         y + h
     };
-    for line in &lines[start..] {
+    for (n, line) in lines[start..].iter().enumerate() {
         if out.len() >= max_lines {
             break;
         }
@@ -130,6 +172,9 @@ pub fn text_block_at(segments: &[TextSegment], start_y: f64, max_lines: usize) -
                 break;
             }
         }
+        if n > 0 && hanging && (left(line) - first_left).abs() <= tol {
+            break;
+        }
         let text = line_text(line);
         if !text.trim().is_empty() {
             out.push(text);
@@ -139,6 +184,92 @@ pub fn text_block_at(segments: &[TextSegment], start_y: f64, max_lines: usize) -
     }
 
     out.join("\n").trim().to_string()
+}
+
+/// A word hyphenated across a line break ("convolu-" / "tions") comes back
+/// from pdfium as one box spanning both lines: its top is the first line but
+/// its left edge is the *next* line's start, so it sorts to the front of the
+/// first line. Re-anchor it at its right edge (where "convolu-" really sits).
+fn reposition_wrapped_word(s: &TextSegment) -> TextSegment {
+    let mut s = s.clone();
+    if is_wrapped_word(&s) {
+        s.x += s.width;
+        s.width = 0.0;
+        s.height = s.font_size;
+    }
+    s
+}
+
+/// A soft-hyphenated word whose box spans more than one line.
+fn is_wrapped_word(s: &TextSegment) -> bool {
+    s.text.contains('\u{ad}') && s.font_size > 0.0 && s.height > s.font_size * 1.6
+}
+
+/// `[lo, hi)` x-range of the column containing `x`, or `None` for a
+/// single-column page.
+///
+/// Looks for a vertical gutter in the middle of the page — a band no word
+/// crosses — within the region the reference block will be read from.
+fn column_range(segments: &[TextSegment], x: f64, start_y: f64) -> Option<(f64, f64)> {
+    let mut heights: Vec<f64> = segments.iter().map(|s| s.height).collect();
+    heights.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let line_h = heights.get(heights.len() / 2).copied()?.max(1.0);
+    let band: Vec<&TextSegment> = segments
+        .iter()
+        .filter(|s| s.y + s.height >= start_y - line_h && s.y <= start_y + line_h * 12.0)
+        // A word hyphenated across a line or column break comes back as one
+        // box spanning both halves — it can bridge the gutter. Ignore those.
+        .filter(|s| !is_wrapped_word(s))
+        .collect();
+    if band.len() < 4 {
+        return None;
+    }
+    let left = band.iter().map(|s| s.x).fold(f64::MAX, f64::min);
+    let right = band.iter().map(|s| s.x + s.width).fold(f64::MIN, f64::max);
+    let width = right - left;
+    if width <= 0.0 {
+        return None;
+    }
+    let crosses = |g: f64| band.iter().any(|s| s.x <= g && s.x + s.width >= g);
+
+    // Scan the middle 30–70% for runs of x no word touches. A gutter is about
+    // two line-heights wide; the gap between words is a fraction of one, so
+    // demand at least one line-height of clear space.
+    let steps = 200;
+    let step = width * 0.4 / steps as f64;
+    let centre = left + width / 2.0;
+    let mut best: Option<f64> = None;
+    let mut run_start: Option<f64> = None;
+    for i in 0..=steps + 1 {
+        let g = left + width * 0.3 + step * i as f64;
+        let clear = i <= steps && !crosses(g);
+        match (clear, run_start) {
+            (true, None) => run_start = Some(g),
+            (false, Some(start)) => {
+                let end = g - step;
+                if end - start >= line_h {
+                    let mid = (start + end) / 2.0;
+                    if best.is_none_or(|b| (mid - centre).abs() < (b - centre).abs()) {
+                        best = Some(mid);
+                    }
+                }
+                run_start = None;
+            }
+            _ => {}
+        }
+    }
+    let gutter = best?;
+    // Both sides must actually hold text, or it's just a short line.
+    let left_n = band.iter().filter(|s| s.x + s.width <= gutter).count();
+    let right_n = band.iter().filter(|s| s.x >= gutter).count();
+    if left_n < 2 || right_n < 2 {
+        return None;
+    }
+    if x < gutter {
+        Some((f64::MIN, gutter))
+    } else {
+        Some((gutter, f64::MAX))
+    }
 }
 
 /// Case-insensitive options matching the previous segment-search behaviour.
@@ -417,6 +548,18 @@ pub fn selection_markup_from_text(
         _ => char_range_intersecting(text, pdf_sel)?,
     };
 
+    markup_for_range(text, from, to, page_height_pts, scale_x, scale_y)
+}
+
+/// Line rects, bounds, and text for the character range `from..to`.
+fn markup_for_range(
+    text: &TextPage,
+    from: CharIndex,
+    to: CharIndex,
+    page_height_pts: f64,
+    scale_x: f64,
+    scale_y: f64,
+) -> Option<SelectionMarkup> {
     if from.get() >= to.get() {
         return None;
     }
@@ -446,6 +589,102 @@ pub fn selection_markup_from_text(
         bounds: (bx0, by0, bx1 - bx0, by1 - by0),
         text: text_out,
     })
+}
+
+/// Text selection for a drag from `anchor` (where the press happened) to
+/// `focus` (where the pointer is now), both in pixel space.
+///
+/// Unlike [`selection_markup`], which reads the ends off a rectangle's
+/// top-left and bottom-right corners, this resolves the character under each
+/// point on its own, so the anchor end stays pinned wherever the pointer goes
+/// — dragging up, left, or back across the start included.
+pub fn selection_markup_between(
+    doc: &Document,
+    page_index: u32,
+    img_width: u32,
+    img_height: u32,
+    anchor: (f64, f64),
+    focus: (f64, f64),
+) -> Option<SelectionMarkup> {
+    if img_width == 0 || img_height == 0 {
+        return None;
+    }
+    let page = doc.page(page_index).ok()?;
+    let page_width_pts = page.width();
+    let page_height_pts = page.height();
+    if page_width_pts <= 0.0 || page_height_pts <= 0.0 {
+        return None;
+    }
+    let text = page.text();
+    selection_markup_between_from_text(
+        &text,
+        page_height_pts,
+        f64::from(img_width) / page_width_pts,
+        f64::from(img_height) / page_height_pts,
+        anchor,
+        focus,
+    )
+}
+
+/// Same as [`selection_markup_between`] when the caller already holds a
+/// [`TextPage`].
+pub fn selection_markup_between_from_text(
+    text: &TextPage,
+    page_height_pts: f64,
+    scale_x: f64,
+    scale_y: f64,
+    anchor: (f64, f64),
+    focus: (f64, f64),
+) -> Option<SelectionMarkup> {
+    if text.char_count() == 0 || scale_x <= 0.0 || scale_y <= 0.0 {
+        return None;
+    }
+    // Pixel (top-left origin) → PDF points (bottom-left origin).
+    let to_pdf = |(x, y): (f64, f64)| Point::new(x / scale_x, page_height_pts - y / scale_y);
+    // The glyph under the point, else the nearest glyph anywhere. Each end is
+    // resolved from its own point only — never from a rectangle spanning both —
+    // so the anchor stays put even when the pointer is in a margin or gutter.
+    let resolve = |p: Point| {
+        text.index_at(p, Size::new(4.0, 4.0))
+            .or_else(|| nearest_char(text, p))
+    };
+
+    let a = resolve(to_pdf(anchor))?;
+    let f = resolve(to_pdf(focus))?;
+    let (lo, hi) = if a.get() <= f.get() { (a, f) } else { (f, a) };
+    markup_for_range(
+        text,
+        lo,
+        CharIndex::new(hi.get().saturating_add(1)),
+        page_height_pts,
+        scale_x,
+        scale_y,
+    )
+}
+
+/// The character whose box is closest to `p` (PDF points), ignoring
+/// zero-size boxes such as generated line breaks.
+fn nearest_char(text: &TextPage, p: Point) -> Option<CharIndex> {
+    text.chars
+        .iter()
+        .enumerate()
+        .filter_map(|(i, info)| {
+            let b = info.char_box;
+            let (x0, x1, y0, y1) = (
+                b.x0.min(b.x1),
+                b.x0.max(b.x1),
+                b.y0.min(b.y1),
+                b.y0.max(b.y1),
+            );
+            if x1 - x0 <= 0.0 || y1 - y0 <= 0.0 {
+                return None;
+            }
+            let dx = (x0 - p.x).max(p.x - x1).max(0.0);
+            let dy = (y0 - p.y).max(p.y - y1).max(0.0);
+            Some((i, dx * dx + dy * dy))
+        })
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(i, _)| CharIndex::new(i))
 }
 
 /// How a click expands into a selection when there is no drag.
@@ -606,6 +845,136 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    #[test]
+    fn text_block_at_stays_in_destination_column() {
+        // Two columns of references, gutter between x=60 and x=100.
+        let segs = vec![
+            seg("[1]", 0.0, 100.0),
+            seg("Left", 30.0, 100.0),
+            seg("[7]", 100.0, 100.0),
+            seg("Right", 130.0, 100.0),
+            seg("title", 0.0, 110.0),
+            seg("one", 30.0, 110.0),
+            seg("arXiv:1207.0580", 100.0, 110.0),
+            seg("two", 130.0, 110.0),
+        ];
+        let left = text_block_at(&segs, Some(0.0), 100.0, 10);
+        assert_eq!(left, "[1] Left\ntitle one");
+        let right = text_block_at(&segs, Some(100.0), 100.0, 10);
+        assert_eq!(right, "[7] Right\narXiv:1207.0580 two");
+        // No x: old full-width behaviour.
+        assert!(text_block_at(&segs, None, 100.0, 10).contains("Right"));
+    }
+
+    #[test]
+    fn column_split_ignores_word_wrapped_across_columns() {
+        // Latent Diffusion p.12: "Con\u{ad}ference" broken from the bottom of
+        // the left column to the top of the right gets one page-tall box that
+        // bridges the gutter.
+        let mut bridge = seg("Con\u{ad}ference", 50.0, 90.0);
+        bridge.width = 100.0;
+        bridge.height = 600.0;
+        let segs = vec![
+            bridge,
+            seg("[88]", 0.0, 100.0),
+            seg("Suvorov", 30.0, 100.0),
+            seg("[101]", 100.0, 100.0),
+            seg("Yan", 130.0, 100.0),
+            seg("inpainting", 0.0, 110.0),
+            seg("VideoGPT", 130.0, 110.0),
+        ];
+        let right = text_block_at(&segs, Some(100.0), 100.0, 10);
+        assert!(!right.contains("Suvorov"), "block was: {right:?}");
+        assert!(right.contains("VideoGPT"), "block was: {right:?}");
+    }
+
+    #[test]
+    fn text_block_at_puts_wrapped_word_at_line_end() {
+        // Shape taken from the ResNet PDF: "convolu\u{ad}tions." is one box
+        // spanning two lines, left edge at the second line's start.
+        let mut wrapped = seg("convolu\u{ad}tions.", 0.0, 100.0);
+        wrapped.width = 120.0;
+        wrapped.height = 20.0;
+        let segs = vec![
+            seg("[44]", 0.0, 100.0),
+            seg("Going", 30.0, 100.0),
+            seg("deeper", 60.0, 100.0),
+            seg("with", 90.0, 100.0),
+            wrapped,
+            seg("In", 0.0, 110.0),
+            seg("CVPR.", 30.0, 110.0),
+        ];
+        let block = text_block_at(&segs, None, 100.0, 10);
+        assert_eq!(
+            block,
+            "[44] Going deeper with convolu\u{ad}tions.\nIn CVPR."
+        );
+    }
+
+    #[test]
+    fn text_block_at_stops_at_next_hanging_indent_entry() {
+        // Author–year list (DDIM): no enumerators, no paragraph gap, but each
+        // entry's continuation lines are indented.
+        let segs = vec![
+            seg("Tail", 10.0, 90.0),
+            seg("Kingma.", 0.0, 100.0),
+            seg("Auto-encoding", 30.0, 100.0),
+            seg("arXiv:1312.6114", 10.0, 110.0),
+            seg("Levy.", 0.0, 120.0),
+            seg("Generalizing", 30.0, 120.0),
+            seg("carlo", 10.0, 130.0),
+        ];
+        assert_eq!(
+            text_block_at(&segs, None, 100.0, 10),
+            "Kingma. Auto-encoding\narXiv:1312.6114"
+        );
+        // Landing on the previous entry's indented tail skips it.
+        assert_eq!(
+            text_block_at(&segs, None, 90.0, 10),
+            "Kingma. Auto-encoding\narXiv:1312.6114"
+        );
+    }
+
+    #[test]
+    fn text_block_at_one_line_entry_stops_at_next() {
+        // DDIM: Bishop's PRML entry fits one line; the next entry follows flush.
+        let segs = vec![
+            seg("Bishop.", 0.0, 100.0),
+            seg("PRML.", 30.0, 100.0),
+            seg("Brock.", 0.0, 110.0),
+            seg("Large", 30.0, 110.0),
+            seg("scale", 10.0, 120.0),
+        ];
+        assert_eq!(text_block_at(&segs, None, 100.0, 10), "Bishop. PRML.");
+    }
+
+    #[test]
+    fn text_block_at_without_hanging_indent_reads_on() {
+        // Flush-left continuation lines: no indent signal, keep reading.
+        let segs = vec![
+            seg("Kingma.", 0.0, 100.0),
+            seg("Auto-encoding", 0.0, 110.0),
+            seg("bayes.", 0.0, 120.0),
+        ];
+        assert_eq!(
+            text_block_at(&segs, None, 100.0, 10),
+            "Kingma.\nAuto-encoding\nbayes."
+        );
+    }
+
+    #[test]
+    fn text_block_at_single_column_is_not_split() {
+        // Words tile the full width with no gutter.
+        let segs: Vec<_> = (0..8)
+            .flat_map(|i| {
+                let x = i as f64 * 20.0;
+                [seg("w", x, 100.0), seg("w", x, 110.0)]
+            })
+            .collect();
+        let block = text_block_at(&segs, Some(0.0), 100.0, 10);
+        assert_eq!(block.split_whitespace().count(), 16);
+    }
+
     /// One word-segment at (x, y) with a fixed height/width; other font fields
     /// are irrelevant to line grouping.
     fn seg(text: &str, x: f64, y: f64) -> TextSegment {
@@ -643,7 +1012,7 @@ mod tests {
         ];
 
         // Ask for the block starting at ref A.
-        let block = text_block_at(&segs, 100.0, 10);
+        let block = text_block_at(&segs, None, 100.0, 10);
         assert!(block.starts_with("Ng"), "block was: {block:?}");
         assert!(block.contains("Inverse RL"), "block was: {block:?}");
         // Must stop before ref B's paragraph.
@@ -660,15 +1029,15 @@ mod tests {
             seg("l2", 0.0, 20.0),
             seg("l3", 0.0, 30.0),
         ];
-        let block = text_block_at(&segs, 0.0, 2);
+        let block = text_block_at(&segs, None, 0.0, 2);
         assert_eq!(block, "l1\nl2");
     }
 
     #[test]
     fn text_block_at_empty_when_nothing_below() {
         let segs = vec![seg("top", 0.0, 10.0)];
-        assert_eq!(text_block_at(&segs, 500.0, 10), "");
-        assert_eq!(text_block_at(&[], 0.0, 10), "");
+        assert_eq!(text_block_at(&segs, None, 500.0, 10), "");
+        assert_eq!(text_block_at(&[], None, 0.0, 10), "");
     }
 
     #[test]
@@ -744,6 +1113,73 @@ mod tests {
         assert!(bw > 0.0 && bh > 0.0, "empty bounds");
         assert!(bx >= 0.0 && by >= 0.0);
         assert!(!m.text.trim().is_empty(), "expected selected text");
+    }
+
+    /// Pixel centre of character `i` on a 1:1 (pt = px) rendering.
+    fn char_center(text: &TextPage, page_h: f64, i: usize) -> (f64, f64) {
+        let b = text.chars[i].char_box;
+        ((b.x0 + b.x1) / 2.0, page_h - (b.y0 + b.y1) / 2.0)
+    }
+
+    #[test]
+    fn selection_between_pins_the_anchor() {
+        let doc = Document::open(fixture("basicapi.pdf")).expect("open");
+        let page = doc.page(0).expect("page");
+        let (pw, ph) = (page.width(), page.height());
+        let text = page.text();
+        let n = text.char_count();
+        assert!(n > 40, "fixture should have text");
+        let sel = |a: (f64, f64), f: (f64, f64)| {
+            selection_markup_between(&doc, 0, pw as u32, ph as u32, a, f)
+                .expect("selection")
+                .text
+        };
+        // A visible glyph near the middle, so "starts/ends with" is meaningful.
+        let visible = |i: usize| {
+            let c = text.slice(CharIndex::new(i)..CharIndex::new(i + 1));
+            let b = text.chars[i].char_box;
+            !c.trim().is_empty() && (b.x1 - b.x0).abs() > 0.0 && (b.y1 - b.y0).abs() > 0.0
+        };
+        let anchor_i = (n / 2..n - 20)
+            .find(|&i| visible(i))
+            .expect("visible glyph");
+        let anchor = char_center(&text, ph, anchor_i);
+        let anchor_char = text.slice(CharIndex::new(anchor_i)..CharIndex::new(anchor_i + 1));
+
+        // Focus later in reading order: selection starts at the anchor.
+        for f in [anchor_i + 5, anchor_i + 15] {
+            let s = sel(anchor, char_center(&text, ph, f));
+            assert!(
+                s.starts_with(&anchor_char),
+                "{s:?} should start at anchor {anchor_char:?}"
+            );
+        }
+        // Focus earlier: selection ends at the anchor, whichever way the
+        // pointer sits relative to it on the page (the old box-corner logic
+        // moved the anchor end here).
+        for f in [anchor_i - 5, anchor_i - 15] {
+            let s = sel(anchor, char_center(&text, ph, f));
+            assert!(
+                s.ends_with(&anchor_char),
+                "{s:?} should end at anchor {anchor_char:?}"
+            );
+        }
+        // Focus far off in the margin (no glyph near it): the anchor still holds
+        // instead of falling back to a rectangle.
+        for margin in [
+            (-200.0, -200.0),
+            (pw + 200.0, ph + 200.0),
+            (anchor.0, ph + 300.0),
+        ] {
+            let s = sel(anchor, margin);
+            assert!(
+                s.starts_with(&anchor_char) || s.ends_with(&anchor_char),
+                "{s:?} lost the anchor {anchor_char:?} with focus at {margin:?}"
+            );
+        }
+        // Anchor and focus are interchangeable as a range.
+        let (a, f) = (anchor, char_center(&text, ph, anchor_i + 15));
+        assert_eq!(sel(a, f), sel(f, a));
     }
 
     #[test]
