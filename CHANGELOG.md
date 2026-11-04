@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## v0.2.8
+
+Rotero now keeps a wiki beside your papers: concept pages for methods, datasets, and ideas, and claims quoted from the papers that state them. The agent files them through MCP or the new **Add to wiki** button, and they sync with the rest of the library.
+
+Clicking a citation no longer swaps the reference for a wrong paper. The card picks from the open paper's own reference list, and reads only the clicked column and entry. Drag-selecting text keeps the end you pressed on fixed.
+
+The library migrates from schema v20 to v21 on first launch. Older versions of Rotero will not open it afterwards.
+
+### Added
+- **Wiki of concepts and claims.** A concept is a method, dataset, benchmark, task, or idea with the papers it rests on; a claim is one sentence a paper states, stored with its quotation and page. The paper detail panel lists a paper's claims, and a concept opens its own page with **Back to paper**. Your notes, highlights, and bibliographic fields are never edited by it.
+- **Add to wiki** on the paper detail panel, and the `compile-paper` MCP prompt, ask the agent to file claims for the paper.
+- **Ten wiki tools for MCP clients**: `list_concepts`, `read_concept`, `upsert_concept`, `list_claims`, `file_claim`, `search_wiki`, `link_claim_concept`, `link_claims`, `link_concepts`, and `list_stubs`.
+- **Citations to papers you have not imported are remembered.** A PDF link to a DOI, arXiv id, PMID, or ISBN outside the library is kept as a stub; importing that paper turns it into an ordinary citation link.
+
+### Changed
+- The citation scan runs per PDF content hash instead of once per install, so a replaced or newly attached PDF is scanned too.
 
 ### Fixed
 - **The citation card could swap the right reference for a wrong paper** a moment after opening, offering to import something the PDF never cited. The card now matches the clicked entry against the open paper's own reference list (from OpenAlex), and anything else it finds must agree with the entry's title, or its first author and year. On two-column pages it reads only the clicked column, and in author–year bibliographies it stops at the next entry.
