@@ -172,7 +172,10 @@ jobs:
       # run below reuses what it produced.
       - run: cargo nextest run --workspace --no-run
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo nextest run --workspace
+      # The sync property tests are platform-independent merge logic and were
+      # most of this job's time (9+ minutes on Windows); the Linux Test job runs
+      # them. Everything else, including the file-sync tests, still runs here.
+      - run: cargo nextest run --workspace -E 'not binary(sync_props)'
 
   # macOS is the primary platform and used to be the only one that never ran the
   # tests — the bug that broke every shipped build landed here.
@@ -201,7 +204,8 @@ jobs:
       - run: cargo nextest run --workspace --no-run
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
-        run: cargo nextest run --workspace
+        # Sync property tests run on Linux only; see the Windows job.
+        run: cargo nextest run --workspace -E 'not binary(sync_props)'
 
   # Builds the real bundle and runs it. Every check above passed while the
   # shipped artifact was broken, because nothing here had ever launched one:

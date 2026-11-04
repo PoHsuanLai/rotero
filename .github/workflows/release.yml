@@ -6,25 +6,33 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
+  # A release tags a commit already on master, and master's CI has tested that
+  # exact commit on every platform (Linux tests, Windows, macOS, clippy, bundle
+  # smoke). Re-running the Linux suite here repeated ~10 minutes of that and
+  # checked less. Instead, wait for that run and require it to have passed.
   test:
-    name: Test
+    name: CI passed on this commit
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          # The rotero-translate coverage tests read the vendored Zotero
-          # translator sources (git submodules) at runtime.
-          submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Install system dependencies
+      - name: Wait for master CI on ${{ github.sha }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev libxdo-dev
-      - uses: taiki-e/install-action@nextest
-      - run: cargo nextest run --workspace
+          for _ in $(seq 1 20); do
+            run_id=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --event push \
+              --json databaseId --jq '.[0].databaseId')
+            [ -n "$run_id" ] && break
+            sleep 30
+          done
+          if [ -z "$run_id" ]; then
+            echo "::error::No master CI run for $GITHUB_SHA. Tag a commit that is on master."
+            exit 1
+          fi
+          gh run watch "$run_id" --interval 60 --exit-status
 
   build-macos:
     name: Build macOS

@@ -132,7 +132,15 @@ pub fn merge_row(table: &str, key_cols: &[&str], payload_cols: &[&str]) -> Strin
 /// The row-level [`merge_row`] gates the whole row on one `WHERE`, so a peer row
 /// that loses discards every column — including ones it changed and this device
 /// did not. Here the gate moves inside each assignment, as a `CASE` over that
-/// column's own clock, and there is no outer `WHERE` at all.
+/// column's own clock.
+///
+/// The outer `WHERE` only skips rows where nothing would change: no column's
+/// clock wins and the row clock does not either. In that case every assignment
+/// would keep the existing value, so skipping is exactly equivalent — but it
+/// avoids rewriting the row, which matters because `papers` carries a
+/// full-text index that is rebuilt on every write (tens of ms per row). Most
+/// rows in a sync import are unchanged, and without this each import rewrote
+/// every one of them.
 ///
 /// `graded_cols` are the columns to judge; `insert_only_cols` are inserted to
 /// satisfy NOT NULL but never assigned. **That split is load-bearing.** A
@@ -181,8 +189,10 @@ pub fn merge_row_per_column(
     );
 
     let mut assignments: Vec<String> = Vec::new();
+    let mut any_wins: Vec<String> = Vec::new();
     for c in graded_cols {
         let w = wins(c);
+        any_wins.push(format!("({w})"));
         assignments.push(format!(
             "{c} = CASE WHEN {w} THEN excluded.{c} ELSE {table}.{c} END"
         ));
@@ -205,13 +215,24 @@ pub fn merge_row_per_column(
         "deleted = CASE WHEN {row_wins} THEN excluded.deleted ELSE {table}.deleted END"
     ));
 
+    any_wins.push(format!("({row_wins})"));
+    // One flat MAX over 0/1 terms rather than `a OR b OR …`: with ~30 columns a
+    // chained OR nests deep enough to overflow turso's parser stack.
+    let changed = if any_wins.len() == 1 {
+        any_wins.remove(0)
+    } else {
+        format!("MAX({}) = 1", any_wins.join(", "))
+    };
+
     format!(
         "INSERT INTO {table} ({cols}) VALUES ({vals}) \
-         ON CONFLICT({conflict}) DO UPDATE SET {sets}",
+         ON CONFLICT({conflict}) DO UPDATE SET {sets} \
+         WHERE {changed}",
         cols = insert_cols.join(", "),
         vals = placeholders.join(", "),
         conflict = key_cols.join(", "),
         sets = assignments.join(", "),
+        changed = changed,
     )
 }
 
