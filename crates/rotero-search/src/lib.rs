@@ -11,6 +11,8 @@ pub mod crossref;
 pub mod merge;
 /// OpenAlex API client for search, autocomplete, and open-access PDF discovery.
 pub mod openalex;
+/// Match a bibliography entry against a paper's known reference list.
+pub mod reference_match;
 /// Semantic Scholar API client for paper search and citation data.
 pub mod semantic_scholar;
 /// Unpaywall API client for finding open-access PDF URLs.
