@@ -149,14 +149,11 @@ async fn merge_resolves_by_clock() {
 
 /// Merging the same snapshot twice changes nothing the second time.
 ///
-/// Asserted on the resulting *state* rather than on `MergeStats.applied`.
-/// `papers` merges per column, so its statement has no outer `WHERE` on
-/// `DO UPDATE` — every gate lives inside a `CASE` instead — and the row is
-/// therefore always "written" even when every column keeps its local value.
-/// `applied` counts statements that touched a row, which is no longer the same
-/// question as whether anything changed. What idempotence actually promises is
-/// that the second merge leaves the library identical, and that is what this
-/// now checks.
+/// Checked both ways: the library is identical, and the second merge applies
+/// no rows. The per-column `papers` merge skips a row when no column's clock
+/// wins; without that it rewrote (and re-indexed for full-text search) every
+/// unchanged paper on every import, and reported each one as applied, which
+/// made the sync loop refresh the library on every tick.
 #[tokio::test]
 async fn merge_is_idempotent() {
     let dir_a = tempfile::tempdir().unwrap();
@@ -171,7 +168,8 @@ async fn merge_is_idempotent() {
     assert!(first.applied > 0, "the first merge must apply something");
     let after_first = rows_of(&b).await;
 
-    b.merge_snapshot(&snap).await.unwrap();
+    let second = b.merge_snapshot(&snap).await.unwrap();
+    assert_eq!(second.applied, 0, "an unchanged snapshot must apply nothing");
     let after_second = rows_of(&b).await;
 
     assert_eq!(
