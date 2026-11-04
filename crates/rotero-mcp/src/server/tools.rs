@@ -484,7 +484,7 @@ impl RoteroMcp {
             .map(|l| {
                 let (kind, target) = match &l.target {
                     rotero_pdf::LinkTarget::External { uri } => ("uri", serde_json::json!(uri)),
-                    rotero_pdf::LinkTarget::Internal { page, y_frac } => (
+                    rotero_pdf::LinkTarget::Internal { page, y_frac, .. } => (
                         "goto",
                         serde_json::json!({ "page": page + 1, "y_frac": y_frac }),
                     ),

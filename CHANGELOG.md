@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- **The citation card could swap the right reference for a wrong paper** a moment after opening, offering to import something the PDF never cited. The card now matches the clicked entry against the open paper's own reference list (from OpenAlex), and anything else it finds must agree with the entry's title, or its first author and year. On two-column pages it reads only the clicked column, and in author–year bibliographies it stops at the next entry.
 - **Check for Updates failed with "Unexpected response from GitHub"** when this network had used up GitHub's unauthenticated API quota (60 requests per hour). The updater now falls back to the public latest-release page, which is not rate-limited the same way.
 
 ## v0.2.7

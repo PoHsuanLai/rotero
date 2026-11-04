@@ -66,7 +66,12 @@ pub struct NavPanels {
 pub enum LinkDest {
     /// Jump to another page in this document, optionally at a fractional y
     /// position (0..1) down the target page. `None` jumps to the page top.
-    Internal { page: u32, y_frac: Option<f64> },
+    /// `x_frac` is the destination's left edge (0..1), when known.
+    Internal {
+        page: u32,
+        y_frac: Option<f64>,
+        x_frac: Option<f64>,
+    },
     /// Open an external resource (web URL, DOI, etc.).
     External { uri: String },
 }
@@ -107,9 +112,14 @@ pub fn build_page_links(links: &[rotero_pdf::ExtractedLink]) -> HashMap<u32, Vec
         let y_frac = ((ph - top.max(bottom) as f64) / ph).clamp(0.0, 1.0);
         let h_frac = ((top - bottom).abs() as f64 / ph).clamp(0.0, 1.0);
         let dest = match &l.target {
-            rotero_pdf::LinkTarget::Internal { page, y_frac } => LinkDest::Internal {
+            rotero_pdf::LinkTarget::Internal {
+                page,
+                y_frac,
+                x_frac,
+            } => LinkDest::Internal {
                 page: *page,
                 y_frac: y_frac.map(|f| f as f64),
+                x_frac: x_frac.map(|f| f as f64),
             },
             rotero_pdf::LinkTarget::External { uri } => LinkDest::External { uri: uri.clone() },
         };
