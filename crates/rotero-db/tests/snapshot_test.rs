@@ -169,7 +169,10 @@ async fn merge_is_idempotent() {
     let after_first = rows_of(&b).await;
 
     let second = b.merge_snapshot(&snap).await.unwrap();
-    assert_eq!(second.applied, 0, "an unchanged snapshot must apply nothing");
+    assert_eq!(
+        second.applied, 0,
+        "an unchanged snapshot must apply nothing"
+    );
     let after_second = rows_of(&b).await;
 
     assert_eq!(
