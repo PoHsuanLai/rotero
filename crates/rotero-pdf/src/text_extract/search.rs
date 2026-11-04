@@ -417,6 +417,18 @@ pub fn selection_markup_from_text(
         _ => char_range_intersecting(text, pdf_sel)?,
     };
 
+    markup_for_range(text, from, to, page_height_pts, scale_x, scale_y)
+}
+
+/// Line rects, bounds, and text for the character range `from..to`.
+fn markup_for_range(
+    text: &TextPage,
+    from: CharIndex,
+    to: CharIndex,
+    page_height_pts: f64,
+    scale_x: f64,
+    scale_y: f64,
+) -> Option<SelectionMarkup> {
     if from.get() >= to.get() {
         return None;
     }
@@ -446,6 +458,82 @@ pub fn selection_markup_from_text(
         bounds: (bx0, by0, bx1 - bx0, by1 - by0),
         text: text_out,
     })
+}
+
+/// Text selection for a drag from `anchor` (where the press happened) to
+/// `focus` (where the pointer is now), both in pixel space.
+///
+/// Unlike [`selection_markup`], which reads the ends off a rectangle's
+/// top-left and bottom-right corners, this resolves the character under each
+/// point on its own, so the anchor end stays pinned wherever the pointer goes
+/// — dragging up, left, or back across the start included.
+pub fn selection_markup_between(
+    doc: &Document,
+    page_index: u32,
+    img_width: u32,
+    img_height: u32,
+    anchor: (f64, f64),
+    focus: (f64, f64),
+) -> Option<SelectionMarkup> {
+    if img_width == 0 || img_height == 0 {
+        return None;
+    }
+    let page = doc.page(page_index).ok()?;
+    let page_width_pts = page.width();
+    let page_height_pts = page.height();
+    if page_width_pts <= 0.0 || page_height_pts <= 0.0 {
+        return None;
+    }
+    let text = page.text();
+    selection_markup_between_from_text(
+        &text,
+        page_height_pts,
+        f64::from(img_width) / page_width_pts,
+        f64::from(img_height) / page_height_pts,
+        anchor,
+        focus,
+    )
+}
+
+/// Same as [`selection_markup_between`] when the caller already holds a
+/// [`TextPage`].
+pub fn selection_markup_between_from_text(
+    text: &TextPage,
+    page_height_pts: f64,
+    scale_x: f64,
+    scale_y: f64,
+    anchor: (f64, f64),
+    focus: (f64, f64),
+) -> Option<SelectionMarkup> {
+    if text.char_count() == 0 || scale_x <= 0.0 || scale_y <= 0.0 {
+        return None;
+    }
+    // Pixel (top-left origin) → PDF points (bottom-left origin).
+    let to_pdf = |(x, y): (f64, f64)| Point::new(x / scale_x, page_height_pts - y / scale_y);
+    // The glyph under the point, else the nearest one close by. A fixed
+    // tolerance: it must not grow with the drag, or the anchor would drift.
+    let resolve = |p: Point| {
+        text.index_at(p, Size::new(4.0, 4.0))
+            .or_else(|| text.index_at(p, Size::new(24.0, 24.0)))
+    };
+
+    let (from, to) = match (resolve(to_pdf(anchor)), resolve(to_pdf(focus))) {
+        (Some(a), Some(f)) => {
+            let (lo, hi) = if a.get() <= f.get() { (a, f) } else { (f, a) };
+            (lo, CharIndex::new(hi.get().saturating_add(1)))
+        }
+        // An end in a margin or gutter: fall back to the glyphs inside the
+        // spanned rectangle.
+        _ => {
+            let (a, f) = (to_pdf(anchor), to_pdf(focus));
+            let rect = Rect::new(a.x.min(f.x), a.y.min(f.y), a.x.max(f.x), a.y.max(f.y));
+            if rect.width() <= 0.0 && rect.height() <= 0.0 {
+                return None;
+            }
+            char_range_intersecting(text, rect)?
+        }
+    };
+    markup_for_range(text, from, to, page_height_pts, scale_x, scale_y)
 }
 
 /// How a click expands into a selection when there is no drag.
@@ -744,6 +832,52 @@ mod tests {
         assert!(bw > 0.0 && bh > 0.0, "empty bounds");
         assert!(bx >= 0.0 && by >= 0.0);
         assert!(!m.text.trim().is_empty(), "expected selected text");
+    }
+
+    /// Pixel centre of character `i` on a 1:1 (pt = px) rendering.
+    fn char_center(text: &TextPage, page_h: f64, i: usize) -> (f64, f64) {
+        let b = text.chars[i].char_box;
+        ((b.x0 + b.x1) / 2.0, page_h - (b.y0 + b.y1) / 2.0)
+    }
+
+    #[test]
+    fn selection_between_pins_the_anchor() {
+        let doc = Document::open(fixture("basicapi.pdf")).expect("open");
+        let page = doc.page(0).expect("page");
+        let (pw, ph) = (page.width(), page.height());
+        let text = page.text();
+        let n = text.char_count();
+        assert!(n > 40, "fixture should have text");
+        let sel = |a: (f64, f64), f: (f64, f64)| {
+            selection_markup_between(&doc, 0, pw as u32, ph as u32, a, f)
+                .expect("selection")
+                .text
+        };
+        let anchor_i = n / 2;
+        let anchor = char_center(&text, ph, anchor_i);
+        let anchor_char = text.slice(CharIndex::new(anchor_i)..CharIndex::new(anchor_i + 1));
+
+        // Focus later in reading order: selection starts at the anchor.
+        for f in [anchor_i + 5, anchor_i + 15] {
+            let s = sel(anchor, char_center(&text, ph, f));
+            assert!(
+                s.starts_with(&anchor_char),
+                "{s:?} should start at anchor {anchor_char:?}"
+            );
+        }
+        // Focus earlier: selection ends at the anchor, whichever way the
+        // pointer sits relative to it on the page (the old box-corner logic
+        // moved the anchor end here).
+        for f in [anchor_i - 5, anchor_i - 15] {
+            let s = sel(anchor, char_center(&text, ph, f));
+            assert!(
+                s.ends_with(&anchor_char),
+                "{s:?} should end at anchor {anchor_char:?}"
+            );
+        }
+        // Anchor and focus are interchangeable as a range.
+        let (a, f) = (anchor, char_center(&text, ph, anchor_i + 15));
+        assert_eq!(sel(a, f), sel(f, a));
     }
 
     #[test]

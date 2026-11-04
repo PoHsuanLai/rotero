@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- **Text selection in the reader no longer moves both ends.** Dragging up, to the left, or back past where you started used to shift the start of the selection too; the end you pressed on now stays put. Highlight, underline, and strikeout drags behave the same way.
 - **Check for Updates failed with "Unexpected response from GitHub"** when this network had used up GitHub's unauthenticated API quota (60 requests per hour). The updater now falls back to the public latest-release page, which is not rate-limited the same way.
 
 ## v0.2.7
