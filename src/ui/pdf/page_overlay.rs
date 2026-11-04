@@ -514,7 +514,7 @@ pub(crate) fn PdfPageWithOverlay(
             }
 
             // Native text selection: overlay under links/annotations so those
-            // stay clickable; drag uses pdfrum `selection_markup`. Double-click
+            // stay clickable; drag uses `selection_between` (anchor/focus). Double-click
             // selects a word, triple-click a line (via word/char bounds).
             // Multi-page drag selection is out of scope — starting a drag on
             // another page clears the prior selection (per-page overlays).

@@ -510,30 +510,50 @@ pub fn selection_markup_between_from_text(
     }
     // Pixel (top-left origin) → PDF points (bottom-left origin).
     let to_pdf = |(x, y): (f64, f64)| Point::new(x / scale_x, page_height_pts - y / scale_y);
-    // The glyph under the point, else the nearest one close by. A fixed
-    // tolerance: it must not grow with the drag, or the anchor would drift.
+    // The glyph under the point, else the nearest glyph anywhere. Each end is
+    // resolved from its own point only — never from a rectangle spanning both —
+    // so the anchor stays put even when the pointer is in a margin or gutter.
     let resolve = |p: Point| {
         text.index_at(p, Size::new(4.0, 4.0))
-            .or_else(|| text.index_at(p, Size::new(24.0, 24.0)))
+            .or_else(|| nearest_char(text, p))
     };
 
-    let (from, to) = match (resolve(to_pdf(anchor)), resolve(to_pdf(focus))) {
-        (Some(a), Some(f)) => {
-            let (lo, hi) = if a.get() <= f.get() { (a, f) } else { (f, a) };
-            (lo, CharIndex::new(hi.get().saturating_add(1)))
-        }
-        // An end in a margin or gutter: fall back to the glyphs inside the
-        // spanned rectangle.
-        _ => {
-            let (a, f) = (to_pdf(anchor), to_pdf(focus));
-            let rect = Rect::new(a.x.min(f.x), a.y.min(f.y), a.x.max(f.x), a.y.max(f.y));
-            if rect.width() <= 0.0 && rect.height() <= 0.0 {
+    let a = resolve(to_pdf(anchor))?;
+    let f = resolve(to_pdf(focus))?;
+    let (lo, hi) = if a.get() <= f.get() { (a, f) } else { (f, a) };
+    markup_for_range(
+        text,
+        lo,
+        CharIndex::new(hi.get().saturating_add(1)),
+        page_height_pts,
+        scale_x,
+        scale_y,
+    )
+}
+
+/// The character whose box is closest to `p` (PDF points), ignoring
+/// zero-size boxes such as generated line breaks.
+fn nearest_char(text: &TextPage, p: Point) -> Option<CharIndex> {
+    text.chars
+        .iter()
+        .enumerate()
+        .filter_map(|(i, info)| {
+            let b = info.char_box;
+            let (x0, x1, y0, y1) = (
+                b.x0.min(b.x1),
+                b.x0.max(b.x1),
+                b.y0.min(b.y1),
+                b.y0.max(b.y1),
+            );
+            if x1 - x0 <= 0.0 || y1 - y0 <= 0.0 {
                 return None;
             }
-            char_range_intersecting(text, rect)?
-        }
-    };
-    markup_for_range(text, from, to, page_height_pts, scale_x, scale_y)
+            let dx = (x0 - p.x).max(p.x - x1).max(0.0);
+            let dy = (y0 - p.y).max(p.y - y1).max(0.0);
+            Some((i, dx * dx + dy * dy))
+        })
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(i, _)| CharIndex::new(i))
 }
 
 /// How a click expands into a selection when there is no drag.
@@ -853,7 +873,15 @@ mod tests {
                 .expect("selection")
                 .text
         };
-        let anchor_i = n / 2;
+        // A visible glyph near the middle, so "starts/ends with" is meaningful.
+        let visible = |i: usize| {
+            let c = text.slice(CharIndex::new(i)..CharIndex::new(i + 1));
+            let b = text.chars[i].char_box;
+            !c.trim().is_empty() && (b.x1 - b.x0).abs() > 0.0 && (b.y1 - b.y0).abs() > 0.0
+        };
+        let anchor_i = (n / 2..n - 20)
+            .find(|&i| visible(i))
+            .expect("visible glyph");
         let anchor = char_center(&text, ph, anchor_i);
         let anchor_char = text.slice(CharIndex::new(anchor_i)..CharIndex::new(anchor_i + 1));
 
@@ -873,6 +901,19 @@ mod tests {
             assert!(
                 s.ends_with(&anchor_char),
                 "{s:?} should end at anchor {anchor_char:?}"
+            );
+        }
+        // Focus far off in the margin (no glyph near it): the anchor still holds
+        // instead of falling back to a rectangle.
+        for margin in [
+            (-200.0, -200.0),
+            (pw + 200.0, ph + 200.0),
+            (anchor.0, ph + 300.0),
+        ] {
+            let s = sel(anchor, margin);
+            assert!(
+                s.starts_with(&anchor_char) || s.ends_with(&anchor_char),
+                "{s:?} lost the anchor {anchor_char:?} with focus at {margin:?}"
             );
         }
         // Anchor and focus are interchangeable as a range.
