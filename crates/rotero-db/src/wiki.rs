@@ -165,16 +165,19 @@ impl Database {
         Ok(CitationRecord::Stub { id })
     }
 
-    /// Hide stubs whose identifier is now a paper in the library.
+    /// Turn stubs whose identifier is now a paper in the library into ordinary
+    /// citations from the citing paper to `paper_id`, then tombstone them.
     pub async fn retire_stubs_matching_paper(
         &self,
+        paper_id: &str,
         paper: &rotero_models::Paper,
     ) -> Result<(), crate::DbError> {
         let Some(pid) = paper.paper_id() else {
             return Ok(());
         };
         for variant in pid.stored_string_variants() {
-            self.retire_stubs_with_identifier(&variant).await?;
+            self.retire_stubs_with_identifier(paper_id, &variant)
+                .await?;
         }
         Ok(())
     }
@@ -225,7 +228,11 @@ impl Database {
         Ok(())
     }
 
-    async fn retire_stubs_with_identifier(&self, identifier: &str) -> Result<(), crate::DbError> {
+    async fn retire_stubs_with_identifier(
+        &self,
+        cited_paper_id: &str,
+        identifier: &str,
+    ) -> Result<(), crate::DbError> {
         let mut rows = self
             .conn()
             .query(
@@ -237,10 +244,13 @@ impl Database {
         while let Some(row) = rows.next().await? {
             let id = crate::get_text(&row, 0);
             if !id.is_empty() {
-                ids.push(id);
+                ids.push((id, crate::get_text(&row, 1)));
             }
         }
-        for id in ids {
+        for (id, citing_id) in ids {
+            if !citing_id.is_empty() {
+                self.insert_citation(&citing_id, cited_paper_id).await?;
+            }
             self.tombstone("reference_stubs", crate::clock::Pk::Single(&id))
                 .await?;
         }

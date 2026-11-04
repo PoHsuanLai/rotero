@@ -24,16 +24,21 @@ pub fn WikiSection(paper_id: String) -> Element {
 
     // These hooks stay above the concept-view return. Opening a concept and
     // coming back must not change how many hooks this component runs.
-    let db_load = db.clone();
-    let claims = use_resource(use_reactive!(|paper_id| {
-        let db = db_load.clone();
-        async move { load_claims(&db, &paper_id).await }
-    }));
     let chat_state = use_context::<Signal<crate::agent::types::ChatState>>();
     let idle = matches!(
         chat_state.read().status,
         crate::agent::types::AgentStatus::Idle
     );
+    // `idle` is a dependency so the list reloads when the agent finishes a
+    // turn, which is when "Add to wiki" has filed its claims.
+    let db_load = db.clone();
+    let claims = use_resource(use_reactive!(|paper_id, idle| {
+        let db = db_load.clone();
+        async move {
+            let _ = idle;
+            load_claims(&db, &paper_id).await
+        }
+    }));
 
     let concept_id = open_concept.read().clone();
     if let Some(concept_id) = concept_id {
@@ -187,7 +192,7 @@ fn ConceptView(
         };
     };
 
-    let body_html = crate::ui::markdown::md_to_html(&page.concept.body);
+    let body_html = crate::ui::markdown::md_to_html_untrusted(&page.concept.body);
     let kind = page.concept.kind.as_str();
 
     rsx! {

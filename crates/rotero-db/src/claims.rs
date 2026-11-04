@@ -44,10 +44,15 @@ impl Database {
             .filter(|s| !s.is_empty())
             .map(str::to_string);
 
-        if let Some((id, _deleted)) = self.find_claim(&draft.paper_id, &statement).await? {
+        if let Some((id, deleted)) = self.find_claim(&draft.paper_id, &statement).await? {
             let existing = self.get_claim_row(&id).await?;
             let Some(merged) = merge_claim(&existing, &statement, &quote, draft, annotation_id)
             else {
+                if deleted {
+                    // `touch` clears `deleted`, which is how a tombstone comes back.
+                    self.touch("claims", crate::clock::Pk::Single(&id)).await?;
+                    return self.get_claim_row(&id).await;
+                }
                 return Ok(existing);
             };
             self.write_claim(&id, &merged).await?;
@@ -205,14 +210,16 @@ fn merge_claim(
 
     let mut next = existing.clone();
     next.statement = statement.to_string();
+    // The page and annotation locate the quote, so they only follow the
+    // draft's quote when that is the quote being kept.
     if existing.quote.trim().is_empty() {
         next.quote = quote.to_string();
-    }
-    if existing.page.is_none() {
-        next.page = draft.page;
-    }
-    if existing.annotation_id.is_none() {
-        next.annotation_id = annotation_id;
+        if existing.page.is_none() {
+            next.page = draft.page;
+        }
+        if existing.annotation_id.is_none() {
+            next.annotation_id = annotation_id;
+        }
     }
     next.status = match existing.status {
         ClaimStatus::Confirmed => ClaimStatus::Confirmed,

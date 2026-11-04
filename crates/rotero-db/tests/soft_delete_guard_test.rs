@@ -23,6 +23,10 @@ const SYNCED: &[&str] = &[
     "paper_collections",
     "paper_tags",
     "paper_citations",
+    "concepts",
+    "claims",
+    "wiki_edges",
+    "reference_stubs",
 ];
 
 /// Query constants that deliberately read tombstoned rows too.
@@ -61,6 +65,27 @@ const READS_ALL_ROWS: &[(&str, &str)] = &[
         "PAPER_ORPHANED_PDF_HASHES",
         "reads tombstones to find the PDFs they orphaned; excludes live rows \
          via NOT IN papers_live",
+    ),
+    // The upsert paths find a row by its natural key so a tombstone can be
+    // revived instead of duplicated; the claim/concept getters re-read a row
+    // that was just touched.
+    (
+        "CONCEPT_FIND_BY_SLUG",
+        "upsert revives a tombstone with the same slug",
+    ),
+    ("CONCEPT_GET_BASE", "re-reads a row just written or revived"),
+    ("CLAIM_GET_BASE", "re-reads a row just written or revived"),
+    (
+        "CLAIM_FIND_BY_KEY",
+        "upsert revives a tombstone with the same statement key",
+    ),
+    (
+        "WIKI_EDGE_FIND",
+        "upsert revives a tombstoned edge; orders live rows first",
+    ),
+    (
+        "STUB_FIND",
+        "upsert revives a tombstoned stub; orders live rows first",
     ),
 ];
 

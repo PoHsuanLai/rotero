@@ -62,6 +62,7 @@ pub async fn scan_citations_if_needed(docs: &PdfDocs, db: &Database) -> usize {
             continue;
         };
 
+        let mut all_handled = true;
         let mut seen = std::collections::HashSet::new();
         for link in &links {
             let rotero_pdf::LinkTarget::External { uri } = &link.target else {
@@ -70,15 +71,22 @@ pub async fn scan_citations_if_needed(docs: &PdfDocs, db: &Database) -> usize {
             if !seen.insert(uri.clone()) {
                 continue;
             }
-            if matches!(
-                db.note_external_citation(citing_id, uri).await,
-                Ok(CitationRecord::Citation { .. } | CitationRecord::Stub { .. })
-            ) {
-                inserted += 1;
+            match db.note_external_citation(citing_id, uri).await {
+                Ok(CitationRecord::Citation { .. } | CitationRecord::Stub { .. }) => {
+                    inserted += 1;
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!("citation scan: {uri} for {citing_id}: {e}");
+                    all_handled = false;
+                }
             }
         }
 
-        let _ = db.set_app_flag(&key, &sha).await;
+        // Leave the flag unset after a failure so the next scan retries this PDF.
+        if all_handled {
+            let _ = db.set_app_flag(&key, &sha).await;
+        }
     }
 
     tracing::info!("citation scan complete: {inserted} links recorded");

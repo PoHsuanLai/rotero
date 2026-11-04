@@ -175,7 +175,7 @@ impl Database {
         )
         .await?;
 
-        self.retire_stubs_matching_paper(paper).await?;
+        self.retire_stubs_matching_paper(&uuid, paper).await?;
         Ok(uuid)
     }
 
@@ -410,7 +410,7 @@ impl Database {
             ],
         )
         .await?;
-        self.retire_stubs_matching_paper(paper).await?;
+        self.retire_stubs_matching_paper(id, paper).await?;
         Ok(())
     }
 

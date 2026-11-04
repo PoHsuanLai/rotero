@@ -37,7 +37,10 @@ impl Database {
 
         if let Some((id, deleted)) = self.find_concept_by_slug(kind, &slug).await? {
             let existing = self.get_concept_row(&id).await?;
-            let new_body = body.unwrap_or(existing.body.as_str()).to_string();
+            let new_body = body
+                .filter(|b| !b.trim().is_empty())
+                .unwrap_or(existing.body.as_str())
+                .to_string();
             if !deleted && existing.title == title && existing.body == new_body {
                 return Ok(existing);
             }

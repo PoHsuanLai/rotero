@@ -327,10 +327,10 @@ pub const WIKI_EDGE_INSERT: &str = "\
 pub const WIKI_EDGE_FIND: &str = "\
     SELECT id, deleted FROM wiki_edges \
     WHERE src_kind = ?1 AND src_id = ?2 AND rel = ?3 AND dst_kind = ?4 AND dst_id = ?5 \
-    LIMIT 1";
+    ORDER BY deleted ASC LIMIT 1";
 
 pub const WIKI_EDGE_IDS_TOUCHING_CLAIM: &str = "\
-    SELECT id FROM wiki_edges \
+    SELECT id FROM wiki_edges_live \
     WHERE (src_kind = 'claim' AND src_id = ?1) OR (dst_kind = 'claim' AND dst_id = ?1)";
 
 pub const WIKI_CLAIMS_ABOUT_CONCEPT: &str = "\
@@ -370,7 +370,7 @@ pub const STUB_LIST_FOR_PAPER: &str = "\
     FROM reference_stubs_live WHERE citing_paper_id = ?1 ORDER BY created_at";
 
 pub const STUB_IDS_FOR_IDENTIFIER: &str = "\
-    SELECT id FROM reference_stubs WHERE identifier = ?1 AND deleted = 0";
+    SELECT id, citing_paper_id FROM reference_stubs_live WHERE identifier = ?1";
 
 /// Fetch a single paper by ID.
 pub const PAPER_GET_BY_ID: &str = "SELECT {COLS} FROM papers_live WHERE id = ?1";
@@ -501,5 +501,5 @@ pub fn collection_paper_ids_in(placeholders: &str) -> String {
 /// Reads the base table: the delete cascade needs every child it must
 /// tombstone, dead ones included.
 pub fn child_ids(table: &str, column: &str) -> String {
-    format!("SELECT id FROM {table} WHERE {column} = ?1")
+    format!("SELECT id FROM {table} WHERE {column} = ?1 AND deleted = 0")
 }

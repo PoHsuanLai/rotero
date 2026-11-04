@@ -287,6 +287,11 @@ async fn an_unresolved_identifier_becomes_a_stub_and_a_known_one_a_citation() {
         db.list_stubs(None).await.unwrap().is_empty(),
         "adding the paper retires the stub"
     );
+    assert_eq!(
+        db.list_cited_by_paper(&citing).await.unwrap(),
+        vec![cited.clone()],
+        "retiring the stub records the citation edge"
+    );
     let again = db
         .note_external_citation(&citing, "https://doi.org/10.1000/missing")
         .await
@@ -343,4 +348,69 @@ async fn a_snapshot_carries_a_concept_and_a_claim() {
     let claims = b.list_claims_for_paper(&paper_id).await.unwrap();
     assert_eq!(claims.len(), 1);
     assert_eq!(claims[0].quote, "Scale helps.");
+}
+
+#[tokio::test]
+async fn file_claim_revives_a_tombstoned_claim_even_when_nothing_merges() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = common::open_test_db(dir.path()).await;
+    let p = paper(&db, "P", None).await;
+    let claim = db
+        .file_claim(&draft(&p, "It works.", "It works.", ClaimStatus::Extracted))
+        .await
+        .unwrap();
+    let id = claim.id.unwrap();
+    db.tombstone("claims", rotero_db::clock::Pk::Single(&id))
+        .await
+        .unwrap();
+    assert!(db.get_claim(&id).await.unwrap().is_none());
+
+    let back = db
+        .file_claim(&draft(&p, "It works.", "", ClaimStatus::FromChat))
+        .await
+        .unwrap();
+    assert_eq!(back.id.as_deref(), Some(id.as_str()));
+    assert!(
+        db.get_claim(&id).await.unwrap().is_some(),
+        "claim is live again"
+    );
+    assert_eq!(db.list_claims_for_paper(&p).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn an_empty_concept_body_leaves_the_existing_body_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = common::open_test_db(dir.path()).await;
+    db.upsert_concept(ConceptKind::Method, "LoRA", Some("keep me"))
+        .await
+        .unwrap();
+    let again = db
+        .upsert_concept(ConceptKind::Method, "LoRA", Some("  "))
+        .await
+        .unwrap();
+    assert_eq!(again.body, "keep me");
+    let again = db
+        .upsert_concept(ConceptKind::Method, "LoRA", Some(""))
+        .await
+        .unwrap();
+    assert_eq!(again.body, "keep me");
+}
+
+#[tokio::test]
+async fn a_merge_keeps_the_page_of_the_quote_it_keeps() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = common::open_test_db(dir.path()).await;
+    let p = paper(&db, "P", None).await;
+    let mut first = draft(&p, "Fact.", "original quote", ClaimStatus::Extracted);
+    first.page = None;
+    db.file_claim(&first).await.unwrap();
+
+    let mut second = draft(&p, "Fact.", "different quote", ClaimStatus::Confirmed);
+    second.page = Some(7);
+    second.annotation_id = Some("ann-1".into());
+    let merged = db.file_claim(&second).await.unwrap();
+    assert_eq!(merged.quote, "original quote");
+    assert_eq!(merged.page, None, "page belonged to the discarded quote");
+    assert_eq!(merged.annotation_id, None);
+    assert_eq!(merged.status, ClaimStatus::Confirmed);
 }
