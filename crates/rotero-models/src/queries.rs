@@ -501,5 +501,5 @@ pub fn collection_paper_ids_in(placeholders: &str) -> String {
 /// Reads the base table: the delete cascade needs every child it must
 /// tombstone, dead ones included.
 pub fn child_ids(table: &str, column: &str) -> String {
-    format!("SELECT id FROM {table} WHERE {column} = ?1 AND deleted = 0")
+    format!("SELECT id FROM {table} WHERE {column} = ?1")
 }
