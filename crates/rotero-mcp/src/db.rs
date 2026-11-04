@@ -492,6 +492,128 @@ impl Database {
         Ok(())
     }
 
+    /// Live concepts, optionally narrowed by kind and a substring.
+    pub async fn list_concepts(
+        &self,
+        kind: Option<rotero_models::ConceptKind>,
+        query: Option<&str>,
+    ) -> Result<Vec<rotero_models::Concept>, turso::Error> {
+        self.as_rotero_db()
+            .list_concepts(kind, query)
+            .await
+            .map_err(to_turso)
+    }
+
+    /// One concept page with its claims and related concepts.
+    pub async fn read_concept(&self, id: &str) -> Result<rotero_models::ConceptPage, turso::Error> {
+        self.as_rotero_db().read_concept(id).await.map_err(to_turso)
+    }
+
+    /// Insert or merge a concept page.
+    pub async fn upsert_concept(
+        &self,
+        kind: rotero_models::ConceptKind,
+        title: &str,
+        body: Option<&str>,
+    ) -> Result<rotero_models::Concept, turso::Error> {
+        let concept = self
+            .as_rotero_db()
+            .upsert_concept(kind, title, body)
+            .await
+            .map_err(to_turso)?;
+        self.notify();
+        Ok(concept)
+    }
+
+    /// Live claims for one paper.
+    pub async fn list_claims_for_paper(
+        &self,
+        paper_id: &str,
+    ) -> Result<Vec<rotero_models::Claim>, turso::Error> {
+        self.as_rotero_db()
+            .list_claims_for_paper(paper_id)
+            .await
+            .map_err(to_turso)
+    }
+
+    /// File a claim. Does not write notes, annotations, or paper metadata.
+    pub async fn file_claim(
+        &self,
+        draft: &rotero_models::ClaimDraft,
+    ) -> Result<rotero_models::Claim, turso::Error> {
+        let claim = self
+            .as_rotero_db()
+            .file_claim(draft)
+            .await
+            .map_err(to_turso)?;
+        self.notify();
+        Ok(claim)
+    }
+
+    /// Concepts, claims, and papers for one query.
+    pub async fn search_wiki(
+        &self,
+        query: &str,
+    ) -> Result<rotero_models::WikiSearch, turso::Error> {
+        self.as_rotero_db()
+            .search_wiki(query)
+            .await
+            .map_err(to_turso)
+    }
+
+    /// Link a claim to a concept.
+    pub async fn link_claim_concept(
+        &self,
+        claim_id: &str,
+        concept_id: &str,
+    ) -> Result<String, turso::Error> {
+        let id = self
+            .as_rotero_db()
+            .link_claim_concept(claim_id, concept_id)
+            .await
+            .map_err(to_turso)?;
+        self.notify();
+        Ok(id)
+    }
+
+    /// Link two claims with supports, qualifies, or disputes.
+    pub async fn link_claims(
+        &self,
+        src_claim_id: &str,
+        dst_claim_id: &str,
+        rel: rotero_models::WikiRel,
+    ) -> Result<String, turso::Error> {
+        let id = self
+            .as_rotero_db()
+            .link_claims(src_claim_id, dst_claim_id, rel)
+            .await
+            .map_err(to_turso)?;
+        self.notify();
+        Ok(id)
+    }
+
+    /// Relate two concepts.
+    pub async fn link_concepts(&self, a: &str, b: &str) -> Result<String, turso::Error> {
+        let id = self
+            .as_rotero_db()
+            .link_concepts(a, b)
+            .await
+            .map_err(to_turso)?;
+        self.notify();
+        Ok(id)
+    }
+
+    /// Unresolved citation targets, optionally for one citing paper.
+    pub async fn list_stubs(
+        &self,
+        citing_paper_id: Option<&str>,
+    ) -> Result<Vec<rotero_models::ReferenceStub>, turso::Error> {
+        self.as_rotero_db()
+            .list_stubs(citing_paper_id)
+            .await
+            .map_err(to_turso)
+    }
+
     /// Import PDF bytes using the library naming scheme.
     pub fn import_pdf_bytes(
         &self,

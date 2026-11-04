@@ -67,26 +67,32 @@ The server looks for your library in this order:
 
 ## What it exposes
 
-Thirty-two tools, grouped by what they do:
+Fifty-five tools, grouped by what they do:
 
 | Purpose | Tools |
 | --- | --- |
 | Search | `search_papers`, `search_online`, `find_pdf` |
-| Reading | `get_paper`, `list_papers`, `get_paper_annotations`, `get_paper_notes`, `list_collections`, `list_tags`, `get_papers_in_collection`, `get_papers_by_tag`, `extract_pdf_text` |
+| Reading | `get_paper`, `list_papers`, `get_paper_annotations`, `get_paper_notes`, `list_collections`, `list_tags`, `get_papers_in_collection`, `get_papers_by_tag`, `extract_pdf_text`, `read_markdown`, `read_pages`, `find_in_paper`, `list_figures`, `get_figure`, `get_outline`, `get_links`, `quote_at`, `text_in_rect`, `list_attachments` |
 | Writing papers | `add_paper`, `update_paper`, `delete_paper`, `set_paper_read`, `set_paper_favorite`, `download_pdf` |
 | Organizing | `add_tag_to_paper`, `remove_tag_from_paper`, `rename_tag`, `delete_tag`, `create_collection`, `add_paper_to_collection`, `remove_paper_from_collection`, `delete_collection`, `rename_collection` |
+| Annotating | `annotate` |
 | Notes | `add_note`, `update_note`, `delete_note` |
-| Graph | `get_paper_relationships`, `get_library_graph` |
+| Graph | `get_paper_relationships`, `get_library_graph`, `list_cited`, `list_citing` |
+| Wiki | `list_concepts`, `read_concept`, `upsert_concept`, `list_claims`, `search_wiki`, `file_claim`, `link_claim_concept`, `link_claims`, `link_concepts`, `list_stubs` |
 
 One resource, `rotero://library/stats`, reports totals for papers, collections,
 and tags plus your unread and favorite counts.
 
-Two prompts ship with the server:
+Six prompts ship with the server:
 
 | Prompt | Argument | What it does |
 | --- | --- | --- |
 | `summarize-paper` | `paper_id` | Summarizes one paper from your library |
 | `literature-review` | `topic` | Drafts a review across the papers on a topic |
+| `review-paper` | `paper_id` | Critical review of a paper from its text, outline, and annotations |
+| `extract-methods` | `paper_id` | Extracts methods and experimental details from a paper |
+| `compile-paper` | `paper_id` | Files sourced claims and concept pages for one paper without touching your notes or metadata |
+| `find-related-unread` | `paper_id` | Suggests related unread papers from the citation graph |
 
 <Callout type="warning">
 

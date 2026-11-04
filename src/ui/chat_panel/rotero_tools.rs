@@ -243,6 +243,56 @@ pub fn descriptor(name: &str) -> Option<ToolMeta> {
             icon: "bi bi-share",
             result: ResultKind::Graph,
         },
+        "list_concepts" => ToolMeta {
+            label: "Listed concepts",
+            icon: "bi bi-journal-bookmark",
+            result: ResultKind::Confirmation,
+        },
+        "read_concept" => ToolMeta {
+            label: "Opened concept",
+            icon: "bi bi-journal-bookmark",
+            result: ResultKind::Confirmation,
+        },
+        "upsert_concept" => ToolMeta {
+            label: "Updated concept",
+            icon: "bi bi-journal-plus",
+            result: ResultKind::Confirmation,
+        },
+        "list_claims" => ToolMeta {
+            label: "Listed claims",
+            icon: "bi bi-chat-quote",
+            result: ResultKind::Confirmation,
+        },
+        "search_wiki" => ToolMeta {
+            label: "Searched the wiki",
+            icon: "bi bi-search",
+            result: ResultKind::Confirmation,
+        },
+        "file_claim" => ToolMeta {
+            label: "Filed a claim",
+            icon: "bi bi-chat-quote",
+            result: ResultKind::Confirmation,
+        },
+        "link_claim_concept" => ToolMeta {
+            label: "Linked a claim",
+            icon: "bi bi-link",
+            result: ResultKind::Confirmation,
+        },
+        "link_claims" => ToolMeta {
+            label: "Linked claims",
+            icon: "bi bi-link",
+            result: ResultKind::Confirmation,
+        },
+        "link_concepts" => ToolMeta {
+            label: "Linked concepts",
+            icon: "bi bi-link",
+            result: ResultKind::Confirmation,
+        },
+        "list_stubs" => ToolMeta {
+            label: "Listed unresolved citations",
+            icon: "bi bi-box-arrow-up-right",
+            result: ResultKind::Confirmation,
+        },
         _ => return None,
     })
 }
@@ -301,6 +351,16 @@ pub fn permission_action(name: &str) -> Option<&'static str> {
         "download_pdf" => "download a PDF",
         "get_paper_relationships" => "find related papers",
         "get_library_graph" => "build the citation graph",
+        "list_concepts" => "list concept pages",
+        "read_concept" => "open a concept page",
+        "upsert_concept" => "update a concept page",
+        "list_claims" => "list claims",
+        "search_wiki" => "search the wiki",
+        "file_claim" => "file a claim",
+        "link_claim_concept" => "link a claim to a concept",
+        "link_claims" => "link two claims",
+        "link_concepts" => "link two concepts",
+        "list_stubs" => "list unresolved citations",
         _ => return None,
     })
 }
