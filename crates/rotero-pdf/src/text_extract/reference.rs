@@ -39,7 +39,10 @@ pub fn parse_reference(raw: &str) -> ParsedReference {
     }
 
     // Dest Y often sits on the tail of the previous entry; start at `[12]`.
-    let text = skip_to_enumerator(&text).to_string();
+    // `text_block_at` grabs a fixed number of lines, so it often runs into the
+    // following entry `[13]`; cut there so the title, year, and any DOI/arXiv id
+    // belong to this reference and not the next one.
+    let text = cut_at_next_enumerator(skip_to_enumerator(&text)).to_string();
     let body = strip_enumerator(&text).to_string();
 
     if let Some((authors, title, rest)) = split_quoted(&body) {
@@ -86,7 +89,20 @@ pub fn parse_reference(raw: &str) -> ParsedReference {
 }
 
 fn collapse_ws(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
+    // Soft hyphens mark a typeset line break inside a word ("convolu\u{ad}tional");
+    // drop them, along with the break that follows, so the word rejoins.
+    let mut joined = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{ad}' {
+            while chars.peek().is_some_and(|c| c.is_whitespace()) {
+                chars.next();
+            }
+        } else {
+            joined.push(c);
+        }
+    }
+    joined.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn nonempty(s: &str) -> Option<String> {
@@ -97,20 +113,29 @@ fn nonempty(s: &str) -> Option<String> {
     if t.is_empty() { None } else { Some(t) }
 }
 
-fn skip_to_enumerator(s: &str) -> &str {
+/// Byte offset of the first `[digits]` at or after `from`.
+fn find_enumerator(s: &str, from: usize) -> Option<usize> {
     let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'[' {
-            let rest = &s[i + 1..];
-            let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
-            if digits > 0 && rest.as_bytes().get(digits) == Some(&b']') {
-                return &s[i..];
-            }
+    (from..bytes.len()).find(|&i| {
+        if bytes[i] != b'[' {
+            return false;
         }
-        i += 1;
+        let rest = &s[i + 1..];
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        digits > 0 && rest.as_bytes().get(digits) == Some(&b']')
+    })
+}
+
+fn skip_to_enumerator(s: &str) -> &str {
+    find_enumerator(s, 0).map_or(s, |i| &s[i..])
+}
+
+/// Drop everything from the second `[n]` onward (the next reference entry).
+fn cut_at_next_enumerator(s: &str) -> &str {
+    if find_enumerator(s, 0) != Some(0) {
+        return s;
     }
-    s
+    find_enumerator(s, 1).map_or(s, |i| s[..i].trim_end())
 }
 
 /// Drop a leading `[12]`, `(12)`, `12.`, or `12)`.
@@ -222,8 +247,32 @@ fn ends_with_initial(before: &str) -> bool {
     last.len() == 1 && last.chars().next().is_some_and(char::is_uppercase)
 }
 
+/// Drop a trailing back-reference list ("…, 2021. 2, 3, 5" — the pages that
+/// cite this entry, as hyperref's `backref` prints them), but only when a year
+/// sits right before it, so a genuine volume/page ending is left alone.
+fn strip_backrefs(s: &str) -> &str {
+    let t = s.trim_end();
+    let mut cut = t.len();
+    for tok in t.rsplit(' ') {
+        let n = tok.trim_end_matches(',');
+        if n.is_empty() || n.len() > 3 || !n.bytes().all(|b| b.is_ascii_digit()) {
+            break;
+        }
+        cut = cut.saturating_sub(tok.len() + 1);
+    }
+    if cut == t.len() {
+        return s;
+    }
+    let head = t[..cut.min(t.len())].trim_end();
+    let year = head.trim_end_matches(['.', ',']);
+    let ends_in_year = year.get(year.len().saturating_sub(4)..).is_some_and(|y| {
+        (y.starts_with("19") || y.starts_with("20")) && y.bytes().all(|b| b.is_ascii_digit())
+    });
+    if ends_in_year { head } else { s }
+}
+
 fn trailing_year(s: &str) -> (&str, Option<String>) {
-    let t = s.trim_end_matches(['.', ',', ' ', ';']);
+    let t = strip_backrefs(s).trim_end_matches(['.', ',', ' ', ';']);
     let Some(y) = t.get(t.len().saturating_sub(4)..) else {
         return (s, None);
     };
@@ -330,6 +379,46 @@ mod tests {
         );
         assert_eq!(p.title.as_deref(), Some("Film: Visual reasoning"));
         assert!(p.authors.as_ref().unwrap().starts_with("Ethan Perez"));
+    }
+
+    #[test]
+    fn rejoins_soft_hyphenated_words() {
+        let p = parse_reference(
+            "[2] M. D. Zeiler and R. Fergus. Visualizing and understanding convolu\u{ad}\ntional neural networks. In ECCV, 2014.",
+        );
+        assert_eq!(
+            p.title.as_deref(),
+            Some("Visualizing and understanding convolutional neural networks")
+        );
+    }
+
+    #[test]
+    fn ignores_trailing_backrefs() {
+        // From the arXiv Latent Diffusion PDF (hyperref backref pages at the end).
+        let p = parse_reference(
+            "[15] Prafulla Dhariwal and Alex Nichol. Diffusion models beat gans on image synthesis. CoRR, abs/2105.05233, 2021. 2, 3, 6",
+        );
+        assert_eq!(p.year.as_deref(), Some("2021"));
+        assert_eq!(
+            p.title.as_deref(),
+            Some("Diffusion models beat gans on image synthesis")
+        );
+        // A real numeric ending is kept.
+        let p = parse_reference(
+            "[17] H. Jegou, M. Douze, and C. Schmid. Product quantization for nearest neighbor search. TPAMI, 33, 2011.",
+        );
+        assert_eq!(p.year.as_deref(), Some("2011"));
+    }
+
+    #[test]
+    fn stops_at_next_entry() {
+        let p = parse_reference(
+            "[40] Ethan Perez, Florian Strub. Film: Visual reasoning. In AAAI, 2018.\n[41] Jiaming Song, Chenlin Meng. Denoising diffusion implicit models. arXiv:2010.02502, 2020.",
+        );
+        assert_eq!(p.title.as_deref(), Some("Film: Visual reasoning"));
+        assert_eq!(p.year.as_deref(), Some("2018"));
+        assert!(!p.text.contains("[41]"));
+        assert!(!p.text.contains("2010.02502"));
     }
 
     #[test]

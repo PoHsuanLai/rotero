@@ -8,6 +8,9 @@
 //! card offers the relevant action — Open (in library), Import (from the web),
 //! or Jump to the target — and dismisses on click-away or Esc.
 
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex};
+
 use dioxus::prelude::*;
 
 use rotero_db::Database;
@@ -89,24 +92,30 @@ pub(crate) fn CitationCard(
         use_hook(move || {
             spawn(async move {
                 match link {
-                    LinkDest::Internal { page, y_frac } => {
+                    LinkDest::Internal {
+                        page,
+                        y_frac,
+                        x_frac,
+                    } => {
                         // Pull the target page's cached text + pixel height, then
                         // extract the reference block starting at the link's y.
-                        let (segments, page_height) = {
+                        let (segments, page_dims, citing_id) = {
                             let mgr = tabs.read();
                             let tab = mgr.get(tab_id);
+                            let citing_id = tab.and_then(|t| t.paper_id.clone());
                             let seg = tab
                                 .and_then(|t| t.render.text_data.get(&page))
                                 .map(|td| td.segments.clone());
-                            let h = tab
+                            let dims = tab
                                 .and_then(|t| t.render.page_dims.get(page as usize))
-                                .map(|(_, h)| *h as f64);
-                            (seg, h)
+                                .map(|(w, h)| (*w as f64, *h as f64));
+                            (seg, dims, citing_id)
                         };
-                        let text = match (segments, page_height) {
-                            (Some(segs), Some(h)) => {
+                        let text = match (segments, page_dims) {
+                            (Some(segs), Some((w, h))) => {
                                 let start_y = y_frac.unwrap_or(0.0) * h;
-                                rotero_pdf::text_block_at(&segs, start_y, 8)
+                                let start_x = x_frac.map(|f| f * w);
+                                rotero_pdf::text_block_at(&segs, start_x, start_y, 8)
                             }
                             _ => String::new(),
                         };
@@ -116,7 +125,14 @@ pub(crate) fn CitationCard(
                         } else {
                             ref_text.set(Some(text.clone()));
                             let parsed = rotero_pdf::parse_reference(&text);
-                            resolved.set(Some(resolve_citation(&db, &parsed).await));
+                            let refs = match citing_id {
+                                Some(id) => reference_list(&db, &id).await,
+                                None => None,
+                            };
+                            resolved.set(Some(
+                                resolve_citation(&db, &parsed, refs.as_ref().map(|r| r.as_slice()))
+                                    .await,
+                            ));
                         }
                     }
                     LinkDest::External { uri } => {
@@ -147,7 +163,7 @@ pub(crate) fn CitationCard(
     let jump = {
         let link = link.clone();
         move || {
-            if let LinkDest::Internal { page, y_frac } = link {
+            if let LinkDest::Internal { page, y_frac, .. } = link {
                 let docs = docs.get();
                 let data_dir = config.read().effective_library_path();
                 scroll_lock.0.set(true);
@@ -360,25 +376,69 @@ pub(crate) fn CitationCard(
     }
 }
 
+/// Reference lists already fetched, by library paper id. Only successful
+/// fetches are stored, so a rate-limited attempt is retried on the next click.
+static REFERENCE_LISTS: LazyLock<Mutex<HashMap<String, Arc<Vec<Paper>>>>> =
+    LazyLock::new(Default::default);
+
+/// The open paper's own reference list (from OpenAlex), fetched once per paper.
+async fn reference_list(db: &Database, paper_id: &str) -> Option<Arc<Vec<Paper>>> {
+    if let Some(hit) = REFERENCE_LISTS.lock().ok()?.get(paper_id) {
+        return Some(hit.clone());
+    }
+    let paper = db.get_paper_by_id(paper_id).await.ok().flatten()?;
+    let refs = rotero_search::openalex::fetch_references(paper.paper_id().as_ref(), &paper.title)
+        .await
+        .inspect_err(|e| tracing::debug!("reference list for {paper_id}: {e}"))
+        .ok()?;
+    let refs = Arc::new(refs);
+    if let Ok(mut cache) = REFERENCE_LISTS.lock() {
+        cache.insert(paper_id.to_string(), refs.clone());
+    }
+    Some(refs)
+}
+
 /// Resolve an extracted bibliography line to at most one paper.
 ///
-/// Identifier (DOI / arXiv) uses the same lookup as an external PDF link.
-/// Otherwise we search by parsed title and keep a hit only if the titles
-/// actually overlap — a full-text search of the raw blob was returning three
-/// loosely related OpenAlex results for every click.
-async fn resolve_citation(db: &Database, parsed: &rotero_pdf::ParsedReference) -> Vec<CardPaper> {
+/// First, if we know what the open paper cites (`refs`), pick the entry's
+/// match from that list using the raw entry text — robust to a garbled parse,
+/// and it can only ever pick something this paper really cites. Otherwise (or
+/// with no clear match) fall back to an identifier in the entry, then a title
+/// search, each checked against the parsed reference.
+async fn resolve_citation(
+    db: &Database,
+    parsed: &rotero_pdf::ParsedReference,
+    refs: Option<&[Paper]>,
+) -> Vec<CardPaper> {
+    if let Some(refs) = refs
+        && let Some(i) = rotero_search::reference_match::match_reference(&parsed.text, refs)
+    {
+        let paper = refs[i].clone();
+        return vec![match find_in_library(db, &paper).await {
+            Some(local) => CardPaper::InLibrary(local),
+            None => CardPaper::Web(paper),
+        }];
+    }
+
+    let query = parsed.title.as_deref().unwrap_or("");
+    // An identifier lifted from the block can still belong to a neighbouring
+    // entry, so the paper it resolves to must agree with the reference.
+    let matches_title = |p: &Paper| id_hit_matches(p, parsed);
+
     if let Some(uri) = identifier_in_reference(&parsed.text) {
-        if let Some(paper) = db.find_paper_by_link(&uri).await.ok().flatten() {
+        if let Some(paper) = db.find_paper_by_link(&uri).await.ok().flatten()
+            && matches_title(&paper)
+        {
             return vec![CardPaper::InLibrary(paper)];
         }
         if let Some(id) = PaperId::from_url(&uri).or_else(|| PaperId::parse(&uri))
             && let Some(paper) = fetch_web_by_id(&id).await
+            && matches_title(&paper)
         {
             return vec![CardPaper::Web(paper)];
         }
     }
 
-    let query = parsed.title.as_deref().unwrap_or("");
     if query.is_empty() {
         return Vec::new();
     }
@@ -395,6 +455,20 @@ async fn resolve_citation(db: &Database, parsed: &rotero_pdf::ParsedReference) -
     }
 
     Vec::new()
+}
+
+/// A web paper's library copy, by identifier or else by an exact-ish title.
+async fn find_in_library(db: &Database, paper: &Paper) -> Option<Paper> {
+    if let Some(url) = paper.resolve_url()
+        && let Some(local) = db.find_paper_by_link(&url).await.ok().flatten()
+    {
+        return Some(local);
+    }
+    db.search_papers(&paper.title)
+        .await
+        .ok()?
+        .into_iter()
+        .find(|p| plausible_citation_hit(p, &paper.title))
 }
 
 async fn fetch_web_by_id(id: &PaperId) -> Option<Paper> {
@@ -424,24 +498,77 @@ fn identifier_in_reference(text: &str) -> Option<String> {
     None
 }
 
+/// Does a paper fetched by an identifier found in the reference belong to it?
+///
+/// The parsed title is the strongest signal, but extraction can garble it
+/// (ligatures, hyphenation, an author initial split as a sentence), so also
+/// accept the first author's surname appearing in the reference text with a
+/// matching year.
+fn id_hit_matches(paper: &Paper, parsed: &rotero_pdf::ParsedReference) -> bool {
+    let query = parsed.title.as_deref().unwrap_or("");
+    if query.is_empty() || plausible_citation_hit(paper, query) {
+        return true;
+    }
+    let Some(surname) = paper
+        .creators
+        .iter()
+        .find(|c| c.role.is_author())
+        .map(|c| {
+            if c.last_name.is_empty() {
+                c.display_name()
+                    .rsplit(' ')
+                    .next()
+                    .unwrap_or_default()
+                    .to_string()
+            } else {
+                c.last_name.clone()
+            }
+        })
+        .map(|n| normalize_title(&n))
+        .filter(|n| n.chars().count() >= 3)
+    else {
+        return false;
+    };
+    let text = normalize_title(&parsed.text);
+    let author_ok = text.split_whitespace().any(|w| w == surname);
+    let year_ok = match (paper.year, parsed.year.as_deref()) {
+        (Some(y), Some(py)) => py.parse::<i32>().is_ok_and(|py| (py - y).abs() <= 1),
+        _ => false,
+    };
+    author_ok && year_ok
+}
+
 fn plausible_citation_hit(paper: &Paper, query: &str) -> bool {
     let q = normalize_title(query);
     let nt = normalize_title(&paper.title);
     if q.is_empty() || nt.is_empty() {
         return false;
     }
-    if nt == q || nt.contains(&q) || q.contains(&nt) {
+    if nt == q {
         return true;
     }
-    let q_tokens: Vec<&str> = q.split_whitespace().filter(|t| t.len() > 2).collect();
+    // Containment covers a parsed title that gained/lost a subtitle, but only
+    // when the shorter side is most of the longer one: "Attention" must not
+    // match "Attention is all you need".
+    let (q_words, nt_words) = (q.split_whitespace().count(), nt.split_whitespace().count());
+    if (nt.contains(&q) || q.contains(&nt)) && q_words.min(nt_words) * 2 >= q_words.max(nt_words) {
+        return true;
+    }
+    let significant = |s: &str| -> Vec<String> {
+        s.split_whitespace()
+            .filter(|t| t.len() > 2)
+            .map(str::to_string)
+            .collect()
+    };
+    let q_tokens = significant(&q);
+    let nt_tokens = significant(&nt);
     if q_tokens.len() < 3 {
         return false;
     }
-    let hits = q_tokens
-        .iter()
-        .filter(|t| nt.split_whitespace().any(|w| w == **t))
-        .count();
-    hits * 5 >= q_tokens.len() * 3
+    // Overlap must cover 60% of the *longer* title, so a long unrelated title
+    // that happens to contain the query words doesn't pass.
+    let hits = q_tokens.iter().filter(|t| nt_tokens.contains(t)).count();
+    hits * 5 >= q_tokens.len().max(nt_tokens.len()) * 3
 }
 
 /// Title + authors/year/venue, shared by a parsed bibliography line and a
@@ -473,5 +600,44 @@ fn citation_bib_fields(title: String, authors: String, year: String, venue: Stri
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn paper(title: &str) -> Paper {
+        Paper::new(title.to_string())
+    }
+
+    #[test]
+    fn exact_and_subtitle_match() {
+        assert!(plausible_citation_hit(
+            &paper("Attention Is All You Need"),
+            "Attention is all you need"
+        ));
+        assert!(plausible_citation_hit(
+            &paper("Film: Visual Reasoning with a General Conditioning Layer"),
+            "Film: Visual reasoning with a general conditioning layer"
+        ));
+    }
+
+    #[test]
+    fn rejects_short_title_contained_in_query() {
+        assert!(!plausible_citation_hit(
+            &paper("Attention"),
+            "Attention is all you need"
+        ));
+    }
+
+    #[test]
+    fn rejects_long_title_sharing_a_few_words() {
+        assert!(!plausible_citation_hit(
+            &paper(
+                "Denoising diffusion models for visual reasoning under general conditioning and noisy supervision"
+            ),
+            "Visual reasoning with general conditioning"
+        ));
     }
 }

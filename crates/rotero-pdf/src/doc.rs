@@ -484,7 +484,10 @@ pub fn extract_annotations(doc: &Document) -> Vec<ExtractedAnnotation> {
 pub fn extract_links(doc: &Document) -> Result<Vec<ExtractedLink>, PdfError> {
     let mut result = Vec::new();
 
-    let page_heights: Vec<f32> = doc.pages().map(|p| p.height() as f32).collect();
+    let page_sizes: Vec<(f32, f32)> = doc
+        .pages()
+        .map(|p| (p.width() as f32, p.height() as f32))
+        .collect();
 
     for page in doc.pages() {
         let i = page.index().get();
@@ -501,17 +504,18 @@ pub fn extract_links(doc: &Document) -> Result<Vec<ExtractedLink>, PdfError> {
                 PdfrumLinkTarget::Uri(uri) if !uri.is_empty() => LinkTarget::External { uri },
                 PdfrumLinkTarget::Page(page_idx) => {
                     let target_page = page_idx.get();
-                    let y_pts = dest_y_pts(&raw, doc);
-                    let y_frac = y_pts.and_then(|y| {
-                        let th = page_heights
-                            .get(target_page as usize)
-                            .copied()
-                            .unwrap_or(0.0);
-                        (th > 0.0).then(|| ((th - y) / th).clamp(0.0, 1.0))
-                    });
+                    let (x_pts, y_pts) = dest_xy_pts(&raw, doc);
+                    let (tw, th) = page_sizes
+                        .get(target_page as usize)
+                        .copied()
+                        .unwrap_or((0.0, 0.0));
+                    let y_frac =
+                        y_pts.and_then(|y| (th > 0.0).then(|| ((th - y) / th).clamp(0.0, 1.0)));
+                    let x_frac = x_pts.and_then(|x| (tw > 0.0).then(|| (x / tw).clamp(0.0, 1.0)));
                     LinkTarget::Internal {
                         page: target_page,
                         y_frac,
+                        x_frac,
                     }
                 }
                 PdfrumLinkTarget::Other | PdfrumLinkTarget::Uri(_) | _ => continue,
@@ -667,22 +671,29 @@ fn annot_color_hex(dict: &pdfrum::Dict) -> String {
 /// action `/D`. Named destinations (`/Dest (cite.foo)`) are resolved through
 /// the catalog; reading the dict as an array only used to miss them, so every
 /// internal link in papers that use hyperref names jumped to the page top.
-fn dest_y_pts(link: &pdfrum::Link, doc: &Document) -> Option<f32> {
+/// Destination `(left, top)` in PDF points. Only `/XYZ` carries a left; FitH /
+/// FitBH carry just a top.
+fn dest_xy_pts(link: &pdfrum::Link, doc: &Document) -> (Option<f32>, Option<f32>) {
     let resolver = doc.parser();
-    let catalog = resolver.catalog().ok()?;
+    let Ok(catalog) = resolver.catalog() else {
+        return (None, None);
+    };
     let mut diags = Diagnostics::default();
     let dest = link.dest(&catalog, resolver, &Limits::default(), &mut diags);
-    dest.array.as_ref()?;
+    if dest.array.is_none() {
+        return (None, None);
+    }
     if let Some(xyz) = dest.xyz(resolver) {
-        return xyz.y;
+        return (xyz.x, xyz.y);
     }
     // FitH / FitBH: a single top parameter; XYZ-like fallbacks use index 1.
     let params = dest.params_all();
-    match params.len() {
+    let y = match params.len() {
         1 => Some(params[0]),
         n if n >= 2 => Some(params[1]),
         _ => None,
-    }
+    };
+    (None, y)
 }
 
 /// Where a [`ExtractedLink`] points.
@@ -696,6 +707,10 @@ pub enum LinkTarget {
         /// (0..1) of its height, when the destination specifies one. `None`
         /// falls back to a page-top jump.
         y_frac: Option<f32>,
+        /// Destination left edge as a fraction (0..1) of page width, when the
+        /// destination specifies one (`/XYZ`). Lets the citation card read the
+        /// right column of a two-column reference list.
+        x_frac: Option<f32>,
     },
     /// A link to an external resource (web URL, DOI, `mailto:`, etc.).
     External {

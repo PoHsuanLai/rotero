@@ -1,4 +1,6 @@
-use rotero_models::{CitationInfo, Paper, ProviderKind, Publication, SearchRank};
+use rotero_models::{
+    CitationInfo, Paper, PaperId, ProviderKind, Publication, SearchRank, normalize_title,
+};
 use serde::Deserialize;
 
 /// Base URL for this provider. `ROTERO_OPENALEX_API` overrides it so tests can
@@ -67,6 +69,97 @@ pub async fn fetch_by_doi(doi: &str) -> Result<Paper, String> {
     let url = format!("{openalex_api}/https://doi.org/{doi}");
     let work = fetch_work(&url).await?;
     work_to_paper(work, doi)
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAlexRefList {
+    title: Option<String>,
+    referenced_works: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAlexRefListResponse {
+    results: Option<Vec<OpenAlexRefList>>,
+}
+
+/// The works a paper cites, according to OpenAlex.
+///
+/// Looks the paper up by its DOI (an arXiv id becomes its `10.48550/arXiv.*`
+/// DOI). OpenAlex keeps a preprint and its published version as separate
+/// records, and the arXiv one often has no reference list at all, so when the
+/// record is missing or empty this falls back to the same-titled record with
+/// the most references. Costs one lookup plus one request per 50 references.
+pub async fn fetch_references(id: Option<&PaperId>, title: &str) -> Result<Vec<Paper>, String> {
+    let api = openalex_api_url();
+    let doi = match id {
+        Some(PaperId::Doi(d)) => Some(d.clone()),
+        Some(PaperId::ArXiv(a)) => {
+            let bare = a
+                .rsplit_once('v')
+                .filter(|(_, v)| v.bytes().all(|b| b.is_ascii_digit()));
+            Some(format!(
+                "10.48550/arXiv.{}",
+                bare.map_or(a.as_str(), |(b, _)| b)
+            ))
+        }
+        _ => None,
+    };
+
+    let mut refs = Vec::new();
+    if let Some(doi) = doi {
+        let url = format!(
+            "{api}/https://doi.org/{}?select=title,referenced_works",
+            urlencoding::encode(&doi)
+        );
+        if let Ok(work) = crate::get_json::<OpenAlexRefList>(&url, "OpenAlex").await {
+            refs = work.referenced_works.unwrap_or_default();
+        }
+    }
+
+    let wanted = normalize_title(title);
+    if refs.is_empty() && !wanted.is_empty() {
+        let url = format!(
+            "{api}?search={}&per_page=10&select=title,referenced_works",
+            urlencoding::encode(title)
+        );
+        let data: OpenAlexRefListResponse = crate::get_json(&url, "OpenAlex").await?;
+        refs = data
+            .results
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|w| w.title.as_deref().map(normalize_title).as_deref() == Some(wanted.as_str()))
+            .map(|w| w.referenced_works.unwrap_or_default())
+            .max_by_key(Vec::len)
+            .unwrap_or_default();
+    }
+
+    let ids: Vec<&str> = refs
+        .iter()
+        .filter_map(|u| u.rsplit('/').next())
+        .filter(|id| !id.is_empty())
+        .collect();
+    let mut papers = Vec::with_capacity(ids.len());
+    for chunk in ids.chunks(50) {
+        let url = format!(
+            "{api}?filter=openalex:{}&per_page=50",
+            urlencoding::encode(&chunk.join("|"))
+        );
+        let data: OpenAlexSearchResponse = crate::get_json(&url, "OpenAlex").await?;
+        papers.extend(
+            data.results
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|work| {
+                    let doi = work
+                        .doi
+                        .as_deref()
+                        .unwrap_or("")
+                        .replace("https://doi.org/", "");
+                    work_to_paper(work, &doi).ok()
+                }),
+        );
+    }
+    Ok(papers)
 }
 
 /// Searches OpenAlex by title and returns the top result.
