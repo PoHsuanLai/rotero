@@ -152,10 +152,11 @@ async fn a_later_edit_beats_an_earlier_delete() {
 
 /// Applying the same snapshot twice changes nothing the second time.
 ///
-/// Checked against the resulting state, not the applied count: `papers` merges
-/// per column, so its upsert has no outer `WHERE` and reports every row as
-/// written even when no column changes hands. See `merge_is_idempotent` in
-/// `snapshot_test.rs` for the full reasoning.
+/// Checked both ways: the rows must be identical, and the second import must
+/// report nothing applied. The per-column upsert skips rows where no column and
+/// not the row clock wins; without that, every unchanged `papers` row was
+/// rewritten (and re-indexed) on each import, and the sync loop refreshed the
+/// library on every tick. See `merge_is_idempotent` in `snapshot_test.rs`.
 #[tokio::test]
 async fn importing_twice_is_idempotent() {
     let d = Devices::new().await;
@@ -166,8 +167,9 @@ async fn importing_twice_is_idempotent() {
     assert!(first > 0, "the first import must apply something");
     let after_first = rows_of(&d.b).await;
 
-    d.engine_b.import_changes(&d.b).await;
+    let second = d.engine_b.import_changes(&d.b).await;
     let after_second = rows_of(&d.b).await;
+    assert_eq!(second, 0, "an unchanged snapshot must apply nothing");
 
     assert_eq!(
         after_first, after_second,
