@@ -13,8 +13,8 @@ jobs:
   # exact commit on every platform. Re-running the Linux suite here repeated ~10
   # minutes of that and checked less. Instead, wait for that run and require its
   # code jobs to have passed. Docs, the Pages deploy and the bundle smoke are not
-  # required: the first two say nothing about the app, and the build jobs below
-  # smoke their own artifacts.
+  # required: the first two say nothing about the app, and the CI bundle smoke is
+  # macOS-only, which build-macos below repeats on the artifact it ships.
   test:
     name: CI passed on this commit
     runs-on: ubuntu-latest
@@ -36,7 +36,7 @@ jobs:
           fi
           # Without --exit-status this just waits for the run to finish; the
           # verdict comes from the required jobs below, not the whole run.
-          gh run watch "$run_id" --interval 60 > /dev/null
+          gh run watch "$run_id" --interval 60
           jobs=$(gh run view "$run_id" --json jobs \
             --jq '.jobs[] | "\(.name)\t\(.conclusion)"')
           echo "$jobs"
