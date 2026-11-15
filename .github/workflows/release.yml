@@ -10,9 +10,11 @@ permissions:
 
 jobs:
   # A release tags a commit already on master, and master's CI has tested that
-  # exact commit on every platform (Linux tests, Windows, macOS, clippy, bundle
-  # smoke). Re-running the Linux suite here repeated ~10 minutes of that and
-  # checked less. Instead, wait for that run and require it to have passed.
+  # exact commit on every platform. Re-running the Linux suite here repeated ~10
+  # minutes of that and checked less. Instead, wait for that run and require its
+  # code jobs to have passed. Docs, the Pages deploy and the bundle smoke are not
+  # required: the first two say nothing about the app, and the build jobs below
+  # smoke their own artifacts.
   test:
     name: CI passed on this commit
     runs-on: ubuntu-latest
@@ -32,7 +34,21 @@ jobs:
             echo "::error::No master CI run for $GITHUB_SHA. Tag a commit that is on master."
             exit 1
           fi
-          gh run watch "$run_id" --interval 60 --exit-status
+          # Without --exit-status this just waits for the run to finish; the
+          # verdict comes from the required jobs below, not the whole run.
+          gh run watch "$run_id" --interval 60 > /dev/null
+          jobs=$(gh run view "$run_id" --json jobs \
+            --jq '.jobs[] | "\(.name)\t\(.conclusion)"')
+          echo "$jobs"
+          failed=0
+          for job in Check Clippy Format Test "Check iOS" "Check Windows" "Test macOS"; do
+            conclusion=$(printf '%s\n' "$jobs" | awk -F'\t' -v j="$job" '$1 == j { print $2 }')
+            if [ "$conclusion" != "success" ]; then
+              echo "::error::CI job '$job' on $GITHUB_SHA: ${conclusion:-missing}"
+              failed=1
+            fi
+          done
+          exit "$failed"
 
   build-macos:
     name: Build macOS
